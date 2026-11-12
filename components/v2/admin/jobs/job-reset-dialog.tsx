@@ -38,6 +38,7 @@ import {
   type AppliedStockCount,
 } from "@/lib/inventory/stock-count-reset-format";
 import { toast } from "@/hooks/use-toast";
+import { OwnPinFields, useOwnPinPrompt } from "@/components/v2/shared/own-pin-fields";
 import { AppliedStockCountChoice } from "./applied-stock-count-choice";
 
 const STATUS_LABEL: Record<JobResetTargetStatus, string> = {
@@ -110,8 +111,7 @@ export function JobResetDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [options, setOptions] = useState<JobResetOptions>(DEFAULT_JOB_RESET_OPTIONS);
-  const [pin, setPin] = useState("");
-  const [password, setPassword] = useState("");
+  const ownPin = useOwnPinPrompt(open);
   const [extraConfirmed, setExtraConfirmed] = useState(false);
   const [appliedCounts, setAppliedCounts] = useState<AppliedStockCount[]>([]);
   const [countChoice, setCountChoice] = useState<AppliedCountChoice | null>(null);
@@ -120,8 +120,6 @@ export function JobResetDialog({
     if (!open || !jobId) return;
     const controller = new AbortController();
     setOptions(DEFAULT_JOB_RESET_OPTIONS);
-    setPin("");
-    setPassword("");
     setExtraConfirmed(false);
     setError(null);
     setContext(null);
@@ -154,7 +152,7 @@ export function JobResetDialog({
     setOptions((prev) => ({ ...prev, [key]: value }));
   }
 
-  const securityOk = !plan?.destructive || Boolean(pin.trim() || password.trim());
+  const securityOk = !plan?.destructive || ownPin.credentials !== null;
   const confirmOk = !plan?.requiresExtraConfirm || extraConfirmed;
   const countChoiceOk = appliedCounts.length === 0 || countChoice !== null;
   const canConfirm = Boolean(plan?.allowed) && securityOk && confirmOk && countChoiceOk && !busy && !loading;
@@ -170,7 +168,7 @@ export function JobResetDialog({
         body: JSON.stringify({
           options,
           confirmProtected: extraConfirmed || undefined,
-          security: plan.destructive ? { pin: pin.trim() || undefined, password: password.trim() || undefined } : undefined,
+          security: plan.destructive ? ownPin.credentials ?? undefined : undefined,
           appliedStockCounts: appliedCounts.length > 0 ? countChoice ?? undefined : undefined,
         }),
       });
@@ -346,19 +344,9 @@ export function JobResetDialog({
             {plan?.allowed && plan.destructive ? (
               <div className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
                 <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                  Clearing records is security-verified. Enter your PIN or password.
+                  Clearing records is security-verified. Enter your PIN.
                 </p>
-                <EField label="PIN">
-                  <EInput value={pin} onChange={(e) => setPin(e.target.value)} autoComplete="off" type="password" />
-                </EField>
-                <EField label="Password">
-                  <EInput
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoComplete="off"
-                    type="password"
-                  />
-                </EField>
+                <OwnPinFields {...ownPin.fieldProps} disabled={busy} />
               </div>
             ) : null}
           </>

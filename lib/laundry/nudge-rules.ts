@@ -29,6 +29,7 @@
  * (lib/notifications/office-actions.ts).
  */
 import { dayKeyOf, type PipelineException } from "./pipeline";
+import { isAtLaundryStatus } from "./status-groups";
 
 /** Cleaner nudges. REQUEST_PHOTO is still accepted from older screens but no longer offered. */
 export type LaundryNudgeKind = "ASK_CLEANER" | "REQUEST_PHOTO";
@@ -125,7 +126,8 @@ export function laundryTeamRequestKinds(run: TeamRequestRunFacts, todayKey: stri
   if (NOT_PICKED_UP.has(run.status) && pickupDue(run, todayKey) && run.readiness !== true) {
     kinds.push("TEAM_MOVE_PICKUP");
   }
-  if (run.status === "PICKED_UP") {
+  // At the laundry, picked up or marked "Ready to return" (2026-11-13).
+  if (isAtLaundryStatus(run.status)) {
     if (codes.has("OVER_TURNAROUND") || codes.has("DROP_OVERDUE")) kinds.push("TEAM_RETURN_ETA");
     const dropKey = dayKeyOf(run.dropoffDate ?? null);
     if (dropKey !== null && dropKey <= todayKey) kinds.push("TEAM_CONFIRM_DROP");

@@ -5,6 +5,8 @@ import { SUBMISSION_LOW_STOCK_WORDING, URGENT_NEED_WORDING } from "./stock";
 import { ICAL_ALERTS_WORDING, REPORTS_GENERATED_WORDING } from "./office-alerts";
 import { MAINTENANCE_WORDING } from "./maintenance";
 import { CASE_FOLLOW_UP_PARTS, NEW_PROFILE_PARTS, SLA_PARTS } from "./office-summaries";
+import { LAUNDRY_UPDATE_PARTS } from "./laundry-updates";
+import { LOST_FOUND_PARTS, SHOPPING_PARTS, STOCK_ALERT_PARTS } from "./stock-shopping";
 import { FIELD_ALERTS_WORDING } from "./field-alerts";
 import { CLEANER_REQUESTS_WORDING } from "./cleaner-requests";
 import { CLIENT_REQUESTS_WORDING } from "./client-requests";
@@ -32,13 +34,7 @@ export const OFFICE_WORDING: readonly TypeWordingDefinition[] = [
   ], "The job, laundry and stock lists inside the summaries are built from the day's records."),
   editable("office.new_profile", NEW_PROFILE_PARTS),
   REPORTS_GENERATED_WORDING,
-  someParts("laundry.updates", [
-    ...notificationTemplateParts("ready", "Laundry ready", "laundryReady"),
-    emailTemplatePart("ready", "Laundry ready", "laundryReady"),
-    ...notificationTemplateParts("skip-requested", "Skip requested", "laundrySkipRequested"),
-    emailTemplatePart("skip-requested", "Skip requested", "laundrySkipRequested"),
-    emailTemplatePart("skip-approved", "Skip approved", "laundrySkipApproved"),
-  ], "Status, catch-up and sync inbox notices are composed in three laundry services; not yet moved."),
+  editable("laundry.updates", LAUNDRY_UPDATE_PARTS),
   editable("laundry.failed_pickup", [
     storePart("rescheduled", "Rescheduled", "INBOX", {
       title: "Laundry pickup rescheduled",
@@ -50,19 +46,11 @@ export const OFFICE_WORDING: readonly TypeWordingDefinition[] = [
     }, ["propertyName", "action"], ["propertyName", "action"], { note: "{{action}} is \"skip\" or \"delete\". Inbox only, to the office." }),
   ]),
   someParts("laundry.report_email", [emailTemplatePart("recipient", "Report recipient", "laundryReport")], "The report attachment and its table are generated, not wording."),
-  someParts("stock.alerts", [...notificationTemplateParts("office", "Office", "criticalInventoryTomorrow"), emailTemplatePart("office", "Office", "criticalInventoryTomorrow")], "Low-stock inbox rows are composed with the item list in lib/inventory/stock.ts, lib/ops/stock-alerts.ts and the scan-task route; not yet moved."),
+  editable("stock.alerts", STOCK_ALERT_PARTS, "The item lines inside the alerts are built from the stock records."),
   SUBMISSION_LOW_STOCK_WORDING,
   URGENT_NEED_WORDING,
-  someParts("stock.shopping_and_orders", [
-    ...notificationTemplateParts("run-submitted", "Shopping run submitted", "shoppingRunSubmitted"),
-    emailTemplatePart("run-submitted", "Shopping run submitted", "shoppingRunSubmitted"),
-    emailTemplatePart("reimbursement", "Reimbursement to client", "shoppingReimbursementToClient"),
-    ...notificationTemplateParts("stock-run-requested", "Stock run requested", "stockRunRequested"),
-    emailTemplatePart("stock-run-requested", "Stock run requested", "stockRunRequested"),
-    ...notificationTemplateParts("stock-run-submitted", "Stock run submitted", "stockRunSubmitted"),
-    emailTemplatePart("stock-run-submitted", "Stock run submitted", "stockRunSubmitted"),
-  ], "Purchase-order and inbox notices are composed in lib/inventory/notifications.ts; not yet moved."),
+  editable("stock.shopping_and_orders", SHOPPING_PARTS, "Item tables, costs and receipt lists inside these emails are built from the purchase records; the attached PDFs are generated documents."),
   MAINTENANCE_WORDING,
   ICAL_ALERTS_WORDING,
-  someParts("office.lost_found_report", [emailTemplatePart("office", "Office", "lostFoundAlert")], "The inbox row is composed in the cleaner lost-and-found route; not yet moved."),
+  editable("office.lost_found_report", LOST_FOUND_PARTS),
 ];

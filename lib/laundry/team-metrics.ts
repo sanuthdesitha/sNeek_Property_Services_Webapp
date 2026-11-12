@@ -49,7 +49,7 @@ export async function getLaundryTeamMetrics(windowStart: Date, now: Date = new D
         OR: [
           { pickedUpAt: { gte: windowStart } },
           { droppedAt: { gte: windowStart } },
-          { status: { in: ["PENDING", "CONFIRMED", "PICKED_UP"] } },
+          { status: { in: ["PENDING", "CONFIRMED", "PICKED_UP", "READY_TO_RETURN"] } },
         ],
       },
       select: {

@@ -53,6 +53,7 @@ const STATUS_COLOR: Record<string, string> = {
   PENDING: "#94a3b8",
   CONFIRMED: "#0ea5e9",
   PICKED_UP: "#8b5cf6",
+  READY_TO_RETURN: "#8b5cf6",
   DROPPED: "#22c55e",
   FLAGGED: "#ef4444",
   SKIPPED_PICKUP: "#f59e0b",
@@ -69,6 +70,7 @@ function stopChip(task: LiveTask): { label: string; variant: "neutral" | "info" 
   if (task.status === "DROPPED") {
     return { label: `Dropped ${task.droppedAt ? format(new Date(task.droppedAt), "HH:mm") : ""}`.trim(), variant: "success" };
   }
+  if (task.status === "READY_TO_RETURN") return { label: "Ready to return", variant: "primary" };
   if (task.status === "PICKED_UP") {
     return { label: `Picked up ${task.pickedUpAt ? format(new Date(task.pickedUpAt), "HH:mm") : ""}`.trim(), variant: "primary" };
   }

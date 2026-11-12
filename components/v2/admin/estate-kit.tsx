@@ -12,6 +12,8 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { markFieldControl, useAssociatedField } from "./field-association";
+import { EMPTY_OWN_PIN, OwnPinFields, useOwnPinPrompt } from "@/components/v2/shared/own-pin-fields";
+import { sensitiveVerificationText, type SensitiveCredentialsInput } from "@/lib/security/pin-rules";
 
 /* ── Field styling (mirrors app/v2/login/page.tsx conventions) ─────────── */
 export const E_INPUT_CLASS =
@@ -309,26 +311,21 @@ export function EConfirmModal({
   confirmLabel?: string;
   /** When set the user must type this phrase (e.g. "DELETE") to proceed. */
   confirmPhrase?: string;
-  /** When true a PIN or password is required and passed to onConfirm. */
+  /** When true the person's OWN PIN is required (or, with none yet, their password and a new PIN) and passed to onConfirm. */
   requireSecurity?: boolean;
   danger?: boolean;
   loading?: boolean;
-  onConfirm: (credentials?: { pin?: string; password?: string }) => void | Promise<void>;
+  onConfirm: (credentials?: SensitiveCredentialsInput) => void | Promise<void>;
 }) {
   const [typed, setTyped] = React.useState("");
-  const [pin, setPin] = React.useState("");
-  const [password, setPassword] = React.useState("");
+  const ownPin = useOwnPinPrompt(open && requireSecurity);
 
   React.useEffect(() => {
-    if (!open) {
-      setTyped("");
-      setPin("");
-      setPassword("");
-    }
+    if (!open) setTyped("");
   }, [open]);
 
   const phraseOk = !confirmPhrase || typed.trim() === confirmPhrase;
-  const securityOk = !requireSecurity || Boolean(pin.trim() || password.trim());
+  const securityOk = !requireSecurity || ownPin.credentials !== null;
   const canConfirm = phraseOk && securityOk && !loading;
 
   return (
@@ -353,27 +350,12 @@ export function EConfirmModal({
         {requireSecurity ? (
           <div className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
             <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-              Verify with your security PIN or account password.
+              Confirm with your PIN.
             </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <EField label="Security PIN">
-                <EInput
-                  type="password"
-                  inputMode="numeric"
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value)}
-                  autoComplete="off"
-                />
-              </EField>
-              <EField label="Or password">
-                <EInput
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="off"
-                />
-              </EField>
-            </div>
+            <OwnPinFields {...ownPin.fieldProps} disabled={loading} />
+            {ownPin.problem && ownPin.fieldProps.value !== EMPTY_OWN_PIN ? (
+              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{ownPin.problem}</p>
+            ) : null}
           </div>
         ) : null}
 
@@ -385,13 +367,7 @@ export function EConfirmModal({
             variant={danger ? "danger" : "primary"}
             size="sm"
             disabled={!canConfirm}
-            onClick={() =>
-              onConfirm(
-                requireSecurity
-                  ? { pin: pin.trim() || undefined, password: password.trim() || undefined }
-                  : undefined
-              )
-            }
+            onClick={() => onConfirm(requireSecurity ? ownPin.credentials ?? undefined : undefined)}
           >
             {loading ? "Working…" : confirmLabel}
           </EButton>
@@ -580,18 +556,14 @@ export function EConfirmButton({
  *
  * Throws on failure so the caller can abort before deleting anything.
  */
-export async function verifyAdminSecurity(credentials?: { pin?: string; password?: string }) {
+export async function verifyAdminSecurity(credentials?: SensitiveCredentialsInput) {
   const res = await fetch("/api/admin/security/verify", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pin: credentials?.pin, password: credentials?.password }),
+    body: JSON.stringify({ pin: credentials?.pin, password: credentials?.password, newPin: credentials?.newPin }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(
-      body?.error === "INVALID_SECURITY_VERIFICATION"
-        ? "That PIN or password was not accepted."
-        : (body?.error ?? "Could not verify your PIN or password.")
-    );
+    throw new Error(body?.error ? sensitiveVerificationText(body.error) : "Could not verify your PIN.");
   }
 }

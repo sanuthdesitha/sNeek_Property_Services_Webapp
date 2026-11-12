@@ -14,6 +14,7 @@ import { renderEmailTemplate } from "@/lib/email-templates";
 import { logger } from "@/lib/logger";
 import { hydrateItems, redactItemForReporter } from "@/lib/lost-found/service";
 import { createLostFoundItem } from "@/lib/lost-found/create";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const photoSchema = z.object({
   url: z.string().trim().min(1),
@@ -113,6 +114,12 @@ export async function POST(req: NextRequest) {
     });
     const link = resolveAppUrl("/v2/admin/lost-found", req);
 
+    const lostFoundWording = await loadNotificationWording("office.lost_found_report");
+    const lostFoundLog = lostFoundWording.render("log", "INBOX", {
+      itemName: body.itemName,
+      locationSuffix: lostFoundWording.line("location-suffix", "INBOX", { location: body.location }, Boolean(body.location)),
+      propertyName: job?.property?.name ?? "Unknown property",
+    });
     let notificationFailures = 0;
     for (const admin of admins) {
       if (!admin.email) continue;
@@ -136,8 +143,8 @@ export async function POST(req: NextRequest) {
             userId: admin.id,
             jobId: body.jobId,
             channel: NotificationChannel.EMAIL,
-            subject: "Lost & Found item reported",
-            body: `Item: ${body.itemName}${body.location ? ` at ${body.location}` : ""} (${job?.property?.name ?? "Unknown property"})`,
+            subject: lostFoundLog.title,
+            body: lostFoundLog.body,
             status: emailResult.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
             sentAt: emailResult.ok ? new Date() : undefined,
             errorMsg: emailResult.ok ? undefined : emailResult.error,

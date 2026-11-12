@@ -9,6 +9,7 @@ import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { canDeliverNotification } from "@/lib/notifications/preferences";
 import { getAppSettings } from "@/lib/settings";
 import type { ShoppingRunRecord } from "@/lib/inventory/shopping-runs";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 type StockRunLike = {
   id: string;
@@ -212,14 +213,18 @@ export async function notifyScanCountCompleted(input: {
   if (rows.length === 0) return { itemsNeeded: 0 };
 
   const settings = await getAppSettings();
-  const subject = `${input.propertyLabel}: ${rows.length} item${
-    rows.length === 1 ? "" : "s"
-  } to restock`;
-  const summary =
-    `${input.countedByLabel} counted the stock at ${input.propertyLabel}. ` +
-    `${input.changedCount} item${input.changedCount === 1 ? "" : "s"} changed` +
-    (input.zeroedCount > 0 ? `, ${input.zeroedCount} now empty` : "") +
-    ".";
+  const wording = await loadNotificationWording("stock.shopping_and_orders");
+  const restock = wording.render("restock", "INBOX", {
+    propertyName: input.propertyLabel,
+    count: rows.length,
+    itemWord: rows.length === 1 ? "item" : "items",
+    countedBy: input.countedByLabel,
+    changedCount: input.changedCount,
+    changedWord: input.changedCount === 1 ? "item" : "items",
+    emptySuffix: wording.line("empty-suffix", "INBOX", { zeroedCount: input.zeroedCount }, input.zeroedCount > 0),
+  });
+  const subject = restock.title;
+  const summary = restock.body;
 
   const html = buildShoppingListHtml({
     companyName: settings.companyName,
@@ -227,13 +232,14 @@ export async function notifyScanCountCompleted(input: {
     grouped: groupShoppingListRows(rows),
   });
 
+  const restockEmail = wording.render("restock", "EMAIL", { companyName: settings.companyName, title: subject, summary, shoppingListHtml: html });
   await notifyAdmins({
     category: "shopping",
     webSubject: subject,
     webBody: summary,
-    smsBody: `${subject}. ${summary}`,
-    templateSubject: `${settings.companyName}: ${subject}`,
-    templateHtml: `<p>${summary}</p>${html}`,
+    smsBody: wording.render("restock", "SMS", { title: subject, summary }).body,
+    templateSubject: restockEmail.subject,
+    templateHtml: restockEmail.html,
   });
 
   return { itemsNeeded: rows.length };

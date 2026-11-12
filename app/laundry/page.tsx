@@ -26,6 +26,7 @@ import { AccessInstructionsPanel } from "@/components/shared/access-instructions
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 import { WorkforceDashboardPosts } from "@/components/workforce/dashboard-posts";
 import { ChartCard, KpiTile, DonutStat } from "@/components/charts";
+import { isAtLaundryStatus } from "@/lib/laundry/status-groups";
 
 type ActionType =
   | "PICKED_UP"
@@ -630,7 +631,7 @@ export default function LaundryPortal() {
       openAction(target, "PICKED_UP");
       return;
     }
-    if (target.status === "PICKED_UP") {
+    if (isAtLaundryStatus(target.status)) {
       openAction(target, "RETURNED");
       return;
     }
@@ -1170,7 +1171,7 @@ export default function LaundryPortal() {
   const tomorrowKey = toDayKey(addDays(new Date(), 1));
 
   const readyQueue = sortedTasks
-    .filter((task) => ["CONFIRMED", "PICKED_UP"].includes(task.status))
+    .filter((task) => ["CONFIRMED", "PICKED_UP", "READY_TO_RETURN"].includes(task.status))
     .filter((task) => {
       if (readyFilter === "all") return true;
       const pickupKey = toDayKey(task.pickupDate);
@@ -1179,12 +1180,13 @@ export default function LaundryPortal() {
       return true;
     });
   const confirmedTasks = sortedTasks.filter((task) => task.status === "CONFIRMED");
-  const pickedUpTasksList = sortedTasks.filter((task) => task.status === "PICKED_UP");
+  // "Ready to return" (2026-11-13) is still at the laundry, waiting to be returned.
+  const pickedUpTasksList = sortedTasks.filter((task) => isAtLaundryStatus(task.status));
   const skippedTasks = sortedTasks.filter((task) => task.status === "SKIPPED_PICKUP");
   const allTasks = sortedTasks.filter((task) => !["FLAGGED", "SKIPPED_PICKUP"].includes(task.status));
   const scheduleActiveTasks = allTasks.filter((task) => task.status !== "DROPPED");
   const completedScheduleTasks = allTasks.filter((task) => task.status === "DROPPED");
-  const pickedUpCount = allTasks.filter((task) => task.status === "PICKED_UP").length;
+  const pickedUpCount = allTasks.filter((task) => isAtLaundryStatus(task.status)).length;
   const returnedCount = allTasks.filter((task) => task.status === "DROPPED").length;
   const trackedReturnCost = allTasks
     .flatMap((task) => (Array.isArray(task.confirmations) ? task.confirmations : []))
@@ -1244,7 +1246,7 @@ export default function LaundryPortal() {
     }).length;
 
     const overdueDropoff = sortedTasks.filter((task) => {
-      if (task.status !== "PICKED_UP") return false;
+      if (!isAtLaundryStatus(task.status)) return false;
       const plannedDropoff = startOfDay(new Date(task.dropoffDate));
       return plannedDropoff.getTime() < todayStart.getTime();
     }).length;
@@ -1635,12 +1637,12 @@ export default function LaundryPortal() {
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <LaundryNavButton task={task} />
-                        <Badge variant={task.status === "PICKED_UP" ? "secondary" : task.status === "DROPPED" ? "success" : "default"}>
-                          {task.status === "PICKED_UP" ? "Picked Up" : task.status === "DROPPED" ? "Returned" : "Confirmed"}
+                        <Badge variant={isAtLaundryStatus(task.status) ? "secondary" : task.status === "DROPPED" ? "success" : "default"}>
+                          {task.status === "READY_TO_RETURN" ? "Ready to return" : task.status === "PICKED_UP" ? "Picked Up" : task.status === "DROPPED" ? "Returned" : "Confirmed"}
                         </Badge>
                         {task.status === "CONFIRMED" ? (
                           <Button size="sm" onClick={() => openAction(task, "PICKED_UP")}>Pick up</Button>
-                        ) : task.status === "PICKED_UP" ? (
+                        ) : isAtLaundryStatus(task.status) ? (
                           <Button size="sm" variant="outline" onClick={() => openAction(task, "RETURNED")}>Return</Button>
                         ) : task.status === "DROPPED" ? (
                           canCorrect && (<Button size="sm" variant="outline" onClick={() => openAction(task, "EDIT_COMPLETED")}>Edit</Button>)
@@ -1773,8 +1775,8 @@ export default function LaundryPortal() {
                           </div>
                         ) : null}
                       </div>
-                      <Badge variant={task.status === "PICKED_UP" ? "secondary" : task.status === "DROPPED" ? "success" : "default"}>
-                        {task.status === "PICKED_UP" ? "Picked Up" : task.status === "DROPPED" ? "Returned" : "Confirmed"}
+                      <Badge variant={isAtLaundryStatus(task.status) ? "secondary" : task.status === "DROPPED" ? "success" : "default"}>
+                        {task.status === "READY_TO_RETURN" ? "Ready to return" : task.status === "PICKED_UP" ? "Picked Up" : task.status === "DROPPED" ? "Returned" : "Confirmed"}
                       </Badge>
                     </div>
 
@@ -1795,7 +1797,7 @@ export default function LaundryPortal() {
                           Failed Pickup
                         </Button>
                       )}
-                      {task.status === "PICKED_UP" && (
+                      {isAtLaundryStatus(task.status) && (
                         <Button size="sm" className="flex-1" variant="outline" onClick={() => openAction(task, "RETURNED")}>
                           <CheckCircle2 className="mr-1 h-4 w-4" />
                           Mark Returned

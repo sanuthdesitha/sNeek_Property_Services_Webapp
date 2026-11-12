@@ -82,7 +82,7 @@ export function PricingTab({ tab, isAdmin, pricingVariables }: PricingTabProps) 
   switch (tab) {
     case "rate-card":
       return (
-        <EstatePageLock lockId="pricing" title="Rate card is locked" description="Enter your admin PIN or password to view and edit service pricing.">
+        <EstatePageLock lockId="pricing" title="Rate card is locked" description="Enter your own PIN to view and edit service pricing.">
           <EstatePricingEditor />
         </EstatePageLock>
       );
@@ -91,7 +91,7 @@ export function PricingTab({ tab, isAdmin, pricingVariables }: PricingTabProps) 
         <div className="space-y-3">
           {!isAdmin ? <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Edit: administrators · view: operations managers.</p> : null}
           {/* The old Pricing page kept the price book behind the same PIN; it still is (one unlock opens both tabs). */}
-          <EstatePageLock lockId="pricing" title="Price book is locked" description="Enter your admin PIN or password to view the price book.">
+          <EstatePageLock lockId="pricing" title="Price book is locked" description="Enter your own PIN to view the price book.">
             <PricebookSection canEdit={isAdmin} />
           </EstatePageLock>
         </div>

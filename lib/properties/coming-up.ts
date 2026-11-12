@@ -82,6 +82,7 @@ function laundryCell(laundry: ComingUpLaundry | null, dayKey: string, laundryEna
   if (laundry.noPickupRequired) return { kind: "not-needed" };
   if (laundry.status === "DROPPED") return { kind: "status", label: "Delivered" };
   if (laundry.status === "PICKED_UP") return { kind: "status", label: "Picked up" };
+  if (laundry.status === "READY_TO_RETURN") return { kind: "status", label: "Ready to return" };
   if (laundry.status === "SKIPPED_PICKUP") return { kind: "status", label: "Pickup skipped" };
   const pickupKey = sydneyDateKey(laundry.pickupDate);
   return { kind: "pickup", dayKey: pickupKey, time: laundry.pickupTime, sameDay: pickupKey === dayKey };

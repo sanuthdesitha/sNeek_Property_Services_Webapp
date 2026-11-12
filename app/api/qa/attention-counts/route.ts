@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { QaAssignmentStatus, QaReworkTransferStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { listQaReworkTransfers } from "@/lib/qa/rework-transfers";
+import { resolveReworkScope, reworkScopeWhere } from "@/lib/qa/rework-list";
 
 /**
  * GET /api/qa/attention-counts — nav badges for the QA portal.
@@ -16,8 +16,8 @@ import { listQaReworkTransfers } from "@/lib/qa/rework-transfers";
  * unclaimed backlog the queue page shows; counting every status would badge
  * work that is already finished.
  *
- * Rework mirrors the admin definition exactly (PENDING transfers) via the same
- * list helper the Approvals page uses, so the two can never drift.
+ * Rework counts PENDING transfers in the same scope as the Rework list
+ * (lib/qa/rework-list.ts): an inspector's own rework, team-wide for the office.
  *
  * `/v2/qa/reviews`, `/pay` and `/more` carry no badge — records and summaries,
  * not queues. A guessed number is worse than none.
@@ -28,6 +28,7 @@ export async function GET() {
   try {
     const session = await requireRole([Role.QA_INSPECTOR, Role.ADMIN, Role.OPS_MANAGER]);
     const userId = session.user.id;
+    const viewer = { id: userId, role: session.user.role, heldRoles: session.user.heldRoles ?? null };
 
     const [inspections, rework] = await Promise.all([
       db.qaAssignment
@@ -45,8 +46,15 @@ export async function GET() {
           },
         })
         .catch(() => 0),
-      listQaReworkTransfers(QaReworkTransferStatus.PENDING)
-        .then((rows) => rows.length)
+      db.qaReworkTransfer
+        .count({
+          where: {
+            AND: [
+              { status: QaReworkTransferStatus.PENDING },
+              reworkScopeWhere(viewer, resolveReworkScope(viewer, null)),
+            ],
+          },
+        })
         .catch(() => 0),
     ]);
 

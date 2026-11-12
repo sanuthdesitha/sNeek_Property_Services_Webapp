@@ -17,6 +17,7 @@ import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import { EButton } from "@/components/v2/ui/primitives";
 import { SYDNEY_TZ } from "@/lib/time/sydney-range";
 import { statusLabel } from "./laundry-shared";
+import { READY_TO_RETURN_LABEL, isReadyToReturnStatus } from "@/lib/laundry/status-groups";
 import { LaundryNudgeActions, requestOptionsForTask } from "./laundry-nudge";
 import { LaundrySupplierChase, chaseAppliesToTask } from "./laundry-supplier-chase";
 import type { PipelineCardDTO } from "./use-laundry-pipeline";
@@ -48,6 +49,9 @@ export function cardPill(card: PipelineCardDTO): { label: string; tone: EPillTon
       if (card.job?.status === "IN_PROGRESS") return { label: "Clean in progress", tone: "neutral" };
       return { label: statusLabel(card.status), tone: "neutral" };
     case "laundry":
+      if (isReadyToReturnStatus(card.status)) {
+        return { label: card.dayOf ? `${READY_TO_RETURN_LABEL} · day ${card.dayOf.day} of ${card.dayOf.planned}` : READY_TO_RETURN_LABEL, tone: "ok" };
+      }
       return card.dayOf ? { label: `Day ${card.dayOf.day} of ${card.dayOf.planned}`, tone: card.dayOf.day > card.dayOf.planned ? "warn" : "neutral" } : { label: "At the laundry", tone: "neutral" };
     case "drop":
       if (card.carriedIn) return { label: `Due ${shortDay(card.dropoffDate)}`, tone: "bad" };
@@ -91,7 +95,7 @@ export function cardFacts(card: PipelineCardDTO): string {
       case "laundry":
         return [bags, weight, card.supplier?.name ?? "Supplier not recorded", nextGuest];
       case "drop":
-        return [bags, dropAt, driver, nextGuest ? `needed before ${nextGuest.replace("next guest ", "")}` : null];
+        return [bags, isReadyToReturnStatus(card.status) ? "ready to return" : null, dropAt, driver, nextGuest ? `needed before ${nextGuest.replace("next guest ", "")}` : null];
       case "delivered":
       default:
         return [bags, card.confirmations?.some((row) => row.photoUrl) ? "photo" : null, card.dropoffCostAud != null ? `receipt $${Number(card.dropoffCostAud).toFixed(2)}` : null];

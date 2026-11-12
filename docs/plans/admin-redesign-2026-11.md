@@ -680,3 +680,10 @@ Owner: "build all designs as drawn" for these seven boards. **Status (uncommitte
 - [x] Activity log: sentences, chips with counts, actual person vs testing as, field diff, job link, list-query paging, capped server CSV (ADMIN).
 - [x] Growth: hub blocks with real counts per workspace the viewer may open.
 - Reported, not changed: delete of decided approvals stays open to operations managers (board says administrators; owner to decide); bulk approve of pay requests not offered (each needs its amount); "Source" filter on quotes not built (no stored source); iCal feed badge not built (run statuses not reliably classified).
+
+## Status: Quote full page and Messages (2026-11-12)
+
+**Status (uncommitted; no schema change; TypeScript clean in these paths; focused tests passing; build and browser pass pending).** Details: `docs/SYSTEM.md`, "Quote full page and Messages redesign (2026-11-12)".
+- [x] Quote full page: detail and edit on one page (stage strip, status primary action, sections edited in place with explicit save, rail with add-on requests first, status and details, convert once won, send and share, activity, More menu); `/quotes/[id]/edit` redirects; New quote is the same page with its prefills.
+- [x] Messages: conversations, thread and composer on one page; three columns from `lg`, stacked views with back navigation below; `/messages/compose` redirects with its query.
+- Reported, not changed: autosave (needs a stale-write guard on the quote PATCH: owner / next step); an internal "office notes" field (needs a schema field); Declined → "Reopen as draft" chosen as the primary action (board names none; owner to confirm); "Reschedule to 09:00" from a message and attachments on client messages (no existing action).

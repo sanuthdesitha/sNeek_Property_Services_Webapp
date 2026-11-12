@@ -11,6 +11,7 @@ import { QaDayPlanner } from "@/components/v2/qa/qa-day-planner";
 import { QaVisitOrder } from "@/components/v2/qa/today/qa-visit-order";
 import { getAppSettings } from "@/lib/settings";
 import { qaAssignmentOwnerWhere } from "@/lib/qa/ownership";
+import { resolveReworkScope, reworkScopeWhere } from "@/lib/qa/rework-list";
 
 export const metadata = { title: "Today · Estate QA" };
 export const dynamic = "force-dynamic";
@@ -20,9 +21,10 @@ const TZ = "Australia/Sydney";
 /**
  * Today's three figures (board: To inspect, Rework open, Done). An inspector
  * sees their own inspections; administrators and operations managers keep the
- * whole-board numbers. Rework open is the PENDING rework-transfer count, the
- * same definition as the Rework tab badge and the Approvals page, team-wide.
- * A failed count reads "Unavailable", never 0.
+ * whole-board numbers. Rework open is the PENDING rework-transfer count in the
+ * same scope as the Rework list and its tab badge (lib/qa/rework-list.ts): an
+ * inspector's own rework, team-wide for the office. A failed count reads
+ * "Unavailable", never 0.
  */
 async function getTodayFigures(viewer: { id: string; role: Role }) {
   const today = sydneyTodayKey();
@@ -39,7 +41,16 @@ async function getTodayFigures(viewer: { id: string; role: Role }) {
         },
       })
       .catch(() => null),
-    db.qaReworkTransfer.count({ where: { status: QaReworkTransferStatus.PENDING } }).catch(() => null),
+    db.qaReworkTransfer
+      .count({
+        where: {
+          AND: [
+            { status: QaReworkTransferStatus.PENDING },
+            reworkScopeWhere(viewer, resolveReworkScope(viewer, null)),
+          ],
+        },
+      })
+      .catch(() => null),
     db.qaAssignment
       .count({ where: { ...mine, status: QaAssignmentStatus.COMPLETED, completedAt: { gte: todayStart, lt: todayEnd } } })
       .catch(() => null),
@@ -91,13 +102,16 @@ export default async function QaTodayPage() {
       ) : null}
       <section aria-label="Today's figures" className="grid grid-cols-3 gap-2 sm:gap-4">
         <EStatCard label="To inspect" value={figure(toInspect)} delta={canAssign ? "team" : "yours"} deltaTone="neutral" />
-        <EStatCard label="Rework open" value={figure(reworkOpen)} delta="team-wide" deltaTone="neutral" />
+        <EStatCard label="Rework open" value={figure(reworkOpen)} delta={canAssign ? "team-wide" : "yours"} deltaTone="neutral" />
         <EStatCard label="Done" value={figure(done)} delta="today" deltaTone={done ? "success" : "neutral"} />
       </section>
 
       <QaVisitOrder
         viewerId={session.user.id}
         canReorder={canAssign}
+        // Inspectors plan their own day unless the office has set it; never
+        // while an administrator is testing as them (the server refuses too).
+        inspectorMayReorder={role === Role.QA_INSPECTOR && !session.impersonation}
         qaPaySettings={settings?.qaPay ?? null}
         todayKey={today}
       />

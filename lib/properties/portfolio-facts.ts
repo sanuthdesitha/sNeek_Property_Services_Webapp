@@ -24,7 +24,7 @@ export const UPCOMING_JOB_STATUSES: JobStatus[] = [
   JobStatus.WAITING_CONTINUATION_APPROVAL,
 ];
 
-const OPEN_LAUNDRY: LaundryStatus[] = [LaundryStatus.PENDING, LaundryStatus.CONFIRMED, LaundryStatus.FLAGGED, LaundryStatus.PICKED_UP];
+const OPEN_LAUNDRY: LaundryStatus[] = [LaundryStatus.PENDING, LaundryStatus.CONFIRMED, LaundryStatus.FLAGGED, LaundryStatus.PICKED_UP, LaundryStatus.READY_TO_RETURN];
 const LATE_CODES: ReadonlySet<PipelineExceptionCode> = new Set<PipelineExceptionCode>(["PICKUP_OVERDUE", "DROP_OVERDUE", "OVER_TURNAROUND"]);
 
 /** Latest failed sync run per property, for "Failed 6 h". */

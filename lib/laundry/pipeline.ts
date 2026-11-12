@@ -5,9 +5,11 @@
  * Lanes for day D (today T):
  *   To pick up    not yet picked up (PENDING, CONFIRMED, FLAGGED) with pickup on D;
  *                 on today's view also every earlier pickup still not done (carried in).
- *   At the laundry PICKED_UP, picked up on or before D, drop-off after D.
- *   To drop       PICKED_UP with drop-off on D; on today's view also every earlier
- *                 drop-off still not done (carried in).
+ *   At the laundry PICKED_UP or READY_TO_RETURN, picked up on or before D,
+ *                 drop-off after D (the lane shows "Ready to return" runs as their
+ *                 own group, 2026-11-13).
+ *   To drop       PICKED_UP or READY_TO_RETURN with drop-off on D; on today's view
+ *                 also every earlier drop-off still not done (carried in).
  *   Delivered     DROPPED, delivered on D (delivery time, or the planned drop-off day
  *                 when no delivery time was recorded).
  *   SKIPPED_PICKUP runs are in no lane (no pickup needed); they stay browsable in
@@ -22,13 +24,15 @@
  *   FAILED_PICKUP      a failed-pickup request is waiting for a decision
  *   NOT_READY          the latest handoff says the linen was not ready
  *   PICKUP_OVERDUE     not picked up and the pickup day has passed
- *   DROP_OVERDUE       picked up and the drop-off day has passed
- *   OVER_TURNAROUND    at the laundry longer than the supplier's average turnaround
+ *   DROP_OVERDUE       picked up (or ready to return) and the drop-off day has passed
+ *   OVER_TURNAROUND    at the laundry (picked up or ready to return) longer than the supplier's average turnaround
  *                      (hours, when the supplier has one); with no supplier figure,
  *                      longer than the Laundry operations "max outdoor days" setting
  *   NO_DROP_PHOTO      delivered without a drop-off photo while the setting requires one
+ *                      (a photo the laundry team added to the finished drop-off counts)
  */
 import { sydneyDateKey } from "@/lib/time/sydney-range";
+import { isAtLaundryStatus } from "./status-groups";
 
 export const PIPELINE_LANES = ["pickup", "laundry", "drop", "delivered"] as const;
 export type PipelineLane = (typeof PIPELINE_LANES)[number];
@@ -103,7 +107,7 @@ export function classifyLane(task: PipelineTaskInput, dayKey: string, todayKey: 
     if (isToday && pickupKey < dayKey) return { lane: "pickup", carriedIn: true };
     return null;
   }
-  if (task.status === "PICKED_UP") {
+  if (isAtLaundryStatus(task.status)) {
     if (!dropKey) return null;
     if (dropKey === dayKey) return { lane: "drop", carriedIn: false };
     if (dropKey < dayKey) return isToday ? { lane: "drop", carriedIn: true } : null;
@@ -146,7 +150,8 @@ export function hasPendingFailedPickup(confirmations: readonly PipelineConfirmat
 export function hasDropPhoto(confirmations: readonly PipelineConfirmation[]): boolean {
   return confirmations.some((row) => {
     const meta = parseNotes(row.notes);
-    return meta.event === "DROPPED" && Boolean(row.photoUrl || (typeof meta.dropoffPhotoKey === "string" && meta.dropoffPhotoKey));
+    const dropEvent = meta.event === "DROPPED" || meta.event === "DROPOFF_PHOTO_ADDED";
+    return dropEvent && Boolean(row.photoUrl || (typeof meta.dropoffPhotoKey === "string" && meta.dropoffPhotoKey));
   });
 }
 
@@ -195,7 +200,7 @@ export function detectExceptions(
   if (notPickedUp && pickupKey && pickupKey < context.todayKey) {
     out.push({ code: "PICKUP_OVERDUE", label: `Pickup overdue ${daysBetweenKeys(pickupKey, context.todayKey)} d` });
   }
-  if (task.status === "PICKED_UP") {
+  if (isAtLaundryStatus(task.status)) {
     if (dropKey && dropKey < context.todayKey) {
       out.push({ code: "DROP_OVERDUE", label: `Drop overdue ${daysBetweenKeys(dropKey, context.todayKey)} d` });
     }

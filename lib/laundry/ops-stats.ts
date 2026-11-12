@@ -18,6 +18,7 @@
  * individual team members rather than the operation.
  */
 
+import { isAtLaundryStatus } from "./status-groups";
 import {
   addDaysToKey,
   sydneyDateKey,
@@ -141,7 +142,8 @@ export function buildLaundryOpsStats(
       : null;
 
   // ── Still out ───────────────────────────────────────────────────────────
-  const outstanding = tasks.filter((t) => t.status === "PICKED_UP");
+  // Still out = picked up, including "Ready to return" (2026-11-13).
+  const outstanding = tasks.filter((t) => isAtLaundryStatus(t.status));
   const overdue = outstanding
     .filter((t) => t.pickedUpAt)
     .map((task) => {

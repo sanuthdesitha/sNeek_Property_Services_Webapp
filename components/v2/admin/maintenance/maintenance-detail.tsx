@@ -69,6 +69,7 @@ import { EInput, EField, ESelect, ESwitch } from "@/components/v2/admin/estate-k
 import { MaintenanceRoleAssignmentsPanel } from "@/components/v2/admin/maintenance/role-assignments-panel";
 import { AssignmentInstructionsEditor } from "@/components/v2/admin/maintenance/assignment-instructions-editor";
 import { parseInstructions } from "@/lib/maintenance/instructions";
+import { outcomeWithOriginal } from "@/lib/maintenance/visit-outcomes";
 
 // ─── Estate tone helpers ─────────────────────────────────────────────────────
 type ETone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
@@ -173,6 +174,8 @@ interface MaintenanceDetailItem {
   photos: Photo[];
   finishPhotos: Photo[];
   outcome: string | null;
+  /** The earlier value when the outcome was merged (2026-11-13). */
+  originalOutcome?: string | null;
   workerNote: string | null;
   issuesNote: string | null;
   scheduledFor: string | null;
@@ -709,7 +712,7 @@ export function EstateMaintenanceDetail({ itemId }: { itemId: string }) {
                 <Stat label="Clock out" value={fmtDate(item.clockOutAt)} />
                 <Stat label="Resolved" value={fmtDate(item.resolvedAt)} />
               </div>
-              {item.outcome ? <NoteBlock label="Outcome" body={item.outcome} /> : null}
+              {item.outcome ? <NoteBlock label="Outcome" body={outcomeWithOriginal(item.outcome, item.originalOutcome)} /> : null}
               {item.workerNote ? <NoteBlock label="Worker note" body={item.workerNote} /> : null}
               {item.issuesNote ? <NoteBlock label="Issues raised" body={item.issuesNote} /> : null}
             </ECardBody>

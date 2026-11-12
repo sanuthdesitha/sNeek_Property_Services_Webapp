@@ -55,6 +55,9 @@ export type ActionTask = {
   receiptImageUrl?: string | null;
   supplierId?: string | null;
   flagNotes?: string | null;
+  /** Weight / price already on the run (e.g. entered by the laundry team before drop-off). */
+  bagWeightKg?: number | null;
+  dropoffCostAud?: number | null;
   property?: { name?: string | null; suburb?: string | null } | null;
   confirmations?: Array<QuantityConfirmation & { bagLocation?: string | null }>;
 };
@@ -202,6 +205,9 @@ export function LaundryActionModal({
   const completion = React.useMemo(() => getCompletionDetails(task), [task]);
   const isEdit = action === "EDIT_COMPLETED";
   const earlyReturn = action === "RETURNED" && isEarlyDropoffCandidate(task);
+  // A weight / price entered before drop-off is kept when these fields stay empty.
+  const keptWeightHint = action === "RETURNED" && task.bagWeightKg != null ? `Already entered: ${task.bagWeightKg} kg. Leave empty to keep it.` : undefined;
+  const keptPriceHint = action === "RETURNED" && task.dropoffCostAud != null ? `Already entered: $${Number(task.dropoffCostAud).toFixed(2)}. Leave empty to keep it.` : undefined;
   // The cleaner never confirmed, so the driver is the only witness.
   const needsReadiness = pickupNeedsReadinessAnswer(task.status);
   const baseline = cleanerBagBaseline(task.confirmations ?? []);
@@ -570,15 +576,15 @@ export function LaundryActionModal({
 
             {config.showCostTracking ? (
               <div className="grid gap-4 sm:grid-cols-2">
-                <EField label="Total price charged (optional)">
+                <EField label="Total price charged (optional)" hint={keptPriceHint}>
                   <EInput type="number" min={0} step="0.01" inputMode="decimal" value={totalPrice} onChange={(e) => setTotalPrice(e.target.value)} placeholder="0.00" />
                 </EField>
-                <EField label="Load weight in kg (optional)">
+                <EField label="Load weight in kg (optional)" hint={keptWeightHint}>
                   <EInput type="number" min={0} step="0.1" inputMode="decimal" value={weightKg} onChange={(e) => setWeightKg(e.target.value)} placeholder="0.0" />
                 </EField>
               </div>
             ) : (
-              <EField label="Load weight in kg (optional)">
+              <EField label="Load weight in kg (optional)" hint={keptWeightHint}>
                 <EInput type="number" min={0} step="0.1" inputMode="decimal" value={weightKg} onChange={(e) => setWeightKg(e.target.value)} placeholder="0.0" />
               </EField>
             )}

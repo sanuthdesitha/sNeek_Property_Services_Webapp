@@ -7,6 +7,7 @@ import { logger } from "@/lib/logger";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 export const runtime = "nodejs";
 
@@ -176,22 +177,21 @@ async function notifyAssignee(input: {
         }).format(input.task.dueAt)
       : null;
 
+    const scanWording = await loadNotificationWording("stock.alerts");
+    const scanEmail = scanWording.render("scan-task", "EMAIL", {
+      assigneeName: input.assignee.name ?? "there",
+      requestedByName: input.requestedByName,
+      place,
+      dueSuffix: scanWording.line("due-suffix", "EMAIL", { due }, Boolean(due)),
+      notesParagraph: scanWording.line("scan-notes", "EMAIL", { notes: input.instructions }, Boolean(input.instructions)),
+      scannerUrl: url,
+      companyName: settings.companyName,
+    });
     await sendEmailDetailed({
       kind: "inventory_update",
       to: input.assignee.email,
-      subject: `Stock count needed — ${place}`,
-      html: [
-        `<p>Hi ${input.assignee.name ?? "there"},</p>`,
-        `<p>${input.requestedByName} has asked you to do a stock count at <strong>${place}</strong>${
-          due ? `, by <strong>${due}</strong>` : ""
-        }.</p>`,
-        input.instructions
-          ? `<p><strong>Notes:</strong> ${input.instructions.replace(/</g, "&lt;")}</p>`
-          : "",
-        `<p><a href="${url}">Open the scanner for this property</a></p>`,
-        `<p>Scan every item in the cupboard — repeats are counted, so scan each bottle. You will get a summary to check and correct before anything is saved.</p>`,
-        `<p>— ${settings.companyName}</p>`,
-      ].join(""),
+      subject: scanEmail.subject,
+      html: scanEmail.html,
     });
     return true;
   } catch (err) {

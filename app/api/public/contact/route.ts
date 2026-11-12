@@ -15,6 +15,7 @@ import {
 } from "@/lib/validations/common";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 import { rateLimit, getClientIp } from "@/lib/security/rate-limit";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const contactSchema = z.object({
   inquiryType: z.enum(["general-clean", "deep-clean", "airbnb-turnover", "end-of-lease", "specialty-cleaning", "exterior-service", "commercial", "subscription", "custom-project"]),
@@ -72,23 +73,24 @@ export async function POST(req: NextRequest) {
     });
 
     try {
+      const wording = await loadNotificationWording("leads.alerts");
+      const notProvided = wording.line("not-provided", "INBOX", {});
+      const contactEmail = wording.render("website-contact", "EMAIL", {
+        name: body.name,
+        email: body.email,
+        phone: body.phone || notProvided,
+        suburb: body.suburb || notProvided,
+        address: body.address || notProvided,
+        requestType: body.inquiryType,
+        service: requestedServiceLabel,
+        notesHtml: escapeHtml(body.message).replace(/\n/g, "<br />"),
+        leadId: lead.id,
+      });
       await sendWebsiteLeadNotification({
         settings,
-        subject: `New website enquiry: ${body.name} (${body.inquiryType})`,
+        subject: contactEmail.subject,
         replyTo: body.email,
-        html: `
-          <h2>New website enquiry received</h2>
-          <p><strong>Name:</strong> ${escapeHtml(body.name)}</p>
-          <p><strong>Email:</strong> ${escapeHtml(body.email)}</p>
-          <p><strong>Phone:</strong> ${escapeHtml(body.phone || "Not provided")}</p>
-          <p><strong>Suburb:</strong> ${escapeHtml(body.suburb || "Not provided")}</p>
-          <p><strong>Address:</strong> ${escapeHtml(body.address || "Not provided")}</p>
-          <p><strong>Request type:</strong> ${escapeHtml(body.inquiryType)}</p>
-          <p><strong>Requested service:</strong> ${escapeHtml(requestedServiceLabel)}</p>
-          <p><strong>Message:</strong></p>
-          <p>${escapeHtml(body.message).replace(/\n/g, "<br />")}</p>
-          <p><strong>Lead ID:</strong> ${escapeHtml(lead.id)}</p>
-        `,
+        html: contactEmail.html,
       });
     } catch (error) {
       console.error("Website contact notification email failed", error);

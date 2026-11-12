@@ -4,7 +4,7 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireRealSession } from "@/lib/auth/session";
-import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { SensitiveVerificationError, verifySensitiveAction } from "@/lib/security/admin-verification";
 import { realActorHolds } from "@/lib/rbac/delegated-admin";
 import { rateLimit, getClientIp } from "@/lib/security/rate-limit";
 import {
@@ -37,6 +37,8 @@ import {
 const schema = z.object({
   pin: z.string().trim().max(32).optional(),
   password: z.string().max(500).optional(),
+  /** Only while the admin has no PIN yet: the PIN to set, confirmed with the password. */
+  newPin: z.string().trim().max(32).optional(),
 });
 
 export async function GET() {
@@ -68,7 +70,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: "PIN_OR_PASSWORD_REQUIRED" }, { status: 400 });
   }
-  const { pin, password } = parsed.data;
+  const { pin, password, newPin } = parsed.data;
 
   const limit = rateLimit(testAsUnlockRateKey(session.user.id), {
     limit: TEST_AS_UNLOCK_MAX_ATTEMPTS,
@@ -89,11 +91,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await verifySensitiveAction(session.user.id, { pin, password });
+    await verifySensitiveAction(session.user.id, { pin, password, newPin });
   } catch (err: any) {
-    const code = err?.message ?? "INVALID_SECURITY_VERIFICATION";
+    const code = err instanceof SensitiveVerificationError ? err.code : err?.message ?? "INVALID_SECURITY_VERIFICATION";
     await audit(session.user.id, "TEST_AS_UNLOCK_FAILED", req, { reason: code });
-    const status = code === "UNAUTHORIZED" ? 401 : code === "FORBIDDEN" ? 403 : 400;
+    const status = code === "UNAUTHORIZED" ? 401 : code === "FORBIDDEN" || code === "ACTUAL_ACTOR_REQUIRED" ? 403 : code === "PIN_LOCKED" ? 429 : 400;
     return NextResponse.json({ ok: false, error: code }, { status });
   }
 
@@ -103,7 +105,7 @@ export async function POST(req: NextRequest) {
     testAsUnlockCookieOptions(),
   );
   await audit(session.user.id, "TEST_AS_UNLOCK", req, {
-    method: pin?.trim() ? "PIN" : "PASSWORD",
+    method: pin?.trim() ? "PIN" : "PASSWORD_AND_NEW_PIN",
     expiresInMinutes: TEST_AS_UNLOCK_MINUTES,
   });
 

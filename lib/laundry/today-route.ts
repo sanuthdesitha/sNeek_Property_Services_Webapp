@@ -88,13 +88,13 @@ export async function loadTodayRoute(viewer: { id: string; role: string }, reque
       noPickupRequired: false,
       OR: [
         { status: { in: [LaundryStatus.PENDING, LaundryStatus.CONFIRMED, LaundryStatus.FLAGGED] }, pickupDate: { lt: tomorrow } },
-        { status: LaundryStatus.PICKED_UP, dropoffDate: { lt: tomorrow } },
+        { status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.READY_TO_RETURN] }, dropoffDate: { lt: tomorrow } },
       ],
     },
     select: stopTaskSelect,
     orderBy: { pickupDate: "asc" },
     take: 40,
   });
-  const facts = tasks.map((task) => factsFor(task, task.status === LaundryStatus.PICKED_UP ? "DROP" : "PICKUP", null, requests));
+  const facts = tasks.map((task) => factsFor(task, task.status === LaundryStatus.PICKED_UP || task.status === LaundryStatus.READY_TO_RETURN ? "DROP" : "PICKUP", null, requests));
   return { mode: "none", startedAtLabel: null, stops: buildTodayStops(orderUnroutedStops(facts), clock) };
 }

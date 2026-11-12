@@ -4,14 +4,16 @@
  *
  * Stages come from the stored status and days only:
  *   pickup  PENDING / CONFIRMED / FLAGGED
- *   laundry PICKED_UP, drop-off day still ahead
- *   drop    PICKED_UP, drop-off day reached
+ *   laundry PICKED_UP or READY_TO_RETURN, drop-off day still ahead
+ *   drop    PICKED_UP or READY_TO_RETURN, drop-off day reached
  *   done    DROPPED
- * There is no "Ready to return" stage: nothing stored says a set is ready
- * before it is dropped (weight or price can be added at the drop), so it is
- * not derived or shown.
+ * "Ready to return" (2026-11-13) is the stored status READY_TO_RETURN, marked
+ * by the laundry team; the card shows it as a tag inside its stage (as the
+ * board draws it), it is not a separate chip, so stage counts are unchanged
+ * for every other status.
  */
 import { dayKeyOf, daysBetweenKeys } from "./pipeline";
+import { isAtLaundryStatus } from "./status-groups";
 
 export type TrackingStage = "pickup" | "laundry" | "drop" | "done";
 
@@ -26,7 +28,7 @@ type StageTask = { status: string; pickupDate: string | Date; dropoffDate: strin
 
 export function trackingStage(task: StageTask, todayKey: string): TrackingStage | null {
   if (["PENDING", "CONFIRMED", "FLAGGED"].includes(task.status)) return "pickup";
-  if (task.status === "PICKED_UP") {
+  if (isAtLaundryStatus(task.status)) {
     const dropKey = dayKeyOf(task.dropoffDate);
     return dropKey !== null && dropKey <= todayKey ? "drop" : "laundry";
   }
@@ -36,7 +38,7 @@ export function trackingStage(task: StageTask, todayKey: string): TrackingStage 
 
 /** "Day 3 of 2" for a set at the laundry: days since pickup (inclusive) against the planned days. */
 export function trackingDayOf(task: StageTask, todayKey: string): { day: number; planned: number } | null {
-  if (task.status !== "PICKED_UP") return null;
+  if (!isAtLaundryStatus(task.status)) return null;
   const pickedKey = dayKeyOf(task.pickedUpAt ?? null) ?? dayKeyOf(task.pickupDate);
   const dropKey = dayKeyOf(task.dropoffDate);
   if (!pickedKey || !dropKey) return null;

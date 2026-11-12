@@ -1,5 +1,5 @@
 /** Wording for office.reports_generated, office.ical_alerts and leads.alerts. */
-import { editable, inbox, line, part, someParts } from "./build";
+import { editable, inbox, line, part } from "./build";
 
 const ICAL_EMAIL = `
     <h2 style="margin:0 0 12px;">{{heading}}</h2>
@@ -45,9 +45,43 @@ const RESPONSE_EMAIL = `
             <p style="margin:0;color:#6b7280;font-size:13px;">Quote ID: {{quoteId}}</p>
           `;
 
-export const LEAD_ALERTS_WORDING = someParts("leads.alerts", [
+const WEBSITE_QUOTE_EMAIL = `
+          <h2>New quote request received</h2>
+          <p><strong>Name:</strong> {{name}}</p>
+          <p><strong>Email:</strong> {{email}}</p>
+          <p><strong>Phone:</strong> {{phone}}</p>
+          <p><strong>Suburb:</strong> {{suburb}}</p>
+          <p><strong>Address:</strong> {{address}}</p>
+          <p><strong>Requested service:</strong> {{service}}</p>
+          <p><strong>Estimate range:</strong> {{estimate}}</p>
+          <p><strong>Notes:</strong></p>
+          <p>{{notesHtml}}</p>
+          <p><strong>Lead ID:</strong> {{leadId}}</p>
+        `;
+
+const WEBSITE_CONTACT_EMAIL = `
+          <h2>New website enquiry received</h2>
+          <p><strong>Name:</strong> {{name}}</p>
+          <p><strong>Email:</strong> {{email}}</p>
+          <p><strong>Phone:</strong> {{phone}}</p>
+          <p><strong>Suburb:</strong> {{suburb}}</p>
+          <p><strong>Address:</strong> {{address}}</p>
+          <p><strong>Request type:</strong> {{requestType}}</p>
+          <p><strong>Requested service:</strong> {{service}}</p>
+          <p><strong>Message:</strong></p>
+          <p>{{notesHtml}}</p>
+          <p><strong>Lead ID:</strong> {{leadId}}</p>
+        `;
+
+export const LEAD_ALERTS_WORDING = editable("leads.alerts", [
+  part("website-quote", "Website quote request", "EMAIL", { subject: "New quote request: {{name}} ({{service}})", body: WEBSITE_QUOTE_EMAIL }, { required: ["leadId"], note: "To the website enquiry addresses. Each line shows a field of the form." }),
+  part("website-contact", "Website enquiry", "EMAIL", { subject: "New website enquiry: {{name}} ({{requestType}})", body: WEBSITE_CONTACT_EMAIL }, { required: ["leadId"] }),
+  line("not-provided", "Field left empty", "INBOX", "Not provided", "Shown for a phone, suburb or address the person left empty."),
+  line("pending-review", "No estimate", "INBOX", "Pending manual review", "Shown when the quote form gave no estimate."),
+  line("estimate-to", "Estimate upper bound", "INBOX", " to {{amount}}", "Added when the estimate has an upper bound."),
+  line("no-notes", "No notes", "INBOX", "No extra notes provided.", "Shown when the quote form has no notes."),
   part("addon", "Add-on request", "EMAIL", { subject: "Add-on request on quote {{quoteRef}} from {{clientName}}", body: ADDON_EMAIL }, { required: ["quoteRef"], note: "To the accounts email. {{addonList}} lists the add-ons asked about." }),
   part("response", "Quote accepted or declined", "EMAIL", { subject: "Quote {{quoteRef}} {{verdict}} by {{clientName}}", body: RESPONSE_EMAIL }, { required: ["quoteRef", "verdict"], note: "{{verdict}} is \"accepted\" or \"declined\"." }),
   line("client-note", "Client note paragraph", "EMAIL", "<p style=\"margin:0 0 8px 0;\"><strong>Client note:</strong> {{note}}</p>", "Added when the client wrote a note."),
   part("counter-offer", "Counter offer", "EMAIL", { subject: "Counter offer for {{leadName}}", body: "{{quoteHtml}}" }, { required: ["quoteHtml"], note: "To the lead; {{quoteHtml}} is the generated quote document." }),
-], "Website quote and contact enquiries are composed in the public lead and contact routes from the form's answers (each line is a form field).");
+]);

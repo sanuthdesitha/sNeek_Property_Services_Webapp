@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getClientPortalContext } from "@/lib/client/portal";
 import { getChecklist } from "@/lib/checklists/store";
+import { formatQuoteReference } from "@/lib/quotes/quote-reference";
 
 type ClientChecklist = { summary: string | null; included: string[]; notIncluded: string[] };
 
@@ -95,6 +96,7 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
+        quoteNumber: true,
         serviceType: true,
         lineItems: true,
         subtotal: true,
@@ -129,6 +131,7 @@ export async function GET() {
     return NextResponse.json({
       quotes: quotes.map((q) => ({
         ...q,
+        reference: formatQuoteReference(q.quoteNumber),
         notes: cleanNotes(q.notes),
         // Per-quote override wins over the base service checklist (backward-compat:
         // no override → the base template, exactly as before).

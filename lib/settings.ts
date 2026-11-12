@@ -287,14 +287,27 @@ export interface QaPaySettings {
 
 export interface AccountabilityScoringSettings {
   minorDeduction: number;
+  /** Major (inspections on the earlier Major / Critical scale; lib/qa/verdict-scale.ts). */
   majorDeduction: number;
+  /** Critical (earlier scale). */
   criticalDeduction: number;
+  /**
+   * Fail (current scale, from 2026-11-13). When never saved it reads the
+   * configured Major deduction, so the change itself moves no score.
+   */
+  failDeduction: number;
+  /**
+   * Fail with the inspector's "Serious" tick. When never saved it reads the
+   * configured Critical deduction: Serious keeps what Critical did.
+   */
+  seriousFailDeduction: number;
   missingMandatoryEvidenceDeduction: number;
   falseConfirmationExtraDeduction: number;
   floor: number;
   excellentMin: number;
   passMin: number;
   needsImprovementMin: number;
+  /** Critical (earlier scale) or a serious Fail sends the review to management. */
   criticalTriggersManagementReview: boolean;
 }
 
@@ -669,6 +682,9 @@ export const DEFAULT_ACCOUNTABILITY_SETTINGS: AccountabilitySettings = {
     minorDeduction: 3,
     majorDeduction: 10,
     criticalDeduction: 25,
+    // Fail starts at today's Major (10) and a serious Fail at Critical (25).
+    failDeduction: 10,
+    seriousFailDeduction: 25,
     missingMandatoryEvidenceDeduction: 5,
     falseConfirmationExtraDeduction: 10,
     floor: 0,
@@ -1383,10 +1399,16 @@ export function sanitizeAccountabilitySettings(
     row.scoring && typeof row.scoring === "object" && !Array.isArray(row.scoring)
       ? (row.scoring as Record<string, unknown>)
       : {};
+  const majorDeduction = nonNeg(scoringRow.majorDeduction, fallback.scoring.majorDeduction);
+  const criticalDeduction = nonNeg(scoringRow.criticalDeduction, fallback.scoring.criticalDeduction);
   const scoring: AccountabilityScoringSettings = {
     minorDeduction: nonNeg(scoringRow.minorDeduction, fallback.scoring.minorDeduction),
-    majorDeduction: nonNeg(scoringRow.majorDeduction, fallback.scoring.majorDeduction),
-    criticalDeduction: nonNeg(scoringRow.criticalDeduction, fallback.scoring.criticalDeduction),
+    majorDeduction,
+    criticalDeduction,
+    // Never saved: the Fail values follow the organisation's own Major and
+    // Critical deductions, not the shipped defaults.
+    failDeduction: nonNeg(scoringRow.failDeduction, majorDeduction),
+    seriousFailDeduction: nonNeg(scoringRow.seriousFailDeduction, criticalDeduction),
     missingMandatoryEvidenceDeduction: nonNeg(
       scoringRow.missingMandatoryEvidenceDeduction,
       fallback.scoring.missingMandatoryEvidenceDeduction

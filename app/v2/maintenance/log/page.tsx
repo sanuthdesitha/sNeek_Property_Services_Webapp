@@ -3,22 +3,17 @@ import { maintenanceItemScope } from "@/lib/maintenance/item-scope";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EBadge, ECard, ECardBody, EEmptyState, EPageHeader, EThread } from "@/components/v2/ui/primitives";
+import { originalOutcomeNote, outcomeLabel } from "@/lib/maintenance/visit-outcomes";
 
 export const metadata = { title: "Log · Estate maintenance" };
 export const dynamic = "force-dynamic";
 
-function titleCase(value: string): string {
-  return value
-    .toLowerCase()
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
 
 type LogRow = {
   id: string;
   title: string;
   outcome: MaintenanceOutcome | null;
+  originalOutcome: string | null;
   resolvedAt: Date | null;
   property: { name: string | null; suburb: string | null } | null;
 };
@@ -33,6 +28,7 @@ async function getLog(scope: Prisma.PropertyMaintenanceItemWhereInput): Promise<
         id: true,
         title: true,
         outcome: true,
+        originalOutcome: true,
         resolvedAt: true,
         property: { select: { name: true, suburb: true } },
       },
@@ -67,10 +63,15 @@ export default async function MaintenanceLogPage() {
                     <div className="min-w-0">
                       <p className="text-[0.875rem] font-medium">{l.title}</p>
                       <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{name}{suburb ? `, ${suburb}` : ""}</p>
+                      {originalOutcomeNote(l.outcome, l.originalOutcome) ? (
+                        <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                          Outcome {originalOutcomeNote(l.outcome, l.originalOutcome)}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))] tabular-nums">{formatDate(l.resolvedAt)}</span>
-                      <EBadge tone="success" soft>{l.outcome ? titleCase(l.outcome) : "Done"}</EBadge>
+                      <EBadge tone="success" soft>{l.outcome ? outcomeLabel(l.outcome) : "Done"}</EBadge>
                     </div>
                   </div>
                 </div>

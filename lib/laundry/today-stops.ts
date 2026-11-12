@@ -38,7 +38,7 @@ function bags(count: number | null): string | null {
 
 function isDone(stop: TodayStopFacts): boolean {
   if (stop.completedAt) return true;
-  return stop.kind === "PICKUP" ? ["PICKED_UP", "DROPPED"].includes(stop.status) : stop.status === "DROPPED";
+  return stop.kind === "PICKUP" ? ["PICKED_UP", "READY_TO_RETURN", "DROPPED"].includes(stop.status) : stop.status === "DROPPED";
 }
 
 function factsLine(stop: TodayStopFacts, done: boolean, clock: (iso: string) => string): { line: string; tone: TodayStop["tone"] } {

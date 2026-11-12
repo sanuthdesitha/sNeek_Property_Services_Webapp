@@ -12,6 +12,7 @@ import { EFilterPopover } from "@/components/v2/ui/filter-popover";
 import { EBulkBar, EBulkButton } from "@/components/v2/ui/bulk-bar";
 import { EField, ESelect } from "@/components/v2/admin/estate-kit";
 import { PIPELINE_LANES, PIPELINE_LANE_LABELS, type PipelineLane } from "@/lib/laundry/pipeline";
+import { READY_TO_RETURN_LABEL, isReadyToReturnStatus } from "@/lib/laundry/status-groups";
 import { LaundryLaneCard, shortDay } from "./laundry-lane-card";
 import type { PipelineCardDTO, PipelineData, PipelineQuery } from "./use-laundry-pipeline";
 
@@ -32,6 +33,14 @@ type Props = {
   onMoveNextDay: (card: PipelineCardDTO) => void;
   onRetry: () => void;
 };
+
+/** At the laundry: runs still being washed, then the ones marked "Ready to return". Order kept within each. */
+export function splitReadyToReturn(cards: PipelineCardDTO[]): { washing: PipelineCardDTO[]; ready: PipelineCardDTO[] } {
+  return {
+    washing: cards.filter((card) => !isReadyToReturnStatus(card.status)),
+    ready: cards.filter((card) => isReadyToReturnStatus(card.status)),
+  };
+}
 
 export function orderLane(cards: PipelineCardDTO[], exceptionsFirst: boolean): PipelineCardDTO[] {
   if (!exceptionsFirst) return cards;
@@ -65,12 +74,8 @@ export function LaundryPipelineBoard(props: Props) {
     });
   }
 
-  function lane(laneKey: PipelineLane) {
-    const cards = orderLane(data?.lanes[laneKey] ?? [], exceptionsFirst);
-    const count = data?.counts[laneKey];
-    const body = cards.length === 0 ? (
-      <p className="px-1 py-3 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{status === "loading" && !data ? "Loading…" : "Nothing here."}</p>
-    ) : (
+  function cardList(laneKey: PipelineLane, cards: PipelineCardDTO[]) {
+    return (
       <ul className="flex flex-col gap-2">
         {cards.map((card) => (
           <LaundryLaneCard
@@ -88,6 +93,25 @@ export function LaundryPipelineBoard(props: Props) {
           />
         ))}
       </ul>
+    );
+  }
+
+  function lane(laneKey: PipelineLane) {
+    const cards = orderLane(data?.lanes[laneKey] ?? [], exceptionsFirst);
+    const count = data?.counts[laneKey];
+    // "Ready to return" (2026-11-13): inside At the laundry, the sets the laundry
+    // team marked ready are their own group under the ones still being washed.
+    const groups = laneKey === "laundry" ? splitReadyToReturn(cards) : null;
+    const body = cards.length === 0 ? (
+      <p className="px-1 py-3 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{status === "loading" && !data ? "Loading…" : "Nothing here."}</p>
+    ) : groups && groups.ready.length > 0 ? (
+      <div className="flex flex-col gap-2">
+        {groups.washing.length > 0 ? cardList(laneKey, groups.washing) : null}
+        <p className="px-1 pt-1 text-[0.75rem] font-[600] text-[hsl(var(--e-muted-foreground))]">{READY_TO_RETURN_LABEL} <span className="e-tnum">{groups.ready.length}</span></p>
+        {cardList(laneKey, groups.ready)}
+      </div>
+    ) : (
+      cardList(laneKey, cards)
     );
     return (
       <section key={laneKey} aria-label={laneTitle(laneKey, data)} className="min-w-0 flex-1 rounded-[12px] bg-[hsl(var(--e-surface-raised))] p-2.5">

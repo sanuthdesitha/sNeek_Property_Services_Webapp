@@ -2,10 +2,9 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
-import { SERVICE_CATALOG } from "@/lib/pricing/service-catalog";
-import { EPageHeader } from "@/components/v2/ui/primitives";
 import { QuoteBuilder } from "@/components/v2/admin/quotes/quote-builder";
 import { loadCaseQuotePrefill } from "@/lib/cases/repair-quote";
+import { marginModelFrom, serviceOptions, timezoneFrom } from "@/lib/quotes/quote-page-data";
 
 export const metadata = { title: "New quote · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -72,22 +71,10 @@ export default async function V2NewQuotePage({ searchParams }: { searchParams?: 
     getAppSettings(),
   ]);
 
-  const serviceOptions = SERVICE_CATALOG.map((c) => ({
-    jobType: c.jobType as string,
-    label: c.label,
-    model: c.model,
-    itemLabel: c.itemLabel ?? null,
-    unitLabel: c.unitLabel ?? null,
-    bands: (c.rate.bands ?? []).map((b) => ({ label: b.label })),
-  }));
-
+  // The page heading ("New quote") is drawn by the quote full page; prefill
+  // notices stay here so they render on the server with the page.
   return (
-    <div className="space-y-6">
-      <EPageHeader
-        eyebrow="Growth"
-        title="New quote"
-        description="Quote an existing client or a new lead, priced per service from your rate card."
-      />
+    <div className="space-y-4">
       {prefillMissing ? (
         <p role="alert" className="rounded-[var(--e-radius)] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem]">
           The client or lead this quote was started for could not be found or is inactive, so no recipient was chosen.
@@ -99,16 +86,18 @@ export default async function V2NewQuotePage({ searchParams }: { searchParams?: 
         </p>
       ) : null}
       <QuoteBuilder
-        leads={prefillLead && !leads.some((lead) => lead.id === prefillLead.id) ? [prefillLead, ...leads] : leads}
+        leads={(prefillLead && !leads.some((lead) => lead.id === prefillLead.id) ? [prefillLead, ...leads] : leads).map((lead) => ({ ...lead, email: lead.email ?? "", serviceType: lead.serviceType ? String(lead.serviceType) : null }))}
         clients={withCaseClient(
           withCaseClient(clients.map((c) => ({ id: c.id, name: c.name, email: c.email ?? "", suburb: c.suburb ?? null })), casePrefill?.client ?? null),
           prefillClient ? { id: prefillClient.id, name: prefillClient.name } : null,
         )}
         recipientPrefill={casePrefill ? undefined : { clientId: prefillClient?.id, leadId: prefillLead?.id }}
-        services={serviceOptions}
+        services={serviceOptions()}
         gstEnabled={settings.pricing.gstEnabled}
         pricingVariables={settings.pricingVariables}
         casePrefill={casePrefill ?? undefined}
+        marginModel={marginModelFrom(settings)}
+        timezone={timezoneFrom(settings)}
       />
     </div>
   );

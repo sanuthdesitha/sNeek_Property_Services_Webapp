@@ -33,7 +33,7 @@ export function partnerStatsFromRuns(runs: readonly PartnerRunFacts[], turnaroun
     if (NOT_PICKED.includes(run.status)) {
       const pickupKey = dayKeyOf(run.pickupDate);
       if (pickupKey && pickupKey <= todayKey) toPickUp += 1;
-    } else if (run.status === LaundryStatus.PICKED_UP) {
+    } else if (run.status === LaundryStatus.PICKED_UP || run.status === LaundryStatus.READY_TO_RETURN) {
       const dropKey = dayKeyOf(run.dropoffDate);
       if (dropKey && dropKey <= todayKey) toDrop += 1;
       else atLaundry += 1;
@@ -89,7 +89,7 @@ export async function loadPartnerStats(partners: ReadonlyArray<{ id: string; avg
     db.laundryTask.findMany({
       where: {
         supplierId: { in: ids },
-        OR: [{ status: { in: [...NOT_PICKED, LaundryStatus.PICKED_UP] } }, { droppedAt: { gte: since } }, { pickupDate: { gte: since } }],
+        OR: [{ status: { in: [...NOT_PICKED, LaundryStatus.PICKED_UP, LaundryStatus.READY_TO_RETURN] } }, { droppedAt: { gte: since } }, { pickupDate: { gte: since } }],
       },
       select: { supplierId: true, status: true, pickupDate: true, dropoffDate: true, pickedUpAt: true, droppedAt: true, propertyId: true },
       take: 5000,

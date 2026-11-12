@@ -37,6 +37,8 @@ function statusTone(status: LaundryStatus): Tone {
       return "primary";
     case LaundryStatus.PICKED_UP:
       return "info";
+    case LaundryStatus.READY_TO_RETURN:
+      return "info";
     case LaundryStatus.DROPPED:
       return "success";
     case LaundryStatus.FLAGGED:
@@ -56,6 +58,8 @@ function statusLabel(status: LaundryStatus): string {
       return "Confirmed";
     case LaundryStatus.PICKED_UP:
       return "Picked up";
+    case LaundryStatus.READY_TO_RETURN:
+      return "Ready to return";
     case LaundryStatus.DROPPED:
       return "Delivered";
     case LaundryStatus.FLAGGED:
@@ -96,7 +100,7 @@ async function getLaundry(scope: Awaited<ReturnType<typeof laundryTaskScope>>) {
           { pickupDate: { gte: scheduledStart, lt: scheduledEnd } },
           { dropoffDate: { gte: scheduledStart, lt: scheduledEnd } },
           { droppedAt: { gte: todayStart, lt: todayEnd } },
-          { status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.CONFIRMED] } },
+          { status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.READY_TO_RETURN, LaundryStatus.CONFIRMED] } },
         ],
       },
       orderBy: [{ pickupDate: "asc" }],
@@ -119,7 +123,7 @@ async function getLaundry(scope: Awaited<ReturnType<typeof laundryTaskScope>>) {
     t.droppedAt < todayEnd;
 
   const inQueue = tasks.filter((t) => t.status === LaundryStatus.PENDING || t.status === LaundryStatus.CONFIRMED).length;
-  const inTransit = tasks.filter((t) => t.status === LaundryStatus.PICKED_UP).length;
+  const inTransit = tasks.filter((t) => t.status === LaundryStatus.PICKED_UP || t.status === LaundryStatus.READY_TO_RETURN).length;
   const ready = tasks.filter(deliveredToday).length;
 
   return { tasks, inQueue, inTransit, ready };

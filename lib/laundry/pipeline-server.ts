@@ -162,7 +162,7 @@ export async function loadLaundryPipeline(
     { pickupDate: { gte: dayStart, lt: nextStart } },
     { dropoffDate: { gte: dayStart, lt: nextStart } },
     { droppedAt: { gte: dayStart, lt: nextStart } },
-    { status: LaundryStatus.PICKED_UP, pickupDate: { lt: nextStart } },
+    { status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.READY_TO_RETURN] }, pickupDate: { lt: nextStart } },
   ];
   if (dayKey === todayKey) {
     or.push({ status: { in: [LaundryStatus.PENDING, LaundryStatus.CONFIRMED, LaundryStatus.FLAGGED] }, pickupDate: { lt: dayStart } });
@@ -172,7 +172,8 @@ export async function loadLaundryPipeline(
     db.laundryTask.findMany({ where: { OR: or }, include: pipelineInclude, orderBy: { pickupDate: "asc" }, take: PIPELINE_TASK_CAP + 1 }),
     loadDriverStops(dayKey),
     db.laundryTask.count({ where: { OR: [{ pickupDate: { gte: todayStart, lt: tomorrowStart } }, { dropoffDate: { gte: todayStart, lt: tomorrowStart } }] } }),
-    db.laundryTask.count({ where: { status: LaundryStatus.PICKED_UP } }),
+    // In transit = picked up and not delivered, including "Ready to return".
+    db.laundryTask.count({ where: { status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.READY_TO_RETURN] } } }),
     db.laundryTask.count({ where: { status: LaundryStatus.DROPPED, droppedAt: { gte: todayStart, lt: tomorrowStart } } }),
     db.laundryTask.count({ where: { status: LaundryStatus.FLAGGED } }),
     db.laundrySupplier.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),

@@ -65,7 +65,7 @@ export function LaundryLive() {
     return () => clearInterval(id);
   }, [load]);
 
-  const inTransit = (snapshot?.tasks ?? []).filter((t) => t.status === "PICKED_UP");
+  const inTransit = (snapshot?.tasks ?? []).filter((t) => t.status === "PICKED_UP" || t.status === "READY_TO_RETURN");
   const overdue = snapshot?.overdueAtLaundry ?? [];
   const drivers = snapshot?.drivers ?? [];
 

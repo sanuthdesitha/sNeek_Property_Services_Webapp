@@ -8,6 +8,7 @@ import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { calculateGstBreakdown } from "@/lib/pricing/gst";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { issueQuoteNumber } from "@/lib/quotes/quote-number";
 
 const lineItemSchema = z.object({
   label: z.string().trim().min(1).max(240),
@@ -43,8 +44,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     );
 
     const quote = await db.$transaction(async (tx) => {
+      const quoteNumber = await issueQuoteNumber(tx);
       const created = await tx.quote.create({
         data: {
+          quoteNumber,
           leadId: lead.id,
           clientId: lead.clientId ?? undefined,
           serviceType: lead.serviceType,

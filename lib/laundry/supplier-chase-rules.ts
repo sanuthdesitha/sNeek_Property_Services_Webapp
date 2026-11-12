@@ -11,6 +11,7 @@
  * office never types an address here.
  */
 import type { PipelineException } from "./pipeline";
+import { isAtLaundryStatus } from "./status-groups";
 import type { LaundryTeamRequestKind } from "./nudge-rules";
 
 /** One chase per run within this many minutes (like the cleaner nudges). */
@@ -30,7 +31,7 @@ export type SupplierChaseFacts = {
 export function supplierChaseBlockedReason(run: SupplierChaseFacts): string | null {
   if (!run.hasSupplier) return "No supplier is recorded for this run.";
   if (run.unansweredTeamRequest) return null;
-  if (run.status !== "PICKED_UP") return "The run is not at the laundry.";
+  if (!isAtLaundryStatus(run.status)) return "The run is not at the laundry.";
   if (!run.exceptions.some((item) => item.code === "OVER_TURNAROUND")) return "The run is still within the supplier's turnaround.";
   return null;
 }

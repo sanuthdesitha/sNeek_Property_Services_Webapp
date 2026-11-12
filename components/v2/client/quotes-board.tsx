@@ -25,6 +25,8 @@ type LineItem = { label: string; unitPrice: number; qty: number; total: number }
 type QuoteChecklist = { summary: string | null; included: string[]; notIncluded: string[] };
 type Quote = {
   id: string;
+  /** "Q-204"; null when the reference could not be read. */
+  reference?: string | null;
   serviceType: string;
   lineItems: LineItem[] | unknown;
   subtotal: number;
@@ -157,7 +159,7 @@ export function ClientQuotesBoard({ focusQuoteId, intent }: { focusQuoteId?: str
         body: JSON.stringify({
           caseType: "OTHER",
           title: `Add-on request — ${serviceLabel(requestQuote.serviceType)} quote`,
-          description: `Requested change for quote ${requestQuote.id} (${serviceLabel(
+          description: `Requested change for quote ${requestQuote.reference ?? requestQuote.id} (${serviceLabel(
             requestQuote.serviceType,
           )}):\n\n${message}`,
           severity: "MEDIUM",
@@ -256,7 +258,7 @@ export function ClientQuotesBoard({ focusQuoteId, intent }: { focusQuoteId?: str
             <ECardBody className="space-y-4 pt-5">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <EEyebrow>Quotation</EEyebrow>
+                  <EEyebrow>{q.reference ? `Quotation ${q.reference}` : "Quotation"}</EEyebrow>
                   <p className="e-display-sm mt-1">{serviceLabel(q.serviceType)}</p>
                   <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                     Issued {format(new Date(q.createdAt), "d MMM yyyy")}

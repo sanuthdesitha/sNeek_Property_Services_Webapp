@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { formatQuoteReference } from "@/lib/quotes/quote-reference";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { getAppSettings } from "@/lib/settings";
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     try {
       const settings = await getAppSettings();
       if (settings.accountsEmail) {
-        const shortRef = String(quote.id).slice(-7).toUpperCase();
+        const shortRef = formatQuoteReference(quote.quoteNumber) ?? String(quote.id).slice(-7).toUpperCase();
         const verdict = accepted ? "ACCEPTED" : "DECLINED";
         const wording = await loadNotificationWording("leads.alerts");
         const email = wording.render("response", "EMAIL", {

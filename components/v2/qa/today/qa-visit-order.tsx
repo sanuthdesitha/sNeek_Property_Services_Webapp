@@ -6,9 +6,12 @@
  * Reads the inspector's own day from `GET /api/qa/queue?date=…` (the same
  * contract the queue uses) and shows each stop with its readiness. A clean
  * still in progress says "Wait" and offers Monitor clean; starting early asks
- * for a reason first ("Start anyway"). Moving a stop earlier or later writes
- * through the existing day-planner endpoint, which only the office may call,
- * so the arrows appear only for administrators and operations managers.
+ * for a reason first ("Start anyway"). Moving a stop earlier or later:
+ * - the office (administrators, operations managers) writes through the
+ *   day-planner endpoint, as before;
+ * - an inspector writes through PATCH /api/qa/visit-order (own visits, that
+ *   day only) unless the office has set the day, which shows as locked with
+ *   who set it ("Order set by the office"). Never while testing as someone.
  *
  * Obsolete reads are discarded (request sequence + abort) so a late answer for
  * another day never fills this one.
@@ -16,7 +19,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, ChevronRight, Loader2, RefreshCw } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, Loader2, Lock, RefreshCw } from "lucide-react";
 import { EAlert, EBadge, EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
 import { EInput } from "@/components/v2/admin/estate-kit";
 import type { QaPaySettingsInput } from "@/lib/finance/qa-pay";
@@ -31,15 +34,29 @@ import { EarlyStartDialog, requestQaPickup } from "@/components/v2/qa/today/earl
 
 type DayMode = "today" | "tomorrow" | "custom";
 
+/** Who set the day's order (GET /api/qa/visit-order, lib/qa/day-order.ts). */
+export interface VisitDayOrder {
+  dayKey: string;
+  locked: boolean;
+  setByOffice: boolean;
+  setByName: string | null;
+  setAt: string | null;
+}
+
 type LoadState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
-  | { kind: "ready"; rows: VisitOrderRow[]; dateKey: string };
+  | { kind: "ready"; rows: VisitOrderRow[]; dateKey: string; dayOrder: VisitDayOrder | null };
 
 export interface QaVisitOrderProps {
   viewerId: string;
   /** ADMIN / OPS_MANAGER: may reorder through the day-planner endpoint. */
   canReorder: boolean;
+  /**
+   * Acting as a QA inspector (and not being tested as by an administrator):
+   * may reorder their own day while the office has not set it.
+   */
+  inspectorMayReorder?: boolean;
   qaPaySettings: QaPaySettingsInput | null;
   /** Today's Sydney date key (YYYY-MM-DD), from the server. */
   todayKey: string;
@@ -48,7 +65,29 @@ export interface QaVisitOrderProps {
 const CHIP =
   "inline-flex min-h-11 items-center rounded-[var(--e-radius-pill)] border px-4 text-[0.8125rem] font-[550] focus-visible:outline focus-visible:outline-2";
 
-export function QaVisitOrder({ viewerId, canReorder, qaPaySettings, todayKey }: QaVisitOrderProps) {
+function setByLine(dayOrder: VisitDayOrder): string {
+  const who = dayOrder.setByName ?? "the office";
+  if (!dayOrder.setAt) return `Set by ${who}`;
+  const when = new Date(dayOrder.setAt);
+  if (!Number.isFinite(when.getTime())) return `Set by ${who}`;
+  const label = when.toLocaleString("en-AU", {
+    timeZone: "Australia/Sydney",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `Set by ${who} · ${label}`;
+}
+
+export function QaVisitOrder({
+  viewerId,
+  canReorder,
+  inspectorMayReorder = false,
+  qaPaySettings,
+  todayKey,
+}: QaVisitOrderProps) {
   const router = useRouter();
   const [mode, setMode] = React.useState<DayMode>("today");
   const [customDate, setCustomDate] = React.useState(todayKey);
@@ -67,14 +106,26 @@ export function QaVisitOrder({ viewerId, canReorder, qaPaySettings, todayKey }: 
       const qs = new URLSearchParams({ scope: "active", date: dateParam });
       // The office may widen the queue; the visit order is always their own day.
       if (canReorder) qs.set("assignedOnly", "1");
-      const res = await fetch(`/api/qa/queue?${qs.toString()}`, { cache: "no-store", signal });
+      const [res, orderRes] = await Promise.all([
+        fetch(`/api/qa/queue?${qs.toString()}`, { cache: "no-store", signal }),
+        fetch(`/api/qa/visit-order?${new URLSearchParams({ date: dateParam }).toString()}`, { cache: "no-store", signal }),
+      ]);
       const body: { assignments?: QueueAssignmentInput[]; error?: string } = await res.json().catch(() => ({}));
+      const orderBody: { dayOrder?: VisitDayOrder } = await orderRes.json().catch(() => ({}));
       if (request !== sequence.current || signal?.aborted) return;
       if (!res.ok || !Array.isArray(body.assignments)) {
         setState({ kind: "error", message: body.error ?? "Could not load your visit order." });
         return;
       }
-      setState({ kind: "ready", rows: buildVisitOrderRows(body.assignments, qaPaySettings), dateKey: dateParam });
+      // Who set the order is shown when known. If it cannot be read the
+      // inspector's arrows stay hidden: an unknown lock is never treated as open.
+      const dayOrder = orderRes.ok && orderBody.dayOrder ? orderBody.dayOrder : null;
+      setState({
+        kind: "ready",
+        rows: buildVisitOrderRows(body.assignments, qaPaySettings),
+        dateKey: dateParam,
+        dayOrder,
+      });
     } catch (error) {
       if (request !== sequence.current || (error instanceof DOMException && error.name === "AbortError")) return;
       setState({ kind: "error", message: "Could not load your visit order. Check your connection and retry." });
@@ -95,20 +146,31 @@ export function QaVisitOrder({ viewerId, canReorder, qaPaySettings, todayKey }: 
     setMoveError(null);
     setSaving(true);
     setState({ ...state, rows: reordered });
+    const orderedAssignmentIds = reordered.map((row) => row.assignmentId);
     try {
-      const res = await fetch("/api/admin/qa/assignments/reorder", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          inspectorId: viewerId,
-          date: state.dateKey,
-          orderedAssignmentIds: reordered.map((row) => row.assignmentId),
-        }),
-      });
+      const res = canReorder
+        ? await fetch("/api/admin/qa/assignments/reorder", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ inspectorId: viewerId, date: state.dateKey, orderedAssignmentIds }),
+          })
+        : await fetch("/api/qa/visit-order", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              date: state.dateKey,
+              orderedAssignmentIds,
+              expectedOrder: previous.map((row) => row.assignmentId),
+            }),
+          });
+      const body: { error?: string; code?: string; dayOrder?: VisitDayOrder } = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const body: { error?: string } = await res.json().catch(() => ({}));
-        setState({ ...state, rows: previous });
+        setState({ ...state, rows: previous, dayOrder: body.dayOrder ?? state.dayOrder });
         setMoveError(body.error ?? "Could not save the visit order. Nothing changed.");
+        // Someone else changed the day: show the stored order again.
+        if (body.code === "STALE_ORDER") void load();
+      } else if (body.dayOrder) {
+        setState({ ...state, rows: reordered, dayOrder: body.dayOrder });
       }
     } catch {
       setState({ ...state, rows: previous });
@@ -128,8 +190,13 @@ export function QaVisitOrder({ viewerId, canReorder, qaPaySettings, todayKey }: 
 
   const rows = state.kind === "ready" ? state.rows : [];
   const next = nextVisit(rows);
-  // Only the viewer's own stops can be moved: the endpoint orders one inspector's day.
-  const movable = canReorder && rows.length > 1 && rows.every((row) => row.assignedToId === viewerId);
+  const dayOrder = state.kind === "ready" ? state.dayOrder : null;
+  const officeLocked = Boolean(dayOrder?.locked);
+  // An inspector moves stops only when the lock state is known and open.
+  const inspectorMoves = !canReorder && inspectorMayReorder && dayOrder !== null && !officeLocked;
+  // Only the viewer's own stops can be moved: both endpoints order one inspector's day.
+  const movable =
+    (canReorder || inspectorMoves) && rows.length > 1 && rows.every((row) => row.assignedToId === viewerId);
 
   return (
     <section aria-labelledby="qa-visit-order" className="space-y-3">
@@ -139,6 +206,7 @@ export function QaVisitOrder({ viewerId, canReorder, qaPaySettings, todayKey }: 
             key={value}
             type="button"
             aria-pressed={mode === value}
+            disabled={saving}
             onClick={() => setMode(value)}
             className={`${CHIP} ${mode === value ? "border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] text-[hsl(var(--e-gold-ink))]" : "border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-muted-foreground))]"}`}
           >
@@ -151,6 +219,7 @@ export function QaVisitOrder({ viewerId, canReorder, qaPaySettings, todayKey }: 
             type="date"
             className="h-11 w-[10.5rem]"
             value={customDate}
+            disabled={saving}
             onChange={(event) => {
               setCustomDate(event.target.value);
               if (event.target.value) setMode("custom");
@@ -215,8 +284,27 @@ export function QaVisitOrder({ viewerId, canReorder, qaPaySettings, todayKey }: 
         </ol>
       )}
 
-      {state.kind === "ready" && rows.length > 0 && !canReorder ? (
+      {state.kind === "ready" && rows.length > 0 && officeLocked && dayOrder ? (
+        <p className="flex flex-wrap items-center gap-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          <EBadge tone="neutral" soft>
+            <Lock className="mr-1 inline h-3 w-3" aria-hidden />
+            Order set by the office
+          </EBadge>
+          <span>
+            {setByLine(dayOrder)}.{" "}
+            {canReorder ? "You can still change it." : "Ask the office to move a stop or to let you reorder."}
+          </span>
+        </p>
+      ) : state.kind === "ready" && rows.length > 0 && !canReorder && !inspectorMayReorder ? (
         <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">The office sets the visit order. Ask them to move a stop earlier or later.</p>
+      ) : state.kind === "ready" && rows.length > 0 && !canReorder && dayOrder === null ? (
+        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          Could not check who set this order, so moving stops is off for now. Refresh to try again.
+        </p>
+      ) : state.kind === "ready" && rows.length > 1 && inspectorMoves ? (
+        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          Move stops earlier or later to plan your day. If the office sets the order, it can no longer be changed here.
+        </p>
       ) : null}
       {moveError ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{moveError}</p> : null}
       {saving ? <p role="status" className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Saving the visit order…</p> : null}

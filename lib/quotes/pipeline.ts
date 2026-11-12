@@ -51,7 +51,7 @@ export async function loadPipelineRows(): Promise<PipelineRow[]> {
     }),
     db.quote.findMany({
       select: {
-        id: true, status: true, serviceType: true, subtotal: true, totalAmount: true, lineItems: true, frequency: true, clientId: true, leadId: true,
+        id: true, quoteNumber: true, status: true, serviceType: true, subtotal: true, totalAmount: true, lineItems: true, frequency: true, clientId: true, leadId: true,
         convertedJobId: true, serviceSuburb: true, createdAt: true, updatedAt: true,
         client: { select: { name: true, email: true, phone: true, suburb: true } },
         lead: { select: { name: true, email: true, phone: true, suburb: true } },
@@ -99,7 +99,7 @@ export async function loadPipelineRows(): Promise<PipelineRow[]> {
       kind: "quote",
       id: quote.id,
       name: party?.name ?? "Direct quote",
-      reference: shortQuoteRef(quote.id),
+      reference: shortQuoteRef(quote),
       serviceType: String(quote.serviceType),
       suburb: quote.serviceSuburb ?? party?.suburb ?? null,
       total: Number(quote.totalAmount ?? 0),

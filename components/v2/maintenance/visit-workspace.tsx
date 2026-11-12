@@ -57,6 +57,7 @@ import { EStageBar } from "@/components/v2/ui/stage-bar";
 import { visitStages } from "@/lib/maintenance/visit-stages";
 import { VisitCostCard } from "@/components/v2/maintenance/visit/visit-cost-card";
 import { OutcomeChoice } from "@/components/v2/maintenance/visit/outcome-choice";
+import { DEFAULT_VISIT_OUTCOME, outcomeWithOriginal } from "@/lib/maintenance/visit-outcomes";
 import { OfflineNotice } from "@/components/v2/maintenance/visit/offline-notice";
 
 /* ── Types (mirror the GET /api/maintenance/[id] contract) ─────────────────── */
@@ -98,6 +99,8 @@ interface VisitItem {
   photos: Photo[];
   finishPhotos: Photo[];
   outcome: string | null;
+  /** The earlier value when the outcome was merged (2026-11-13). */
+  originalOutcome?: string | null;
   workerNote: string | null;
   issuesNote: string | null;
   scheduledFor: string | null;
@@ -226,7 +229,7 @@ export function VisitWorkspace({
 
   // Outcome form.
   const [showComplete, setShowComplete] = React.useState(false);
-  const [outcome, setOutcome] = React.useState<string>("FIXED");
+  const [outcome, setOutcome] = React.useState<string>(DEFAULT_VISIT_OUTCOME);
   const [workerNote, setWorkerNote] = React.useState("");
   const [issuesNote, setIssuesNote] = React.useState("");
 
@@ -462,7 +465,7 @@ export function VisitWorkspace({
             <div>
               <p className="text-[0.875rem] font-[600] text-[hsl(var(--e-foreground))]">Job complete</p>
               <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                {item.outcome ? `Outcome: ${prettyEnum(item.outcome)}` : "This job has been resolved."}
+                {item.outcome ? `Outcome: ${outcomeWithOriginal(item.outcome, item.originalOutcome)}` : "This job has been resolved."}
                 {item.resolvedAt ? ` · ${fmtTime(item.resolvedAt)}` : ""}
               </p>
             </div>

@@ -262,6 +262,8 @@ export async function setMaintenanceVisitState(input: {
   lng?: number | null;
   accuracy?: number | null;
   outcome?: MaintenanceOutcome | null;
+  /** The earlier outcome value a screen sent, when it was mapped (lib/maintenance/visit-outcomes.ts). */
+  originalOutcome?: string | null;
   workerNote?: string | null;
   issuesNote?: string | null;
   finishPhotoKeys?: string[] | null;
@@ -300,6 +302,7 @@ export async function setMaintenanceVisitState(input: {
       data.resolvedAt = now;
       nextStatus = MaintenanceStatus.RESOLVED;
       if (input.outcome) data.outcome = input.outcome;
+      if (input.outcome && input.originalOutcome) data.originalOutcome = input.originalOutcome;
       if (input.workerNote != null) data.workerNote = input.workerNote;
       if (input.issuesNote != null) data.issuesNote = input.issuesNote;
       if (input.finishPhotoKeys) data.finishPhotoKeys = input.finishPhotoKeys as Prisma.InputJsonValue;

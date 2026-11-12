@@ -83,6 +83,7 @@ async function getNextTurnoverCleanDate(job: PlannerJob, database: Prisma.Transa
 function isLaundryTaskCompleted(task: { status: LaundryStatus; pickedUpAt?: Date | null; droppedAt?: Date | null }) {
   return (
     task.status === LaundryStatus.PICKED_UP ||
+    task.status === LaundryStatus.READY_TO_RETURN ||
     task.status === LaundryStatus.DROPPED ||
     Boolean(task.pickedUpAt) ||
     Boolean(task.droppedAt)

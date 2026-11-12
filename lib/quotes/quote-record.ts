@@ -36,6 +36,8 @@ export interface QuoteEditSeed {
 
 export type QuoteSnapshot = {
   id: string;
+  /** The client-visible reference number ("Q-204"); null when not read. */
+  quoteNumber: number | null;
   status: string;
   serviceType: string;
   subtotal: number;
@@ -70,6 +72,7 @@ type PartyLike = { id: string; name: string; email?: string | null; address?: st
 /** The fields read from a stored quote (Prisma row on the server, JSON on the client). */
 export type QuoteRecordInput = {
   id: string;
+  quoteNumber?: number | null;
   status: unknown;
   serviceType: unknown;
   subtotal?: unknown;
@@ -159,6 +162,7 @@ function serviceContextFrom(value: unknown): Record<string, string | number | bo
 export function snapshotFromRecord(record: QuoteRecordInput, fallbackParties?: { client: QuoteParty | null; lead: QuoteParty | null }): QuoteSnapshot {
   return {
     id: record.id,
+    quoteNumber: typeof record.quoteNumber === "number" ? record.quoteNumber : null,
     status: String(record.status),
     serviceType: String(record.serviceType),
     subtotal: Number(record.subtotal ?? 0),

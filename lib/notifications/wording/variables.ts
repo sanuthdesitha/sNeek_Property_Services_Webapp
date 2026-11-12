@@ -129,6 +129,32 @@ const DICTIONARY: Record<string, Entry> = {
   // Summaries
   caseItems: { label: "Stale cases (list items)", sample: "<li>Broken lock (DAMAGE) - Manly Loft - Job J-1061 - stale for 3 days</li>", format: "html" },
   casesUrl: { label: "Cases link", sample: "https://app.sneek.au/admin/cases", format: "url" },
+  // Laundry
+  bookingItems: { label: "Bookings (list items)", sample: "<li><strong>New</strong> booking for clean Thu 13 Nov: pickup Thu 13 Nov, drop-off Sat 15 Nov.</li>", format: "html" },
+  portalUrl: { label: "Laundry portal link", sample: "https://app.sneek.au/laundry", format: "url" },
+  // Stock and shopping
+  inventoryLink: { label: "Shopping list link (empty when none)", sample: "<p><a href=\"https://app.sneek.au/admin/inventory\">View shopping list</a></p>", format: "html" },
+  dueSuffix: { label: "Due date (empty when none)", sample: ", by <strong>14 Nov</strong>", format: "html" },
+  shoppingListHtml: { label: "Shopping list (built table)", sample: "<table></table>", format: "html" },
+  purchaseHtml: { label: "Purchase record (built)", sample: "<p>Submitted 12/11/2026. Shopper: Ana.</p>", format: "html" },
+  supplierParagraph: { label: "Supplier paragraph (empty when none)", sample: "<p><strong>Supplier:</strong> Bunnings</p>", format: "html" },
+  orderRows: { label: "Order lines (built rows)", sample: "<tr><td>Manly Loft</td><td>Toilet paper</td></tr>", format: "html" },
+  scannerUrl: { label: "Scanner link", sample: "https://app.sneek.au/v2/cleaner/scan", format: "url" },
+  inventoryUrl: { label: "Inventory link", sample: "https://app.sneek.au/admin/inventory", format: "url" },
+  purchasesUrl: { label: "Purchases link", sample: "https://app.sneek.au/v2/client/shopping?tab=purchases", format: "url" },
+  // Client documents
+  onlineSentence: { label: "Online link sentence (empty when none)", sample: " You can also request them online: <a href=\"https://app.sneek.au/q/abc\">view your quote</a>.", format: "html" },
+  atProperty: { label: "At the property (empty when none)", sample: " at <strong>Manly Loft</strong>", format: "html" },
+  addedBlock: { label: "Added items block (empty when none)", sample: "<p>Added to your service:</p><ul><li>Oven clean</li></ul>", format: "html" },
+  removedBlock: { label: "Removed items block (empty when none)", sample: "", format: "html" },
+  items: { label: "Items (list items)", sample: "<li style=\"margin:4px 0;\">Oven clean — $40.00</li>", format: "html" },
+  // Approvals and invitations
+  approvalUrl: { label: "Approval link", sample: "https://app.sneek.au/client/approvals", format: "url" },
+  manageUrl: { label: "Team link", sample: "https://app.sneek.au/v2/client/team", format: "url" },
+  assistantItems: { label: "Assistants (list items)", sample: "<li>Kim (kim@example.com)</li>", format: "html" },
+  grantParagraph: { label: "Permissions paragraph", sample: "<p>You can change what they are allowed to do at any time.</p>", format: "html" },
+  // Website leads
+  notesHtml: { label: "Notes (line breaks kept)", sample: "Two bedrooms.<br />Pets on site.", format: "html" },
   // Office messages
   subject: { label: "Subject the sender wrote", sample: "Roster for next week" },
   message: { label: "Message the sender wrote", sample: "The new roster is up in the team hub.", format: "multiline" },

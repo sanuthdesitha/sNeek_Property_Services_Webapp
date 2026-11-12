@@ -46,8 +46,8 @@ export function JobStatusIcon({
   domain?: "job" | "laundry" | "qa";
   animate?: boolean;
 }) {
-  const laundryIcons: Record<string, typeof Package> = { PENDING: Package, CONFIRMED: ClipboardCheck, PICKED_UP: Truck, DROPPED: PackageCheck, FLAGGED: AlertTriangle, SKIPPED_PICKUP: Pause };
-  const laundryMotions: Record<string, string> = { PENDING: "plan", CONFIRMED: "assign", PICKED_UP: "travel", DROPPED: "complete", FLAGGED: "waiting", SKIPPED_PICKUP: "paused" };
+  const laundryIcons: Record<string, typeof Package> = { PENDING: Package, CONFIRMED: ClipboardCheck, PICKED_UP: Truck, READY_TO_RETURN: Truck, DROPPED: PackageCheck, FLAGGED: AlertTriangle, SKIPPED_PICKUP: Pause };
+  const laundryMotions: Record<string, string> = { PENDING: "plan", CONFIRMED: "assign", PICKED_UP: "travel", READY_TO_RETURN: "travel", DROPPED: "complete", FLAGGED: "waiting", SKIPPED_PICKUP: "paused" };
   const normalized = domain === "qa" ? ({ OPEN: "UNASSIGNED", IN_PROGRESS: "QA_REVIEW", CANCELLED: "PAUSED" }[status] ?? status) : status;
   const { step } = jobProgress(normalized);
   const JobIcon =

@@ -29,6 +29,7 @@ import { getClientInvoice, renderClientInvoicePdf } from "@/lib/billing/client-i
 import { getStoredJobReport } from "@/lib/reports/access";
 import { getJobReportPdfBuffer } from "@/lib/reports/pdf";
 import { getJobReference } from "@/lib/jobs/job-number";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const TZ = "Australia/Sydney";
 
@@ -110,6 +111,11 @@ function checklistOverrideFromNotes(notes: string | null | undefined, jobType: s
   } catch {
     return null;
   }
+}
+
+/** The subject and HTML of a rendered wording part. */
+function emailFields(rendered: { subject: string; html: string }): { subject: string; html: string } {
+  return { subject: rendered.subject, html: rendered.html };
 }
 
 async function renderPdf(html: string, label: string): Promise<Buffer | null> {
@@ -212,12 +218,13 @@ async function buildDocumentEmail(clientId: string, docType: DocumentType, targe
   }
   const publicUrl = publicToken ? resolveAppUrl(`/q/${publicToken}`) : null;
 
+  const docWording = await loadNotificationWording("client.documents");
   if (docType === "QUOTE") {
     const html = buildQuoteHtml(quote, { ...branding, viewOnlineUrl: publicUrl ?? undefined });
     const pdf = await renderPdf(buildQuoteHtml(quote, branding), "quote PDF");
     return {
       ok: recipients.length > 0,
-      subject: `${companyName}: Your quote`,
+      subject: docWording.line("quote-subject", "INBOX", { companyName }),
       html,
       attachments: pdf ? [{ filename: "quote.pdf", content: pdf }] : [],
       recipients,
@@ -232,8 +239,7 @@ async function buildDocumentEmail(clientId: string, docType: DocumentType, targe
     const pdf = await renderPdf(checklistHtml, "quote checklist PDF");
     return {
       ok: recipients.length > 0,
-      subject: `${companyName}: Your service checklist`,
-      html: `<p>Please find the latest service checklist for your ${serviceLabel.toLowerCase()} attached.</p>`,
+      ...emailFields(docWording.render("checklist", "EMAIL", { companyName, service: serviceLabel.toLowerCase() })),
       attachments: pdf ? [{ filename: "service-checklist.pdf", content: pdf }] : [],
       recipients,
       reason: recipients.length ? undefined : "No client email on file.",
@@ -251,8 +257,7 @@ async function buildDocumentEmail(clientId: string, docType: DocumentType, targe
     const pdf = await renderPdf(addOnsHtml, "add-on list PDF");
     return {
       ok: recipients.length > 0,
-      subject: `${companyName}: Optional add-ons`,
-      html: `<p>Here's our full list of optional add-ons you can add to your clean.${publicUrl ? ` You can also request them online: <a href="${publicUrl}">view your quote</a>.` : ""}</p>`,
+      ...emailFields(docWording.render("addons", "EMAIL", { companyName, onlineSentence: docWording.line("addons-online", "EMAIL", { quoteUrl: publicUrl }, Boolean(publicUrl)) })),
       attachments: pdf ? [{ filename: "optional-add-ons.pdf", content: pdf }] : [],
       recipients,
       reason: recipients.length ? undefined : "No client email on file.",
@@ -262,8 +267,7 @@ async function buildDocumentEmail(clientId: string, docType: DocumentType, targe
   // ONLINE_LINK
   return {
     ok: recipients.length > 0 && Boolean(publicUrl),
-    subject: `${companyName}: View your quote & request add-ons online`,
-    html: `<p>You can view your quote and request any optional add-ons online here:</p><p><a href="${publicUrl}">${publicUrl}</a></p>`,
+    ...emailFields(docWording.render("online-link", "EMAIL", { companyName, quoteUrl: publicUrl })),
     attachments: [],
     recipients,
     reason: !publicUrl ? "Could not create the online link." : recipients.length ? undefined : "No client email on file.",

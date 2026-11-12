@@ -1,21 +1,44 @@
 "use client";
 
 /**
- * Estate-native re-auth gate. Replicates the v1 AdminPageLock behaviour used on
- * the pricing page: prompts for the admin PIN or account password, verifies via
- * POST /api/admin/security/verify, and — once unlocked — stays unlocked for the
- * rest of the browser session (per lockId, via sessionStorage). No dependency on
+ * Estate-native re-auth gate for the Rate card and Price book. Asks for the
+ * person's OWN PIN (or, while they have none, their account password once and
+ * a new PIN), verifies via POST /api/admin/security/verify, and — once
+ * unlocked — stays unlocked for the rest of the browser tab for THAT person
+ * only (sessionStorage key per lockId and signed-in account), so another
+ * person signing in on the same tab starts locked. No dependency on
  * components/{admin,ui}/*.
  */
 import * as React from "react";
 import { Lock, ShieldCheck } from "lucide-react";
 import { EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
-import { EField, EInput } from "@/components/v2/admin/estate-kit";
+import { OwnPinFields, useOwnPinPrompt } from "@/components/v2/shared/own-pin-fields";
+import { sensitiveVerificationText } from "@/lib/security/pin-rules";
+
+function pageLockStorageKey(lockId: string, userId: string): string {
+  return `sneek_pagelock_${lockId}:${userId}`;
+}
+
+function readUnlocked(key: string): boolean {
+  try {
+    return sessionStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberUnlocked(key: string) {
+  try {
+    sessionStorage.setItem(key, "1");
+  } catch {
+    /* sessionStorage unavailable: the page stays unlocked until it reloads */
+  }
+}
 
 export function EstatePageLock({
   lockId,
   title = "This page is locked",
-  description = "Enter your admin PIN or password to view and edit this page.",
+  description = "Enter your PIN to view and edit this page.",
   children,
 }: {
   lockId: string;
@@ -23,27 +46,20 @@ export function EstatePageLock({
   description?: string;
   children: React.ReactNode;
 }) {
-  const storageKey = `sneek_pagelock_${lockId}`;
-  const [unlocked, setUnlocked] = React.useState(false);
-  const [ready, setReady] = React.useState(false);
-  const [pin, setPin] = React.useState("");
-  const [password, setPassword] = React.useState("");
+  const ownPin = useOwnPinPrompt(true);
+  const userId = ownPin.userId;
+  const [unlockedFor, setUnlockedFor] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
-    try {
-      if (sessionStorage.getItem(storageKey) === "1") setUnlocked(true);
-    } catch {
-      /* sessionStorage unavailable */
-    }
-    setReady(true);
-  }, [storageKey]);
+    if (userId && readUnlocked(pageLockStorageKey(lockId, userId))) setUnlockedFor(userId);
+  }, [lockId, userId]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!pin.trim() && !password.trim()) {
-      setError("Enter your admin PIN or password.");
+    if (!ownPin.credentials) {
+      setError(ownPin.problem ?? "Enter your PIN.");
       return;
     }
     setBusy(true);
@@ -52,34 +68,24 @@ export function EstatePageLock({
       const res = await fetch("/api/admin/security/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: pin.trim() || undefined, password: password.trim() || undefined }),
+        body: JSON.stringify(ownPin.credentials),
       });
-      const body = await res.json().catch(() => ({}));
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!res.ok || !body.ok) {
-        setError(
-          body.error === "INVALID_SECURITY_VERIFICATION"
-            ? "Incorrect PIN or password."
-            : body.error === "PIN_OR_PASSWORD_REQUIRED"
-              ? "Enter your admin PIN or password."
-              : body.error || "Verification failed."
-        );
+        setError(sensitiveVerificationText(body.error));
         return;
       }
-      try {
-        sessionStorage.setItem(storageKey, "1");
-      } catch {
-        /* ignore */
-      }
-      setUnlocked(true);
-      setPin("");
-      setPassword("");
+      if (userId) rememberUnlocked(pageLockStorageKey(lockId, userId));
+      setUnlockedFor(userId ?? "this-page");
+      ownPin.reset();
+    } catch {
+      setError("Could not reach the server. Try again.");
     } finally {
       setBusy(false);
     }
   }
 
-  if (!ready) return null;
-  if (unlocked) return <>{children}</>;
+  if (unlockedFor && (unlockedFor === userId || unlockedFor === "this-page")) return <>{children}</>;
 
   return (
     <div className="mx-auto flex min-h-[60vh] max-w-md items-center">
@@ -95,25 +101,9 @@ export function EstatePageLock({
             </div>
           </div>
           <form onSubmit={submit} className="space-y-4">
-            <EField label="Admin PIN">
-              <EInput
-                inputMode="numeric"
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                placeholder="4+ digits"
-                autoComplete="off"
-              />
-            </EField>
-            <EField label="Password" hint="Use your account password if no PIN is set.">
-              <EInput
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-              />
-            </EField>
+            <OwnPinFields {...ownPin.fieldProps} disabled={busy} />
             {error ? (
-              <p className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{error}</p>
+              <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{error}</p>
             ) : null}
             <EButton type="submit" variant="gold" className="w-full" disabled={busy}>
               <ShieldCheck className="h-4 w-4" />

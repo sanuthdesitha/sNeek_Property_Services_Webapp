@@ -1,6 +1,7 @@
 import "server-only";
 import { QuoteStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { formatQuoteReference } from "@/lib/quotes/quote-reference";
 import type { QuoteWaiting } from "@/components/v2/client/approvals/quote-decision-card";
 
 /**
@@ -13,11 +14,12 @@ export async function listQuotesWaiting(clientId: string, now = new Date()): Pro
   const rows = await db.quote.findMany({
     where: { clientId, status: QuoteStatus.SENT },
     orderBy: [{ createdAt: "desc" }],
-    select: { id: true, serviceType: true, totalAmount: true, validUntil: true, createdAt: true },
+    select: { id: true, quoteNumber: true, serviceType: true, totalAmount: true, validUntil: true, createdAt: true },
     take: 50,
   });
   return rows.map((row) => ({
     id: row.id,
+    reference: formatQuoteReference(row.quoteNumber),
     serviceType: String(row.serviceType),
     totalAmount: Number(row.totalAmount ?? 0),
     validUntil: row.validUntil ? row.validUntil.toISOString() : null,

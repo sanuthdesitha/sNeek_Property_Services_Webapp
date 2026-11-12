@@ -13,6 +13,7 @@ import { calculateGstBreakdown } from "@/lib/pricing/gst";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { wrapEmailHtml } from "@/lib/email-templates";
 import { resolveClientDeliveryRecipients } from "@/lib/commercial/delivery-profiles";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 /**
  * Post-conversion job extras ("quote extras anytime"):
@@ -274,28 +275,24 @@ async function applyExtrasChange(
     const removedRows = removed
       .map((r) => `<li style="margin:4px 0;">${escapeHtml(r.label)}${r.grossPrice > 0 ? ` — −${money(r.grossPrice)}` : ""}</li>`)
       .join("");
-    const innerHtml = `
-      <h2 class="h2" style="margin:0 0 14px;font-size:24px;font-weight:600;">Your booking has been updated</h2>
-      <p style="margin:0 0 14px;">Hi ${escapeHtml(clientName)},</p>
-      <p style="margin:0 0 14px;">
-        We've updated your booking${job.property?.name ? ` at <strong>${escapeHtml(job.property.name)}</strong>` : ""}
-        scheduled for <strong>${escapeHtml(dateLabel)}</strong> (job ${escapeHtml(job.jobNumber)}).
-      </p>
-      ${addedRows ? `<p style="margin:0 0 6px;font-weight:600;">Added to your service:</p><ul style="margin:0 0 14px;padding-left:20px;">${addedRows}</ul>` : ""}
-      ${removedRows ? `<p style="margin:0 0 6px;font-weight:600;">Removed from your service:</p><ul style="margin:0 0 14px;padding-left:20px;">${removedRows}</ul>` : ""}
-      ${input.note ? `<p style="margin:0 0 14px;">${escapeHtml(input.note)}</p>` : ""}
-      <p style="margin:0 0 6px;font-size:16px;">
-        Updated total for this booking: <strong>${money(afterPrice)}</strong>
-      </p>
-      <p style="margin:14px 0 0;color:#6b6b66;font-size:13px;">
-        If anything here doesn't look right, just reply or contact us and we'll sort it out.
-      </p>
-    `;
+    const docWording = await loadNotificationWording("client.documents");
+    const bookingEmail = docWording.render("booking-updated", "EMAIL", {
+      clientName,
+      atProperty: docWording.line("at-property", "EMAIL", { propertyName: job.property?.name }, Boolean(job.property?.name)),
+      dateLabel,
+      jobNumber: job.jobNumber,
+      addedBlock: docWording.line("added-block", "EMAIL", { items: addedRows }, Boolean(addedRows)),
+      removedBlock: docWording.line("removed-block", "EMAIL", { items: removedRows }, Boolean(removedRows)),
+      noteParagraph: docWording.line("booking-note", "EMAIL", { note: input.note }, Boolean(input.note)),
+      total: money(afterPrice),
+      companyName: settings.companyName,
+    });
+    const innerHtml = bookingEmail.html;
     const html = wrapEmailHtml(
       { companyName: settings.companyName, logoUrl: settings.logoUrl },
       innerHtml
     );
-    const subject = `Your booking has been updated — ${settings.companyName}`;
+    const subject = bookingEmail.subject;
     const sent = await sendEmailDetailed({ to: recipients, subject, html });
     emailed = sent.ok;
 

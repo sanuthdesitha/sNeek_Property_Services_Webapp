@@ -1,6 +1,7 @@
 import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { Role, MaintenanceOutcome, NotificationChannel, NotificationStatus } from "@prisma/client";
+import { normalizeOutcomeInput, outcomeLabel } from "@/lib/maintenance/visit-outcomes";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -13,7 +14,9 @@ const schema = z.object({
   lat: z.number().nullable().optional(),
   lng: z.number().nullable().optional(),
   accuracy: z.number().nullable().optional(),
-  outcome: z.nativeEnum(MaintenanceOutcome).nullable().optional(),
+  // One of the five current outcomes, or an earlier value from a screen that
+  // has not reloaded since the 2026-11-13 merge (mapped, original kept).
+  outcome: z.string().trim().max(40).nullable().optional(),
   workerNote: z.string().trim().max(4000).nullable().optional(),
   issuesNote: z.string().trim().max(4000).nullable().optional(),
   finishPhotoKeys: z.array(z.string().trim().min(1)).max(40).nullable().optional(),
@@ -32,6 +35,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "Not your maintenance job." }, { status: 403 });
     }
     const body = schema.parse(await req.json());
+    const normalizedOutcome = body.outcome ? normalizeOutcomeInput(body.outcome) : null;
+    if (body.outcome && !normalizedOutcome) {
+      return NextResponse.json({ error: "Choose one of the listed outcomes." }, { status: 400 });
+    }
     const worker = await getWorkerForUser(session.user.id);
 
     const item = await setMaintenanceVisitState({
@@ -41,7 +48,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       lat: body.lat ?? null,
       lng: body.lng ?? null,
       accuracy: body.accuracy ?? null,
-      outcome: body.outcome ?? null,
+      outcome: normalizedOutcome ? MaintenanceOutcome[normalizedOutcome.outcome] : null,
+      originalOutcome: normalizedOutcome?.original ?? null,
       workerNote: body.workerNote ?? null,
       issuesNote: body.issuesNote ?? null,
       finishPhotoKeys: body.finishPhotoKeys ?? null,
@@ -72,7 +80,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       admins.forEach((a) => recipients.add(a.id));
       const label = body.event.replace(/_/g, " ").toLowerCase();
       const wording = await loadNotificationWording("office.field_alerts");
-      const visitOutcome = body.event === "COMPLETE" && body.outcome ? body.outcome.replace(/_/g, " ").toLowerCase() : "";
+      const visitOutcome =
+        body.event === "COMPLETE" && normalizedOutcome ? outcomeLabel(normalizedOutcome.outcome).toLowerCase() : "";
       const visit = wording.render("maintenance-visit", "INBOX", {
         event: label,
         workerName: detail?.assignedWorker?.name ?? "Worker",

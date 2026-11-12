@@ -19,11 +19,16 @@ import { MediaGallery } from "@/components/shared/media-gallery";
 import { useLaundryActionModal, type ActionTask } from "@/components/v2/laundry/laundry-action-modal";
 import { PropertyAccessDetails } from "@/components/v2/laundry/next-stop-execution";
 import { StopPickupForm } from "./stop-pickup-form";
+import { PartnerRunEntries, type PartnerEntryTask } from "./partner-run-entries";
 import { useStopDraft } from "./use-stop-draft";
 
 export type CleanerReport = { byName: string | null; atLabel: string | null; ready: boolean | null; bagCount: number | null; location: string | null; photoUrl: string | null };
 
-export type StopScreenTask = ActionTask & { property?: (ActionTask["property"] & { accessInfo?: unknown; accessGuide?: unknown; address?: string | null }) | null };
+export type StopScreenTask = ActionTask & {
+  property?: (ActionTask["property"] & { accessInfo?: unknown; accessGuide?: unknown; address?: string | null }) | null;
+  bagWeightKg?: number | null;
+  dropoffCostAud?: number | null;
+};
 
 type Props = {
   task: StopScreenTask;
@@ -34,6 +39,8 @@ type Props = {
   expected: number | null;
   baselineId: string | null;
   officePhone: string | null;
+  /** A LAUNDRY login acting as themselves: may add weight / price, ready to return, drop-off photos. */
+  partnerEntries?: boolean;
 };
 
 function useOnline(): boolean {
@@ -70,7 +77,7 @@ function CleanerCard({ cleaner }: { cleaner: CleanerReport | null }) {
   );
 }
 
-export function StopScreen({ task, kind, viewerId, stopLabel, cleaner, expected, baselineId, officePhone }: Props) {
+export function StopScreen({ task, kind, viewerId, stopLabel, cleaner, expected, baselineId, officePhone, partnerEntries = false }: Props) {
   const router = useRouter();
   const online = useOnline();
   const draftState = useStopDraft(`laundry-stop:${viewerId}:${task.id}:${kind}`, expected ?? 1);
@@ -81,7 +88,10 @@ export function StopScreen({ task, kind, viewerId, stopLabel, cleaner, expected,
   };
   const { openAction, modal } = useLaundryActionModal(done);
   const canPickup = kind === "PICKUP" && ["PENDING", "CONFIRMED"].includes(task.status);
-  const canDrop = kind === "DROP" && task.status === "PICKED_UP";
+  // A drop is recorded from picked up or "Ready to return" (marking ready is optional).
+  const canDrop = kind === "DROP" && (task.status === "PICKED_UP" || task.status === "READY_TO_RETURN");
+  const entryTask: PartnerEntryTask = { id: task.id, status: task.status, updatedAt: task.updatedAt, bagWeightKg: task.bagWeightKg, dropoffCostAud: task.dropoffCostAud, propertyName: task.property?.name ?? "Property" };
+  const refresh = () => router.refresh();
   const name = task.property?.name ?? "Property";
   const hasDraft = draftState.restored || draftState.persisted === true;
 
@@ -122,8 +132,15 @@ export function StopScreen({ task, kind, viewerId, stopLabel, cleaner, expected,
         />
       ) : canDrop ? (
         <div className="space-y-2">
+          {task.status === "READY_TO_RETURN" ? <p role="status" className="text-[0.8125rem] font-[600]">Ready to return</p> : null}
+          {partnerEntries ? <PartnerRunEntries key={task.id} task={entryTask} onSaved={refresh} /> : null}
           <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Record where the bags were left, the drop-off photo and, if you have them, weight, price and receipt.</p>
           <EButton className="min-h-12 w-full justify-center" onClick={() => openAction(task, "RETURNED")}>Confirm drop-off</EButton>
+        </div>
+      ) : kind === "DROP" && task.status === "DROPPED" && partnerEntries ? (
+        <div className="space-y-2">
+          <p role="status" className="text-[0.875rem]">This drop-off is recorded. <Link className="underline" href={`/v2/laundry/tracking#task-${encodeURIComponent(task.id)}`}>Open on Tracking</Link></p>
+          <PartnerRunEntries key={task.id} task={entryTask} onSaved={refresh} />
         </div>
       ) : (
         <p role="status" className="text-[0.875rem]">

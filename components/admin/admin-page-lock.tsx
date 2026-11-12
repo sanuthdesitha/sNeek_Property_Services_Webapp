@@ -4,19 +4,20 @@ import { useEffect, useState } from "react";
 import { Lock, ShieldCheck } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { OwnPinFields, useOwnPinPrompt } from "@/components/v2/shared/own-pin-fields";
+import { sensitiveVerificationText } from "@/lib/security/pin-rules";
 
 /**
- * Gates its children behind an admin PIN / password re-auth prompt. Once
- * unlocked it stays unlocked for the rest of the browser session (per lockId),
- * so navigating away and back doesn't re-prompt. Set an admin PIN under
- * Profile → Security; the account password also works.
+ * Gates its children behind the person's OWN PIN (or, while they have none,
+ * their account password once and a new PIN). Once unlocked it stays unlocked
+ * for the rest of the browser tab for that signed-in person only (per lockId
+ * and account), so navigating away and back doesn't re-prompt and another
+ * person on the same tab starts locked. The PIN is set in the profile.
  */
 export function AdminPageLock({
   lockId,
   title = "This page is locked",
-  description = "Enter your admin PIN or password to view and edit this page.",
+  description = "Enter your PIN to view and edit this page.",
   children,
 }: {
   lockId: string;
@@ -24,27 +25,26 @@ export function AdminPageLock({
   description?: string;
   children: React.ReactNode;
 }) {
-  const storageKey = `sneek_pagelock_${lockId}`;
+  const ownPin = useOwnPinPrompt(true);
+  const userId = ownPin.userId;
+  const storageKey = userId ? `sneek_pagelock_${lockId}:${userId}` : null;
   const [unlocked, setUnlocked] = useState(false);
-  const [ready, setReady] = useState(false);
-  const [pin, setPin] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    if (!storageKey) return;
     try {
       if (sessionStorage.getItem(storageKey) === "1") setUnlocked(true);
     } catch {
       /* sessionStorage unavailable */
     }
-    setReady(true);
   }, [storageKey]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!pin.trim() && !password.trim()) {
-      setError("Enter your admin PIN or password.");
+    if (!ownPin.credentials) {
+      setError(ownPin.problem ?? "Enter your PIN.");
       return;
     }
     setBusy(true);
@@ -53,33 +53,29 @@ export function AdminPageLock({
       const res = await fetch("/api/admin/security/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: pin.trim() || undefined, password: password.trim() || undefined }),
+        body: JSON.stringify(ownPin.credentials),
       });
-      const body = await res.json().catch(() => ({}));
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!res.ok || !body.ok) {
-        setError(
-          body.error === "INVALID_SECURITY_VERIFICATION"
-            ? "Incorrect PIN or password."
-            : body.error === "PIN_OR_PASSWORD_REQUIRED"
-              ? "Enter your admin PIN or password."
-              : body.error || "Verification failed.",
-        );
+        setError(sensitiveVerificationText(body.error));
         return;
       }
-      try {
-        sessionStorage.setItem(storageKey, "1");
-      } catch {
-        /* ignore */
+      if (storageKey) {
+        try {
+          sessionStorage.setItem(storageKey, "1");
+        } catch {
+          /* ignore */
+        }
       }
       setUnlocked(true);
-      setPin("");
-      setPassword("");
+      ownPin.reset();
+    } catch {
+      setError("Could not reach the server. Try again.");
     } finally {
       setBusy(false);
     }
   }
 
-  if (!ready) return null;
   if (unlocked) return <>{children}</>;
 
   return (
@@ -96,29 +92,8 @@ export function AdminPageLock({
             </div>
           </div>
           <form onSubmit={submit} className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="pagelock-pin">Admin PIN</Label>
-              <Input
-                id="pagelock-pin"
-                inputMode="numeric"
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                placeholder="4+ digits"
-                autoComplete="off"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pagelock-password">Password</Label>
-              <Input
-                id="pagelock-password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Use your account password if no PIN set"
-                autoComplete="current-password"
-              />
-            </div>
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            <OwnPinFields {...ownPin.fieldProps} disabled={busy} />
+            {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
             <Button type="submit" className="w-full gap-2" disabled={busy}>
               <ShieldCheck className="h-4 w-4" />
               {busy ? "Verifying…" : "Unlock"}

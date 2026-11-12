@@ -80,7 +80,8 @@ export async function GET() {
     const overdueCutoff = new Date(now.getTime() - maxOutdoorDays * 24 * 60 * 60 * 1000);
 
     const overdueAtLaundry = await db.laundryTask.findMany({
-      where: { status: "PICKED_UP", pickedUpAt: { lt: overdueCutoff } },
+      // Out too long: picked up or "Ready to return" (still not delivered).
+      where: { status: { in: ["PICKED_UP", "READY_TO_RETURN"] }, pickedUpAt: { lt: overdueCutoff } },
       select: {
         id: true,
         pickedUpAt: true,

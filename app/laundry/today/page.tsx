@@ -18,7 +18,7 @@ import {
   type RouteStop,
 } from "@/components/laundry/today-live-map";
 
-type LaundryStatus = "PENDING" | "CONFIRMED" | "PICKED_UP" | "DROPPED" | "FLAGGED" | "SKIPPED_PICKUP";
+type LaundryStatus = "PENDING" | "CONFIRMED" | "PICKED_UP" | "READY_TO_RETURN" | "DROPPED" | "FLAGGED" | "SKIPPED_PICKUP";
 type StatusFilter = "all" | "pending" | "confirmed" | "flagged";
 type DayBucket = "today" | "tomorrow";
 type ActionKind = "pickup" | "dropoff";
@@ -47,6 +47,7 @@ const STATUS_VARIANT: Record<LaundryStatus, "neutral" | "info" | "success" | "wa
   PENDING: "neutral",
   CONFIRMED: "info",
   PICKED_UP: "primary",
+  READY_TO_RETURN: "primary",
   DROPPED: "success",
   FLAGGED: "danger",
   SKIPPED_PICKUP: "warning",
@@ -56,6 +57,7 @@ const STATUS_LABEL: Record<LaundryStatus, string> = {
   PENDING: "Pending",
   CONFIRMED: "Confirmed",
   PICKED_UP: "Picked up",
+  READY_TO_RETURN: "Ready to return",
   DROPPED: "Returned",
   FLAGGED: "Flagged",
   SKIPPED_PICKUP: "Skipped",
@@ -145,7 +147,7 @@ export default function LaundryTodayPage() {
         if (isSameDay(pickup, today)) return { bucket: "today", kind: "pickup" };
         if (isSameDay(pickup, tomorrow)) return { bucket: "tomorrow", kind: "pickup" };
       }
-      if (task.status === "PICKED_UP") {
+      if (task.status === "PICKED_UP" || task.status === "READY_TO_RETURN") {
         if (isSameDay(dropoff, today)) return { bucket: "today", kind: "dropoff" };
         if (isSameDay(dropoff, tomorrow)) return { bucket: "tomorrow", kind: "dropoff" };
         // Overdue picked-up tasks → today dropoff column
@@ -202,7 +204,7 @@ export default function LaundryTodayPage() {
         lng: typeof task.property?.longitude === "number" ? task.property.longitude : null,
         status: task.status,
         scheduledAt: task.pickupDate,
-        done: task.status === "PICKED_UP" || task.status === "DROPPED" || task.status === "SKIPPED_PICKUP",
+        done: task.status === "PICKED_UP" || task.status === "READY_TO_RETURN" || task.status === "DROPPED" || task.status === "SKIPPED_PICKUP",
       });
     }
     for (const task of buckets.today.dropoffs) {
@@ -410,10 +412,10 @@ function BoardColumn({
             const navUrl = taskNavUrl(task);
             const showAction =
               (actionKind === "pickup" && (task.status === "CONFIRMED" || task.status === "PENDING")) ||
-              (actionKind === "dropoff" && task.status === "PICKED_UP");
+              (actionKind === "dropoff" && (task.status === "PICKED_UP" || task.status === "READY_TO_RETURN"));
             const isOverdue =
               actionKind === "dropoff" &&
-              task.status === "PICKED_UP" &&
+              (task.status === "PICKED_UP" || task.status === "READY_TO_RETURN") &&
               new Date(task.dropoffDate) < startOfDay(new Date());
 
             return (

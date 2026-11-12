@@ -60,6 +60,12 @@ import { requireQaSubmitAssignment } from "@/lib/qa/submit-access";
 import type { Prisma } from "@prisma/client";
 import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 import { exactTemplateCopy, templateCopyLabel } from "@/lib/qa/inspection-template";
+import {
+  isVerdictAllowedOnScale,
+  normalizeVerdictScale,
+  storedSeverityForVerdict,
+  type QaStoredSeverity,
+} from "@/lib/qa/verdict-scale";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 
@@ -661,6 +667,19 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       if (stored) templateCopy = { label: templateCopyLabel(stored), source: stored.templateSnapshotSource, revision: stored.templateRevision };
     }
 
+    const verdictScale = normalizeVerdictScale(
+      assignment?.verdictScale ??
+        (
+          await db.qaAssignment
+            .findFirst({
+              where: { jobId: params.id, status: { not: QaAssignmentStatus.CANCELLED } },
+              orderBy: { updatedAt: "desc" },
+              select: { verdictScale: true },
+            })
+            .catch(() => null)
+        )?.verdictScale
+    );
+
     return NextResponse.json({
       job,
       template: shownTemplate,
@@ -668,6 +687,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       assignment: assignment
         ? { ...assignment, reworkOfferStatus: effectiveOfferStatus(assignment as any) }
         : assignment,
+      // Which verdicts this inspection offers (lib/qa/verdict-scale.ts). No
+      // active assignment visible (an amendment the office opens, or none yet)
+      // falls back to the job's latest assignment, then the current scale.
+      verdictScale,
       reopen,
       amendingReviewId,
       mediaOverrides,
@@ -790,6 +813,29 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const settings = await getAppSettings();
     const validCategories = settings.accountability.issueCategories.map((c) => c.key);
     const accountabilityInput = sanitizeAccountabilityAssessment(body.accountability, validCategories);
+    // The inspection's verdict scale is stored on its assignment (stamped by
+    // migration 20261113021000 for inspections begun before the change). A
+    // verdict from the other scale is refused with the reason rather than
+    // re-mapped: new inspections cannot record Major / Critical, and an older
+    // in-progress or amended inspection keeps exactly the options it began with.
+    const verdictScale = normalizeVerdictScale(authorizedAssignment.verdictScale);
+    const offScale = (accountabilityInput?.verdicts ?? []).filter(
+      (entry) => !isVerdictAllowedOnScale(entry.verdict, verdictScale)
+    );
+    if (offScale.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            verdictScale === "FAIL"
+              ? "This inspection grades Pass, Minor, Fail or N/A. Major and Critical are no longer offered; choose Fail (tick Serious where it applies)."
+              : "This inspection was started on the earlier grading (Pass, Minor, Major, Critical, N/A) and keeps it until it is completed.",
+          code: "VERDICT_SCALE_MISMATCH",
+          verdictScale,
+          fieldIds: offScale.map((entry) => entry.fieldId),
+        },
+        { status: 409 }
+      );
+    }
     const accountabilityResult = accountabilityInput
       ? computeAccountabilityScore(accountabilityInput, settings.accountability.scoring)
       : null;
@@ -1114,7 +1160,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         },
       });
 
-      // ── ACCOUNTABILITY: create one QaIssue per MINOR/MAJOR/CRITICAL verdict
+      // ── ACCOUNTABILITY: create one QaIssue per MINOR/FAIL/MAJOR/CRITICAL verdict
       //    plus dedicated issues for unmatched suspected false confirmations, and
       //    audit the assessment. All inside the same transaction as the review.
       if (accountabilityInput && accountabilityResult) {
@@ -1141,14 +1187,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           }
           const matchedFalseConf = new Set<string>();
 
-          const severityMap: Record<"MINOR" | "MAJOR" | "CRITICAL", QaIssueSeverity> = {
+          const severityMap: Record<QaStoredSeverity, QaIssueSeverity> = {
             MINOR: QaIssueSeverity.MINOR,
             MAJOR: QaIssueSeverity.MAJOR,
             CRITICAL: QaIssueSeverity.CRITICAL,
           };
 
           for (const v of accountabilityInput.verdicts) {
-            if (v.verdict !== "MINOR" && v.verdict !== "MAJOR" && v.verdict !== "CRITICAL") continue;
+            // Fail lands in the existing grouping (Fail = MAJOR, serious Fail =
+            // CRITICAL) so streaks, patterns, counts and charts need no change.
+            const storedSeverity = storedSeverityForVerdict(v.verdict, v.serious === true);
+            if (!storedSeverity) continue;
             const isFalseConf = falseConfByField.has(v.fieldId);
             if (isFalseConf) matchedFalseConf.add(v.fieldId);
             await tx.qaIssue.create({
@@ -1163,7 +1212,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
                 fieldId: v.fieldId,
                 itemKey: v.itemKey ?? null,
                 description: v.description || v.label || "QA issue",
-                severity: severityMap[v.verdict],
+                severity: severityMap[storedSeverity],
+                failVerdict: v.verdict === "FAIL",
+                serious: v.verdict === "FAIL" && v.serious === true,
                 // Flattened above so the cleaner, the admin workspaces and the
                 // PDF all get one opaque image instead of a transparent overlay.
                 qaPhotoKeys: (flattenedPhotosByField.get(v.fieldId) ?? v.qaPhotoKeys ?? undefined) as any,
@@ -1568,6 +1619,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       {
         const counts = accountabilityResult.counts;
         const issueParts: string[] = [];
+        if (counts.seriousFail) issueParts.push(`${counts.seriousFail} serious fail`);
+        if (counts.fail) issueParts.push(`${counts.fail} fail`);
         if (counts.critical) issueParts.push(`${counts.critical} critical`);
         if (counts.major) issueParts.push(`${counts.major} major`);
         if (counts.minor) issueParts.push(`${counts.minor} minor`);

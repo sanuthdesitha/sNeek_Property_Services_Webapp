@@ -35,6 +35,10 @@ export const SLA_PARTS: readonly WordingPartDefinition[] = [
   line("issues-sentence", "Issues created", "INBOX", " Created {{issues}} issue ticket(s).", "Added when issue tickets were created."),
   part("daily-briefing", "Daily briefing", "EMAIL", { subject: "sNeek ops briefing - {{date}}", body: BRIEFING_EMAIL }, { note: "Each count is read from the day's records." }),
   line("no-jobs", "No jobs", "EMAIL", "No jobs", "Shown as the status mix when there are no jobs today."),
+  line("tomorrow-none-html", "Tomorrow: no jobs (email)", "EMAIL", "<p>No jobs are scheduled for tomorrow.</p><p>Please still check your schedule in case anything changes.</p>", "Used as the job list in the tomorrow summary when there are none."),
+  line("tomorrow-none-text", "Tomorrow: no jobs (inbox, SMS)", "INBOX", "No jobs scheduled for tomorrow. Please still check your schedule in case anything changes.", "Used as the job list in the inbox and SMS when there are none."),
+  line("laundry-none-html", "Tomorrow: no laundry (email)", "EMAIL", "<p>No laundry pickups or drop-offs are scheduled for tomorrow.</p><p>Please still check your laundry schedule in case anything changes.</p>", "Used when no laundry is scheduled tomorrow."),
+  line("laundry-none-text", "Tomorrow: no laundry (inbox, SMS)", "INBOX", "No laundry pickups or drop-offs scheduled for tomorrow. Please still check your schedule in case anything changes.", "Used when no laundry is scheduled tomorrow."),
 ];
 
 export const NEW_PROFILE_PARTS: readonly WordingPartDefinition[] = [

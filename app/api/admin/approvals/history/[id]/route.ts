@@ -42,7 +42,7 @@ const bodySchema = z.object({
   amount: z.number().positive().optional(),
   note: z.string().trim().max(4000).optional(),
   /** PIN or password for `delete`, checked here (not only in the browser). */
-  security: z.object({ pin: z.string().optional(), password: z.string().optional() }).optional(),
+  security: z.object({ pin: z.string().optional(), password: z.string().optional(), newPin: z.string().max(32).optional() }).optional(),
 });
 
 const MONEY_QUEUES: ApprovalQueueKey[] = [

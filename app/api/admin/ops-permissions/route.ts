@@ -33,7 +33,7 @@ async function editor(): Promise<{ session: Session; isAdmin: boolean }> {
 
 const saveSchema = z.object({
   policy: opsPolicySchema,
-  security: z.object({ pin: z.string().max(32).optional(), password: z.string().max(500).optional() }),
+  security: z.object({ pin: z.string().max(32).optional(), password: z.string().max(500).optional(), newPin: z.string().max(32).optional() }),
 });
 
 function failure(error: unknown, fallback: string) {

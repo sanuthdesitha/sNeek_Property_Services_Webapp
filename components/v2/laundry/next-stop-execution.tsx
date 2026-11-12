@@ -17,7 +17,7 @@ export function NextStopExecution({ task, kind, config, onAction }: {
   const pickup = confirmations.map(row => { try { return JSON.parse(row.notes ?? "null"); } catch { return null; } }).find(row => row?.event === "PICKED_UP");
   const bags = Number.isInteger(pickup?.bagCount) && pickup.bagCount > 0 ? pickup.bagCount : null;
   const location = confirmations.find(row => row.bagLocation?.trim())?.bagLocation;
-  const action = kind === "pickup" && ["PENDING", "CONFIRMED"].includes(task.status) ? "PICKED_UP" : kind === "dropoff" && task.status === "PICKED_UP" ? "RETURNED" : null;
+  const action = kind === "pickup" && ["PENDING", "CONFIRMED"].includes(task.status) ? "PICKED_UP" : kind === "dropoff" && (task.status === "PICKED_UP" || task.status === "READY_TO_RETURN") ? "RETURNED" : null;
   return <div className="min-w-0 space-y-3 break-words [overflow-wrap:anywhere] border-t border-[hsl(var(--e-border))] pt-3 text-sm">
     {task.property?.address ? <p>{task.property.address}</p> : null}
     <p>{bags == null ? (kind === "pickup" ? "Bag count not recorded; count bags at pickup." : "Bag count not recorded; check the task history before returning bags.") : `${bags} bags recorded at pickup.`}</p>

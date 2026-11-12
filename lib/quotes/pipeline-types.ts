@@ -12,6 +12,8 @@
  *   Open              — New + Contacted + Quoted
  */
 
+import { formatQuoteReference } from "./quote-reference";
+
 export const PIPELINE_STAGES = ["open", "new", "contacted", "quoted", "won", "lost"] as const;
 export type PipelineStage = (typeof PIPELINE_STAGES)[number];
 
@@ -34,7 +36,7 @@ export type PipelineRow = {
   id: string;
   /** Client or lead name. */
   name: string;
-  /** "Q-0187"-style short reference for quotes; "Lead · Randwick" for leads. */
+  /** "Q-204" quote reference (Quote.quoteNumber); "Lead · Randwick" for leads. */
   reference: string;
   serviceType: string;
   suburb: string | null;
@@ -138,6 +140,16 @@ export function estimateMargin(input: MarginInputs): { margin: number | null; be
   return { margin, belowFloor: margin * 100 < input.marginFloorPercent };
 }
 
-export function shortQuoteRef(id: string): string {
+/**
+ * The quote's reference as clients see it ("Q-204", from `Quote.quoteNumber`).
+ * Given only an id (a caller that has not read the number), the older id-based
+ * short form is kept so nothing renders blank.
+ */
+export function shortQuoteRef(quote: string | { id: string; quoteNumber?: number | null }): string {
+  if (typeof quote !== "string") {
+    const reference = formatQuoteReference(quote.quoteNumber);
+    if (reference) return reference;
+  }
+  const id = typeof quote === "string" ? quote : quote.id;
   return `Q-${id.slice(-6).toUpperCase()}`;
 }

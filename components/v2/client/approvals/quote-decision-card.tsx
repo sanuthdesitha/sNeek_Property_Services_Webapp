@@ -10,6 +10,8 @@ import { approvalMoney, sentenceCase, sydneyDateTime } from "@/components/v2/cli
 
 export interface QuoteWaiting {
   id: string;
+  /** The reference the client can quote back to us ("Q-204"); null when unavailable. */
+  reference?: string | null;
   serviceType: string;
   totalAmount: number;
   /** ISO instant; null when the quote has no expiry. */
@@ -35,13 +37,14 @@ export function QuoteDecisionCard({ quote, compact = false }: { quote: QuoteWait
       : `Valid until ${sydneyDateTime(quote.validUntil, "d MMM")}`
     : "No expiry date";
   const title = `${sentenceCase(quote.serviceType)} quote`;
+  const label = quote.reference ? `Quote ${quote.reference}` : "Quote";
   if (compact) {
     return (
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-[0.875rem] font-semibold">{title}</p>
           <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-            Quote · {approvalMoney(quote.totalAmount, "AUD")} · {validity}
+            {label} · {approvalMoney(quote.totalAmount, "AUD")} · {validity}
           </p>
         </div>
         <Link href={quoteDecisionHref(quote.id, "accept")} className={`${OUTLINE} flex-none`}>Review</Link>
@@ -51,7 +54,7 @@ export function QuoteDecisionCard({ quote, compact = false }: { quote: QuoteWait
   return (
     <ECard className="space-y-1.5 p-3 sm:p-4">
       <div className="flex items-center justify-between gap-2">
-        <EBadge tone="info" soft>Quote</EBadge>
+        <EBadge tone="info" soft>{label}</EBadge>
         <span className="e-numeral text-[0.9375rem] font-semibold">{approvalMoney(quote.totalAmount, "AUD")}</span>
       </div>
       <p className="text-[0.9375rem] font-semibold">{title}</p>

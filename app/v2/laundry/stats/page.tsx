@@ -26,6 +26,7 @@ const STATUS_META: Array<{ status: LaundryStatus; label: string; tone: Tone }> =
   { status: LaundryStatus.PENDING, label: "Pending", tone: "neutral" },
   { status: LaundryStatus.CONFIRMED, label: "Awaiting pickup", tone: "primary" },
   { status: LaundryStatus.PICKED_UP, label: "At laundry", tone: "info" },
+  { status: LaundryStatus.READY_TO_RETURN, label: "Ready to return", tone: "info" },
   { status: LaundryStatus.DROPPED, label: "Returned", tone: "success" },
   { status: LaundryStatus.FLAGGED, label: "Flagged", tone: "danger" },
   { status: LaundryStatus.SKIPPED_PICKUP, label: "Skipped", tone: "warning" },
@@ -67,7 +68,7 @@ async function getStats(scope: Awaited<ReturnType<typeof laundryTaskScope>>) {
       .count({ where: { ...scope, status: LaundryStatus.CONFIRMED, pickupDate: { lt: dayAfterTomorrow } } })
       .catch(() => 0),
     db.laundryTask
-      .count({ where: { ...scope, status: LaundryStatus.PICKED_UP, dropoffDate: { lt: todayStart } } })
+      .count({ where: { ...scope, status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.READY_TO_RETURN] }, dropoffDate: { lt: todayStart } } })
       .catch(() => 0),
     db.laundryTask
       .count({ where: { ...scope, status: LaundryStatus.PENDING, pickupDate: { lte: tomorrowStart } } })

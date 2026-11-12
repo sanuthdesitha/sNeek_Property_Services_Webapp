@@ -88,6 +88,7 @@ const STATUS_COLOR: Record<LaundryStatus, string> = {
   PENDING: "hsl(var(--e-muted-foreground))",
   CONFIRMED: "hsl(var(--e-primary))",
   PICKED_UP: "hsl(var(--e-info))",
+  READY_TO_RETURN: "hsl(var(--e-info))",
   DROPPED: "hsl(var(--e-success))",
   FLAGGED: "hsl(var(--e-danger))",
   SKIPPED_PICKUP: "hsl(var(--e-warning))",

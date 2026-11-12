@@ -93,7 +93,8 @@ import {
   DEFAULT_ACCOUNTABILITY_SCORING,
   DEFAULT_ISSUE_CATEGORIES,
   VERDICT_LABELS,
-  VERDICT_OPTIONS,
+  verdictOptionsFor,
+  type QaVerdictScaleKey,
   buildAccountabilityBlob,
   cleanerAnsweredAffirmatively,
   computeAccountabilityPreview,
@@ -107,6 +108,7 @@ import {
   type ItemMeta,
   type VerdictState,
 } from "@/components/v2/qa/accountability";
+import { normalizeVerdictScale } from "@/lib/qa/verdict-scale";
 
 /* ── helpers ──────────────────────────────────────────────────────────── */
 function dataUrlToBlob(dataUrl: string): Blob {
@@ -161,6 +163,7 @@ function isPassChoiceField(field: any): boolean {
 const VERDICT_TO_LEGACY_ANSWER: Record<AccountabilityVerdict, string | null> = {
   PASS: "Pass",
   MINOR: "Minor issues",
+  FAIL: "Fail",
   MAJOR: "Fail",
   CRITICAL: "Fail",
   NA: null,
@@ -714,6 +717,7 @@ function ESignaturePad({ value, onChange }: { value: string; onChange: (dataUrl:
 const VERDICT_TONE: Record<AccountabilityVerdict, { on: string; onFg: string }> = {
   PASS: { on: "hsl(var(--e-success))", onFg: "hsl(var(--e-success-foreground, 0 0% 100%))" },
   MINOR: { on: "hsl(var(--e-warning))", onFg: "hsl(var(--e-warning-foreground, 0 0% 12%))" },
+  FAIL: { on: "hsl(var(--e-danger))", onFg: "hsl(var(--e-danger-foreground))" },
   MAJOR: { on: "#d9730d", onFg: "#ffffff" },
   CRITICAL: { on: "hsl(var(--e-danger))", onFg: "hsl(var(--e-danger-foreground))" },
   NA: { on: "hsl(var(--e-border-strong))", onFg: "hsl(var(--e-foreground))" },
@@ -738,6 +742,7 @@ function AccountabilityItemV2({
   qaStamp,
   urlByKey,
   scoring,
+  verdictScale,
   onAddPhoto,
   onRemovePhoto,
   onAnnotatePhoto,
@@ -760,6 +765,8 @@ function AccountabilityItemV2({
   urlByKey: Record<string, string>;
   /** Live scoring settings — the guidance quotes the numbers actually applied. */
   scoring: AccountabilityScoring;
+  /** The inspection's stored verdict scale: which buttons it offers. */
+  verdictScale: QaVerdictScaleKey;
   onAddPhoto: (key: string, url?: string) => void;
   onRemovePhoto: (key: string) => void;
   onAnnotatePhoto: (key: string, url: string) => void;
@@ -788,7 +795,7 @@ function AccountabilityItemV2({
             <EBadge tone="neutral" soft>Cleaner marked complete</EBadge>
           ) : null}
           <div className="ml-auto flex flex-wrap gap-1">
-            {VERDICT_OPTIONS.map((v) => {
+            {verdictOptionsFor(verdictScale).map((v) => {
               const active = state.verdict === v;
               const tone = VERDICT_TONE[v];
               const g = verdictGuide(v, scoring);
@@ -822,10 +829,26 @@ function AccountabilityItemV2({
           {!showIssue ? (
             <span className="text-[hsl(var(--e-text-faint))]">
               {" "}
-              Pick Minor, Major or Critical and you&apos;ll be asked what kind of problem it was and what was wrong.
+              {verdictScale === "MAJOR_CRITICAL"
+                ? "Pick Minor, Major or Critical and you'll be asked what kind of problem it was and what was wrong."
+                : "Pick Minor or Fail and you'll be asked what kind of problem it was and what was wrong."}
             </span>
           ) : null}
         </p>
+
+        {state.verdict === "FAIL" ? (
+          <label className="mt-2 flex min-h-11 items-center gap-2 text-[0.75rem] font-[550] text-[hsl(var(--e-foreground))]">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-[hsl(var(--e-danger))]"
+              checked={Boolean(state.serious)}
+              onChange={(e) => onPatch({ serious: e.target.checked })}
+            />
+            Serious: not fit for a guest, or a safety or damage problem (−{scoring.seriousFailDeduction} instead of −
+            {scoring.failDeduction}
+            {scoring.criticalTriggersManagementReview ? ", goes to management review" : ""}, breaks the bonus streak)
+          </label>
+        ) : null}
 
         {requiredPhoto ? (
           <label className="mt-2 flex items-center gap-2 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
@@ -1632,6 +1655,9 @@ export function QaInspectionWorkspace({
   const issueCategories: { key: string; label: string }[] =
     (payload?.settings?.accountability?.issueCategories as { key: string; label: string }[] | undefined) ??
     DEFAULT_ISSUE_CATEGORIES;
+  // The inspection's stored scale (server decides; an older in-progress or
+  // amended inspection keeps Major / Critical until it is completed).
+  const verdictScale: QaVerdictScaleKey = normalizeVerdictScale(payload?.verdictScale);
 
   // Cleaner-submission signals per field: their affirmative answer (false-
   // confirmation basis) + their media ids attached to that field.
@@ -1696,7 +1722,7 @@ export function QaInspectionWorkspace({
     () => computeAccountabilityPreview(verdicts, missingEvidence, acctScoring),
     [verdicts, missingEvidence, acctScoring]
   );
-  const gradingHelp = useMemo(() => gradingExplainer(acctScoring), [acctScoring]);
+  const gradingHelp = useMemo(() => gradingExplainer(acctScoring, verdictScale), [acctScoring, verdictScale]);
 
   function verdictState(fieldId: string): VerdictState {
     return verdicts[fieldId] ?? emptyVerdictState();
@@ -3207,8 +3233,17 @@ export function QaInspectionWorkspace({
             {acctPreview.active ? (
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
                 <span>Minor ×{acctPreview.minor} <span className="text-[hsl(var(--e-text-faint))]">(−{acctPreview.minor * acctScoring.minorDeduction})</span></span>
-                <span>Major ×{acctPreview.major} <span className="text-[hsl(var(--e-text-faint))]">(−{acctPreview.major * acctScoring.majorDeduction})</span></span>
-                <span>Critical ×{acctPreview.critical} <span className="text-[hsl(var(--e-text-faint))]">(−{acctPreview.critical * acctScoring.criticalDeduction})</span></span>
+                {verdictScale === "MAJOR_CRITICAL" ? (
+                  <>
+                    <span>Major ×{acctPreview.major} <span className="text-[hsl(var(--e-text-faint))]">(−{acctPreview.major * acctScoring.majorDeduction})</span></span>
+                    <span>Critical ×{acctPreview.critical} <span className="text-[hsl(var(--e-text-faint))]">(−{acctPreview.critical * acctScoring.criticalDeduction})</span></span>
+                  </>
+                ) : (
+                  <>
+                    <span>Fail ×{acctPreview.fail} <span className="text-[hsl(var(--e-text-faint))]">(−{acctPreview.fail * acctScoring.failDeduction})</span></span>
+                    <span>Serious fail ×{acctPreview.seriousFail} <span className="text-[hsl(var(--e-text-faint))]">(−{acctPreview.seriousFail * acctScoring.seriousFailDeduction})</span></span>
+                  </>
+                )}
                 <span>Missing evidence ×{acctPreview.missingEvidence} <span className="text-[hsl(var(--e-text-faint))]">(−{acctPreview.missingEvidence * acctScoring.missingMandatoryEvidenceDeduction})</span></span>
                 <span>False confirmations ×{acctPreview.falseConfirmations} <span className="text-[hsl(var(--e-text-faint))]">(−{acctPreview.falseConfirmations * acctScoring.falseConfirmationExtraDeduction})</span></span>
                 {acctPreview.na > 0 ? <span>N/A ×{acctPreview.na}</span> : null}
@@ -3357,6 +3392,7 @@ export function QaInspectionWorkspace({
                           qaStamp={qaStamp}
                           urlByKey={urlByKey}
                           scoring={acctScoring}
+                          verdictScale={verdictScale}
                           onAddPhoto={(key, url) => addVerdictPhoto(field.id, key, url)}
                           onRemovePhoto={(key) => removeVerdictPhoto(field.id, key)}
                           onAnnotatePhoto={(key, url) =>

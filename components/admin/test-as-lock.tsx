@@ -3,8 +3,9 @@
 /**
  * Lock screen for the "Test as" console.
  *
- * Same credential contract as the pricing page lock (admin PIN or account
- * password, verified server-side with bcrypt) — but the proof is a signed,
+ * Same credential contract as the pricing page lock (the person's OWN PIN, or
+ * while they have none their password once and a new PIN, verified server-side
+ * with bcrypt) — but the proof is a signed,
  * httpOnly, 15-minute cookie minted by POST /api/admin/test-as/unlock rather
  * than a sessionStorage flag, because POST /api/admin/impersonate enforces it
  * too. That is why a successful unlock reloads the page: the picker is rendered
@@ -13,14 +14,11 @@
 import * as React from "react";
 import { Lock, ShieldCheck } from "lucide-react";
 import { EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
-import { EField, EInput } from "@/components/v2/admin/estate-kit";
+import { OwnPinFields, useOwnPinPrompt } from "@/components/v2/shared/own-pin-fields";
+import { sensitiveVerificationText } from "@/lib/security/pin-rules";
 
 function messageFor(body: { error?: string; retryAfterSec?: number }): string {
   switch (body.error) {
-    case "INVALID_SECURITY_VERIFICATION":
-      return "Incorrect PIN or password.";
-    case "PIN_OR_PASSWORD_REQUIRED":
-      return "Enter your admin PIN or your account password.";
     case "TOO_MANY_ATTEMPTS": {
       const minutes = Math.max(1, Math.ceil((body.retryAfterSec ?? 900) / 60));
       return `Too many attempts. Try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`;
@@ -30,21 +28,20 @@ function messageFor(body: { error?: string; retryAfterSec?: number }): string {
     case "UNAUTHORIZED":
       return "Your session expired. Sign in again.";
     default:
-      return body.error || "Verification failed.";
+      return sensitiveVerificationText(body.error);
   }
 }
 
 export function TestAsLock() {
-  const [pin, setPin] = React.useState("");
-  const [password, setPassword] = React.useState("");
+  const ownPin = useOwnPinPrompt(true);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [lockedOut, setLockedOut] = React.useState(false);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!pin.trim() && !password.trim()) {
-      setError("Enter your admin PIN or your account password.");
+    if (!ownPin.credentials) {
+      setError(ownPin.problem ?? "Enter your PIN.");
       return;
     }
     setBusy(true);
@@ -53,14 +50,13 @@ export function TestAsLock() {
       const res = await fetch("/api/admin/test-as/unlock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: pin.trim() || undefined, password: password || undefined }),
+        body: JSON.stringify(ownPin.credentials),
       });
       const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; retryAfterSec?: number };
       if (!res.ok || !body.ok) {
         setLockedOut(body.error === "TOO_MANY_ATTEMPTS");
         setError(messageFor(body));
-        setPassword("");
-        setPin("");
+        ownPin.reset();
         return;
       }
       // Full reload: the unlock cookie is httpOnly and the picker is rendered
@@ -82,9 +78,9 @@ export function TestAsLock() {
               <Lock className="h-5 w-5" />
             </span>
             <div>
-              <h2 className="text-[1rem] font-semibold">Confirm your password</h2>
+              <h2 className="text-[1rem] font-semibold">Confirm with your PIN</h2>
               <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                Confirm your password to view the portals as another user.
+                Enter your own PIN to view the portals as another user.
               </p>
             </div>
           </div>
@@ -95,25 +91,7 @@ export function TestAsLock() {
           </p>
 
           <form onSubmit={submit} className="space-y-4">
-            <EField label="Admin PIN">
-              <EInput
-                inputMode="numeric"
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                placeholder="4+ digits"
-                autoComplete="off"
-                disabled={busy || lockedOut}
-              />
-            </EField>
-            <EField label="Password" hint="Use your account password if no PIN is set.">
-              <EInput
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                disabled={busy || lockedOut}
-              />
-            </EField>
+            <OwnPinFields {...ownPin.fieldProps} disabled={busy || lockedOut} />
             {error ? (
               <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">
                 {error}

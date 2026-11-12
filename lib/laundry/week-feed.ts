@@ -137,6 +137,8 @@ export async function fetchLaundryRouteCandidates(
     LaundryStatus.PENDING,
     LaundryStatus.CONFIRMED,
     LaundryStatus.PICKED_UP,
+    // A "Ready to return" set still has its drop ahead (2026-11-13).
+    LaundryStatus.READY_TO_RETURN,
     LaundryStatus.FLAGGED,
   ];
   const [current, overdueRaw] = await Promise.all([

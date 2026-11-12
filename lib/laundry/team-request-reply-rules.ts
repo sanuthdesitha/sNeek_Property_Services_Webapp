@@ -11,7 +11,11 @@
  *   CANNOT     "Can't" with a reason;
  *   RETURN_AT  "When will it be back?" answered with a day and time;
  *   MESSAGE    a note to the office (does not clear the request).
- * A typed reply records what the team said. It never changes the run.
+ * A typed reply records what the team said. One exception (owner decision
+ * 2026-11-13): "Yes, <time>" (CONFIRMED with a valid time) to a confirm-pickup,
+ * move-pickup or confirm-drop request also sets the run's planned TIME for
+ * that leg while the leg is still open (`plannedTimeFromAnswer`). Never the
+ * date, status or any schedule rule.
  */
 import type { LaundryTeamRequestKind } from "./nudge-rules";
 
@@ -88,4 +92,27 @@ export function describeTeamReply(reply: Pick<TeamReplySummary, "answer" | "time
 
 export function isTeamReplyAnswer(value: unknown): value is TeamReplyAnswer {
   return typeof value === "string" && (TEAM_REPLY_ANSWERS as readonly string[]).includes(value);
+}
+
+/** Statuses at which each leg is still open (not yet done, not skipped). */
+const PICKUP_OPEN_STATUSES: readonly string[] = ["PENDING", "CONFIRMED", "FLAGGED"];
+const DROP_OPEN_STATUSES: readonly string[] = ["PICKED_UP", "READY_TO_RETURN"];
+
+/**
+ * The planned time a team answer sets on the run, or null. Only "Yes" with a
+ * valid HH:mm time, to a request about a pickup time (confirm / move pickup:
+ * the pickup must not be done yet) or a drop time (confirm drop: picked up or
+ * ready, not yet delivered). Every other answer or state changes nothing.
+ */
+export function plannedTimeFromAnswer(input: { kind: LaundryTeamRequestKind | string; answer: TeamReplyAnswer | string; time: string | null | undefined; status: string }): { field: "pickupTime" | "dropoffTime"; time: string } | null {
+  if (input.answer !== "CONFIRMED") return null;
+  const time = typeof input.time === "string" ? input.time.trim() : "";
+  if (!TIME_PATTERN.test(time)) return null;
+  if (input.kind === "TEAM_CONFIRM_PICKUP" || input.kind === "TEAM_MOVE_PICKUP") {
+    return PICKUP_OPEN_STATUSES.includes(input.status) ? { field: "pickupTime", time } : null;
+  }
+  if (input.kind === "TEAM_CONFIRM_DROP") {
+    return DROP_OPEN_STATUSES.includes(input.status) ? { field: "dropoffTime", time } : null;
+  }
+  return null;
 }

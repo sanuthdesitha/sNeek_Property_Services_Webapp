@@ -17,6 +17,7 @@ const schema = z.object({
   security: z.object({
     pin: z.string().optional(),
     password: z.string().optional(),
+    newPin: z.string().max(32).optional(),
   }),
 });
 

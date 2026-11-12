@@ -31,14 +31,16 @@ enum Role {
   VA
 }
 
+/// The five finish outcomes drawn on the maintenance board (2026-11-13).
+/// FIXED and REPLACED were merged into REPLACED_OR_REPAIRED and OTHER into
+/// NEEDS_FOLLOWUP; each migrated row keeps what it was recorded as in
+/// PropertyMaintenanceItem.originalOutcome (lib/maintenance/visit-outcomes.ts).
 enum MaintenanceOutcome {
-  FIXED
-  REPLACED
+  REPLACED_OR_REPAIRED
   NEEDS_PARTS
   NEEDS_FOLLOWUP
   NO_ACCESS
   NO_ISSUE_FOUND
-  OTHER
 }
 
 enum MaintenancePingKind {
@@ -110,6 +112,9 @@ enum LaundryStatus {
   PENDING
   CONFIRMED
   PICKED_UP
+  /// Washed and waiting to go back (marked by the laundry partner's team).
+  /// Optional: a run can still go straight from PICKED_UP to DROPPED.
+  READY_TO_RETURN
   DROPPED
   FLAGGED
   SKIPPED_PICKUP
@@ -124,6 +129,15 @@ enum LaundryFlag {
 enum MediaType {
   PHOTO
   VIDEO
+}
+
+/// Which per-item verdicts an inspection offers (lib/qa/verdict-scale.ts).
+/// FAIL = Pass / Minor / Fail (+ optional Serious) / N/A, from 2026-11-13.
+/// MAJOR_CRITICAL = the earlier Pass / Minor / Major / Critical / N/A, kept by
+/// inspections started or completed before the change (and their amendments).
+enum QaVerdictScale {
+  FAIL
+  MAJOR_CRITICAL
 }
 
 enum QaAssignmentStatus {
@@ -523,6 +537,11 @@ model PropertyMaintenanceItem {
   clockInAt           DateTime?
   clockOutAt          DateTime?
   outcome             MaintenanceOutcome?
+  /// The outcome exactly as first recorded, kept when it is not one of the
+  /// five current values (FIXED, REPLACED, OTHER before the 2026-11-13 merge,
+  /// or a legacy value sent by an old screen). Plain text on purpose: the old
+  /// values no longer exist in MaintenanceOutcome. Null = recorded as stored.
+  originalOutcome     String?
   workerNote          String?             @db.Text
   issuesNote          String?             @db.Text
   finishPhotoKeys     Json?
@@ -812,6 +831,9 @@ model User {
   /// Additional roles this person may act as, beyond their primary one.
   extraRoles                     UserRole[]                  @relation("UserRoleHolder")
   qaDayAllowances                QaDayAllowance[]            @relation("QaDayAllowanceInspector")
+  qaDayOrders                    QaDayOrder[]                @relation("QaDayOrderInspector")
+  qaDayOrdersSet                 QaDayOrder[]                @relation("QaDayOrderSetBy")
+  qaDayOrdersUnlocked            QaDayOrder[]                @relation("QaDayOrderUnlockedBy")
   grantedUserRoles               UserRole[]                  @relation("UserRoleGrantedBy")
   maintenanceItemAssignmentsMade MaintenanceItemAssignment[] @relation("MaintenanceItemAssignedBy")
   mediaOverrideRequests        MediaOverrideRequest[]      @relation("MediaOverrideRequestedBy")
@@ -964,6 +986,8 @@ model User {
   notes               String?   @db.Text
   /// The office's private note about this person. Never sent to them.
   adminNotes          String?   @db.Text
+  /// This person's own sensitive-action PIN (ADMIN / OPS_MANAGER), hashed.
+  securityPin         UserSecurityPin?
 
   @@index([emailStatus])
   @@index([lastSeenAt])
@@ -2001,6 +2025,14 @@ model QaIssue {
   cleanerMediaIds       Json?
   cleanerMarkedComplete Boolean         @default(false)
   guestReadyImpact      Boolean         @default(false)
+  /// The inspector graded this item "Fail" (verdict scale FAIL, 2026-11-13).
+  /// A Fail is stored in the existing severity grouping so every count,
+  /// streak, pattern and chart keeps working: Fail = MAJOR, Fail + Serious =
+  /// CRITICAL. False = recorded on the earlier scale; read `severity` as is.
+  failVerdict           Boolean         @default(false)
+  /// The inspector ticked "Serious" on a Fail (severity CRITICAL). Carries
+  /// what only Critical used to trigger. CHECK: serious implies failVerdict.
+  serious               Boolean         @default(false)
 
   falseConfirmation     FalseConfirmationStatus @default(NONE)
   falseConfReviewedById String?
@@ -2133,6 +2165,10 @@ model QaAssignment {
   reworkOfferStatus    String?
   reworkOfferedAt      DateTime?
   reworkOfferExpiresAt DateTime?
+  /// Verdicts this inspection offers. New inspections: FAIL. Inspections
+  /// started or completed before 2026-11-13 were stamped MAJOR_CRITICAL by the
+  /// migration so they finish (and are amended) on the options they began with.
+  verdictScale         QaVerdictScale     @default(FAIL)
 
   // ── Inspection pay ────────────────────────────────────────────────────
   // QA inspections are paid work, exactly like a clean. These mirror the
@@ -3158,6 +3194,10 @@ model QuoteLead {
 
 model Quote {
   id              String      @id @default(cuid())
+  /// The reference clients see ("Q-204"). Taken from the "QUOTE" row of
+  /// InvoiceSequence when the quote is created; existing quotes were numbered in
+  /// creation order. Never reused: the counter only moves forward.
+  quoteNumber     Int         @unique
   leadId          String?
   clientId        String?
   serviceType     JobType
@@ -3417,6 +3457,29 @@ model InvoiceSequence {
   updatedAt  DateTime @updatedAt
 }
 
+/// ONE PERSON'S OWN SENSITIVE-ACTION PIN (owner decision 2026-11-13).
+///
+/// Every administrator and operations manager confirms sensitive actions with
+/// their OWN PIN; nobody can use another person's. The PIN is stored only as a
+/// bcrypt hash and is never shown again. `pinHash` null = no PIN yet (never set,
+/// or cleared by an administrator's reset): the next sensitive action asks for
+/// the account password once and a new PIN. Wrong attempts are counted here so
+/// the lockout holds across server instances.
+model UserSecurityPin {
+  userId         String    @id
+  pinHash        String?
+  pinSetAt       DateTime?
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+  lastFailedAt   DateTime?
+  /// Set when an administrator cleared this PIN; who did it is in the audit row.
+  resetAt        DateTime?
+  resetById      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
 /// A ROLE SOMEBODY MAY ACT AS, BEYOND THEIR PRIMARY ONE.
 ///
 /// One row is one person wearing one extra hat. A cleaner who also inspects
@@ -3473,6 +3536,37 @@ model QaDayAllowance {
 
   @@unique([inspectorId, day])
   @@index([inspectorId, includedInCleanerInvoiceId])
+}
+
+/// Who set an inspector's visit order for one Sydney calendar day
+/// (lib/qa/day-order.ts). The order itself stays in QaAssignment.sequence.
+/// When the office (ADMIN / OPS_MANAGER with quality at manage) orders another
+/// inspector's day it is `locked`: the inspector's own reorder is refused
+/// ("Order set by the office") until the office clears the lock. An
+/// inspector's own order never sets or overrides a lock. Every change is also
+/// written to the audit log.
+model QaDayOrder {
+  id           String    @id @default(cuid())
+  inspectorId  String
+  /// The calendar day in Australia/Sydney. Date only (see QaDayAllowance.day).
+  day          DateTime  @db.Date
+  /// True = set by the office and locked against the inspector's reorder.
+  locked       Boolean   @default(false)
+  /// True when the last order was written by the office, false by the inspector.
+  setByOffice  Boolean   @default(false)
+  setById      String?
+  setAt        DateTime  @default(now())
+  /// The office member who last let the inspector reorder (cleared the lock).
+  unlockedById String?
+  unlockedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  inspector  User  @relation("QaDayOrderInspector", fields: [inspectorId], references: [id], onDelete: Cascade)
+  setBy      User? @relation("QaDayOrderSetBy", fields: [setById], references: [id], onDelete: SetNull)
+  unlockedBy User? @relation("QaDayOrderUnlockedBy", fields: [unlockedById], references: [id], onDelete: SetNull)
+
+  @@unique([inspectorId, day])
 }
 
 model UserRole {
@@ -3950,6 +4044,17 @@ model LaundrySupplier {
   /// office linked them. No FK: the stock supplier list is not a table. One
   /// stock supplier links to at most one laundry partner.
   stockSupplierId  String?  @unique
+  /// Usual pickup / drop schedule (descriptive defaults only). Weekdays are
+  /// 0 = Sunday ... 6 = Saturday; windows are "HH:mm" organisation time
+  /// (CHECK constraints). They prefill the planned TIME of a new run for this
+  /// partner when none is set; they never change dates, planner rules or any
+  /// existing run. Empty / null = nothing stated.
+  pickupWeekdays    Int[]    @default([])
+  pickupWindowStart String?  @db.VarChar(5)
+  pickupWindowEnd   String?  @db.VarChar(5)
+  dropWeekdays      Int[]    @default([])
+  dropWindowStart   String?  @db.VarChar(5)
+  dropWindowEnd     String?  @db.VarChar(5)
 
   laundryTasks      LaundryTask[]
   onboardingSurveys PropertyOnboardingSurvey[]

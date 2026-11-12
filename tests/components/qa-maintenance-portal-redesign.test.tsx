@@ -163,11 +163,15 @@ describe("QA visit order", () => {
 });
 
 describe("maintenance finish and schedule", () => {
-  it("keeps every stored outcome, in order, as a radio choice", () => {
+  // Owner decision 2026-11-12: the five drawn outcomes replace the seven
+  // (FIXED + REPLACED merged, OTHER mapped to NEEDS_FOLLOWUP; see
+  // tests/lib/maintenance-outcome-merge.test.ts for the mapping).
+  it("offers exactly the five stored outcomes, in board order, as radio choices", () => {
     expect(VISIT_OUTCOMES.map((option) => option.value).sort()).toEqual(Object.values(MaintenanceOutcome).sort());
-    expect(VISIT_OUTCOMES.map((option) => option.value)).toEqual(["FIXED", "REPLACED", "NEEDS_PARTS", "NEEDS_FOLLOWUP", "NO_ACCESS", "NO_ISSUE_FOUND", "OTHER"]);
+    expect(VISIT_OUTCOMES.map((option) => option.value)).toEqual(["REPLACED_OR_REPAIRED", "NEEDS_PARTS", "NEEDS_FOLLOWUP", "NO_ACCESS", "NO_ISSUE_FOUND"]);
+    expect(VISIT_OUTCOMES[0].label).toBe("Replaced or repaired");
     const onChange = vi.fn();
-    render(<OutcomeChoice value="FIXED" onChange={onChange} />);
+    render(<OutcomeChoice value="REPLACED_OR_REPAIRED" onChange={onChange} />);
     expect(screen.getAllByRole("radio")).toHaveLength(VISIT_OUTCOMES.length);
     screen.getByRole("radio", { name: /Needs parts/ }).click();
     expect(onChange).toHaveBeenCalledWith("NEEDS_PARTS");
@@ -178,7 +182,7 @@ describe("maintenance finish and schedule", () => {
     expect(visitStages(base).map((stage) => stage.state)).toEqual(["done", "current", "todo", "todo"]);
     // Clocked in without "on the way": that optional step is passed, never done.
     expect(visitStages({ ...base, clockInAt: "2026-11-12T00:00:00Z" }).map((stage) => stage.state)).toEqual(["done", "passed", "done", "current"]);
-    expect(visitStages({ ...base, outcome: "FIXED", clockInAt: "x", enRouteAt: "y" })[3].state).toBe("done");
+    expect(visitStages({ ...base, outcome: "REPLACED_OR_REPAIRED", clockInAt: "x", enRouteAt: "y" })[3].state).toBe("done");
   });
 
   it("groups tickets by Sydney day: today, later, overdue, then unscheduled", () => {

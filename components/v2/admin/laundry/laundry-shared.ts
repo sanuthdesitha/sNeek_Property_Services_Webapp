@@ -18,6 +18,8 @@ export function statusTone(status: string): Tone {
       return "primary";
     case LaundryStatus.PICKED_UP:
       return "info";
+    case LaundryStatus.READY_TO_RETURN:
+      return "info";
     case LaundryStatus.DROPPED:
       return "success";
     case LaundryStatus.FLAGGED:
@@ -37,6 +39,8 @@ export function statusLabel(status: string): string {
       return "Confirmed";
     case LaundryStatus.PICKED_UP:
       return "Picked up";
+    case LaundryStatus.READY_TO_RETURN:
+      return "Ready to return";
     case LaundryStatus.DROPPED:
       return "Delivered";
     case LaundryStatus.FLAGGED:
@@ -53,6 +57,8 @@ export const LAUNDRY_STATUS_OPTIONS: LaundryStatus[] = [
   LaundryStatus.PENDING,
   LaundryStatus.CONFIRMED,
   LaundryStatus.PICKED_UP,
+  // 2026-11-13: the office may set or correct the laundry team's "Ready to return".
+  LaundryStatus.READY_TO_RETURN,
   LaundryStatus.DROPPED,
   LaundryStatus.FLAGGED,
   LaundryStatus.SKIPPED_PICKUP,

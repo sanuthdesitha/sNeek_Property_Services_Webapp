@@ -34,7 +34,8 @@ export default async function LaundryStopPage({ params, searchParams }: { params
   if (!raw) notFound();
   const [task] = await withHandoffActorNames(filterTasksVisibleToUser([raw], session.user.role, session.user.id));
   if (!task) notFound();
-  const kind = searchParams?.kind === "drop" || (searchParams?.kind !== "pickup" && task.status === "PICKED_UP") ? "DROP" : "PICKUP";
+  const atLaundry = task.status === "PICKED_UP" || task.status === "READY_TO_RETURN";
+  const kind = searchParams?.kind === "drop" || (searchParams?.kind !== "pickup" && atLaundry) ? "DROP" : "PICKUP";
 
   const settings = await getAppSettings().catch(() => null);
   const zone = settings?.timezone || "Australia/Sydney";
@@ -62,6 +63,7 @@ export default async function LaundryStopPage({ params, searchParams }: { params
       expected={baseline?.count ?? null}
       baselineId={baseline?.confirmationId ?? null}
       officePhone={settings?.companyPhone || null}
+      partnerEntries={session.user.role === Role.LAUNDRY && !session.impersonation}
     />
   );
 }

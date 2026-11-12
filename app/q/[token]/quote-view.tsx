@@ -81,7 +81,7 @@ export function QuoteView({ token, quote }: { token: string; quote: PublicQuoteP
               Quote
             </span>
             <span className="text-base font-bold tracking-wide text-slate-900">
-              #{quote.quoteRef}
+              {quote.quoteRef}
             </span>
           </div>
           <p className="text-sm text-slate-500">

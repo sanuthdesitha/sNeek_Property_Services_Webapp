@@ -227,7 +227,7 @@ export default function PricingPage() {
     <AdminPageLock
       lockId="pricing"
       title="Pricing is locked"
-      description="Enter your admin PIN or password to view and edit service pricing."
+      description="Enter your own PIN to view and edit service pricing."
     >
       <PricingEditor />
     </AdminPageLock>

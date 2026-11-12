@@ -7,7 +7,7 @@
  */
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { SensitiveVerificationError, verifySensitiveAction } from "@/lib/security/admin-verification";
 import { creditedAmountOf } from "@/lib/finance/receivables";
 import {
   CREDIT_NOTE_PAYMENT_REFUSAL,
@@ -19,7 +19,7 @@ import {
 import { actionResult, type InvoiceActionResult, type InvoiceActor } from "./invoice-action-result";
 
 export const securitySchema = z
-  .object({ pin: z.string().max(200).optional(), password: z.string().max(500).optional() })
+  .object({ pin: z.string().max(200).optional(), password: z.string().max(500).optional(), newPin: z.string().max(32).optional() })
   .optional();
 
 export const addDiscountSchema = z.object({
@@ -144,7 +144,7 @@ const SECURITY_REFUSALS = new Set(["INVALID_SECURITY_VERIFICATION", "PIN_OR_PASS
  */
 export async function verifyInvoiceSecurity(
   actor: InvoiceActor,
-  security: { pin?: string; password?: string } | null | undefined,
+  security: { pin?: string; password?: string; newPin?: string } | null | undefined,
 ): Promise<InvoiceActionResult | null> {
   if (actor.impersonatedBy) return refused("FORBIDDEN", 403);
   try {
@@ -153,6 +153,8 @@ export async function verifyInvoiceSecurity(
   } catch (error) {
     const message = error instanceof Error ? error.message : "INVALID_SECURITY_VERIFICATION";
     if (SECURITY_REFUSALS.has(message)) return refused(message, 423);
+    // Own-PIN refusals (PIN_REQUIRED, PIN_SETUP_REQUIRED, PIN_LOCKED, ...) carry a readable message.
+    if (error instanceof SensitiveVerificationError) return refused(error.message, error.code === "ACTUAL_ACTOR_REQUIRED" ? 403 : 423);
     if (message === "UNAUTHORIZED") return refused(message, 401);
     if (message === "FORBIDDEN") return refused(message, 403);
     return refused("INVALID_SECURITY_VERIFICATION", 423);

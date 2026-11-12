@@ -10,7 +10,7 @@
  * What moves:
  *   not yet picked up (PENDING, CONFIRMED, FLAGGED): pickup goes to the new day
  *     and the drop-off keeps the same number of days after it;
- *   PICKED_UP: only the drop-off moves, never to before the pickup;
+ *   PICKED_UP or READY_TO_RETURN: only the drop-off moves, never to before the pickup;
  *   DROPPED or SKIPPED_PICKUP: refused (nothing left to move).
  * Statuses are never changed here.
  */

@@ -34,7 +34,8 @@ export async function GET() {
         .count({ where: { ...scope, status: { in: [LaundryStatus.PENDING, LaundryStatus.CONFIRMED] } } })
         .catch(() => 0),
       // Already collected and not yet returned — the tracking board's contents.
-      db.laundryTask.count({ where: { ...scope, status: LaundryStatus.PICKED_UP } }).catch(() => 0),
+      // "Ready to return" sets are still out (2026-11-13).
+      db.laundryTask.count({ where: { ...scope, status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.READY_TO_RETURN] } } }).catch(() => 0),
       // A cleaner said the linen was not ready. Someone has to decide what
       // happens next, which is why admin badges the same status.
       db.laundryTask.count({ where: { ...scope, status: LaundryStatus.FLAGGED } }).catch(() => 0),

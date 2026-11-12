@@ -16,7 +16,7 @@ export const CLIENT_BULK_ACTIONS = ["send-update", "mark-inactive"] as const;
 export type ClientBulkAction = (typeof CLIENT_BULK_ACTIONS)[number];
 export const CLIENT_BULK_MAX_IDS = 100;
 
-const securitySchema = z.object({ pin: z.string().max(64).optional(), password: z.string().max(256).optional() }).strict();
+const securitySchema = z.object({ pin: z.string().max(64).optional(), password: z.string().max(256).optional(), newPin: z.string().max(32).optional() }).strict();
 
 export const clientBulkSchema = z
   .object({

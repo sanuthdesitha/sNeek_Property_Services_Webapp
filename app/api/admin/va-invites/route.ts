@@ -14,6 +14,7 @@ import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 import { logger } from "@/lib/logger";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 /**
  * Admin invites one or more VAs to act on behalf of a client.
@@ -263,20 +264,19 @@ export async function POST(req: NextRequest) {
           .map((r) => `<li>${escapeHtml(r.name || r.email)} (${escapeHtml(r.email)})</li>`)
           .join("");
         const manageUrl = resolveAppUrl("/v2/client/team", req);
-        const plural = invited.length === 1 ? "" : "s";
-        const grantLine = createdTeam
-          ? "<p>You can change what they are allowed to do at any time.</p>"
-          : "<p>They inherit the permissions already set on that team.</p>";
+        const inviteWording = await loadNotificationWording("account.invitations");
+        const assistantEmail = inviteWording.render("assistants-added", "EMAIL", {
+          companyName: settings.companyName,
+          assistantWord: invited.length === 1 ? "assistant" : "assistants",
+          teamName,
+          assistantItems: rows,
+          grantParagraph: inviteWording.line(createdTeam ? "grant-new-team" : "grant-existing-team", "EMAIL", {}),
+          manageUrl,
+        });
         const sent = await sendEmailDetailed({
           to: [clientEmail],
-          subject: `${settings.companyName} - assistant access added to your account`,
-          html: `
-            <p>We have set up portal access for the following assistant${plural}, on the team <strong>${escapeHtml(teamName)}</strong>:</p>
-            <ul>${rows}</ul>
-            ${grantLine}
-            <p>Manage their access here: <a href="${manageUrl}">${manageUrl}</a></p>
-            <p>Assistants can never approve quotes or extras, approve costs, or pay invoices. Those stay with you.</p>
-          `,
+          subject: assistantEmail.subject,
+          html: assistantEmail.html,
           transactional: true,
         });
         clientNotified = sent.ok;

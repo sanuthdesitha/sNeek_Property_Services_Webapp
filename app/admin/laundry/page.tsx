@@ -37,6 +37,7 @@ const STATUS_COLORS: Record<string, string> = {
   PENDING: "secondary",
   CONFIRMED: "default",
   PICKED_UP: "default",
+  READY_TO_RETURN: "default",
   DROPPED: "success",
   FLAGGED: "destructive",
   SKIPPED_PICKUP: "warning",
@@ -865,7 +866,7 @@ export default function LaundryPage() {
     [filteredTasks]
   );
 
-  const confirmedTasks = activeTasks.filter((task) => task.status === "CONFIRMED" || task.status === "PICKED_UP");
+  const confirmedTasks = activeTasks.filter((task) => task.status === "CONFIRMED" || task.status === "PICKED_UP" || task.status === "READY_TO_RETURN");
 
   return (
     <div className="space-y-6">
@@ -909,6 +910,7 @@ export default function LaundryPage() {
               ["PENDING", "Pending", "neutral"],
               ["CONFIRMED", "Confirmed", "info"],
               ["PICKED_UP", "Picked up", "primary"],
+              ["READY_TO_RETURN", "Ready to return", "primary"],
               ["DROPPED", "Dropped", "success"],
               ["FLAGGED", "Flagged", "danger"],
               ["SKIPPED_PICKUP", "Skipped", "warning"],
@@ -1306,6 +1308,7 @@ export default function LaundryPage() {
               {(
                 [
                   ["DROPPED", "Dropped off"],
+                  ["READY_TO_RETURN", "Ready to return"],
                   ["PICKED_UP", "Picked up"],
                   ["CONFIRMED", "Confirmed"],
                   ["PENDING", "Pending"],

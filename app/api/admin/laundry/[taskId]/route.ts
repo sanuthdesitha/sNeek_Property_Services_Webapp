@@ -10,6 +10,7 @@ import { getAssignedLaundryUsersForProperty } from "@/lib/laundry/teams";
 import { publicUrl } from "@/lib/s3";
 import { filterTasksVisibleToUser, laundryWeekTaskInclude, withHandoffActorNames } from "@/lib/laundry/week-feed";
 import { loadTeamReplies, repliesByTask } from "@/lib/laundry/team-request-replies";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const updateLaundryTaskSchema = z.object({
   pickupDate: z.string().datetime().optional(),
@@ -165,12 +166,12 @@ export async function PATCH(
           await tx.laundryTask.delete({ where: { id: task.id } });
         });
 
-        await createRoleNotifications(
-          [Role.LAUNDRY],
-          "Laundry delete approved",
-          `${task.property.name}: failed pickup delete request approved.${resolutionNotes ? ` ${resolutionNotes}` : ""}`,
-          task.jobId
-        );
+        const laundryWording = await loadNotificationWording("laundry.updates");
+        const deleted = laundryWording.render("delete-approved", "INBOX", {
+          propertyName: task.property.name,
+          notesSuffix: laundryWording.line("notes-suffix", "INBOX", { notes: resolutionNotes }, Boolean(resolutionNotes)),
+        });
+        await createRoleNotifications([Role.LAUNDRY], deleted.title, deleted.body, task.jobId);
 
         return NextResponse.json({ ok: true, deleted: true });
       }
@@ -239,14 +240,12 @@ export async function PATCH(
         return updatedTask;
       });
 
-      await createRoleNotifications(
-        [Role.LAUNDRY],
-        decisionAction === "APPROVE_FAILED_PICKUP_SKIP" ? "Laundry skip approved" : "Laundry request rejected",
-        decisionAction === "APPROVE_FAILED_PICKUP_SKIP"
-          ? `${task.property.name}: failed pickup skip approved.`
-          : `${task.property.name}: failed pickup request was rejected.${resolutionNotes ? ` ${resolutionNotes}` : ""}`,
-        task.jobId
-      );
+      const decisionWording = await loadNotificationWording("laundry.updates");
+      const decisionNotice = decisionWording.render(decisionAction === "APPROVE_FAILED_PICKUP_SKIP" ? "skip-approved-team" : "request-rejected", "INBOX", {
+        propertyName: task.property.name,
+        notesSuffix: decisionWording.line("notes-suffix", "INBOX", { notes: resolutionNotes }, Boolean(resolutionNotes)),
+      });
+      await createRoleNotifications([Role.LAUNDRY], decisionNotice.title, decisionNotice.body, task.jobId);
 
       return NextResponse.json(updated);
     }
@@ -400,12 +399,12 @@ export async function PATCH(
     }
 
     if (body.status === LaundryStatus.SKIPPED_PICKUP) {
-      await createRoleNotifications(
-        [Role.LAUNDRY],
-        "Pickup skipped",
-        `${existingTask.property.name}: pickup skipped.${data.skipReasonCode ? ` Reason: ${String(data.skipReasonCode).replace(/_/g, " ")}` : ""}`,
-        existingTask.jobId
-      );
+      const skipWording = await loadNotificationWording("laundry.updates");
+      const skipped = skipWording.render("pickup-skipped", "INBOX", {
+        propertyName: existingTask.property.name,
+        reasonSuffix: skipWording.line("reason-suffix", "INBOX", { reason: data.skipReasonCode ? String(data.skipReasonCode).replace(/_/g, " ") : "" }, Boolean(data.skipReasonCode)),
+      });
+      await createRoleNotifications([Role.LAUNDRY], skipped.title, skipped.body, existingTask.jobId);
     }
     return NextResponse.json(task);
   } catch (err: any) {
