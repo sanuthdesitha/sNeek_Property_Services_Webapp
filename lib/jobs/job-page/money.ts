@@ -43,8 +43,14 @@ export type JobInvoiceCharge = {
   lineTotal: number;
 };
 
+/** The canonical client charge (computeClientCharge: fixed price, property rate, then price book). */
+export type JobRateCharge = {
+  amount: number | null;
+  source: "FIXED_JOB" | "PROPERTY_RATE" | "JOBTYPE_PRICE" | "MISSING";
+};
+
 export type JobMoneyInput = {
-  fixedPrice: number | null;
+  rateCharge: JobRateCharge;
   assignments: JobMoneyAssignment[];
   actualHours: number | null;
   estimatedHours: number | null;
@@ -54,7 +60,7 @@ export type JobMoneyInput = {
   liveInvoice: JobInvoiceCharge | null;
 };
 
-export type JobChargeState = "priced" | "rate-card" | "draft-invoice" | "locked";
+export type JobChargeState = "fixed" | "property-rate" | "price-book" | "no-rate" | "draft-invoice" | "locked";
 
 export type JobMoneySummary = {
   charge: MoneyFigure;
@@ -105,8 +111,12 @@ function chargeFor(input: JobMoneyInput): { charge: MoneyFigure; chargeState: Jo
   if (invoice) {
     return { charge: { kind: "amount", amount: invoice.lineTotal }, chargeState: "draft-invoice" };
   }
-  if (input.fixedPrice != null) return { charge: { kind: "amount", amount: input.fixedPrice }, chargeState: "priced" };
-  return { charge: { kind: "unknown", reason: "No rate on the job; billed from the rate card" }, chargeState: "rate-card" };
+  const rate = input.rateCharge;
+  if (rate.amount === null || rate.source === "MISSING") {
+    return { charge: { kind: "unknown", reason: "No rate" }, chargeState: "no-rate" };
+  }
+  const state: JobChargeState = rate.source === "FIXED_JOB" ? "fixed" : rate.source === "PROPERTY_RATE" ? "property-rate" : "price-book";
+  return { charge: { kind: "amount", amount: rate.amount }, chargeState: state };
 }
 
 export function summarizeJobMoney(input: JobMoneyInput): JobMoneySummary {
