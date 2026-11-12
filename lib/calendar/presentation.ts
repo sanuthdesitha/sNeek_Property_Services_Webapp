@@ -77,12 +77,13 @@ export function guestArrivalOnDay(input: ArrivalInput): { time: string | null } 
   return null;
 }
 
-export type ChipCategory = "done" | "onSite" | "late" | "offered" | "planned" | "unassigned" | "skipped";
+export type ChipCategory = "done" | "onSite" | "late" | "offered" | "planned" | "unassigned" | "skipped" | "cancelled";
 
 const DONE = new Set(["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"]);
 const ON_SITE = new Set(["IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL"]);
 
 export function chipCategory(job: Pick<CalendarJob, "status" | "cleaners" | "late" | "skipped">): ChipCategory {
+  if (job.status === "CANCELLED") return "cancelled";
   if (job.skipped) return "skipped";
   if (DONE.has(job.status)) return "done";
   if (ON_SITE.has(job.status)) return "onSite";
@@ -101,6 +102,7 @@ export const CHIP_CATEGORY_TEXT: Record<ChipCategory, string> = {
   planned: "",
   unassigned: "no cleaner",
   skipped: "skipped",
+  cancelled: "cancelled",
 };
 
 /** Full wording for screen readers and tooltips. */
@@ -112,4 +114,5 @@ export const CHIP_CATEGORY_LABEL: Record<ChipCategory, string> = {
   planned: "Planned",
   unassigned: "No cleaner",
   skipped: "Skipped",
+  cancelled: "Cancelled",
 };

@@ -20,6 +20,7 @@ import { InsightsQueryError } from "./period";
 import { invoicedRevenueByJob, type InvoicedLineRow } from "./invoiced-revenue";
 import { LIVE_INVOICE_LINE_WHERE } from "@/lib/invoicing/invoiced-job-rule";
 import { CREDIT_REDUCING_STATUSES } from "@/lib/finance/receivables";
+import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 
 /** A safety cap on one read. A period that hits it is refused rather than half-counted. */
 export const MAX_CLEANS_PER_READ = 20_000;
@@ -92,8 +93,8 @@ export async function loadInvoicedRevenue(jobIds: readonly string[]): Promise<Ma
   return invoicedRevenueByJob(lines);
 }
 
-async function loadFactContext(propertyIds: string[], jobIds: string[]): Promise<FactContext> {
-  const [invoicedByJob, settings, propertyRates, priceBook] = await Promise.all([
+async function loadFactContext(propertyIds: string[], jobIds: string[], payeeIds: string[]): Promise<FactContext> {
+  const [invoicedByJob, settings, propertyRates, priceBook, rateBook] = await Promise.all([
     loadInvoicedRevenue(jobIds),
     getAppSettings(),
     propertyIds.length
@@ -103,11 +104,13 @@ async function loadFactContext(propertyIds: string[], jobIds: string[]): Promise
         })
       : Promise.resolve([]),
     db.priceBook.findMany({ where: { isActive: true }, select: { jobType: true, baseRate: true } }),
+    loadPayRateBook(payeeIds),
   ]);
   return {
     rates: { propertyRates, priceBook },
     cleanerJobHourlyRates: settings.cleanerJobHourlyRates ?? {},
     invoicedByJob,
+    rateBook,
   };
 }
 
@@ -122,7 +125,11 @@ export async function loadJobFacts(range: PeriodRange, filters: InsightsFilters)
   if (rows.length > MAX_CLEANS_PER_READ) {
     throw new InsightsQueryError("There are too many cleans in this period to analyse at once. Choose a shorter period.");
   }
-  const context = await loadFactContext(Array.from(new Set(rows.map((row) => row.propertyId))), rows.map((row) => row.id));
+  const context = await loadFactContext(
+    Array.from(new Set(rows.map((row) => row.propertyId))),
+    rows.map((row) => row.id),
+    rows.flatMap((row) => row.assignments.map((assignment) => assignment.userId)),
+  );
   return rows.map((row) => deriveJobFact(row as InsightsJobRow, context));
 }
 

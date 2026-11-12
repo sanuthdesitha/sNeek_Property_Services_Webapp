@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
 import { listCleanerAvailabilities } from "@/lib/accounts/availability";
 import { loadLeaveForUsers } from "@/lib/accounts/leave";
-import { leaveOnDay, leaveReason } from "@/lib/accounts/leave-rules";
+import { leaveOnDay, leaveReason, type LeaveEntry } from "@/lib/accounts/leave-rules";
 import { dayAvailabilityBlocker } from "@/lib/jobs/cleaner-suggestions";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { addDaysToKey, sydneyTodayKey } from "@/lib/time/sydney-range";
@@ -80,7 +80,7 @@ function toCalendarJob(record: JobRecord, now: Date): CalendarJob {
     endTime: record.endTime,
     dueTime: record.dueTime,
     estimatedHours: record.estimatedHours,
-    hours: skipped ? null : jobScheduledHours(record),
+    hours: skipped || record.status === "CANCELLED" ? null : jobScheduledHours(record),
     cleaners,
     skipped,
     late: isJobLate({ status: String(record.status), day, startTime: record.startTime, hasCleaner: cleaners.length > 0, skipped }, now),
@@ -163,7 +163,7 @@ async function attachRoster(sources: RowSource[], days: string[]): Promise<void>
   const ids = sources.map((source) => source.id);
   const [profiles, leave] = await Promise.all([
     listCleanerAvailabilities(ids),
-    days.length ? loadLeaveForUsers(ids, days[0], days[days.length - 1]) : Promise.resolve(new Map()),
+    days.length ? loadLeaveForUsers(ids, days[0], days[days.length - 1]) : Promise.resolve(new Map<string, LeaveEntry[]>()),
   ]);
   const byId = new Map(profiles.map((profile) => [profile.userId, profile]));
   for (const source of sources) {
@@ -188,15 +188,21 @@ export async function loadCalendarRange(range: CalendarRange, filters: CalendarF
   const records = await loadJobRecords(range);
   const truncated = records.length > CALENDAR_JOB_LIMIT;
   // Drafts are not scheduled work: excluded as the Command page excludes them.
-  const allJobs = records
+  const withCancelled = records
     .slice(0, CALENDAR_JOB_LIMIT)
     .filter((record) => !parseJobInternalNotes(record.internalNotes).isDraft)
     .map((record) => toCalendarJob(record, now));
-  const jobs = allJobs.filter((job) => matchesCalendarFilters(job, filters));
+  // Cancelled jobs are not work: left out of every lane, hour total and count,
+  // and shown only when the Status filter asks for them ("Cancelled").
+  const allJobs = withCancelled.filter((job) => job.status !== "CANCELLED");
+  const showCancelled = Boolean(filters.statuses?.includes("CANCELLED" as JobStatus));
+  const jobs = (showCancelled ? withCancelled : allJobs).filter((job) => matchesCalendarFilters(job, filters));
   // Counts for the Status filter's options: the client filter applies, the status and cleaner filters do not.
   const forCounts = allJobs.filter((job) => matchesCalendarFilters(job, { ...filters, statuses: null, unassignedOnly: false }));
   const statusCounts: Record<string, number> = {};
   for (const job of forCounts) statusCounts[job.status] = (statusCounts[job.status] ?? 0) + 1;
+  const cancelledCount = withCancelled.filter((job) => job.status === "CANCELLED" && matchesCalendarFilters(job, { ...filters, statuses: null, unassignedOnly: false })).length;
+  if (cancelledCount > 0) statusCounts.CANCELLED = cancelledCount;
 
   const cleanerSources = await loadCleanerSources(allJobs);
   await attachRoster(cleanerSources, days);

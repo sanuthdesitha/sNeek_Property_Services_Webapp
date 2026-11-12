@@ -37,6 +37,7 @@ const CATEGORY_CLASS: Record<ChipCategory, string> = {
   onSite: "border-[hsl(var(--e-primary)/0.35)] bg-[hsl(var(--e-primary-soft))] text-[hsl(var(--e-primary))]",
   unassigned: "border-[1.5px] border-dashed border-[hsl(var(--e-danger))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-danger))]",
   skipped: "border-dashed border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface-sunken))] text-[hsl(var(--e-muted-foreground))]",
+  cancelled: "border-dashed border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface-sunken))] text-[hsl(var(--e-muted-foreground))] line-through",
 };
 
 function CategoryIcon({ category }: { category: ChipCategory }) {

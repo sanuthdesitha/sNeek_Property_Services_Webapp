@@ -23,6 +23,7 @@ export type MoveRuleInput = { status: string; skipped: boolean; isDraft: boolean
 /** A sentence saying why the calendar will not move this job, or null. */
 export function calendarMoveBlock(input: MoveRuleInput): string | null {
   if (input.isDraft) return "This is a draft job. Publish it before scheduling it.";
+  if (input.status === "CANCELLED") return "This job is cancelled. Restore it from the job before moving it.";
   const frozen = CALENDAR_FROZEN_STATUS_REASONS[input.status];
   if (frozen) return `${frozen} It cannot be moved from the calendar; use the job's Schedule tab if a correction is needed.`;
   if (input.skipped) return "This clean is skipped. Un-skip it on the job's Schedule tab before moving it.";

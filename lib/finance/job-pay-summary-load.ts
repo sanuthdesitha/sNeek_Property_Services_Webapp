@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { computeJobPaySummary, type CleanerJobPaySummary } from "@/lib/finance/job-pay-summary";
+import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 
 /** Load everything `computeJobPaySummary` needs for one job and run it. */
 export async function loadJobPaySummary(jobId: string): Promise<{
@@ -25,6 +26,7 @@ export async function loadJobPaySummary(jobId: string): Promise<{
       id: true,
       jobNumber: true,
       jobType: true,
+      scheduledDate: true,
       estimatedHours: true,
       isRework: true,
       reworkPayAmount: true,
@@ -42,7 +44,7 @@ export async function loadJobPaySummary(jobId: string): Promise<{
   });
   if (!job) return null;
 
-  const [settings, adjustments, timeLogs] = await Promise.all([
+  const [settings, adjustments, timeLogs, rateBook] = await Promise.all([
     getAppSettings(),
     db.cleanerPayAdjustment.findMany({
       where: { jobId },
@@ -72,6 +74,8 @@ export async function loadJobPaySummary(jobId: string): Promise<{
       where: { jobId, stoppedAt: { not: null } },
       select: { userId: true, durationM: true },
     }),
+    // The default rate in force on the job's day (effective-dated history).
+    loadPayRateBook(job.assignments.map((a) => a.userId)),
   ]);
 
   const timerHoursByCleaner: Record<string, number> = {};
@@ -99,7 +103,7 @@ export async function loadJobPaySummary(jobId: string): Promise<{
       removedAt: a.removedAt,
       userName: a.user?.name ?? a.user?.email ?? null,
       userRole: a.user?.role ?? null,
-      userHourlyRate: a.user?.hourlyRate ?? null,
+      userHourlyRate: rateBook.rateFor(a.userId, job.scheduledDate, a.user?.hourlyRate ?? null),
     })),
     settings: { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
     cleanerPayouts: meta.cleanerPayouts,

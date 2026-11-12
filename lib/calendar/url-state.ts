@@ -22,6 +22,8 @@ export const CALENDAR_STATUS_GROUPS = {
   planned: { label: "Planned", statuses: ["ASSIGNED", "EN_ROUTE"] },
   onsite: { label: "On site", statuses: ["IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL"] },
   done: { label: "Done", statuses: ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] },
+  /** Cancelled jobs are shown only through this filter (Wave E). */
+  cancelled: { label: "Cancelled", statuses: ["CANCELLED"] },
 } as const satisfies Record<string, { label: string; statuses: readonly string[] | null }>;
 export type CalendarStatusGroup = keyof typeof CALENDAR_STATUS_GROUPS;
 /** A status group, or one job status (the single-status filter the old calendar offered). */

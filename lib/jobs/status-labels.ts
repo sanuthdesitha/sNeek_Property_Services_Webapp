@@ -10,4 +10,5 @@ export const STATUS_LABELS: Record<string, string> = {
   QA_REVIEW: "QA review",
   COMPLETED: "Completed",
   INVOICED: "Invoiced",
+  CANCELLED: "Cancelled",
 };

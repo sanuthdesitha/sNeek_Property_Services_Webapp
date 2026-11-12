@@ -22,7 +22,7 @@ import { cleanerSummary, type ChipActions } from "./calendar-job-chip";
 import type { GridDisplay } from "./calendar-week-grid";
 
 const PILL_TONE: Record<ChipCategory, "neutral" | "ok" | "warn" | "bad" | "info" | "gold"> = {
-  done: "ok", onSite: "info", late: "warn", offered: "info", planned: "info", unassigned: "bad", skipped: "neutral",
+  done: "ok", onSite: "info", late: "warn", offered: "info", planned: "info", unassigned: "bad", skipped: "neutral", cancelled: "neutral",
 };
 
 function AgendaRow({ job, actions, pending }: { job: CalendarJob; actions: ChipActions; pending: boolean }) {

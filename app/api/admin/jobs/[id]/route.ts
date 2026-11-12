@@ -194,6 +194,14 @@ export async function PATCH(
     if (expectedUpdatedAt && new Date(expectedUpdatedAt).getTime() !== current.updatedAt.getTime()) {
       return NextResponse.json({ error: "This job changed. Reload before saving." }, { status: 409 });
     }
+    // Cancelling has its own rules (reason, invoices, pay) and Restore its own
+    // slot check: neither happens through a plain status edit.
+    if (body.status === JobStatus.CANCELLED && current.status !== JobStatus.CANCELLED) {
+      return NextResponse.json({ error: "Use Cancel job: it asks for a reason and checks invoices and pay." }, { status: 400 });
+    }
+    if (current.status === JobStatus.CANCELLED && body.status !== undefined && body.status !== JobStatus.CANCELLED) {
+      return NextResponse.json({ error: "This job is cancelled. Use Restore to bring it back." }, { status: 409 });
+    }
     if (
       body.status === JobStatus.UNASSIGNED &&
       (current.status === JobStatus.COMPLETED || current.status === JobStatus.INVOICED) &&

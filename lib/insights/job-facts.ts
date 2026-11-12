@@ -42,6 +42,7 @@ import { pickAuthoritativeReview } from "@/lib/quality/authority";
 import type { CleanReview } from "@/lib/quality/cleans";
 import { SYDNEY_TZ, sydneyDateKey, weekMondayKey } from "@/lib/time/sydney-range";
 import { known, missing, type Known } from "./measure";
+import type { PayRateBook } from "@/lib/accounts/pay-rate-resolve";
 
 export const ON_TIME_GRACE_MINUTES = 15;
 
@@ -76,6 +77,8 @@ export type FactContext = {
   cleanerJobHourlyRates: Record<string, Partial<Record<JobType, number>>>;
   /** Net invoiced amount (ex GST) per invoiced job (./invoiced-revenue). Absent = none invoiced. */
   invoicedByJob?: ReadonlyMap<string, number>;
+  /** Effective-dated default rates; absent = each person's stored rate (tests, legacy callers). */
+  rateBook?: PayRateBook;
 };
 
 /** Where a clean's charge came from. */
@@ -154,7 +157,9 @@ export function deriveCost(row: InsightsJobRow, context: FactContext): Known<num
       removedAt: a.removedAt,
       userName: a.user?.name ?? a.user?.email ?? null,
       userRole: a.user?.role ?? null,
-      userHourlyRate: a.user?.hourlyRate ?? null,
+      userHourlyRate: context.rateBook
+        ? context.rateBook.rateFor(a.userId, row.scheduledDate, a.user?.hourlyRate ?? null)
+        : a.user?.hourlyRate ?? null,
     })),
     settings: { cleanerJobHourlyRates: context.cleanerJobHourlyRates },
     cleanerPayouts: meta.cleanerPayouts,

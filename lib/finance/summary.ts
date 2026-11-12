@@ -7,6 +7,7 @@ import { computeCleanerPay } from "@/lib/finance/job-money";
 import { laundryTaskAmount } from "@/lib/laundry/invoice";
 import { payRateUnknown } from "@/lib/insights/job-facts";
 import { sydneyDayStart, sydneyDayEndInclusive, sydneyTodayKey, monthStartKey } from "@/lib/time/sydney-range";
+import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 
 export interface FinanceSummaryRow {
   clientId: string;
@@ -160,6 +161,8 @@ export async function getFinanceSummary(input: { startDate?: string; endDate?: s
       },
     }),
   ]);
+  // The default rate in force on each job's day (effective-dated history).
+  const rateBook = await loadPayRateBook(jobs.flatMap((job) => job.assignments.map((assignment) => assignment.userId)));
 
   const byClient = new Map<string, MutableRow>();
 
@@ -210,7 +213,7 @@ export async function getFinanceSummary(input: { startDate?: string; endDate?: s
         .reduce((sum, log) => sum + Number(log.durationM ?? 0) / 60, 0);
       const pay = computeCleanerPay(
         { jobType: job.jobType, estimatedHours: job.estimatedHours },
-        { payRate: assignment.payRate, userHourlyRate: assignment.user?.hourlyRate },
+        { payRate: assignment.payRate, userHourlyRate: rateBook.rateFor(assignment.userId, job.scheduledDate, assignment.user?.hourlyRate ?? null) },
         { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
         {
           cleanerId: assignment.userId,

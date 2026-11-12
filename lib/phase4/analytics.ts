@@ -7,6 +7,7 @@ import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/met
 import { computeCleanerPay } from "@/lib/finance/job-money";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
+import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 
 function parseDateOnly(value?: string | null, endOfDay = false) {
   if (!value) return null;
@@ -146,10 +147,12 @@ export async function buildBranchScorecards(input?: {
 
   const settings = await getAppSettings();
   const jobs = await db.job.findMany({
-    where: { scheduledDate: { gte: start, lte: end } },
+    // Cancelled jobs are not work: left out of branch job counts and cost.
+    where: { scheduledDate: { gte: start, lte: end }, status: { not: JobStatus.CANCELLED } },
     select: {
       id: true,
       propertyId: true,
+      scheduledDate: true,
       status: true,
       estimatedHours: true,
       internalNotes: true,
@@ -163,6 +166,8 @@ export async function buildBranchScorecards(input?: {
       qaReviews: { select: { score: true } },
     },
   });
+  // The default rate in force on each job's day (effective-dated history).
+  const rateBook = await loadPayRateBook(jobs.flatMap((job) => job.assignments.map((assignment) => assignment.userId)));
 
   const quotes = await db.quote.findMany({
     where: {
@@ -218,7 +223,7 @@ export async function buildBranchScorecards(input?: {
       for (const assignment of job.assignments) {
         const pay = computeCleanerPay(
           { jobType: job.jobType, estimatedHours: job.estimatedHours },
-          { payRate: assignment.payRate, userHourlyRate: assignment.user?.hourlyRate },
+          { payRate: assignment.payRate, userHourlyRate: rateBook.rateFor(assignment.userId, job.scheduledDate, assignment.user?.hourlyRate ?? null) },
           { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
           {
             cleanerId: assignment.userId,

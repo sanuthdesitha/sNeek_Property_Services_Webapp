@@ -21,6 +21,7 @@ export const JOB_STATUS_TONES: Record<string, StatusTone> = {
   QA_REVIEW: "aubergine",
   COMPLETED: "success",
   INVOICED: "gold",
+  CANCELLED: "neutral",
 };
 export const LAUNDRY_STATUS_TONES: Record<string, StatusTone> = {
   PENDING: "neutral",

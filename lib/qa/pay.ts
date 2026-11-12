@@ -8,6 +8,7 @@ import { adjustmentSignedAmount } from "@/lib/finance/pay-adjustments";
 import { deriveAdjustmentOrigin } from "@/lib/finance/job-pay-summary";
 import { sydneyDayStart, sydneyDayEndInclusive } from "@/lib/time/sydney-range";
 import { qaAssignmentPayeeWhere } from "@/lib/qa/ownership";
+import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 
 /**
  * The QA inspector's earnings view — the QA counterpart of the cleaner's
@@ -191,6 +192,7 @@ export async function getQaPaySummary(options: {
           select: {
             id: true,
             jobNumber: true,
+            scheduledDate: true,
             property: { select: { name: true, suburb: true } },
           },
         },
@@ -227,10 +229,12 @@ export async function getQaPaySummary(options: {
     }),
   ]);
 
+  // The inspector's default rate in force on each job's day (effective-dated history).
+  const rateBook = await loadPayRateBook([options.inspectorId]);
   const inspections: QaPayLine[] = assignments.map((row) => {
     const pay = computeQaAssignmentPay({
       assignment: row,
-      inspector: { hourlyRate: inspector?.hourlyRate ?? null },
+      inspector: { hourlyRate: rateBook.rateFor(options.inspectorId, row.job?.scheduledDate ?? row.completedAt, inspector?.hourlyRate ?? null) },
       settings: settings.qaPay,
     });
     const settled = resolveSettlementRail(row);
