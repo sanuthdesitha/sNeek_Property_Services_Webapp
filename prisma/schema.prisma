@@ -920,6 +920,11 @@ model User {
   preferredTransport TransportMode   @default(DRIVING)
   emailStatus        EmailStatus     @default(OK)
   lastSeenAt         DateTime?
+  /// LAUNDRY portal users only: the laundry partner (LaundrySupplier) whose
+  /// team this person belongs to. Null = not linked to a partner (the
+  /// "laundry team of this run's supplier" recipient scope skips them).
+  laundrySupplierId  String?
+  laundrySupplier    LaundrySupplier? @relation("LaundrySupplierTeam", fields: [laundrySupplierId], references: [id], onDelete: SetNull)
 
   invoicingCadence       InvoicingCadence @default(ON_COMPLETION)
   invoiceDayOfWeek       Int?
@@ -962,6 +967,7 @@ model User {
   @@index([emailStatus])
   @@index([lastSeenAt])
   @@index([vaTeamId])
+  @@index([laundrySupplierId])
 }
 
 // ─────────────────────────────────────────────
@@ -3906,9 +3912,15 @@ model LaundrySupplier {
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+  /// The inventory Suppliers list record (AppSetting
+  /// `inventory_supplier_catalog_v1`, id) for the same business, when the
+  /// office linked them. No FK: the stock supplier list is not a table. One
+  /// stock supplier links to at most one laundry partner.
+  stockSupplierId  String?  @unique
 
   laundryTasks      LaundryTask[]
   onboardingSurveys PropertyOnboardingSurvey[]
+  teamMembers       User[]                     @relation("LaundrySupplierTeam")
 }
 
 model CleanerAvailability {
