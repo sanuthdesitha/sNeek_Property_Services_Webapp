@@ -68,9 +68,10 @@ describe("grouped view counts", () => {
     const rule = BUILT_IN_VIEWS.find((view) => view.id === "not-invoiced")!.rule;
     const sql = sqlText(viewRuleSql(rule, NOW));
     expect(sql.values).toEqual(["COMPLETED"]);
-    expect(sql.text).toContain(`<> 'INVOICED'`);
-    // A line on a VOID invoice does not count as invoiced (invoice generator rule).
-    expect(sql.text).toContain('NOT EXISTS (SELECT 1 FROM "ClientInvoiceLine" l JOIN "ClientInvoice" i ON i."id" = l."invoiceId" WHERE l."jobId" = j."id" AND i."status"::text <> \'VOID\')');
+    // One invoiced rule (2026-11-11): the INVOICED status alone no longer counts;
+    // only a line on a live invoice (kind INVOICE, not VOID, not fully credited).
+    expect(sql.text).not.toContain(`<> 'INVOICED'`);
+    expect(sql.text).toContain('NOT EXISTS (SELECT 1 FROM "ClientInvoiceLine" l JOIN "ClientInvoice" i ON i."id" = l."invoiceId" WHERE l."jobId" = "j"."id" AND "i"."kind"::text = \'INVOICE\' AND "i"."status"::text <> \'VOID\' AND "i"."creditedInFullAt" IS NULL)');
     expect(sqlText(viewRuleSql({}, NOW)).text).toBe("TRUE");
   });
 

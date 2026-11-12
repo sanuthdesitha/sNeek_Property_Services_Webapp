@@ -32,12 +32,14 @@ describe("strict save check, tolerant reader", () => {
   });
 
   it.each([
-    ["an unknown question type", withField({ id: "f", type: "table", label: "Grid" })],
+    // "table" became a real type (Wave B); "grid" never existed.
+    ["an unknown question type", withField({ id: "f", type: "grid", label: "Grid" })],
     ["a rule with no target", withField({ id: "f", type: "text", label: "Q", conditional: { operator: "equals", value: 1 } })],
     ["a rule watching both", withField({ id: "f", type: "text", label: "Q", conditional: { fieldId: "x", propertyField: "hasBalcony" } })],
     ["an unknown comparison", withField({ id: "f", type: "text", label: "Q", conditional: { fieldId: "x", operator: "between" } })],
     ["a property key cleaners do not receive", withField({ id: "f", type: "text", label: "Q", conditional: { propertyField: "clientId", value: "x" } })],
-    ["an unknown cadence", withField({ id: "f", type: "text", label: "Q", frequency: "MONTHLY" })],
+    // "MONTHLY" became a real cadence (Wave B); "WEEKLY" does not exist.
+    ["an unknown cadence", withField({ id: "f", type: "text", label: "Q", frequency: "WEEKLY" })],
     ["a bad rotation", withField({ id: "f", type: "text", label: "Q", frequency: "ROTATIONAL", rotationEveryNCleans: 0 })],
     ["an unknown room type", { sections: [{ id: "s", title: "S", repeatBy: "kitchens", fields: [] }] }],
   ])("refuses %s on save", (_name, schema) => {

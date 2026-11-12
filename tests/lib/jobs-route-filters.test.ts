@@ -48,7 +48,8 @@ describe("Jobs server refinements", () => {
     expect(pageArgs).toMatchObject({ skip: 50, take: 50 });
     expect(countWhere).toMatchObject({ status: "COMPLETED", propertyId: "property-1",
       property: { clientId: "client-1" }, assignments: { some: { userId: "cleaner-1", removedAt: null } },
-      AND: [{ OR: [{ status: "INVOICED" }, { invoiceLines: { some: {} } }] }] });
+      // One invoiced rule (2026-11-11): a line on a live invoice; the INVOICED status alone does not count.
+      AND: [{ invoiceLines: { some: { invoice: { kind: "INVOICE", status: { not: "VOID" }, creditedInFullAt: null } } } }] });
     const text = { contains: "Harbour", mode: "insensitive" };
     expect(countWhere.OR).toEqual([
       { jobNumber: text }, { property: { name: text } }, { property: { suburb: text } },
@@ -68,12 +69,14 @@ describe("Jobs server refinements", () => {
     expect(mocks.session).toHaveBeenCalledWith([Role.ADMIN, Role.OPS_MANAGER, Role.CLEANER]);
   });
 
-  it("requires both no invoice lines and a non-invoiced status for no, preserving explicit status", async () => {
+  it("requires no line on a live invoice for no (the INVOICED status alone does not count), preserving explicit status", async () => {
     await request("paginated=1&invoiced=no&status=INVOICED&search=Bay&cleanerId=unassigned");
-    expect(mocks.count.mock.calls[0][0].where).toMatchObject({ status: "INVOICED",
+    const where = mocks.count.mock.calls[0][0].where;
+    expect(where).toMatchObject({ status: "INVOICED",
       assignments: { none: { removedAt: null } },
-      AND: [{ status: { not: "INVOICED" }, invoiceLines: { none: {} } }],
+      AND: [{ invoiceLines: { none: { invoice: { kind: "INVOICE", status: { not: "VOID" }, creditedInFullAt: null } } } }],
     });
+    expect(where.AND[0]).not.toHaveProperty("status");
   });
 
   it.each(["", "all", "unknown"])("does not add invoice constraints for %s", async invoiced => {

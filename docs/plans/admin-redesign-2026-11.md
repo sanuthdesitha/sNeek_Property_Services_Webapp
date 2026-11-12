@@ -399,6 +399,16 @@ Waves (one wave holds the database at a time):
 - Jobs: sortable Cleaner, Guest in and Charge columns (server-side, by a stored or computed sort key that is honest); live counts on the owner's saved-view tabs; suggested cleaners gain travel distance (from stored property and cleaner locations with an existing or new distance function, shown only when both locations are known) and recent QA score; bulk Reschedule with a server check per job; "Import or bulk create" as its own entry; day group rows as "Thursday 12 November"; Unassigned shown in the danger colour as drawn.
 - Calendar: drag on touch devices (press-and-hold so scrolling still works); a drop in Day view can change the time as well as the cleaner; view and date survive a page refresh on the Calendar.
 
+> **Wave A built 2026-11-11, awaiting the final build and browser pass.** Done:
+> - [x] Cleaner, Guest in and Charge sort on the server over the whole filtered set (Cleaner in SQL, unassigned first; Guest in and Charge in one bounded pass, refused above 5,000 jobs with a "narrow the filters" message; nulls / no rate last).
+> - [x] Live counts on saved-view tabs: one request, the list's own where-builder.
+> - [x] Suggested cleaners: straight-line distance with its basis (previous job that day, else home; nothing without both coordinates; no drive time) and the Quality hub's 30-day QA score ("–" below 3 reviewed).
+> - [x] Bulk Reschedule: preview through the Calendar move check, apply through the reschedule service, per-row results, unmoved jobs stay selected.
+> - [x] "Import or bulk create" dialog: deep link to the existing bulk create and a CSV import (template, server validation preview, idempotent apply through the extracted job-create service, cleaner assigned through the assign route).
+> - [x] Day rows "Thursday 12 November"; Unassigned in danger on Jobs only.
+> - [x] Calendar touch drag (press-and-hold 450 ms), Day-view drops change the time (15-minute step, length kept), view and date survive a refresh (documented exception).
+> Deviations: distance is straight-line, not a drive time (no ETA call per candidate); a time move of a job with a separate end time is refused (the reschedule service writes only start and due); Calendar "manage" is also required for bulk Reschedule. Details: `docs/SYSTEM.md`, "Jobs and Calendar: design completion, Wave A (2026-11)".
+
 ### Wave B: Forms library and builder (no database change)
 - Library: Compare view (two or more forms side by side, differences highlighted); Import (a form from an exported file, as a draft, validated) and Export; sortable Avg time and Completion (computed for the whole filtered set); the "never answered" warning inside Checks.
 - Builder: "Table" question type and "Stock count" question type, each end to end (builder, phone, server, tests); question effects "raises an urgent stock need below N" (Stock count) and "Yes opens a damage report" (Yes/No), running through the existing urgent stock and damage services when the form is submitted; a "Monthly" option under How often; rename the form inline in the header.

@@ -59,6 +59,20 @@ const CASES: Record<FormFieldType, Case> = {
   barcode: { interact: () => fireEvent.change(input(), { target: { value: "9300633603443" } }), produced: "9300633603443", valid: "9300633603443", invalid: [] },
   location: { valid: { lat: -33.8, lng: 151.2 }, invalid: [] },
   instruction: { valid: undefined, invalid: [] },
+  // Wave B structured types: rows are stacked cards with per-cell labels.
+  table: {
+    interact: () => fireEvent.change(screen.getByLabelText("Row 1: Item"), { target: { value: "Fridge" } }),
+    produced: [{ c1: "Fridge" }],
+    valid: [{ c1: "Fridge" }, { c1: "Oven" }],
+    invalid: [[{ c1: 5 }], [{ other: "x" }], "Fridge", Array.from({ length: 11 }, () => ({ c1: "x" }))],
+  },
+  stock_count: {
+    config: { stockItemId: "item-1", stockItemName: "Dishwasher tablets", unit: "tablets" },
+    interact: () => fireEvent.change(input(), { target: { value: "4" } }),
+    produced: { itemId: "item-1", count: 4 },
+    valid: { itemId: "item-1", count: 0 },
+    invalid: [{ itemId: "item-1", count: -1 }, { itemId: "item-1", count: 2.5 }, { itemId: "other", count: 3 }, "4"],
+  },
 };
 
 afterEach(cleanup);
