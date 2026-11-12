@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { formatHours } from "@/lib/calendar/presentation";
 import type { CalendarLane } from "@/lib/calendar/lanes";
 import type { CalendarLaundryDay } from "@/lib/calendar/types";
+import { unavailabilityKind } from "@/lib/accounts/leave-rules";
 
 export function laundryHref(day: string): string {
   return `/v2/admin/laundry?date=${day}`;
@@ -60,10 +61,19 @@ export function LaneLabel({ lane, period }: { lane: CalendarLane; period: string
   );
 }
 
+/**
+ * The unavailability lane's note: "Leave" / "Day off" for a recorded leave
+ * record (its full reason in the title and for screen readers), else
+ * "Not rostered" for a day outside the saved availability.
+ */
 export function RosterNote({ reason }: { reason: string }) {
+  const kind = unavailabilityKind(reason);
+  const label = kind === "leave" ? "Leave" : kind === "day-off" ? "Day off" : "Not rostered";
+  const title = kind === "roster" ? `${reason} (saved availability)` : reason;
   return (
-    <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]" title={`${reason} (saved availability)`}>
-      Not rostered
+    <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]" title={title}>
+      {label}
+      <span className="sr-only">: {title}</span>
     </span>
   );
 }

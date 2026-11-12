@@ -129,7 +129,7 @@ export function PeekSuggestions({ jobId, value, onAssigned, readOnly }: {
                   </EButton>
                 ) : (
                   <EButton size="sm" variant="outline" disabled title={row.blocker?.reason} aria-label={`${row.name}: ${row.blocker?.reason ?? "not available"}`}>
-                    {row.blocker?.kind === "clash" ? "Clash" : "Unavailable"}
+                    {row.blocker?.kind === "clash" ? "Clash" : row.blocker?.kind === "leave" ? "On leave" : "Unavailable"}
                   </EButton>
                 )}
               </li>

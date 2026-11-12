@@ -15,6 +15,7 @@ import type { MoveState } from "./use-calendar-move";
 const WARNING_PREFIX: Record<MoveWarning["kind"], string> = {
   clash: "Clash",
   unavailable: "Roster",
+  leave: "Leave",
   booking: "Booking",
   notice: "Note",
 };
@@ -64,7 +65,7 @@ export function CalendarMoveConfirm({ state, onConfirm, onClose }: { state: Move
           check.warnings.length > 0 ? (
             <ul className="space-y-1.5 text-[0.8125rem]">
               {check.warnings.map((warning) => (
-                <li key={`${warning.kind}:${warning.text}`} className={warning.kind === "clash" || warning.kind === "unavailable" ? "text-[hsl(var(--e-warning))]" : "text-[hsl(var(--e-text-secondary))]"}>
+                <li key={`${warning.kind}:${warning.text}`} className={warning.kind === "clash" || warning.kind === "unavailable" || warning.kind === "leave" ? "text-[hsl(var(--e-warning))]" : "text-[hsl(var(--e-text-secondary))]"}>
                   <span className="font-[600]">{WARNING_PREFIX[warning.kind]}:</span> {warning.text}
                 </li>
               ))}

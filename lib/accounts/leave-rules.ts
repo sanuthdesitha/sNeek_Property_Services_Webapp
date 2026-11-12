@@ -71,6 +71,13 @@ export function leaveRangeLabel(startDate: string, endDate: string): string {
   return `${a.day} ${MONTHS[a.month - 1]} – ${b.day} ${MONTHS[b.month - 1]}`;
 }
 
+/** Which kind of unavailability a lane reason describes (leave reasons start with these words). */
+export function unavailabilityKind(reason: string): "leave" | "day-off" | "roster" {
+  if (reason.startsWith("On leave ")) return "leave";
+  if (reason.startsWith("Day off ")) return "day-off";
+  return "roster";
+}
+
 /** The reason shown wherever leave blocks work: "On leave 12–14 Nov", "Day off 12 Nov". */
 export function leaveReason(entry: Pick<LeaveEntry, "startDate" | "endDate" | "kind">): string {
   const range = leaveRangeLabel(entry.startDate, entry.endDate);
