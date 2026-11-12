@@ -72,8 +72,16 @@ function titleCase(v: string) {
 
 type HubTab = "feed" | "chat" | "learning" | "documents" | "recognition" | "leaderboard";
 
-export function TeamHub() {
+/**
+ * `initialTab` comes from an explicit `?tab=` link (More → Documents, the
+ * "police check expires" attention row). An explicit destination wins over the
+ * remembered tab; without one the remembered tab is restored as before.
+ */
+export function TeamHub({ initialTab }: { initialTab?: HubTab } = {}) {
   const [tab, setTab] = useRestorableState<HubTab>("team-hub:tab", "feed");
+  React.useEffect(() => {
+    if (initialTab) setTab(initialTab);
+  }, [initialTab, setTab]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [data, setData] = React.useState<any>(null);

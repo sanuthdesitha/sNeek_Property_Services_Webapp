@@ -6,6 +6,7 @@ import { resolveTimingBadges } from "@/lib/jobs/timing-badges";
 import { sydneyDateKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { EstateCalendar, type CalendarJob } from "@/components/v2/cleaner/estate-calendar";
+import { JobsViewSwitch } from "@/components/v2/cleaner/portal/segment-tabs";
 
 export const metadata = { title: "Calendar · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -106,6 +107,7 @@ export default async function V2CleanerCalendarPage({
         title="Calendar"
         description="Your assigned jobs for the selected month."
       />
+      <JobsViewSwitch active="month" />
       {jobs === null ? (
         <div role="alert" className="space-y-2">
           <p>Unable to load your calendar. Please try again.</p>

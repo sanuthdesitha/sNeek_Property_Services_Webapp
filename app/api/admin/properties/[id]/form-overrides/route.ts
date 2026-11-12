@@ -3,7 +3,8 @@ import { JobType, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { getAppSettings, saveAppSettings } from "@/lib/settings";
+import { getAppSettings } from "@/lib/settings";
+import { FormOverrideError, validateOverrideTemplates, writePropertyFormOverrides } from "@/lib/properties/form-overrides";
 
 const updateSchema = z.object({
   overrides: z.record(z.string(), z.string().nullable().optional()).default({}),
@@ -101,64 +102,19 @@ export async function PATCH(
       requested[jobType] = templateId;
     }
 
-    const templateIds = Array.from(new Set(Object.values(requested)));
-    if (templateIds.length > 0) {
-      const templates = await db.formTemplate.findMany({
-        where: { id: { in: templateIds }, isActive: true },
-        select: { id: true, serviceType: true },
-      });
-      const templateById = new Map(templates.map((template) => [template.id, template]));
-
-      for (const jobType of Object.values(JobType)) {
-        const templateId = requested[jobType];
-        if (!templateId) continue;
-        const template = templateById.get(templateId);
-        if (!template) {
-          return NextResponse.json(
-            { error: `Template ${templateId} is not active or does not exist.` },
-            { status: 400 }
-          );
-        }
-        if (template.serviceType !== jobType) {
-          return NextResponse.json(
-            { error: `Template ${templateId} does not match ${jobType.replace(/_/g, " ")}.` },
-            { status: 400 }
-          );
-        }
-      }
+    try {
+      await validateOverrideTemplates(requested);
+    } catch (error) {
+      if (error instanceof FormOverrideError) return NextResponse.json({ error: error.message }, { status: 400 });
+      throw error;
     }
 
-    const settings = await getAppSettings();
-    const before = settings.propertyFormTemplateOverrides?.[params.id] ?? {};
-    const nextOverrides = {
-      ...(settings.propertyFormTemplateOverrides ?? {}),
-    };
-
-    if (Object.keys(requested).length > 0) {
-      nextOverrides[params.id] = requested;
-    } else {
-      delete nextOverrides[params.id];
-    }
-
-    const updated = await saveAppSettings({
-      propertyFormTemplateOverrides: nextOverrides,
-    });
-    const after = updated.propertyFormTemplateOverrides?.[params.id] ?? {};
-
-    await db.auditLog.create({
-      data: {
-        userId: session.user.id,
-        action: "PROPERTY_FORM_OVERRIDES_UPDATE",
-        entity: "Property",
-        entityId: params.id,
-        before: before as any,
-        after: after as any,
-        ipAddress:
-          req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-          req.headers.get("x-real-ip") ||
-          null,
-      },
-    });
+    const ipAddress =
+      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      req.headers.get("x-real-ip") ||
+      null;
+    const saved = await writePropertyFormOverrides([{ propertyId: params.id, next: requested }], session.user.id, ipAddress);
+    const after = saved.get(params.id) ?? {};
 
     return NextResponse.json({
       propertyId: params.id,

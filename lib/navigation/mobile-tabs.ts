@@ -1,7 +1,7 @@
 const MOBILE_PATHS: Record<string, readonly string[]> = {
   admin: ["", "jobs", "calendar", "approvals", "properties"],
   client: ["", "jobs", "laundry", "approvals", "reports"],
-  cleaner: ["", "jobs", "calendar", "route", "pay"],
+  cleaner: ["", "jobs", "supplies", "pay", "more"],
   qa: ["", "reviews", "rework", "pay", "stats"],
   laundry: ["", "queue", "runs", "tracking", "calendar"],
   maintenance: ["", "tickets", "replacements", "log", "settings"],

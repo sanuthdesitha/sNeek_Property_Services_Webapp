@@ -1,22 +1,37 @@
-import { redirect } from "next/navigation";
+import { Role } from "@prisma/client";
+import { requireRole } from "@/lib/auth/session";
+import { getAppSettings } from "@/lib/settings";
+import { isCleanerModuleEnabled } from "@/lib/portal-access";
+import { EPageHeader } from "@/components/v2/ui/primitives";
+import { CleanerMoreMenu } from "@/components/v2/cleaner/portal/more-menu";
+import type { CleanerNavModule } from "@/components/v2/cleaner/portal/portal-nav";
+
+export const metadata = { title: "More · Estate cleaner" };
+export const dynamic = "force-dynamic";
 
 /**
- * The "More" page is gone.
+ * The More tab (approved cleaner board, 2026-11). This URL redirected to Today
+ * while the portal had no More menu; it is the menu again, so old bookmarks and
+ * the printed induction sheet land on the labelled list of every destination.
  *
- * It was a second menu: twelve links, SIX of which already sat in the nav under
- * different names, and the other six reachable nowhere else. Two lists of the
- * same portal is how a page ends up with two names, and how a cleaner learns
- * that "Pay", "Pay requests" and "Invoices" are three different screens by
- * opening all three.
- *
- * Everything it linked to now lives in the nav itself, grouped under Work,
- * Money and You — the shell had supported section headings all along and
- * nothing had ever used them.
- *
- * A redirect rather than a deletion, because the URL is in people's history and
- * on at least one printed induction sheet. Sending them to Today costs nothing;
- * a 404 costs a support message.
+ * Module gates are read here on the server and passed as plain booleans; each
+ * destination keeps its own server guard regardless of what the menu shows.
  */
-export default function V2CleanerMoreRedirect() {
-  redirect("/v2/cleaner");
+export default async function V2CleanerMorePage() {
+  await requireRole([Role.CLEANER]);
+  const settings = await getAppSettings().catch(() => null);
+  // Unknown settings hide nothing: the destination's own guard still decides.
+  const modules: Partial<Record<CleanerNavModule, boolean>> = settings
+    ? {
+        calendar: isCleanerModuleEnabled(settings, "calendar"),
+        lostFound: isCleanerModuleEnabled(settings, "lostFound"),
+      }
+    : {};
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-6">
+      <EPageHeader title="More" description="Everything else you can open, grouped by work and by you." />
+      <CleanerMoreMenu modules={modules} />
+    </div>
+  );
 }

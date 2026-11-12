@@ -221,17 +221,38 @@ export const OPS_FEATURES = [
 export type OpsFeature = (typeof OPS_FEATURES)[number]["key"];
 export type OpsLevel = "off" | "read" | "manage";
 export type OpsLevels = Record<OpsFeature, OpsLevel>;
+/**
+ * The stored level of an area. "full" is Manage plus the area's sensitive
+ * capabilities (still verified with the person's PIN); it routes exactly like
+ * Manage, so middleware, navigation and path guards keep using `OpsLevels`.
+ */
+export type AccessLevel = OpsLevel | "full";
+export type AccessLevels = Record<OpsFeature, AccessLevel>;
 export const OPS_FEATURE_KEYS = OPS_FEATURES.map((feature) => feature.key);
 export const OPS_LEVEL_LABELS: Record<OpsLevel, string> = {
   off: "Off",
-  read: "View only",
-  manage: "Manage available actions",
+  read: "View",
+  manage: "Manage",
 };
+export const ACCESS_LEVEL_LABELS: Record<AccessLevel, string> = {
+  ...OPS_LEVEL_LABELS,
+  full: "Full",
+};
+export const ACCESS_LEVEL_ORDER: readonly AccessLevel[] = ["off", "read", "manage", "full"];
 export function allOpsLevels(level: OpsLevel): OpsLevels {
   return Object.fromEntries(
     OPS_FEATURE_KEYS.map((key) => [key, level]),
   ) as OpsLevels;
 }
+function levelsWith(base: OpsLevel, changes: Partial<OpsLevels>): OpsLevels {
+  return { ...allOpsLevels(base), ...changes };
+}
+/**
+ * Built-in starting points. IDs are stored in assignments and never change;
+ * names are display only. `audience` decides the list a person appears in:
+ * an "assistant" preset makes an OPS_MANAGER login an office assistant (no
+ * new role).
+ */
 export const OPS_BUILTIN_PRESETS = [
   {
     id: "existing",
@@ -239,36 +260,75 @@ export const OPS_BUILTIN_PRESETS = [
     description:
       "Keep the current role's access. Admin-only actions stay protected.",
     levels: allOpsLevels("manage"),
+    audience: "manager",
   },
   {
     id: "observer",
-    name: "Observer",
+    name: "Read only",
     description: "View existing operational information without changing it.",
     levels: allOpsLevels("read"),
+    audience: "manager",
   },
   {
     id: "coordinator",
     name: "Coordinator",
     description:
       "Manage daily jobs, calendar, laundry, cases and messages; view other available areas.",
-    levels: {
-      ...allOpsLevels("read"),
+    levels: levelsWith("read", {
       jobs: "manage",
       calendar: "manage",
       laundry: "manage",
       cases: "manage",
       maintenance: "manage",
       communications: "manage",
-    } as OpsLevels,
+    }),
+    audience: "manager",
+  },
+  {
+    id: "assistant-bookings",
+    name: "Assistant: bookings",
+    description:
+      "Office assistant for bookings: manage jobs, calendar, lost property and messages; view approvals, cases, laundry, properties and clients.",
+    levels: levelsWith("off", {
+      dashboard: "read",
+      files: "read",
+      jobs: "manage",
+      calendar: "manage",
+      approvals: "read",
+      cases: "read",
+      laundry: "read",
+      "lost-found": "manage",
+      properties: "read",
+      clients: "read",
+      communications: "manage",
+    }),
+    audience: "assistant",
+  },
+  {
+    id: "assistant-finance",
+    name: "Assistant: finance",
+    description:
+      "Office assistant for invoicing: manage client invoices; view jobs, clients, payroll and reports.",
+    levels: levelsWith("off", {
+      dashboard: "read",
+      files: "read",
+      jobs: "read",
+      clients: "read",
+      finance: "manage",
+      payroll: "read",
+      reports: "read",
+    }),
+    audience: "assistant",
   },
   {
     id: "restricted",
-    name: "No feature access",
+    name: "No access",
     description:
       "Start with every feature off and enable only what this person needs.",
     levels: allOpsLevels("off"),
+    audience: "manager",
   },
-] as const;
+] as const satisfies ReadonlyArray<{ id: string; name: string; description: string; levels: OpsLevels; audience: "manager" | "assistant" }>;
 
 const ADMIN_SECTIONS: Record<string, OpsFeature | "owner"> = {
   "": "dashboard",
@@ -397,6 +457,8 @@ const SETTINGS_TABS: Record<string, OpsFeature | "owner"> = {
   "ical-sync": "integrations",
   ollama: "ai",
   roles: "owner",
+  // Settings > Access and permissions (its own page, 2026-11 redesign).
+  access: "owner",
   "profile-permissions": "owner",
   portals: "owner",
   audit: "owner",
