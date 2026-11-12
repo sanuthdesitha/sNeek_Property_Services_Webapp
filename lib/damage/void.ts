@@ -38,6 +38,7 @@ import {
 } from "@prisma/client";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 export interface VoidDamageReportInput {
   reportId: string;
@@ -159,6 +160,7 @@ export async function voidDamageReport(input: VoidDamageReportInput) {
   // Post-commit and guarded: the void is already recorded, and a failed
   // notification must not roll it back or surface as a failed void.
   try {
+    const sentBack = (await loadNotificationWording("job.qa_and_accountability")).render(clearing ? "damage-refile" : "damage-reopened", "INBOX", { reason: input.reason });
     await db.notification.create({
       data: {
         userId: report.reportedById,
@@ -167,10 +169,8 @@ export async function voidDamageReport(input: VoidDamageReportInput) {
         sentAt: new Date(),
         externalId: mobilePendingMarker("cases"),
         channel: NotificationChannel.PUSH,
-        subject: "A damage report was sent back to you",
-        body: clearing
-          ? `Your damage report needs to be filed again. Reason: ${input.reason}`
-          : `Your damage report was reopened so you can correct it. Reason: ${input.reason}`,
+        subject: sentBack.title,
+        body: sentBack.body,
       },
     });
   } catch (error) {

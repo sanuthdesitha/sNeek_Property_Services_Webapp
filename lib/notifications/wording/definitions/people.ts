@@ -3,11 +3,12 @@ import type { TypeWordingDefinition } from "../types";
 import { composed, elsewhere, emailTemplatePart, inCode, someParts } from "./build";
 import { CLIENT_UPDATE_WORDING } from "./client-updates";
 import { LEAD_ALERTS_WORDING } from "./office-alerts";
+import { POST_JOB_WORDING } from "./post-job";
 
 export const PEOPLE_WORDING: readonly TypeWordingDefinition[] = [
   CLIENT_UPDATE_WORDING,
   elsewhere("client.lifecycle_email", "Booked, reminder, rescheduled and cancelled emails have their own template editor in Forms (Messages, Lifecycle).", "/v2/admin/forms?tab=messages&view=notifications"),
-  inCode("client.post_job", "Post-job automation and follow-up sequences are written per sequence step in the automation settings and the QA invite route; not yet moved."),
+  POST_JOB_WORDING,
   someParts("client.documents", [
     emailTemplatePart("invoice", "Invoice issued", "clientInvoiceIssued"),
     emailTemplatePart("report", "Report shared", "cleaningReportShared"),

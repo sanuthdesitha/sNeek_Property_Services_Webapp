@@ -5,6 +5,7 @@ import { sendEmailDetailed } from "@/lib/notifications/email";
 import { buildRatingToken } from "@/lib/client/ratings";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getAppSettings } from "@/lib/settings";
+import { loadNotificationWording, type WordingRenderer } from "@/lib/notifications/wording/render";
 
 const DATABASE_URL = process.env.DATABASE_URL?.trim() || "";
 
@@ -76,50 +77,22 @@ function getRecipient(job: JobContext) {
   };
 }
 
-function buildStepContent(step: FollowUpStep, job: JobContext, recipientName: string) {
-  const propertyLabel = `${job.property.name}${job.property.suburb ? `, ${job.property.suburb}` : ""}`;
-  const cleanDate = job.scheduledDate.toISOString().slice(0, 10);
-  const serviceLabel = job.jobType.replace(/_/g, " ").toLowerCase();
-  const clientName = recipientName || job.property.client?.name || "there";
-  if (step === "1d") {
-    return {
-      subject: `Thank you for choosing sNeek - ${job.jobNumber || job.id.slice(-6)}`,
-      html: `
-        <h2 style="margin:0 0 12px;">Thanks for booking with sNeek</h2>
-        <p>Hello ${clientName},</p>
-        <p>Thank you for trusting us with your ${serviceLabel} at <strong>${propertyLabel}</strong>.</p>
-        <p>Your service dated <strong>${cleanDate}</strong> has been completed and recorded in the system.</p>
-        <p>If you need anything further, just reply to this email and our team will take care of it.</p>
-      `,
-    };
-  }
-
+/** The follow-up email of a step, from the editable wording (catalog type client.post_job). */
+function buildStepContent(step: FollowUpStep, job: JobContext, recipientName: string, wording: WordingRenderer) {
+  const values = {
+    clientName: recipientName || job.property.client?.name || "there",
+    service: job.jobType.replace(/_/g, " ").toLowerCase(),
+    propertyName: `${job.property.name}${job.property.suburb ? `, ${job.property.suburb}` : ""}`,
+    propertyShort: job.property.name,
+    cleanDate: job.scheduledDate.toISOString().slice(0, 10),
+    jobNumber: job.jobNumber || job.id.slice(-6),
+  };
+  if (step === "1d") return wording.render("follow-up-1d", "EMAIL", values);
   if (step === "3d") {
     const token = buildRatingToken(job.id, job.property.client?.id || "");
-    const ratingUrl = resolveAppUrl(`/rate/${job.id}?token=${encodeURIComponent(token)}`);
-    return {
-      subject: `How was your clean at ${job.property.name}?`,
-      html: `
-        <h2 style="margin:0 0 12px;">How did we do?</h2>
-        <p>Hello ${clientName},</p>
-        <p>We would appreciate a quick rating for your recent ${serviceLabel} at <strong>${propertyLabel}</strong>.</p>
-        <p>Your feedback helps us keep quality high and improve follow-up when anything needs attention.</p>
-        <p><a href="${ratingUrl}" target="_blank" rel="noopener noreferrer">Rate your clean now</a></p>
-      `,
-    };
+    return wording.render("follow-up-3d", "EMAIL", { ...values, ratingUrl: resolveAppUrl(`/rate/${job.id}?token=${encodeURIComponent(token)}`) });
   }
-
-  const quoteUrl = resolveAppUrl("/quote");
-  return {
-    subject: `Ready for your next service at ${job.property.name}?`,
-    html: `
-      <h2 style="margin:0 0 12px;">Need another clean booked?</h2>
-      <p>Hello ${clientName},</p>
-      <p>If you would like to line up the next service for <strong>${propertyLabel}</strong>, we can arrange it now.</p>
-      <p>Use the link below to request a new quote or booking and we will take care of the rest.</p>
-      <p><a href="${quoteUrl}" target="_blank" rel="noopener noreferrer">Request your next clean</a></p>
-    `,
-  };
+  return wording.render("follow-up-rebook", "EMAIL", { ...values, quoteUrl: resolveAppUrl("/quote") });
 }
 
 export async function scheduleJobFollowUps(jobId: string) {
@@ -158,7 +131,7 @@ export async function dispatchJobFollowUp(jobId: string, step: FollowUpStep) {
   const recipient = getRecipient(job);
   if (!recipient) return { sent: false, reason: "missing_recipient" as const };
 
-  const content = buildStepContent(step, job, recipient.name);
+  const content = buildStepContent(step, job, recipient.name, await loadNotificationWording("client.post_job"));
   const result = await sendEmailDetailed({ kind: "follow_up",
     to: recipient.email,
     subject: content.subject,

@@ -658,3 +658,13 @@ Owner: "build all designs as drawn" for `ClientPortal.dc.html` and `ClientPortal
 - [x] Phone tabs Home, Cleans, Approvals, Money, More; Messages and Request sheet in the header; server-filtered More; desktop rail grouped as drawn; old URLs kept or redirected with query.
 - [x] Home (phone) and desktop dashboard; property tabs; Approvals with quotes waiting; Money; one clean; Messages with saved/retry; Settings rows.
 - Reported, not built (needs data or a rule that does not exist): report photo thumbnails and QA score on Home and the table; booking pre-selected for a property ("Book a clean here"); a quote reference number; "Usually replies within 1 hour"; "guest in" time on Happening now; calendar property filter chip and dashboard search box (the shell search stays); the board's "11 cleans, 2 add-ons" reads "11 cleans, 2 other items".
+
+## Suppliers directory, laundry pipeline actions and laundry partner portal (2026-11-12)
+
+Owner: "build all designs as drawn" for `Suppliers.dc.html` and `LaundryPortal.dc.html`. Details: `docs/SYSTEM.md`, "Suppliers directory, laundry partner pipeline actions and the laundry partner portal (2026-11-12)".
+
+**Status (uncommitted; migration `20261112230000_laundry_team_request_replies` verified; TypeScript clean in these paths; focused, existing and database tests passing; build and browser pass pending).**
+- [x] Suppliers directory: laundry partners, stock suppliers, trades (read model over maintenance workers); tabs, filters, columns, Export, Add supplier menu; panel per type; create/edit through existing routes; link/unlink logins with the one-partner move confirmation; Laundry › Suppliers kept with a link.
+- [x] Pipeline actions: drawn labels and order, move pickup, drop time, photo to the deliverer, per-card "To" lines, dialog with inbox/push/email and receipt lines, routing disclosure, team answers in the run panel.
+- [x] Laundry portal: tabs Today / Runs / Tracking / History / More, From the office in the header, Today route list, stop screen, Tracking chips / Day n of m / Issues, From the office with typed answers, More menu restored.
+- Reported, not built: "Ready to return" (no stored state); "Add weight / price" while at the laundry and adding a drop photo after delivery (no laundry-side write path); partner pickup/drop schedule (no fields); call-out price for trades (no field); email/SMS to the partner's own contact from the team dialog (stays Chase supplier, administrators); a separate Suppliers sidebar entry (admin layout belongs to another engineer).

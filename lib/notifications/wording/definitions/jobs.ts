@@ -7,6 +7,7 @@ import type { TypeWordingDefinition } from "../types";
 import { editable, emailTemplatePart, inCode, linePart, someParts, storePart } from "./build";
 import { JOB_CHANGED_WORDING } from "./job-changes";
 import { CLOCK_CHANGES_WORDING } from "./clock";
+import { QA_ACCOUNTABILITY_WORDING } from "./accountability-more";
 
 const MANUAL_REMINDER_EMAIL = `
               <p>Hi {{recipientName}},</p>
@@ -93,6 +94,6 @@ export const JOB_WORDING: readonly TypeWordingDefinition[] = [
   someParts("job.skipped_or_cancelled", [emailTemplatePart("cleaner", "Cleaner", "jobRemoved")], "The inbox and phone push (\"Shift cancelled\") are composed in the skip route and in iCal sync with different sentences for a skip, a moved booking and a removed booking; not yet moved to the wording layer."),
   CLOCK_CHANGES_WORDING,
   someParts("job.cleaner_requests_decided", [emailTemplatePart("cleaner", "Cleaner", "extraPayRequest")], "Only the extra-pay email uses a template. The continuation, early check-out and clock-adjustment decisions are composed in five producers; not yet moved."),
-  inCode("job.qa_and_accountability", "lib/notifications/accountability.ts builds about a dozen different notices (QA result, rework offer, bonus, coaching, score, streak) from scores and rules; not yet split into named parts."),
+  QA_ACCOUNTABILITY_WORDING,
   someParts("job.cleaner_invoice", [emailTemplatePart("accounts", "Accounts", "cleanerInvoice")], "The \"change requested\" email to the cleaner is composed in lib/cleaner/invoice-admin-notify.ts; not yet moved."),
 ];
