@@ -21,7 +21,7 @@ it("shows the image default, key states without values, per-feature status and u
   await screen.findByText("Defaults pending owner confirmation");
   expect(screen.getByText(/Using the server environment key ••••1234/)).toBeVisible();
   expect(screen.getAllByText("Images stay on the server: unavailable")).toHaveLength(2);
-  expect(screen.getAllByText("Not built yet")).toHaveLength(2);
+  expect(screen.getAllByText("Not built yet")).toHaveLength(1); // agent summaries only (Ask is built since step 5)
   expect(screen.getByText(/not known for 2/)).toBeVisible();
   expect(screen.queryByText(/\$0\.00/)).not.toBeInTheDocument();
 });

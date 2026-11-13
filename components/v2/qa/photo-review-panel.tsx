@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
 import { DEFAULT_DEDUCTION_POINTS, proposedPhotoDeduction, type PhotoReviewResult } from "@/lib/ai/photo-review-policy";
 import { PhotoIntegrityFlags } from "./photo-integrity-flags";
+import { ExplainFlagButton } from "@/components/v2/shared/ai-help";
 
 type Payload = {
   enabled: boolean; hasSubmission: boolean; canApprove: boolean;
@@ -93,6 +94,7 @@ export function PhotoReviewPanel({ jobId }: { jobId: string }) {
           <summary className="cursor-pointer break-words font-medium">{observation.fieldLabel} · {outcomeLabel(observation)}</summary>
           <p className="my-2 break-words text-sm">{observation.summary}</p>
           {observation.reason ? <p className="my-2 break-words text-sm">Why: {observation.reason}</p> : null}
+          {observation.outcome === "cannot_tell" ? <ExplainFlagButton jobId={jobId} kind="photo" id={observation.mediaId} label="Explain this result" /> : null}
           {observation.criteria ? <p className="my-2 break-words text-xs">Acceptance criteria: {observation.criteria}</p> : null}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {photos?.url ? <figure><a href={photos.url} target="_blank" rel="noreferrer" className="relative block">
@@ -103,10 +105,10 @@ export function PhotoReviewPanel({ jobId }: { jobId: string }) {
           </div>
           {observation.findings.map(finding => {
             const eligible = finding.confidence >= review.settings.minConfidence;
-            return <label key={finding.id} className="mt-3 flex min-h-11 items-start gap-2 rounded border p-2 text-sm">
+            return <div key={finding.id} className="mt-3 space-y-1"><label className="flex min-h-11 items-start gap-2 rounded border p-2 text-sm">
               <input type="checkbox" aria-label={`Approve finding: ${finding.description}`} checked={selected.includes(finding.id)} disabled={!ready || !data.canApprove || !eligible || saving} onChange={event => setSelected(value => event.target.checked ? [...value, finding.id] : value.filter(id => id !== finding.id))} className="mt-1" />
               <span className="min-w-0 break-words">{observation.findings.some(item => item.region) ? `${observation.findings.indexOf(finding) + 1}. ` : ""}{finding.description}<span className="block text-xs">{finding.severity} · {finding.confidenceBand ? `${finding.confidenceBand} confidence` : `${Math.round(finding.confidence * 100)}% model confidence`}{finding.referenceMediaKey ? " · compared with a reference photo" : ""}{!eligible ? " · below deduction threshold" : ""}</span></span>
-            </label>;
+            </label><ExplainFlagButton jobId={jobId} kind="finding" id={finding.id} label="Explain this finding" /></div>;
           })}
         </details>;
       })}

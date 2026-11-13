@@ -273,6 +273,7 @@ export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone
             />
           ) : null}
           <StatusCard
+            quoteId={snapshot?.id ?? null}
             isNew={isNew}
             status={statusDraft}
             onStatusChange={setStatusDraft}

@@ -1,4 +1,5 @@
 "use client";
+import { AiDraftButton } from "@/components/v2/shared/ai-help";
 
 /**
  * "New message, with a template" column: To (search clients and users),
@@ -131,6 +132,7 @@ export function ComposePanel({ compose, canSend, showBack, onClose }: { compose:
         <EField label="Message" hint={c.transport !== "EMAIL" ? `${c.body.length} / 320 characters for SMS` : undefined}>
           <ETextarea value={c.body} onChange={(e) => c.setBody(e.target.value)} rows={smsOnly ? 5 : 8} placeholder="Supports {{client.firstName}}, {{property.name}}, {{job.scheduledFor | date short}} …" />
         </EField>
+        {c.recipient?.kind === "client" ? <AiDraftButton scopeKey={c.recipient.id} withIntent request={{ kind: "client_reply", clientId: c.recipient.id }} onUse={(draft) => c.setBody(draft)} /> : null}
         <FilledFrom compose={c} />
       </fieldset>
       <div className="space-y-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2.5">

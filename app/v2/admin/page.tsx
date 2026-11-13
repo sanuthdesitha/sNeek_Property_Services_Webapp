@@ -3,6 +3,7 @@ import Link from "next/link";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
 import { CommandSearch } from "@/components/v2/admin/command/command-search";
+import { AskPanel } from "@/components/v2/admin/command/ask-panel";
 import { SectionLoading } from "@/components/v2/admin/command/section-state";
 import { CleanersSection, GlanceSection, MoneySection, QueueSection, TilesSection } from "@/components/v2/admin/command/command-sections";
 import { requireCommandViewer } from "@/lib/dashboard/command-access";
@@ -46,6 +47,8 @@ export default async function AdminCommandPage() {
           {canCreateJob ? <EButton asChild size="sm"><Link href="/v2/admin/jobs/new">New job</Link></EButton> : null}
         </div>
       </header>
+
+      <AskPanel />
 
       <Suspense fallback={<SectionLoading label="counters" rows={1} />}>
         <TilesSection viewer={viewer} timeZone={timeZone} />

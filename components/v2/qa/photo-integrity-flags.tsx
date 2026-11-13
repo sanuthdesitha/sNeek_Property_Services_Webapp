@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { EAlert } from "@/components/v2/ui/primitives";
+import { ExplainFlagButton } from "@/components/v2/shared/ai-help";
 
 type Flag = { kind: string; mediaId: string; fieldLabel: string; detail: string; relatedJobId: string | null };
 type Photo = { mediaId: string; fieldLabel: string; state: "checked" | "not_checked" | "could_not_check"; error: string | null; capturedAt: string | null; capturedAtSource: string | null };
@@ -81,6 +82,7 @@ export function PhotoIntegrityFlags({ jobId }: { jobId: string }) {
                     <li key={`${flag.kind}-${flag.mediaId}-${index}`} className="break-words [overflow-wrap:anywhere]">
                       <strong>{KIND_LABEL[flag.kind] ?? flag.kind}</strong> · {flag.fieldLabel}: {flag.detail}
                       {flag.relatedJobId ? <> <a className="underline" href={`/v2/admin/jobs/${encodeURIComponent(flag.relatedJobId)}`}>Open that job</a></> : null}
+                      <ExplainFlagButton jobId={jobId} kind="integrity" id={`${flag.kind}:${flag.mediaId}`} label="Explain this check" />
                     </li>
                   ))}
                 </ul>
