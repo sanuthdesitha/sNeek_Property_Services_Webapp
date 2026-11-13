@@ -324,7 +324,7 @@ export function LaundryBagColorPicker({
             title={swatch.name}
             onClick={() => onChange(selected ? "" : swatch.name)}
             className={
-              "h-7 w-7 rounded-full border transition-transform " +
+              "h-7 w-7 rounded-full border transition-transform max-sm:h-10 max-sm:w-10 " +
               (selected
                 ? "border-[hsl(var(--e-gold-ink))] ring-2 ring-[hsl(var(--e-gold-ink))] ring-offset-1 ring-offset-[hsl(var(--e-surface))] scale-105"
                 : "border-[hsl(var(--e-border-strong))] hover:scale-105")

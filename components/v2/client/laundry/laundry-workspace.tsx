@@ -145,7 +145,7 @@ function buildLatestLaundrySummary(task: any) {
   if (latest) {
     return {
       title: latest.laundryReady ? "Cleaner marked laundry ready" : "Laundry update recorded",
-      detail: [format(new Date(latest.createdAt), "dd MMM yyyy HH:mm"), latest.bagLocation || null].filter(Boolean).join(" • "),
+      detail: [format(toLocalDate(latest.createdAt), "dd MMM yyyy HH:mm"), latest.bagLocation || null].filter(Boolean).join(" • "),
     };
   }
   return { title: "Laundry schedule created", detail: `Pickup ${format(toLocalDate(task.pickupDate), "dd MMM yyyy")}` };

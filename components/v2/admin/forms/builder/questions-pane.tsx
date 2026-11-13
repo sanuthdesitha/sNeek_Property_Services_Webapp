@@ -123,7 +123,8 @@ export function QuestionsPane({
         </p>
       ) : null}
       <SortableContext items={ids.map(fieldDragId)} strategy={verticalListSortingStrategy}>
-        <ul className="flex flex-col gap-2">
+        {/* A size container: each row picks its layout from the list's width (question-row.tsx). */}
+        <ul className="flex flex-col gap-2 [container-type:inline-size]" data-question-list="">
           {section.fields.map((field, index) => (
             <QuestionRow
               key={field.id}

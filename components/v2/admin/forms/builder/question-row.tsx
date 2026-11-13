@@ -20,14 +20,25 @@ import { DIVIDER_LABEL } from "./blocks";
 
 export type RowAction = "edit" | "up" | "down" | "move" | "duplicate" | "copy" | "block" | "delete";
 
-/**
- * Phone grid of a question row, five columns: handle · checkbox · type ·
- * badges · menu. Line 1: handle, checkbox, the wording (spanning the type and
- * badges columns) and the "⋯" menu. Line 2: the type, the badges and the
- * expand button under the menu.
+/*
+ * A question row has two layouts, chosen by the width of the question list
+ * (a CSS container query on the list, questions-pane.tsx), not the viewport:
+ *
+ *  - narrow list (a phone, or the centre pane of the three-pane layout at
+ *    1280px): a two-line card on a five-column grid, handle · checkbox ·
+ *    type · badges · menu. Line 1: handle, checkbox, the wording (spanning the
+ *    type and badges columns, up to three lines) and "⋯". Line 2: type, badges
+ *    and the expand button under the menu. The wording can never be squeezed
+ *    to a sliver by the badges.
+ *  - list of 34rem or more: the one-line row as drawn (handle, checkbox, type,
+ *    wording, badges, expand, menu), unchanged; grid placement is ignored by
+ *    flex layout.
+ *
+ * On a phone every control is a 44px target (`max-sm:`).
  */
-const PHONE_ROW_GRID =
-  "max-sm:grid max-sm:grid-cols-[2.75rem_2.75rem_auto_minmax(0,1fr)_2.75rem] max-sm:gap-x-1 max-sm:gap-y-0";
+const ROW_LAYOUT =
+  "grid grid-cols-[auto_auto_auto_minmax(0,1fr)_auto] items-center gap-x-1.5 gap-y-0 max-sm:gap-x-1 " +
+  "[@container(min-width:34rem)]:flex [@container(min-width:34rem)]:flex-nowrap [@container(min-width:34rem)]:gap-2.5";
 
 function Details({ field }: { field: FormField }) {
   const lines: string[] = [];
@@ -38,7 +49,7 @@ function Details({ field }: { field: FormField }) {
   if (field.references?.length) lines.push(`${field.references.length} example${field.references.length === 1 ? "" : "s"}`);
   if (lines.length === 0) lines.push("No extra settings.");
   return (
-    <ul className="mt-1 space-y-0.5 pl-[7.5rem] text-[0.75rem] max-sm:pl-1 text-[hsl(var(--e-text-secondary))]">
+    <ul className="mt-1 space-y-0.5 pl-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))] [@container(min-width:34rem)]:pl-[7.5rem]">
       {lines.map((line) => (
         <li key={line} className="break-words">
           {line}
@@ -97,25 +108,17 @@ export function QuestionRow({
         isDragging ? "opacity-60 shadow-[var(--e-elevation-2)]" : null,
       )}
     >
-      {/*
-        From 640px up: one line (handle, checkbox, type, wording, badges,
-        expand, menu), as drawn. On a phone the same elements, in the same
-        order, sit on a grid (PHONE_ROW_GRID): the wording has line 1 to
-        itself (wrapping, up to three lines) and the type and badges take
-        line 2, so the wording never shrinks to a sliver; every control is
-        44px.
-      */}
-      <div className={cn("flex flex-wrap items-center gap-2.5 sm:flex-nowrap", PHONE_ROW_GRID)} data-question-row-layout="">
+      <div className={ROW_LAYOUT} data-question-row-layout="">
         <button
           type="button"
-          className="cursor-grab touch-none rounded p-0.5 text-[hsl(var(--e-border-strong))] focus-visible:outline focus-visible:outline-2 max-sm:col-start-1 max-sm:row-start-1 max-sm:flex max-sm:size-11 max-sm:items-center max-sm:justify-center"
+          className="col-start-1 row-start-1 cursor-grab touch-none rounded p-0.5 text-[hsl(var(--e-border-strong))] focus-visible:outline focus-visible:outline-2 max-sm:flex max-sm:size-11 max-sm:items-center max-sm:justify-center"
           aria-label={`Drag "${label}". Press space to pick up, arrow keys to move, or drop on a section in the outline.`}
           {...attributes}
           {...listeners}
         >
           <GripVertical className="size-4" aria-hidden="true" />
         </button>
-        <label className="sm:contents max-sm:col-start-2 max-sm:row-start-1 max-sm:flex max-sm:size-11 max-sm:items-center max-sm:justify-center">
+        <label className="col-start-2 row-start-1 flex items-center justify-center max-sm:size-11 [@container(min-width:34rem)]:contents">
           <input
             type="checkbox"
             className="size-[15px] shrink-0 accent-[hsl(var(--e-primary))] max-sm:size-5"
@@ -124,7 +127,10 @@ export function QuestionRow({
             aria-label={`Select "${label}"`}
           />
         </label>
-        <span className="w-[76px] shrink-0 text-[0.6875rem] font-[600] text-[hsl(var(--e-muted-foreground))] max-sm:col-start-3 max-sm:row-start-2 max-sm:w-auto max-sm:self-center" data-question-row-type="">
+        <span
+          className="col-start-3 row-start-2 self-center text-[0.6875rem] font-[600] text-[hsl(var(--e-muted-foreground))] [@container(min-width:34rem)]:w-[76px] [@container(min-width:34rem)]:shrink-0"
+          data-question-row-type=""
+        >
           {questionTypeLabel(field)}
         </span>
         <button
@@ -133,14 +139,14 @@ export function QuestionRow({
           aria-pressed={focused}
           data-question-row-label=""
           className={cn(
-            "min-w-0 flex-1 break-words text-left text-[0.8125rem]",
-            "max-sm:col-span-2 max-sm:col-start-3 max-sm:row-start-1 max-sm:line-clamp-3 max-sm:self-center max-sm:py-1.5 max-sm:text-[0.875rem]",
+            "col-span-2 col-start-3 row-start-1 line-clamp-3 min-w-0 self-center break-words py-1 text-left text-[0.8125rem] max-sm:py-1.5 max-sm:text-[0.875rem]",
+            "[@container(min-width:34rem)]:line-clamp-none [@container(min-width:34rem)]:min-w-[7.5rem] [@container(min-width:34rem)]:flex-1 [@container(min-width:34rem)]:py-0",
             checked || focused ? "font-[600]" : null,
           )}
         >
           {label}
         </button>
-        <span className="flex flex-wrap justify-end gap-1 max-sm:col-start-4 max-sm:row-start-2 max-sm:min-w-0 max-sm:justify-start max-sm:self-center">
+        <span className="col-start-4 row-start-2 flex min-w-0 flex-wrap justify-start gap-1 self-center [@container(min-width:34rem)]:justify-end">
           {badges.map((badge) => (
             <EPill key={badge.key} tone={badge.tone} className="max-w-full whitespace-normal py-0.5 leading-tight">
               {badge.label}
@@ -152,11 +158,11 @@ export function QuestionRow({
           onClick={onToggleExpand}
           aria-expanded={expanded}
           aria-label={expanded ? `Collapse "${label}"` : `Expand "${label}"`}
-          className="rounded p-1 text-[hsl(var(--e-text-faint))] hover:bg-[hsl(var(--e-muted))] max-sm:col-start-5 max-sm:row-start-2 max-sm:flex max-sm:size-11 max-sm:items-center max-sm:justify-center"
+          className="col-start-5 row-start-2 justify-self-center rounded p-1 text-[hsl(var(--e-text-faint))] hover:bg-[hsl(var(--e-muted))] max-sm:flex max-sm:size-11 max-sm:items-center max-sm:justify-center"
         >
           <ChevronDown className={cn("size-4 transition-transform", expanded && "rotate-180")} />
         </button>
-        <ERowMenu label={`More actions for "${label}"`} items={items} className="max-sm:col-start-5 max-sm:row-start-1" />
+        <ERowMenu label={`More actions for "${label}"`} items={items} className="col-start-5 row-start-1 justify-self-center" />
       </div>
       {expanded ? <Details field={field} /> : null}
     </li>

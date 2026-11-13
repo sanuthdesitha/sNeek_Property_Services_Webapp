@@ -18,6 +18,11 @@ import {
 export const metadata = { title: "Inventory · Estate client" };
 export const dynamic = "force-dynamic";
 
+/** "CLEANERS_CUPBOARD" → "Cleaners Cupboard". */
+function locationLabel(location: string): string {
+  return location.toLowerCase().split("_").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
+}
+
 export default async function ClientInventoryPage({
   searchParams,
 }: {
@@ -166,7 +171,27 @@ export default async function ClientInventoryPage({
                     <EButton asChild size="sm" variant="outline"><Link href={`/v2/client/shopping?propertyId=${property.id}`}>Start shopping</Link></EButton>
                   </ECardHeader>
                   <ECardBody className="p-0">
-                    <div className="overflow-x-auto">
+                    {/* Phones: one stacked row per item instead of an eight-column table scrolled sideways. */}
+                    <ul className="divide-y divide-[hsl(var(--e-border)/0.7)] sm:hidden" aria-label={`Stock at ${property.name}`}>
+                      {propertyRows.map((row) => {
+                        const isLow = Number(row.onHand) <= Number(row.reorderThreshold);
+                        return (
+                          <li key={row.id} className="space-y-1 px-4 py-3 text-[0.8125rem]">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="min-w-0 break-words font-[550]">{row.item.name}</p>
+                              <EBadge tone={isLow ? "danger" : "neutral"} soft>{isLow ? "Low stock" : "OK"}</EBadge>
+                            </div>
+                            <p className="tabular-nums">
+                              On hand {row.onHand} {row.item.unit} · Par {row.parLevel} · Threshold {row.reorderThreshold}
+                            </p>
+                            <p className="break-words text-[hsl(var(--e-muted-foreground))]">
+                              {[row.item.category, locationLabel(row.item.location), row.item.supplier ?? "-"].join(" · ")}
+                            </p>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <div className="overflow-x-auto max-sm:hidden">
                       <table className="w-full min-w-[720px] text-[0.8125rem]">
                         <thead>
                           <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
@@ -183,7 +208,7 @@ export default async function ClientInventoryPage({
                                 <td className="px-4 py-2">{row.item.name}</td>
                                 <td className="px-4 py-2 text-[hsl(var(--e-muted-foreground))]">{row.item.category}</td>
                                 <td className="px-4 py-2 text-[hsl(var(--e-muted-foreground))]">
-                                  {row.item.location.toLowerCase().split("_").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ")}
+                                  {locationLabel(row.item.location)}
                                 </td>
                                 <td className="px-4 py-2 text-[hsl(var(--e-muted-foreground))]">{row.item.supplier ?? "-"}</td>
                                 <td className="px-4 py-2 text-right tabular-nums">{row.onHand} {row.item.unit}</td>

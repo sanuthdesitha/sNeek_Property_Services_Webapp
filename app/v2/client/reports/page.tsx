@@ -66,7 +66,7 @@ function FilterChip({ href, active, children }: { href: string; active: boolean;
 
 function FilterRowLabel({ children }: { children: React.ReactNode }) {
   return (
-    <span className="w-16 shrink-0 text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--e-muted-foreground))]">
+    <span className="w-20 shrink-0 text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--e-muted-foreground))]">
       {children}
     </span>
   );

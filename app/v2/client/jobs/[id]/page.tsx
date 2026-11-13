@@ -95,7 +95,8 @@ function statusTone(status: string): Tone {
 }
 
 function titleCase(value: string) {
-  return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  // "AIRBNB_TURNOVER" → "Airbnb Turnover" (enum values arrive upper-case).
+  return value.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 async function getScopedJob(id: string, scope: Pick<ClientPortalContext, "clientId" | "propertyIds">, includeCosts: boolean) {
@@ -357,7 +358,6 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
 
   return (
     <div className="space-y-8">
-      <JobStatusProgress status={job.status} tintOnly />
       <div>
         <EButton asChild variant="ghost" size="sm" className="-ml-2"><Link href="/v2/client/jobs" className="inline-block">
             <ArrowLeft className="h-4 w-4" /> Jobs
@@ -379,8 +379,18 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
         }
       />
 
+      {/* Job progress sits under the page heading (never above it). Phones get
+          the compact segmented bar instead of the seven-column timeline, whose
+          labels were squeezed to one word per line at 390px. */}
+      <div className="sm:hidden">
+        <JobStatusProgress status={job.status} compact tintOnly />
+      </div>
+      <div className="max-sm:hidden">
+        <JobStatusProgress status={job.status} tintOnly />
+      </div>
+
       {/* Status timeline */}
-      <ECard>
+      <ECard className="max-sm:hidden">
         <ECardBody className="overflow-x-auto py-5 pt-5">
           <StatusTimeline status={job.status} />
         </ECardBody>

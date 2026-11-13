@@ -713,7 +713,7 @@ export function LaundryRouteMap() {
               : "Today's pickups and drop-offs — share your GPS so the office can follow the run."}
           </p>
         </div>
-        <div className="flex flex-shrink-0 items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-shrink-0">
           <RouteShareControl runner={runner} />
           {runner ? (
             <EButton variant="outline" size="sm" onClick={() => void endRoute()}>

@@ -22,11 +22,15 @@ function dayKey(value: string): string | null {
   return Number.isFinite(date.getTime()) ? formatInTimeZone(date, TZ, "yyyy-MM-dd") : null;
 }
 
-function dayLabel(key: string, todayKey: string): string {
+/** Resolved and dismissed work orders are finished; a past day holding only those is not overdue. */
+const CLOSED_STATUSES = new Set(["RESOLVED", "DISMISSED"]);
+
+function dayLabel(key: string, todayKey: string, tickets: readonly MaintenanceTicketSummary[]): string {
   if (key === todayKey) return "Today";
   const noonUtc = new Date(`${key}T02:00:00Z`);
   const label = formatInTimeZone(noonUtc, TZ, "EEEE d MMM");
-  return key < todayKey ? `${label} · overdue` : label;
+  const stillOpen = tickets.some((ticket) => !CLOSED_STATUSES.has(ticket.status));
+  return key < todayKey && stillOpen ? `${label} · overdue` : label;
 }
 
 export function groupTicketsByDay(tickets: readonly MaintenanceTicketSummary[], now: Date = new Date()): TicketDayGroup[] {
@@ -51,11 +55,10 @@ export function groupTicketsByDay(tickets: readonly MaintenanceTicketSummary[], 
   const overdue = keys.filter((key) => key < todayKey).sort();
   const byTime = (a: MaintenanceTicketSummary, b: MaintenanceTicketSummary) =>
     String(a.scheduledFor).localeCompare(String(b.scheduledFor));
-  const groups: TicketDayGroup[] = [...upcoming, ...overdue].map((key) => ({
-    key,
-    label: dayLabel(key, todayKey),
-    tickets: [...(byKey.get(key) ?? [])].sort(byTime),
-  }));
+  const groups: TicketDayGroup[] = [...upcoming, ...overdue].map((key) => {
+    const dayTickets = [...(byKey.get(key) ?? [])].sort(byTime);
+    return { key, label: dayLabel(key, todayKey, dayTickets), tickets: dayTickets };
+  });
   if (unscheduled.length) groups.push({ key: "unscheduled", label: "Not scheduled", tickets: unscheduled });
   if (unreadable.length) groups.push({ key: "unreadable", label: "Schedule unavailable", tickets: unreadable });
   return groups;

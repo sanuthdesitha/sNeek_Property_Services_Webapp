@@ -238,26 +238,32 @@ describe("the template builder on a phone", () => {
     const questions = await screen.findByRole("region", { name: "Section questions" });
     const wording = within(questions).getByRole("button", { name: "Oven cleaned" });
     const row = wording.closest("[data-question-row-layout]") as HTMLElement;
-    expect(row.className).toMatch(/max-sm:grid\b/);
-    expect(row.className).toMatch(/max-sm:grid-cols-\[2\.75rem_2\.75rem_auto_minmax\(0,1fr\)_2\.75rem\]/);
+    // The layout follows the question list's width (a size container), so a
+    // narrow list (a phone, or the 1280px centre pane) gets the two-line grid.
+    expect((row.closest("[data-question-list]") as HTMLElement).className).toMatch(/\[container-type:inline-size\]/);
+    expect(row.className).toMatch(/(^| )grid( |$)/);
+    expect(row.className).toMatch(/grid-cols-\[auto_auto_auto_minmax\(0,1fr\)_auto\]/);
     // Line 1: the wording spans the type and pills columns; never squeezed by them.
-    expect(wording.className).toMatch(/max-sm:row-start-1/);
-    expect(wording.className).toMatch(/max-sm:col-span-2/);
+    expect(wording.className).toMatch(/(^| )row-start-1( |$)/);
+    expect(wording.className).toMatch(/(^| )col-span-2( |$)/);
     expect(wording.className).toMatch(/min-w-0/);
-    expect(wording.className).toMatch(/max-sm:line-clamp-3/);
+    expect(wording.className).toMatch(/(^| )line-clamp-3( |$)/);
     // Line 2: type and pills.
     const type = row.querySelector("[data-question-row-type]") as HTMLElement;
     expect(type.textContent).toBe("Yes / No");
-    expect(type.className).toMatch(/max-sm:row-start-2/);
-    expect(within(row).getByText("Required").closest("span.flex")?.className).toMatch(/max-sm:row-start-2/);
-    // Controls are 44px targets.
+    expect(type.className).toMatch(/(^| )row-start-2( |$)/);
+    expect(within(row).getByText("Required").closest("span.flex")?.className).toMatch(/(^| )row-start-2( |$)/);
+    // Controls are 44px targets on a phone.
     for (const name of [/^Drag "Oven cleaned"/, /^Expand "Oven cleaned"/, /^More actions for "Oven cleaned"/]) {
       expect(within(row).getByRole("button", { name }).className).toMatch(/max-sm:(size-11|h-11)/);
     }
     expect(within(row).getByRole("checkbox", { name: 'Select "Oven cleaned"' }).closest("label")?.className).toMatch(/max-sm:size-11/);
-    // From 640px up the row is the one-line flex row it was.
-    expect(row.className).toMatch(/(^| )flex( |$)/);
-    expect(row.className).toMatch(/sm:flex-nowrap/);
+    // A list of 34rem or more keeps the one-line row as drawn, with a readable wording width.
+    expect(row.className).toMatch(/\[@container\(min-width:34rem\)\]:flex( |$)/);
+    expect(row.className).toMatch(/\[@container\(min-width:34rem\)\]:flex-nowrap/);
+    expect(wording.className).toMatch(/\[@container\(min-width:34rem\)\]:line-clamp-none/);
+    expect(wording.className).toMatch(/\[@container\(min-width:34rem\)\]:min-w-\[7\.5rem\]/);
+    expect(type.className).toMatch(/\[@container\(min-width:34rem\)\]:w-\[76px\]/);
   });
 
   it("keeps the question editor in normal flow on a phone (the page scrolls), names the question once, and clears the docked bars", async () => {

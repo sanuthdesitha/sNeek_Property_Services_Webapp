@@ -971,9 +971,9 @@ function monitorDuration(minutes: number | null | undefined): string | null {
 }
 
 /** Outcome of the latest GET /progress read (the monitor never shows a failed read as data). */
-type MonitorProgressRead = "idle" | "ok" | "refused" | "failed";
+export type MonitorProgressRead = "idle" | "ok" | "refused" | "failed";
 
-function monitorUnavailableText(read: MonitorProgressRead): string | null {
+export function monitorUnavailableText(read: MonitorProgressRead): string | null {
   if (read === "refused") return "Live progress appears once this inspection is assigned to you.";
   if (read === "failed") return "Live progress could not be loaded. Refresh to try again.";
   return null;
@@ -2316,8 +2316,9 @@ export function QaInspectionWorkspace({
         </EButton>
         <div className="min-w-0 flex-1">
           <p className="e-eyebrow">QA inspection · Sydney</p>
-          <h1 className="e-display-md mt-1 truncate">{job.property?.name ?? "Property"}</h1>
-          <p className="truncate text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
+          {/* Phones wrap the property name and address instead of cutting them to "The Bondi S…". */}
+          <h1 className="e-display-md mt-1 truncate max-sm:whitespace-normal max-sm:break-words">{job.property?.name ?? "Property"}</h1>
+          <p className="truncate text-[0.875rem] text-[hsl(var(--e-muted-foreground))] max-sm:whitespace-normal max-sm:break-words">
             {[job.property?.address, job.property?.suburb].filter(Boolean).join(", ")}
           </p>
         </div>
