@@ -9,12 +9,13 @@ const m = vi.hoisted(() => ({
   gateway: vi.fn(),
   scope: vi.fn(),
   db: {
-    job: { findUnique: vi.fn(), findMany: vi.fn() },
+    job: { findUnique: vi.fn(), findMany: vi.fn(), findFirst: vi.fn() },
     jobAssignment: { findFirst: vi.fn() },
-    timeLog: { findMany: vi.fn() },
+    timeLog: { findMany: vi.fn(), findFirst: vi.fn() },
+    userLastLocation: { updateMany: vi.fn(async () => ({ count: 1 })), create: vi.fn(), upsert: vi.fn() },
     user: { findUnique: vi.fn(), update: vi.fn() },
     clientInvoice: { findFirst: vi.fn() },
-    cleanerLocationPing: { create: vi.fn(), createMany: vi.fn() },
+    cleanerLocationPing: { create: vi.fn(), createMany: vi.fn(async (args: { data: unknown[] }) => ({ count: args.data.length })) },
     laundryRoute: { findFirst: vi.fn(), update: vi.fn() },
     laundryTask: { findUnique: vi.fn(), findFirst: vi.fn() },
     property: { findUnique: vi.fn(), findMany: vi.fn() },
@@ -63,18 +64,22 @@ describe("cleaner requests are bound to an open job", () => {
 });
 
 describe("location pings", () => {
+  // Live location 2026-11: one ingest path (lib/gps/ingest-service) behind the
+  // tracking window; refused fixes are counted under a reason.
   it("drops a cleaner ping dated ahead of the server clock", async () => {
-    m.session.mockResolvedValue({ user: { id: `cleaner-${Math.random()}` } });
+    m.role.mockResolvedValue({ user: { id: `cleaner-${Math.random()}`, role: "CLEANER" } });
+    m.db.job.findFirst.mockResolvedValue({ id: "job", status: "EN_ROUTE", scheduledDate: new Date(), cleanSkipStatus: "NONE", property: { name: "P", latitude: null, longitude: null, geofenceRadiusM: null, client: { showCleanerLiveLocation: false } } });
+    m.db.timeLog.findFirst.mockResolvedValue(null);
     const future = new Date(Date.now() + 60 * 60_000).toISOString();
     const res = await cleanerPing(post({ jobId: "job", lat: -33.8, lng: 151.2, timestamp: future }));
-    expect(await res.json()).toMatchObject({ received: 0, dropped: 1 });
+    expect(await res.json()).toMatchObject({ received: 0, dropped: 1, dropReasons: { FUTURE: 1 } });
     expect(m.db.cleanerLocationPing.createMany).not.toHaveBeenCalled();
   });
 
-  it("files a driver's ping against the next stop of their own active route", async () => {
+  it("files a driver's ping against the next stop of their own ACTIVE route today", async () => {
     m.role.mockResolvedValue({ user: { id: `driver-${Math.random()}`, role: "LAUNDRY" } });
     m.db.laundryRoute.findFirst.mockResolvedValue({
-      id: "route",
+      id: "route", status: "ACTIVE", date: new Date(),
       stops: [{ taskId: "own-task", kind: "PICKUP", order: 0, propertyId: "p1" }],
     });
     m.db.laundryTask.findUnique.mockResolvedValue({ jobId: "own-job" });
@@ -82,21 +87,26 @@ describe("location pings", () => {
     const res = await laundryPing(post({ lat: -33.8, lng: 151.2 }));
     expect(res.status).toBe(200);
     expect(m.db.laundryTask.findUnique).toHaveBeenCalledWith({ where: { id: "own-task" }, select: { jobId: true } });
-    expect(m.db.cleanerLocationPing.create.mock.calls[0][0].data.jobId).toBe("own-job");
+    expect(m.db.cleanerLocationPing.createMany.mock.calls[0][0].data[0]).toMatchObject({ jobId: "own-job", laundryRouteId: "route", source: "LAUNDRY_ROUTE" });
     expect(m.db.laundryTask.findFirst).not.toHaveBeenCalled();
   });
 
-  it("falls back only to tasks at properties the driver serves, and stores nothing when there are none", async () => {
+  it("stores nothing for a driver without an active route (no fallback to unrelated tasks)", async () => {
     m.role.mockResolvedValue({ user: { id: `driver-${Math.random()}`, role: "LAUNDRY" } });
     m.db.laundryRoute.findFirst.mockResolvedValue(null);
-    m.scope.mockResolvedValue({ propertyId: { in: ["served"] } });
-    m.db.laundryTask.findFirst.mockResolvedValue(null);
     const res = await laundryPing(post({ lat: -33.8, lng: 151.2 }));
-    expect(await res.json()).toMatchObject({ received: 0, reason: "NO_LAUNDRY_TASKS" });
-    for (const call of m.db.laundryTask.findFirst.mock.calls) {
-      expect(call[0].where).toMatchObject({ propertyId: { in: ["served"] } });
-    }
-    expect(m.db.cleanerLocationPing.create).not.toHaveBeenCalled();
+    expect(await res.json()).toMatchObject({ received: 0, dropReasons: { OUTSIDE_WINDOW: 1 }, window: { active: false, reason: "NO_ACTIVE_ROUTE" } });
+    expect(m.db.laundryTask.findFirst).not.toHaveBeenCalled();
+    expect(m.db.cleanerLocationPing.createMany).not.toHaveBeenCalled();
+  });
+
+  it("never records an office account or an impersonated driver", async () => {
+    m.db.laundryRoute.findFirst.mockResolvedValue({ id: "route", status: "ACTIVE", date: new Date(), stops: [{ taskId: "t", kind: "PICKUP", order: 0, propertyId: "p1" }] });
+    m.role.mockResolvedValue({ user: { id: `admin-${Math.random()}`, role: "ADMIN" } });
+    expect(await (await laundryPing(post({ lat: -33.8, lng: 151.2 }))).json()).toMatchObject({ received: 0, window: { reason: "WRONG_ROLE" } });
+    m.role.mockResolvedValue({ user: { id: `driver-${Math.random()}`, role: "LAUNDRY" }, impersonation: { actorId: "office", mode: "FULL", startedAt: 1 } });
+    expect(await (await laundryPing(post({ lat: -33.8, lng: 151.2 }))).json()).toMatchObject({ received: 0, dropReasons: { IMPERSONATING: 1 } });
+    expect(m.db.cleanerLocationPing.createMany).not.toHaveBeenCalled();
   });
 });
 

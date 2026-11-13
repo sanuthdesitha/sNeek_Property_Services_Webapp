@@ -4,11 +4,16 @@
  * The Lost and found page as drawn: header with a real summary, Export and
  * Log an item; stage tabs with counts; filters; one table with server paging
  * and sorting; a bulk bar; the item panel on `?open=`.
+ *
+ * Phones (below 640px): the table's stacked cards, filters behind "Filter",
+ * the item panel full screen, and "Log an item" docked at the bottom (hidden
+ * while the bulk bar is up). Export stays in the header.
  */
 import { useCallback, useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EDataTable } from "@/components/v2/ui/data-table";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
 import { EPagination } from "@/components/v2/ui/pagination";
 import type { LostFoundBulkResult } from "@/lib/lost-found/bulk-types";
 import type { LostFoundListRow } from "@/lib/lost-found/list";
@@ -69,7 +74,7 @@ export function LostFoundHub({ initialView, isAdmin, timeZone }: { initialView: 
             <EButton asChild variant="outline" size="sm">
               <a href={`/api/admin/lost-found/export?${exportQueryString(view)}`} download>Export</a>
             </EButton>
-            <EButton size="sm" onClick={() => setLogOpen(true)}>Log an item</EButton>
+            <EButton size="sm" onClick={() => setLogOpen(true)} className="max-sm:hidden">Log an item</EButton>
           </div>
         </header>
 
@@ -105,6 +110,12 @@ export function LostFoundHub({ initialView, isAdmin, timeZone }: { initialView: 
       {view.open ? (
         <ItemPanel key={view.open} itemId={view.open} timeZone={zone} holdingDays={holdingDays} onClose={() => update({ open: null })} onChanged={list.reload} />
       ) : null}
+
+      <EPhoneActionBar
+        label="Lost and found actions"
+        hidden={selected.size > 0 || Boolean(view.open)}
+        primary={<EButton onClick={() => setLogOpen(true)}>Log an item</EButton>}
+      />
 
       <LogItemDialog
         open={logOpen}

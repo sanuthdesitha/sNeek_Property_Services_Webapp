@@ -115,7 +115,8 @@ export function PeopleDirectory({
           ) : null}
           {capabilities.isAdmin ? <EButton size="sm" variant="outline" onClick={() => setInviteOpen(true)}>Invite person</EButton> : null}
           {access.clients ? (
-            <EButton asChild size="sm" variant="primary">
+            // On a phone the Clients tab docks "New client" at the bottom instead.
+            <EButton asChild size="sm" variant="primary" className={tab === "clients" ? "max-sm:hidden" : undefined}>
               <Link href="/v2/admin/clients/new">New client</Link>
             </EButton>
           ) : null}

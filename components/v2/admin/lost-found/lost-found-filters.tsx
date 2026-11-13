@@ -4,9 +4,14 @@
  * Stage tabs (with the server's real counts) and the filter row as drawn:
  * search, Property, Found date, Value, the holding-period flag, and the sort
  * control. Every value lives in the URL view.
+ *
+ * Phones (below 640px, board "Admin phone: Lost and found"): the stage tabs
+ * stay one swipeable row; search and the filters sit behind one "Filter"
+ * button (EFilterBar) with removable chips, and Sort stays visible beside it.
  */
 import { NEW_ITEM_FLAG_DAYS } from "@/lib/lost-found/holding";
 import { cn } from "@/lib/utils";
+import { EFilterBar, type EActiveFilter } from "@/components/v2/ui/filter-bar";
 import { EFilterPopover } from "@/components/v2/ui/filter-popover";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
 import { EField, EInput, ESelect } from "@/components/v2/admin/estate-kit";
@@ -78,9 +83,38 @@ export function LostFoundFilters({
   const dateValue = view.from || view.to ? `${view.from || "…"} to ${view.to || "…"}` : null;
   const sortValue = `${view.sort}:${view.dir}`;
   const knownSort = SORT_OPTIONS.some((option) => option.value === sortValue);
+  const active: EActiveFilter[] = [];
+  if (view.q) active.push({ key: "q", label: `Search: ${view.q}`, onRemove: () => onChange({ q: "" }) });
+  if (view.propertyId) active.push({ key: "property", label: `Property: ${property?.name ?? "Selected"}`, onRemove: () => onChange({ propertyId: "" }) });
+  if (dateValue) active.push({ key: "dates", label: `Found: ${dateValue}`, onRemove: () => onChange({ from: "", to: "" }) });
+  if (view.value !== "any") active.push({ key: "value", label: `Value: ${VALUE_FILTER_LABEL[view.value]}`, onRemove: () => onChange({ value: "any" }) });
+  if (view.holding) active.push({ key: "holding", label: holdingDays ? `Held over ${holdingDays} days` : "Past holding period", onRemove: () => onChange({ holding: false }) });
+  if (view.staleNew) active.push({ key: "stale", label: `New over ${NEW_ITEM_FLAG_DAYS} days`, onRemove: () => onChange({ staleNew: false }) });
+  if (view.tab === "closed" && view.closedAs) active.push({ key: "closedAs", label: `Closed as: ${lostFoundStatusLabel(view.closedAs)}`, onRemove: () => onChange({ closedAs: "" }) });
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <EInput type="search" aria-label="Search" placeholder="Search item, guest, property" value={view.q} onChange={(event) => onChange({ q: event.target.value })} className="h-8 w-full sm:w-[240px]" />
+    <EFilterBar
+      label="Filter items"
+      active={active}
+      onClear={() => onChange({ q: "", propertyId: "", from: "", to: "", value: "any", holding: false, staleNew: false, closedAs: "" })}
+      tools={(
+        <>
+          <span className="min-w-0 flex-1" />
+          <ESelect
+            aria-label="Sort"
+            value={knownSort ? sortValue : ""}
+            onChange={(event) => {
+              const option = SORT_OPTIONS.find((candidate) => candidate.value === event.target.value);
+              if (option) onChange({ sort: option.sort, dir: option.dir });
+            }}
+            className="h-8 w-auto max-sm:h-11 max-sm:text-[1rem]"
+          >
+            {knownSort ? null : <option value="">Sort: from the table</option>}
+            {SORT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </ESelect>
+        </>
+      )}
+    >
+      <EInput type="search" aria-label="Search" placeholder="Search item, guest, property" value={view.q} onChange={(event) => onChange({ q: event.target.value })} className="h-8 w-full sm:w-[240px] max-sm:h-11 max-sm:text-[1rem]" />
       <EFilterPopover label="Property" value={property?.name ?? (view.propertyId ? "Selected" : null)}>
         <EField label="Property">
           <ESelect value={view.propertyId} onChange={(event) => onChange({ propertyId: event.target.value })}>
@@ -113,19 +147,6 @@ export function LostFoundFilters({
           {CLOSED_STATUSES.map((status) => <option key={status} value={status}>{lostFoundStatusLabel(status)}</option>)}
         </ESelect>
       ) : null}
-      <span className="min-w-0 flex-1" />
-      <ESelect
-        aria-label="Sort"
-        value={knownSort ? sortValue : ""}
-        onChange={(event) => {
-          const option = SORT_OPTIONS.find((candidate) => candidate.value === event.target.value);
-          if (option) onChange({ sort: option.sort, dir: option.dir });
-        }}
-        className="h-8 w-auto"
-      >
-        {knownSort ? null : <option value="">Sort: from the table</option>}
-        {SORT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </ESelect>
-    </div>
+    </EFilterBar>
   );
 }

@@ -64,7 +64,7 @@ export function ActivityLog({ page, searchParams, timezone }: { page: ActivityPa
       <EFilterBar
         label="Filter activity"
         active={activeFilters}
-        resultLabel="Close"
+        resultLabel="Done"
         tools={
           <span className="ml-auto sm:hidden">
             <ERowMenu label="More activity actions" items={[{ key: "export", label: "Export CSV", href: exportHref }]} />

@@ -11,6 +11,7 @@
 import Link from "next/link";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { EButton } from "@/components/v2/ui/primitives";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
 import { ClientActions, type ClientActionsClient } from "@/components/v2/admin/clients/client-actions";
 import type { ClientPortalVisibility } from "@/lib/settings";
 
@@ -31,11 +32,11 @@ export function ClientHeaderActions({
       <EButton asChild size="sm" variant="outline"><Link href="/v2/admin/quotes/new">New quote</Link></EButton>
       {overdueInvoice ? (
         <>
-          <EButton asChild size="sm" variant="outline"><Link href={`${base}?tab=messages`}>Send update</Link></EButton>
-          <EButton asChild size="sm" variant="primary"><Link href={`/v2/admin/finance/invoices/${overdueInvoice.id}`}>Chase overdue invoice</Link></EButton>
+          <EButton asChild size="sm" variant="outline" className="max-sm:hidden"><Link href={`${base}?tab=messages`}>Send update</Link></EButton>
+          <EButton asChild size="sm" variant="primary" className="max-sm:hidden"><Link href={`/v2/admin/finance/invoices/${overdueInvoice.id}`}>Chase overdue invoice</Link></EButton>
         </>
       ) : (
-        <EButton asChild size="sm" variant="primary"><Link href={`${base}?tab=messages`}>Send update</Link></EButton>
+        <EButton asChild size="sm" variant="primary" className="max-sm:hidden"><Link href={`${base}?tab=messages`}>Send update</Link></EButton>
       )}
       <ClientActions
         client={client}
@@ -62,5 +63,24 @@ export function ClientHeaderActions({
         )}
       />
     </div>
+  );
+}
+
+/**
+ * Phones (board M-People2): the client page's primary action (Chase overdue
+ * invoice, else Send update) docked in thumb reach, with Send update beside it
+ * when an invoice is overdue. Rendered at the end of the page; nothing from 640px up.
+ */
+export function ClientPhoneActions({ clientId, overdueInvoice }: { clientId: string; overdueInvoice: { id: string; invoiceNumber: string } | null }) {
+  const base = `/v2/admin/clients/${clientId}`;
+  const sendUpdate = (variant: "outline" | "primary") => (
+    <EButton asChild variant={variant}><Link href={`${base}?tab=messages`}>Send update</Link></EButton>
+  );
+  return (
+    <EPhoneActionBar
+      label="Client actions"
+      secondary={overdueInvoice ? sendUpdate("outline") : undefined}
+      primary={overdueInvoice ? <EButton asChild><Link href={`/v2/admin/finance/invoices/${overdueInvoice.id}`}>Chase overdue invoice</Link></EButton> : sendUpdate("primary")}
+    />
   );
 }

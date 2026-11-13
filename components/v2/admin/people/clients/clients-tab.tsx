@@ -14,10 +14,12 @@ import { EButton } from "@/components/v2/ui/primitives";
 import { EDataTable } from "@/components/v2/ui/data-table";
 import { EPagination } from "@/components/v2/ui/pagination";
 import { EPill } from "@/components/v2/ui/pill";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
+import { EFilterBar, EFilterBarInlineOnly, type EActiveFilter } from "@/components/v2/ui/filter-bar";
 import { formatMoney } from "@/components/v2/admin/accounts/hub/account-display";
 import type { ClientBulkResponse } from "@/lib/people/clients/bulk-types";
-import { CLIENT_DIRECTORY_FILTER_LABEL, type ClientDirectoryFilter, type ClientDirectoryResponse, type ClientDirectoryRow } from "@/lib/people/clients/types";
+import { CLIENT_DIRECTORY_FILTER_LABEL, DEFAULT_CLIENT_FILTER, type ClientDirectoryFilter, type ClientDirectoryResponse, type ClientDirectoryRow } from "@/lib/people/clients/types";
 import type { PeopleCounts } from "@/lib/people/counts";
 import type { PeopleTab } from "@/lib/people/tabs";
 import { FactStrip } from "../fact-strip";
@@ -106,10 +108,28 @@ export function ClientsTab({
     list.reload();
   }
 
+  // Phones (board M-People2): the search and chips sit behind one Filter button;
+  // the assistants link and Columns stay beside it.
+  const activeFilters: EActiveFilter[] = [];
+  if (search.trim()) activeFilters.push({ key: "q", label: `Search: ${search.trim()}`, onRemove: () => { setSearch(""); update({ q: "" }); } });
+  if (view.filter !== DEFAULT_CLIENT_FILTER) activeFilters.push({ key: "filter", label: CLIENT_DIRECTORY_FILTER_LABEL[view.filter], onRemove: () => update({ filter: DEFAULT_CLIENT_FILTER }) });
+  const clearFilters = () => { setSearch(""); update({ filter: "all", q: "" }); };
+
   return (
     <div className="flex min-w-0 gap-4">
       <div className="flex min-w-0 flex-1 flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-2">
+        <EFilterBar
+          label="Filter clients"
+          active={activeFilters}
+          onClear={clearFilters}
+          resultLabel={data ? `Show ${data.total} ${data.total === 1 ? "client" : "clients"}` : undefined}
+          tools={
+            <>
+              <Link href="/v2/admin/accounts?tab=assistants" className="text-[0.8125rem] underline max-sm:inline-flex max-sm:min-h-11 max-sm:items-center" onClick={(event) => { event.preventDefault(); onSelectView("assistants"); }}>Client assistants</Link>
+              <ClientColumnsMenu visibility={visibility} prefs={columns} onChange={changeColumns} />
+            </>
+          }
+        >
           <input
             type="search"
             value={search}
@@ -135,11 +155,11 @@ export function ClientsTab({
               );
             })}
           </div>
-          <EButton size="sm" variant="ghost" onClick={() => { setSearch(""); update({ filter: "all", q: "" }); }}>Clear</EButton>
+          <EFilterBarInlineOnly>
+            <EButton size="sm" variant="ghost" onClick={clearFilters}>Clear</EButton>
+          </EFilterBarInlineOnly>
           <span className="hidden flex-1 sm:block" />
-          <Link href="/v2/admin/accounts?tab=assistants" className="text-[0.8125rem] underline" onClick={(event) => { event.preventDefault(); onSelectView("assistants"); }}>Client assistants</Link>
-          <ClientColumnsMenu visibility={visibility} prefs={columns} onChange={changeColumns} />
-        </div>
+        </EFilterBar>
 
         <FactStrip
           label="Client figures"
@@ -191,6 +211,8 @@ export function ClientsTab({
           onFinished={bulkFinished}
           onRunningChange={setBulkRunning}
         />
+        {/* Phones (board M-People2): People's "New client" in thumb reach while no bulk bar owns the bottom. */}
+        <EPhoneActionBar label="Clients actions" hidden={selected.size > 0} primary={<EButton asChild><Link href="/v2/admin/clients/new">New client</Link></EButton>} />
       </div>
       {view.open ? <ClientPanel clientId={view.open} onClose={() => update({ open: null })} /> : null}
     </div>

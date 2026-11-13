@@ -78,6 +78,15 @@ export function takeLocationToken(key: string, now: number): { ok: true } | { ok
   return { ok: true };
 }
 
+/** Run a side effect that must never fail the request (the fixes are stored). */
+async function bestEffort(task: () => unknown): Promise<void> {
+  try {
+    await task();
+  } catch {
+    // Swallowed by design.
+  }
+}
+
 function windowOf(decision: { ok: true } | { ok: false; reason: TrackingRefusal }): IngestWindow {
   return decision.ok ? { active: true } : { active: false, reason: decision.reason, message: TRACKING_REFUSAL_TEXT[decision.reason] };
 }
@@ -232,7 +241,7 @@ export async function ingestCleanerBatch(input: {
 
   const hasLive = liveByJob.length > 0;
   if (window.active && (newestOverall || batch.state)) {
-    await writeLastLocation({
+    await bestEffort(() => writeLastLocation({
       userId: input.userId,
       fix: newestOverall ? {
         lat: newestOverall.fix.lat, lng: newestOverall.fix.lng, accuracy: newestOverall.fix.accuracy ?? null,
@@ -243,7 +252,7 @@ export async function ingestCleanerBatch(input: {
       jobId: newestOverall?.jobId ?? null,
       laundryRouteId: null,
       state: stateFor(batch, receivedAt, hasLive),
-    }).catch(() => undefined);
+    }));
   }
 
   // Arrival / departure: newest LIVE fix per job only. Best-effort: the
@@ -254,14 +263,15 @@ export async function ingestCleanerBatch(input: {
       const result = await checkGeofenceForPing({ userId: input.userId, jobId, lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy ?? null, pingAt: fix.measuredAt });
       geofence = { ...geofence, ...result };
       if (result.departed) {
-        await handleGeofenceDeparture({ jobId: result.departed.jobId, userId: input.userId, distanceM: result.departed.distanceM, now: receivedAt }).catch(() => undefined);
+        const departed = result.departed;
+        await bestEffort(() => handleGeofenceDeparture({ jobId: departed.jobId, userId: input.userId, distanceM: departed.distanceM, now: receivedAt }));
       }
     } catch {
       // Swallow: never fail a ping on the geofence.
     }
   }
 
-  if (received > 0) await db.user.update({ where: { id: input.userId }, data: { lastSeenAt: receivedAt } }).catch(() => undefined);
+  if (received > 0) await bestEffort(() => db.user.update({ where: { id: input.userId }, data: { lastSeenAt: receivedAt } }));
 
   return {
     status: 200,
@@ -337,7 +347,7 @@ export async function ingestDriverBatch(input: {
   const newest = corrected.accepted[corrected.accepted.length - 1] ?? null;
   const live = newestLive(corrected.accepted, receivedAt);
   if (newest || batch.state) {
-    await writeLastLocation({
+    await bestEffort(() => writeLastLocation({
       userId: input.userId,
       fix: newest ? { lat: newest.lat, lng: newest.lng, accuracy: newest.accuracy ?? null, heading: newest.heading ?? null, speed: newest.speed ?? null, measuredAt: newest.measuredAt } : null,
       receivedAt,
@@ -345,11 +355,18 @@ export async function ingestDriverBatch(input: {
       jobId: route.anchorJobId,
       laundryRouteId: route.id,
       state: stateFor(batch, receivedAt, Boolean(live)),
-    }).catch(() => undefined);
+    }));
   }
-  if (stored > 0) await db.user.update({ where: { id: input.userId }, data: { lastSeenAt: receivedAt } }).catch(() => undefined);
+  if (stored > 0) await bestEffort(() => db.user.update({ where: { id: input.userId }, data: { lastSeenAt: receivedAt } }));
 
-  const arrivedStop = live ? await detectRouteArrival(route.id, live).catch(() => null) : null;
+  let arrivedStop: { taskId: string; kind: RouteStopKind } | null = null;
+  if (live) {
+    try {
+      arrivedStop = await detectRouteArrival(route.id, live);
+    } catch {
+      arrivedStop = null;
+    }
+  }
   return {
     status: 200,
     body: {
