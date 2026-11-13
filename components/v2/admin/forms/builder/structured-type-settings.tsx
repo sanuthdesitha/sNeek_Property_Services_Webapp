@@ -137,34 +137,54 @@ export function TableSettings({ field, onUpdate }: { field: FormField; onUpdate:
 
 type CatalogItem = { id: string; name: string; unit?: string | null; category?: string | null; isActive?: boolean };
 
+/** The stock catalogue as this panel knows it: never "empty" when it could not be read. */
+type CatalogState =
+  | { status: "loading" }
+  | { status: "failed"; message: string }
+  | { status: "ready"; items: CatalogItem[] };
+
+/** Reads GET /api/admin/inventory/items; a refusal or an unexpected body is a failure, not an empty list. */
+async function loadStockCatalogue(signal: AbortSignal): Promise<CatalogItem[]> {
+  const response = await fetch("/api/admin/inventory/items", { signal });
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const reason = body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string" ? ` ${(body as { error: string }).error}` : "";
+    throw new Error(`The stock list could not be loaded (${response.status}).${reason}`);
+  }
+  if (!Array.isArray(body)) throw new Error("The stock list could not be read (unexpected reply).");
+  return (body as CatalogItem[]).filter((item) => item.isActive !== false);
+}
+
 export function StockCountSettings({ field, onUpdate }: { field: FormField; onUpdate: (field: FormField) => void }) {
-  const [items, setItems] = React.useState<CatalogItem[] | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+  const [catalogue, setCatalogue] = React.useState<CatalogState>({ status: "loading" });
+  const [attempt, setAttempt] = React.useState(0);
 
   React.useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/admin/inventory/items", { signal: controller.signal })
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`The stock list could not be loaded (${res.status}).`))))
-      .then((body: unknown) => {
-        if (controller.signal.aborted) return;
-        setItems(Array.isArray(body) ? (body as CatalogItem[]).filter((item) => item.isActive !== false) : []);
+    setCatalogue({ status: "loading" });
+    loadStockCatalogue(controller.signal)
+      .then((items) => {
+        if (!controller.signal.aborted) setCatalogue({ status: "ready", items });
       })
       .catch((err: unknown) => {
-        if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "The stock list could not be loaded.");
+        if (controller.signal.aborted) return;
+        setCatalogue({ status: "failed", message: err instanceof Error ? err.message : "The stock list could not be loaded." });
       });
     return () => controller.abort();
-  }, []);
+  }, [attempt]);
 
+  const items = catalogue.status === "ready" ? catalogue.items : null;
   const choose = (id: string) => {
     const item = items?.find((entry) => entry.id === id);
-    if (!item) return onUpdate({ ...field, stockItemId: undefined, stockItemName: undefined });
+    // Un-choosing the item also drops its unit (the unit was copied from it).
+    if (!item) return onUpdate({ ...field, stockItemId: undefined, stockItemName: undefined, unit: undefined });
     onUpdate({ ...field, stockItemId: item.id, stockItemName: item.name, unit: item.unit || undefined });
   };
 
   return (
     <Section title="Stock count" defaultOpen>
       <EField label="Item counted" hint="From the stock catalogue. A property that does not stock it shows the question, but no urgent need can be raised there.">
-        {items === null && !error ? (
+        {catalogue.status === "loading" ? (
           <p className="text-[0.8125rem] text-[hsl(var(--e-text-faint))]">Loading the stock list…</p>
         ) : (
           <ESelect value={field.stockItemId ?? ""} onChange={(e) => choose(e.target.value)} disabled={!items}>
@@ -181,7 +201,22 @@ export function StockCountSettings({ field, onUpdate }: { field: FormField; onUp
           </ESelect>
         )}
       </EField>
-      {error ? <p role="alert" className="text-[0.75rem] text-[hsl(var(--e-danger))]">{error}</p> : null}
+      {catalogue.status === "failed" ? (
+        <div role="alert" className="flex flex-wrap items-center gap-2 text-[0.75rem] text-[hsl(var(--e-danger))]">
+          <span className="min-w-0">{catalogue.message} The question is kept; choose its item once the list loads.</span>
+          <button type="button" onClick={() => setAttempt((value) => value + 1)} className="min-h-8 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-strong))] px-2.5 font-[550] text-[hsl(var(--e-foreground))] max-sm:min-h-11">
+            Try again
+          </button>
+        </div>
+      ) : null}
+      {items && items.length === 0 ? (
+        <p className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">The stock catalogue has no active items yet. Add the item in Stock → Catalogue first.</p>
+      ) : null}
+      {!field.stockItemId ? (
+        <p className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]" data-stock-count-unfinished="">
+          No item chosen yet. The draft keeps the question; the form cannot be published until an item is chosen.
+        </p>
+      ) : null}
       <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
         The cleaner enters a whole number{field.unit ? ` of ${field.unit}` : ""}. The count is kept on the submission.
       </p>

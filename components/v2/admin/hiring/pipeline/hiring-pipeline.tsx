@@ -274,14 +274,14 @@ export function HiringPipeline({
               key={p.id}
               className="flex flex-wrap items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-3"
             >
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-2 font-[550] text-[hsl(var(--e-foreground))]">
+              <div className="min-w-0 flex-1 max-sm:basis-full">
+                <p className="flex flex-wrap items-center gap-2 font-[550] text-[hsl(var(--e-foreground))]">
                   {p.title}
                   <EBadge tone={p.isPublished ? "success" : "neutral"} soft>
                     {p.isPublished ? "Published" : "Draft"}
                   </EBadge>
                 </p>
-                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                <p className="break-words text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                   {p._count?.applications ?? 0} applications · /apply/{p.slug}
                 </p>
               </div>

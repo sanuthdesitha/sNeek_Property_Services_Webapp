@@ -250,7 +250,9 @@ export function BuilderPhone(props: BuilderPhoneProps) {
     body = (
       <>
         <PhoneBackBar
-          title={label}
+          // The question's name is shown once, here, in full (up to three
+          // lines); the editor below does not repeat it.
+          title={<span className="line-clamp-3 whitespace-normal break-words" data-builder-question-title="">{label}</span>}
           subtitle={focused ? `${focused.section.title || "Untitled section"} · question ${fieldIndex + 1} of ${fieldCount}` : undefined}
           backLabel="Back to questions"
           onBack={() => onScreen("questions")}

@@ -71,7 +71,8 @@ export function EStageBar({ label, stages, terminal, className }: EStageBarProps
     );
   }
   return (
-    <ol aria-label={label} className={cn("flex overflow-hidden rounded-[var(--e-radius)]", className)}>
+    // Phones: a three-column grid so six stages never squeeze a word ("Confirmed") out of its cell.
+    <ol aria-label={label} className={cn("flex overflow-hidden rounded-[var(--e-radius)] max-sm:grid max-sm:grid-cols-3", className)}>
       {stages.map((stage, index) => (
         <li
           key={stage.key}

@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { FIELD_TYPES } from "./field-types";
 import { jobFormPropertySelect } from "./job-form-property";
-import { duplicateStockCountItems, structuredFieldIssues } from "./structured-schema-checks";
+import { duplicateStockCountItems, structuredFieldFindings } from "./structured-schema-checks";
 import type { FieldConditionOperator, FieldFrequency, SectionRepeatBy } from "./types";
 
 const conditionZ = z
@@ -159,7 +159,17 @@ export function conditionIssue(condition: unknown): string | null {
   return null;
 }
 
-function fieldIssues(field: Node, path: string, repeated: boolean, out: SchemaSaveIssue[]): void {
+export type SchemaSaveOptions = {
+  /**
+   * Keep a question whose setup is still being finished (structured-schema-
+   * checks `incomplete`: a Stock count with no item chosen yet, a choice
+   * column with no choices yet, …). Only the builder's draft autosave passes
+   * it; the Checks still show these as errors and publishing refuses them.
+   */
+  allowIncomplete?: boolean;
+};
+
+function fieldIssues(field: Node, path: string, repeated: boolean, out: SchemaSaveIssue[], options: SchemaSaveOptions): void {
   const name = typeof field.label === "string" && field.label.trim() ? `"${field.label.trim()}"` : String(field.id ?? "question");
   if (!isKnownFieldType(field.type)) {
     out.push({ path, message: `${name} has a question type no form can show (${String(field.type ?? "none")}).` });
@@ -175,8 +185,9 @@ function fieldIssues(field: Node, path: string, repeated: boolean, out: SchemaSa
       out.push({ path: `${path}.rotationEveryNCleans`, message: `${name} repeats on an invalid number of cleans.` });
     }
   }
-  for (const message of structuredFieldIssues(field)) {
-    out.push({ path, message: `${name} ${message}` });
+  for (const finding of structuredFieldFindings(field)) {
+    if (finding.incomplete && options.allowIncomplete) continue;
+    out.push({ path, message: `${name} ${finding.message}` });
   }
   if (repeated && typeof field.id === "string" && REPEAT_SUFFIX.test(field.id)) {
     out.push({ path, message: `${name} sits in a per-room section, so its key cannot already end with a room number.` });
@@ -184,7 +195,7 @@ function fieldIssues(field: Node, path: string, repeated: boolean, out: SchemaSa
 }
 
 /** Strict check run before a draft is saved or published. */
-export function validateFormSchemaForSave(schema: unknown): SchemaSaveResult {
+export function validateFormSchemaForSave(schema: unknown, options: SchemaSaveOptions = {}): SchemaSaveResult {
   const issues: SchemaSaveIssue[] = [];
   const parsed = formTemplateSchemaZ.safeParse(schema);
   if (!parsed.success) {
@@ -207,10 +218,10 @@ export function validateFormSchemaForSave(schema: unknown): SchemaSaveResult {
     fields.forEach((field, fIdx) => {
       if (!isNode(field)) return;
       const fieldPath = `${sectionPath}.fields.${fIdx}`;
-      fieldIssues(field, fieldPath, repeated, issues);
+      fieldIssues(field, fieldPath, repeated, issues, options);
       const children = Array.isArray(field.children) ? field.children : [];
       children.forEach((child, cIdx) => {
-        if (isNode(child)) fieldIssues(child, `${fieldPath}.children.${cIdx}`, repeated, issues);
+        if (isNode(child)) fieldIssues(child, `${fieldPath}.children.${cIdx}`, repeated, issues, options);
       });
     });
   });

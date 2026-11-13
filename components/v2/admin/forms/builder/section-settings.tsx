@@ -50,7 +50,7 @@ export function SectionSettings({
     });
   return (
     <details className="group rounded-[10px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
-      <summary className="cursor-pointer select-none px-3 py-2 text-[0.8125rem] font-[550] text-[hsl(var(--e-text-secondary))]">
+      <summary className="cursor-pointer select-none px-3 py-2 text-[0.8125rem] max-sm:py-3 font-[550] text-[hsl(var(--e-text-secondary))]">
         Section settings
       </summary>
       <fieldset disabled={disabled} className="grid gap-3 border-t border-[hsl(var(--e-border))] px-3 py-3 md:grid-cols-2">

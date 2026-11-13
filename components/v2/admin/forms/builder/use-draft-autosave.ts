@@ -51,7 +51,7 @@ export async function putDraft(templateId: string, doc: BuilderDoc, token: strin
       }),
     });
   } catch {
-    return { kind: "failed", message: "Could not reach the server. Your edits are kept here.", issues: [] };
+    return { kind: "failed", message: "Could not reach the server.", issues: [] };
   }
   const body = (await response.json().catch(() => ({}))) as { error?: string; code?: string; editToken?: string; updatedAt?: string; issues?: SaveIssue[] };
   if (response.ok) {
@@ -62,6 +62,20 @@ export async function putDraft(templateId: string, doc: BuilderDoc, token: strin
     return { kind: "conflict", message: body.error ?? "This form changed since you opened it." };
   }
   return { kind: "failed", message: body.error ?? `Save failed (${response.status}).`, issues: Array.isArray(body.issues) ? body.issues : [] };
+}
+
+/**
+ * The reason shown in the builder's "The draft was not saved." banner: the
+ * server's message without the banner's own opening and closing words, so
+ * neither is said twice. Never empty.
+ */
+export function draftFailureReason(error: string | null): string {
+  const reason = (error ?? "")
+    .replace(/^The draft was not saved[:.]?\s*/i, "")
+    .replace(/\s*Your edits are kept here\.?\s*$/i, "")
+    .trim();
+  if (!reason) return "The server gave no reason.";
+  return /[.!?)]$/.test(reason) ? reason : `${reason}.`;
 }
 
 export type DraftAutosave = {

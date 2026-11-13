@@ -228,6 +228,78 @@ describe("the template builder on a phone", () => {
     expect((await savedSchema()).sections[1].fields).toHaveLength(3);
   });
 
+  // Owner's phone screenshots (2026-11-13): a question row put handle,
+  // checkbox, type, wording, pills, chevron and menu on one line, so the
+  // wording collapsed to one letter per line.
+  it("lays a question row out as a two-line card on a phone: the wording alone on line 1, type and pills on line 2", async () => {
+    setPhone(true);
+    renderBuilder();
+    fireEvent.click(await screen.findByRole("button", { name: /^Kitchen/ }));
+    const questions = await screen.findByRole("region", { name: "Section questions" });
+    const wording = within(questions).getByRole("button", { name: "Oven cleaned" });
+    const row = wording.closest("[data-question-row-layout]") as HTMLElement;
+    expect(row.className).toMatch(/max-sm:grid\b/);
+    expect(row.className).toMatch(/max-sm:grid-cols-\[2\.75rem_2\.75rem_auto_minmax\(0,1fr\)_2\.75rem\]/);
+    // Line 1: the wording spans the type and pills columns; never squeezed by them.
+    expect(wording.className).toMatch(/max-sm:row-start-1/);
+    expect(wording.className).toMatch(/max-sm:col-span-2/);
+    expect(wording.className).toMatch(/min-w-0/);
+    expect(wording.className).toMatch(/max-sm:line-clamp-3/);
+    // Line 2: type and pills.
+    const type = row.querySelector("[data-question-row-type]") as HTMLElement;
+    expect(type.textContent).toBe("Yes / No");
+    expect(type.className).toMatch(/max-sm:row-start-2/);
+    expect(within(row).getByText("Required").closest("span.flex")?.className).toMatch(/max-sm:row-start-2/);
+    // Controls are 44px targets.
+    for (const name of [/^Drag "Oven cleaned"/, /^Expand "Oven cleaned"/, /^More actions for "Oven cleaned"/]) {
+      expect(within(row).getByRole("button", { name }).className).toMatch(/max-sm:(size-11|h-11)/);
+    }
+    expect(within(row).getByRole("checkbox", { name: 'Select "Oven cleaned"' }).closest("label")?.className).toMatch(/max-sm:size-11/);
+    // From 640px up the row is the one-line flex row it was.
+    expect(row.className).toMatch(/(^| )flex( |$)/);
+    expect(row.className).toMatch(/sm:flex-nowrap/);
+  });
+
+  it("keeps the question editor in normal flow on a phone (the page scrolls), names the question once, and clears the docked bars", async () => {
+    setPhone(true);
+    const { container } = renderBuilder();
+    fireEvent.click(await screen.findByRole("button", { name: /^Kitchen/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Oven cleaned" }));
+    const editor = await screen.findByRole("region", { name: "Question settings" });
+    const frame = editor.querySelector("[data-builder-editor-frame]") as HTMLElement;
+    expect(frame.className).toMatch(/max-sm:max-h-none/);
+    expect(frame.className).toMatch(/max-sm:overflow-visible/);
+    const body = editor.querySelector("[data-properties-panel-body]") as HTMLElement;
+    expect(body.className).toMatch(/max-sm:overflow-visible/);
+    // The last controls of the screen come after the editor, inside the same flow.
+    const moveDown = within(editor).getByRole("button", { name: /Move down/ });
+    expect(frame.compareDocumentPosition(moveDown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Shown once in full: the title bar wraps instead of truncating, and the panel header hides its copy on a phone.
+    expect((editor.querySelector("[data-builder-question-title]") as HTMLElement).className).toMatch(/whitespace-normal/);
+    const panelName = within(editor).getAllByText("Oven cleaned").find((node) => node.tagName === "P");
+    expect(panelName?.className).toMatch(/max-sm:hidden/);
+    // The action bar and its spacer come at the END of the page, after a safe-area clearance.
+    const bar = screen.getByRole("region", { name: "Test and publish" });
+    const clearance = container.querySelector("[data-builder-dock-clearance]") as HTMLElement;
+    expect(clearance.className).toMatch(/safe-area-inset-bottom/);
+    expect(editor.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelector("[data-builder-phone-header]")?.nextElementSibling?.getAttribute("aria-hidden")).not.toBe("true");
+  });
+
+  it("from 640px up bounds the editor frame as a flex column so the settings panel scrolls to its last field", () => {
+    setPhone(false);
+    renderBuilder();
+    fireEvent.click(screen.getByRole("button", { name: /^Kitchen/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Oven cleaned" }));
+    const aside = screen.getByRole("complementary", { name: "Settings for selection" });
+    const frame = aside.querySelector("[data-builder-editor-frame]") as HTMLElement;
+    expect(frame.className).toMatch(/(^| )flex( |$)/);
+    expect(frame.className).toMatch(/flex-col/);
+    expect(frame.className).toMatch(/lg:max-h-\[calc\(100vh-14rem\)\]/);
+    expect((aside.querySelector("[data-properties-panel]") as HTMLElement).className).toMatch(/min-h-0/);
+    expect((aside.querySelector("[data-properties-panel-body]") as HTMLElement).className).toMatch(/overflow-y-auto/);
+  });
+
   it("from 640px up keeps the three panes and the pane tabs", () => {
     setPhone(false);
     const { container } = renderBuilder();

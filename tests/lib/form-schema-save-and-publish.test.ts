@@ -66,6 +66,11 @@ describe("strict save check, tolerant reader", () => {
 });
 
 describe("publish is blocked by a check error in the single publish path", () => {
+  it("assertPublishable refuses a Stock count whose item is still to be chosen (a draft may keep it)", () => {
+    const unfinished = { sections: [{ id: "s", title: "Supplies", fields: [{ id: "q", type: "stock_count", label: "Supplies replenished" }] }] };
+    expect(validateFormSchemaForSave(unfinished, { allowIncomplete: true }).ok).toBe(true);
+    expect(() => assertPublishable(unfinished)).toThrow(/Stock count that does not say which item it counts/);
+  });
   it("assertPublishable refuses duplicate question keys and accepts a clean form", () => {
     expect(() => assertPublishable(ok)).not.toThrow();
     const duplicate = { sections: [{ id: "s", title: "S", fields: [{ id: "d", type: "text", label: "A" }, { id: "d", type: "text", label: "B" }] }] };

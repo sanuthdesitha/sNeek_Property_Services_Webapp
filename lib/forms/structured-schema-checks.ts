@@ -11,6 +11,15 @@
  *  - two stock count questions in one form may not count the same item (a
  *    submission would otherwise hold two counts of one item).
  *
+ * Some of these only mean "not finished yet": a Stock count whose item is
+ * still to be chosen, a choice column whose choices are still to be typed, a
+ * column label being retyped, a fixed-row table whose rows are being retyped.
+ * The builder creates exactly those states (a new Stock count has no item
+ * until one is picked), so they are marked `incomplete`: the builder's draft
+ * autosave keeps them (validateFormSchemaForSave with allowIncomplete) while
+ * publishing, copying, importing and saved blocks still refuse them, and the
+ * Checks list them as errors that block publishing.
+ *
  * PURE.
  */
 import { TABLE_CELL_TYPES, TABLE_MAX_COLUMNS, TABLE_MAX_ROWS, STOCK_COUNT_MAX } from "./structured-answers";
@@ -21,41 +30,48 @@ function isNode(value: unknown): value is Node {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function tableIssues(table: unknown): string[] {
-  if (!isNode(table)) return ["is a table with no columns."];
-  const issues: string[] = [];
+/** One structured-question problem; `incomplete` = a setup still being finished (see above). */
+export type StructuredFieldFinding = { message: string; incomplete: boolean };
+
+const STOCK_ITEM_MISSING = "is a Stock count that does not say which item it counts.";
+
+function tableFindings(table: unknown): StructuredFieldFinding[] {
+  if (!isNode(table)) return [{ message: "is a table with no columns.", incomplete: false }];
+  const findings: StructuredFieldFinding[] = [];
+  const invalid = (message: string) => findings.push({ message, incomplete: false });
+  const unfinished = (message: string) => findings.push({ message, incomplete: true });
   const columns = Array.isArray(table.columns) ? table.columns : [];
-  if (columns.length === 0) issues.push("is a table with no columns.");
-  if (columns.length > TABLE_MAX_COLUMNS) issues.push(`has more than ${TABLE_MAX_COLUMNS} table columns.`);
+  if (columns.length === 0) invalid("is a table with no columns.");
+  if (columns.length > TABLE_MAX_COLUMNS) invalid(`has more than ${TABLE_MAX_COLUMNS} table columns.`);
   const ids = new Set<string>();
   for (const column of columns) {
     if (!isNode(column) || typeof column.id !== "string" || !column.id.trim()) {
-      issues.push("has a table column without a key.");
+      invalid("has a table column without a key.");
       continue;
     }
-    if (ids.has(column.id)) issues.push(`has two table columns with the key "${column.id}".`);
+    if (ids.has(column.id)) invalid(`has two table columns with the key "${column.id}".`);
     ids.add(column.id);
-    if (typeof column.label !== "string" || !column.label.trim()) issues.push(`has a table column ("${column.id}") without a label.`);
-    if (!TABLE_CELL_TYPES.includes(column.cellType as never)) issues.push(`has a table column with an unknown cell type (${String(column.cellType)}).`);
+    if (typeof column.label !== "string" || !column.label.trim()) unfinished(`has a table column ("${column.id}") without a label.`);
+    if (!TABLE_CELL_TYPES.includes(column.cellType as never)) invalid(`has a table column with an unknown cell type (${String(column.cellType)}).`);
     if (column.cellType === "choice") {
       const options = Array.isArray(column.options) ? column.options.filter((o) => typeof o === "string" && o.trim()) : [];
-      if (options.length === 0) issues.push(`has a choice column ("${String(column.label ?? column.id)}") with no choices.`);
+      if (options.length === 0) unfinished(`has a choice column ("${String(column.label ?? column.id)}") with no choices.`);
     }
   }
-  if (table.rowMode !== "fixed" && table.rowMode !== "dynamic") issues.push("does not say whether the table rows are fixed or added by the cleaner.");
+  if (table.rowMode !== "fixed" && table.rowMode !== "dynamic") invalid("does not say whether the table rows are fixed or added by the cleaner.");
   if (table.rowMode === "fixed") {
     const labels = Array.isArray(table.rowLabels) ? table.rowLabels.filter((label) => typeof label === "string" && label.trim()) : [];
-    if (labels.length === 0) issues.push("is a fixed-row table with no rows.");
-    if (labels.length > TABLE_MAX_ROWS) issues.push(`has more than ${TABLE_MAX_ROWS} table rows.`);
+    if (labels.length === 0) unfinished("is a fixed-row table with no rows.");
+    if (labels.length > TABLE_MAX_ROWS) invalid(`has more than ${TABLE_MAX_ROWS} table rows.`);
   } else if (table.rowMode === "dynamic") {
     const min = table.minRows;
     const max = table.maxRows;
     const intIn = (value: unknown) => value === undefined || (Number.isInteger(value) && Number(value) >= 0 && Number(value) <= TABLE_MAX_ROWS);
-    if (!intIn(min) || !intIn(max)) issues.push(`has table row limits outside 0–${TABLE_MAX_ROWS}.`);
-    else if (typeof min === "number" && typeof max === "number" && min > max) issues.push("has a minimum number of rows above its maximum.");
-    else if (max === 0) issues.push("lets the cleaner add no rows at all.");
+    if (!intIn(min) || !intIn(max)) invalid(`has table row limits outside 0–${TABLE_MAX_ROWS}.`);
+    else if (typeof min === "number" && typeof max === "number" && min > max) invalid("has a minimum number of rows above its maximum.");
+    else if (max === 0) invalid("lets the cleaner add no rows at all.");
   }
-  return issues;
+  return findings;
 }
 
 function effectIssues(field: Node): string[] {
@@ -89,15 +105,20 @@ function effectIssues(field: Node): string[] {
   return issues;
 }
 
-/** Issues for one question; each message continues the question's name. */
-export function structuredFieldIssues(field: Node): string[] {
-  const issues: string[] = [];
-  if (field.type === "table") issues.push(...tableIssues(field.table));
+/** Findings for one question; each message continues the question's name. */
+export function structuredFieldFindings(field: Node): StructuredFieldFinding[] {
+  const findings: StructuredFieldFinding[] = [];
+  if (field.type === "table") findings.push(...tableFindings(field.table));
   if (field.type === "stock_count" && (typeof field.stockItemId !== "string" || !field.stockItemId.trim())) {
-    issues.push("is a Stock count that does not say which item it counts.");
+    findings.push({ message: STOCK_ITEM_MISSING, incomplete: true });
   }
-  issues.push(...effectIssues(field));
-  return issues;
+  for (const message of effectIssues(field)) findings.push({ message, incomplete: false });
+  return findings;
+}
+
+/** Issues for one question (complete or not); each message continues the question's name. */
+export function structuredFieldIssues(field: Node): string[] {
+  return structuredFieldFindings(field).map((finding) => finding.message);
 }
 
 /** Stock items counted by more than one question in the form (by item id). */

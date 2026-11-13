@@ -133,6 +133,39 @@ it("keeps edits after a failed save and retries on request", async () => {
   expect(JSON.parse(String(calls("/t/draft", "PUT")[1][1].body)).schema.sections[0].fields).toHaveLength(3);
 });
 
+// Owner report 2026-11-13: "…counts. Your edits are kept here. Retry" while
+// editing a Stock count question. The server refused the draft because the
+// new Stock count had no item yet (fixed server-side: the draft keeps it,
+// tests/api/form-builder-routes.test.ts); when a save IS refused, the banner
+// says what failed once and that the edits are kept.
+it("names a refused draft save once, with the server's reason, and keeps the edits", async () => {
+  draftResponse = () => ({
+    ok: false,
+    status: 422,
+    json: async () => ({ error: 'The draft was not saved: "Count soap" has a table column ("c1") without a label.', issues: [{ path: "sections.0.fields.2", message: "x" }] }),
+  });
+  renderBuilder();
+  addTick();
+  const banner = (await screen.findByText("The draft was not saved.", undefined, { timeout: 4000 })).closest("[role=alert]") as HTMLElement;
+  expect(banner.textContent).toBe('The draft was not saved. "Count soap" has a table column ("c1") without a label. Your edits are kept here. Retry');
+  expect(screen.getAllByRole("checkbox", { name: /^Select "/ })).toHaveLength(3);
+});
+
+it("lets a Stock count be set up when the stock list cannot be read: the read failure is named, never shown as an empty list", async () => {
+  const stockSchema: FormSchema = { standardSections: false, sections: [{ id: "s", title: "Supplies", fields: [{ id: "q", type: "stock_count", label: "Supplies replenished (soap, shampoo)" }] }] };
+  const fallback = m.fetch.getMockImplementation()!;
+  m.fetch.mockImplementation(async (url: string, init?: RequestInit) =>
+    String(url).endsWith("/api/admin/inventory/items") ? { ok: false, status: 503, json: async () => ({ error: "Database unavailable." }) } : fallback(url, init),
+  );
+  renderBuilder({ schema: stockSchema });
+  fireEvent.click(screen.getByRole("button", { name: "Supplies replenished (soap, shampoo)" }));
+  const alert = await screen.findByText(/The stock list could not be loaded \(503\)\. Database unavailable\./);
+  expect(alert).toBeVisible();
+  expect(screen.queryByText(/no active items/)).toBeNull();
+  expect(screen.getByText(/No item chosen yet\. The draft keeps the question/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
+});
+
 it("undoes and redoes edits with the buttons and the scoped keyboard shortcut", () => {
   const { container } = renderBuilder();
   addTick();

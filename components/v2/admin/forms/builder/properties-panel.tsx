@@ -68,27 +68,29 @@ export function PropertiesPanel({
   const scorable = Boolean(def?.scorable);
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Header */}
+    // min-h-0: the panel shrinks to the editor frame (form-builder) so the
+    // body below scrolls; on a phone nothing is bounded and the page scrolls.
+    <div className="flex h-full min-h-0 flex-col" data-properties-panel="">
+      {/* Header. On a phone the question's name is the screen's title bar, so it is not repeated here. */}
       <div className="flex items-center justify-between gap-2 border-b border-[hsl(var(--e-border))] px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <span className="flex size-7 shrink-0 items-center justify-center rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-gold-soft))] text-[hsl(var(--e-gold-ink))]">
             <EFieldIcon name={def?.icon} className="size-4" />
           </span>
           <div className="min-w-0">
-            <p className="truncate text-[0.875rem] font-semibold text-[hsl(var(--e-foreground))]">
+            <p className="truncate text-[0.875rem] font-semibold text-[hsl(var(--e-foreground))] max-sm:hidden">
               {field.label || "Untitled field"}
             </p>
             <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">{def?.label ?? field.type}</p>
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           {onDuplicate && (
             <button
               type="button"
               onClick={onDuplicate}
               aria-label="Duplicate field"
-              className="rounded-[var(--e-radius-sm)] p-1.5 text-[hsl(var(--e-text-secondary))] hover:bg-[hsl(var(--e-muted))]"
+              className="rounded-[var(--e-radius-sm)] p-1.5 text-[hsl(var(--e-text-secondary))] hover:bg-[hsl(var(--e-muted))] max-sm:flex max-sm:size-11 max-sm:items-center max-sm:justify-center"
             >
               <Copy className="size-4" />
             </button>
@@ -98,7 +100,7 @@ export function PropertiesPanel({
             ariaLabel="Delete field"
             confirmLabel={<span className="px-0.5 text-[0.6875rem] font-[600]">Sure?</span>}
             onConfirm={onRemove}
-            className="rounded-[var(--e-radius-sm)] p-1.5 text-[hsl(var(--e-danger))] hover:bg-[hsl(var(--e-muted))]"
+            className="rounded-[var(--e-radius-sm)] p-1.5 text-[hsl(var(--e-danger))] hover:bg-[hsl(var(--e-muted))] max-sm:flex max-sm:min-h-11 max-sm:min-w-11 max-sm:items-center max-sm:justify-center"
           >
             <Trash2 className="size-4" />
           </EConfirmButton>
@@ -106,7 +108,7 @@ export function PropertiesPanel({
       </div>
 
       {/* Body */}
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-4">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-4 max-sm:overflow-visible max-sm:px-3" data-properties-panel-body="">
         {/* Basics */}
         <Section title="Basics" defaultOpen>
           <EField label="Label">

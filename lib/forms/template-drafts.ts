@@ -50,6 +50,12 @@ export type SaveDraftInput = {
    * until whatever newer rules it breaks are fixed.
    */
   strict?: boolean;
+  /**
+   * The builder's autosave: keep questions whose setup is still being
+   * finished (a new Stock count before its item is chosen). Publishing still
+   * refuses them (assertPublishable) and the Checks list them as errors.
+   */
+  allowIncomplete?: boolean;
 };
 
 const DRAFT_SELECT = {
@@ -152,7 +158,7 @@ export async function saveTemplateDraft(
     throw new TemplateServiceError("INVALID_SCHEMA", parsed.error.issues[0]?.message ?? "The form structure is invalid.");
   }
   if (input.strict !== false) {
-    const strict = validateFormSchemaForSave(input.schema);
+    const strict = validateFormSchemaForSave(input.schema, { allowIncomplete: input.allowIncomplete === true });
     if (!strict.ok) {
       throw new TemplateServiceError(
         "INVALID_SCHEMA",

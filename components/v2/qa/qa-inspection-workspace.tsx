@@ -970,9 +970,19 @@ function monitorDuration(minutes: number | null | undefined): string | null {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+/** Outcome of the latest GET /progress read (the monitor never shows a failed read as data). */
+type MonitorProgressRead = "idle" | "ok" | "refused" | "failed";
+
+function monitorUnavailableText(read: MonitorProgressRead): string | null {
+  if (read === "refused") return "Live progress appears once this inspection is assigned to you.";
+  if (read === "failed") return "Live progress could not be loaded. Refresh to try again.";
+  return null;
+}
+
 function QaMonitorPanel({
   readiness,
   progress,
+  progressRead,
   job,
   brief,
   refreshing,
@@ -980,6 +990,7 @@ function QaMonitorPanel({
 }: {
   readiness: "CLEANING" | "READY" | "REWORK_PENDING";
   progress: any;
+  progressRead: MonitorProgressRead;
   job: any;
   brief: BriefItem[];
   refreshing: boolean;
@@ -1000,6 +1011,8 @@ function QaMonitorPanel({
   const basis = predictionBasis(progress?.prediction, progress?.prediction?.sampleCount);
   const cleaners: Array<{ id: string; name: string; elapsedMinutes: number | null }> = progress?.cleaners ?? [];
   const highlights: string[] = progress?.timingHighlights ?? [];
+  const unavailable = monitorUnavailableText(progressRead);
+  const known = progress != null;
 
   return (
     <ECard>
@@ -1012,7 +1025,17 @@ function QaMonitorPanel({
         </ECardTitle>
       </ECardHeader>
       <ECardBody className="space-y-4">
+        {unavailable ? (
+          <EAlert tone={progressRead === "failed" ? "warning" : "info"}>
+            {unavailable}
+            {known && progressRead === "failed" ? " The figures below are from the last successful read." : ""}
+          </EAlert>
+        ) : null}
         {/* big live state */}
+        {!known && progressRead === "idle" ? (
+          <p role="status" className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Loading live progress…</p>
+        ) : null}
+        {known ? (
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-4">
             <p className="e-eyebrow">On site</p>
@@ -1038,6 +1061,7 @@ function QaMonitorPanel({
             </p>
           </div>
         </div>
+        ) : null}
 
         {progress?.checklist ? (
           <div>
@@ -1402,6 +1426,11 @@ export function QaInspectionWorkspace({
      page reload and no loss of the local draft. */
   const [progress, setProgress] = useState<any>(null);
   const [progressLoading, setProgressLoading] = useState(false);
+  const [progressRead, setProgressRead] = useState<MonitorProgressRead>("idle");
+  useEffect(() => {
+    setProgress(null);
+    setProgressRead("idle");
+  }, [jobId]);
   const readiness: "CLEANING" | "READY" | "REWORK_PENDING" = useMemo(() => {
     if (progress?.readiness) return progress.readiness;
     const status = String(job?.status ?? "").toUpperCase();
@@ -1416,9 +1445,18 @@ export function QaInspectionWorkspace({
     setProgressLoading(true);
     try {
       const res = await fetch(`/api/qa/jobs/${jobId}/progress`, { cache: "no-store" });
-      if (res.ok) setProgress(await res.json());
+      if (res.ok) {
+        setProgress(await res.json());
+        setProgressRead("ok");
+      } else {
+        // 403: live progress belongs to the inspector who owns the assignment
+        // (an unassigned pool job is visible but not live-tracked). Keep the
+        // last values but say why nothing new is shown — never fake "no cleaner".
+        setProgressRead(res.status === 403 ? "refused" : "failed");
+      }
     } catch {
-      /* the monitor is advisory — a failed poll just leaves the last values */
+      /* the monitor is advisory — a failed poll keeps the last values and says so */
+      setProgressRead("failed");
     } finally {
       setProgressLoading(false);
     }
@@ -1431,10 +1469,10 @@ export function QaInspectionWorkspace({
   }, [job?.id, loadProgress]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!monitoring) return;
+    if (!monitoring || progressRead === "refused") return;
     const interval = setInterval(() => void loadProgress(), 45_000);
     return () => clearInterval(interval);
-  }, [monitoring, loadProgress]);
+  }, [monitoring, loadProgress, progressRead]);
 
   // Readiness flipped while we were watching — pull the full inspection payload
   // (template, submission, media) so the grading flow renders complete.
@@ -2369,6 +2407,7 @@ export function QaInspectionWorkspace({
         <QaMonitorPanel
           readiness={readiness}
           progress={progress}
+          progressRead={progressRead}
           job={job}
           brief={brief}
           refreshing={progressLoading}

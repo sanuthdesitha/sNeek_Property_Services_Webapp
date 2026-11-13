@@ -222,7 +222,8 @@ export function EStatCard({
     <ECard className={cn("min-w-0 p-4 sm:p-5", className)}>
       {/* The label may shrink and wrap; the icon never overlaps it in a narrow column. */}
       <div className="flex items-start justify-between gap-2">
-        <EEyebrow className="min-w-0 [overflow-wrap:anywhere]">{label}</EEyebrow>
+        {/* Phones: tighter tracking so a one-word label ("Candidates") fits beside the icon instead of breaking mid-word. */}
+        <EEyebrow className="min-w-0 [overflow-wrap:anywhere] max-sm:tracking-[0.12em]">{label}</EEyebrow>
         {icon ? (
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-accent-portal))]">
             {icon}

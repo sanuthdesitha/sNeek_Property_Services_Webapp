@@ -161,6 +161,13 @@ function paymentGuidance(method: PaymentMethod, ownerScope: "CLIENT" | "CLEANER"
   if (scope === "ADMIN") return "Admin-paid purchase. Cleaner reimbursement is not needed.";
   return "Company-paid purchase. Cleaner reimbursement is not needed.";
 }
+/** "NOT_REQUIRED" → "Not required"; missing stays missing (never a fake value). */
+function enumLabel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const words = value.toLowerCase().replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 function money(value: number | null | undefined) {
   return `$${Number(value ?? 0).toFixed(2)}`;
 }
@@ -493,7 +500,7 @@ export function ShoppingRunWorkspace({
   }
 
   if (loading) {
-    return <div className="py-10 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">Loading shopping run…</div>;
+    return <div role="status" className="py-10 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">Loading shopping run…</div>;
   }
   if (!run) {
     return (
@@ -501,6 +508,7 @@ export function ShoppingRunWorkspace({
         <EButton asChild variant="outline">
           <Link href={backHref}>{backLabel}</Link>
         </EButton>
+        <h1 className="e-display-sm">{title}</h1>
         <ECard>
           <ECardBody className="py-10 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
             This shopping run could not be loaded.
@@ -516,7 +524,7 @@ export function ShoppingRunWorkspace({
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="e-display-sm">{title}</h2>
+          <h1 className="e-display-sm">{title}</h1>
           <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
             Run {run.name} · Owner {run.ownerName}
           </p>
@@ -535,7 +543,7 @@ export function ShoppingRunWorkspace({
       </div>
 
       {/* Summary */}
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-6">
         {[
           { label: "Status", value: formatRunStatus(run.status) },
           { label: "Lines", value: summary.lines },
@@ -639,7 +647,7 @@ export function ShoppingRunWorkspace({
               <Download className="h-4 w-4" /> {downloading ? "Preparing…" : "PDF"}
             </EButton>
             <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-              Client charge: {run.clientChargeStatus || "-"}
+              Client charge: {enumLabel(run.clientChargeStatus) ?? "-"}
             </span>
             <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
               Reimbursement: {reimbursementLabel(run.cleanerReimbursementStatus)}
@@ -705,7 +713,7 @@ export function ShoppingRunWorkspace({
               </EField>
             </div>
             <div className="flex flex-wrap gap-3 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-              <span>Status: {run.shoppingTime?.status?.replace(/_/g, " ") ?? "NOT REQUESTED"}</span>
+              <span>Status: {enumLabel(run.shoppingTime?.status) ?? "Not requested"}</span>
               {run.shoppingTime?.approvedMinutes ? (
                 <span>
                   Approved: {run.shoppingTime.approvedMinutes} min at {money(run.shoppingTime.approvedRate ?? 0)}/hr
