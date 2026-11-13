@@ -290,6 +290,14 @@ export function PropertiesPanel({
               />
             </div>
           )}
+          <EField label="AI photo check: acceptance criteria (optional)" hint="Office only; never shown to cleaners. What a good photo of this item shows, for example 'Shower glass has no water spots; drain clear'. Used with the example photos when AI photo review is on.">
+            <ETextarea
+              value={field.aiCriteria ?? ""}
+              onChange={(e) => onUpdate({ ...field, aiCriteria: e.target.value.slice(0, 1000) || undefined })}
+              maxLength={1000}
+              rows={2}
+            />
+          </EField>
         </Section>
 
         {/* Conditional logic */}

@@ -36,8 +36,9 @@ export function proposedPhotoDeduction(findings: PhotoFinding[], selectedIds: st
   return Math.min(Math.max(0, Math.min(20, cap)), Array.from(perField.values()).reduce((a, b) => a + b, 0));
 }
 
-const findingSchema = z.object({ id: z.string().min(1), mediaId: z.string().min(1), fieldId: z.string().min(1), fieldLabel: z.string(), description: z.string(), severity: z.enum(["minor", "major"]), confidence: z.number().finite().min(0).max(1) });
-const resultSchema = z.object({ totalPhotos: z.number().int().nonnegative(), observations: z.array(z.object({ mediaId: z.string().min(1), fieldId: z.string().min(1), fieldLabel: z.string(), assessment: z.enum(["pass", "issue", "inconclusive", "skipped"]), summary: z.string(), findings: z.array(findingSchema) })) });
+// passthrough: per-field check details (criterion, region, outcome, reason…) survive a resumed batch.
+const findingSchema = z.object({ id: z.string().min(1), mediaId: z.string().min(1), fieldId: z.string().min(1), fieldLabel: z.string(), description: z.string(), severity: z.enum(["minor", "major"]), confidence: z.number().finite().min(0).max(1) }).passthrough();
+const resultSchema = z.object({ totalPhotos: z.number().int().nonnegative(), observations: z.array(z.object({ mediaId: z.string().min(1), fieldId: z.string().min(1), fieldLabel: z.string(), assessment: z.enum(["pass", "issue", "inconclusive", "skipped"]), summary: z.string(), findings: z.array(findingSchema) }).passthrough()) });
 export function parsePhotoReviewResult(value: unknown): PhotoReviewResult {
   const result = resultSchema.parse(value);
   const ids = new Set<string>(); const findings = new Set<string>();

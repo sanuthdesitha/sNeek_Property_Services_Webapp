@@ -9,6 +9,7 @@ import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
 import { keepAppliedCountsWithoutChoice } from "@/lib/inventory/stock-count-reset";
 import { photoReviewSnapshot, photoSourceFingerprint, photoSubmissionInclude } from "@/lib/ai/photo-review";
 import { getVisionSettings } from "@/lib/ai/vision-settings";
+import { isPropertyOptedOut } from "@/lib/ai/photo-review-opt-out";
 import { visionSettingsSchema } from "@/lib/ai/vision-settings-schema";
 import { proposedPhotoDeduction, parsePhotoReviewResult } from "@/lib/ai/photo-review-policy";
 import { getAppSettings } from "@/lib/settings";
@@ -82,6 +83,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       const review = submission.aiPhotoReview;
       if (body.action === "analyze") {
         if (!config.comparisonEnabled) throw new ReviewError("Enable photo comparison in AI configuration first.");
+        if (await isPropertyOptedOut(submission.job.propertyId, tx)) throw new ReviewError("This property is opted out of AI photo review.");
         if (review?.reviewedAt) throw new ReviewError("This analysis already has a reviewer decision. A new form submission starts a new review.");
         if (review?.status === "RUNNING" && review.leaseUntil && review.leaseUntil > new Date()) throw new ReviewError("Analysis is already running.");
         return tx.aiPhotoReview.upsert({ where: { submissionId: submission.id }, create: { submissionId: submission.id, settings: snapshot }, update: { settings: snapshot, result: Prisma.DbNull, sourceFingerprint: null, status: "PENDING", attempts: 0, leaseToken: null, leaseUntil: null, error: null } });

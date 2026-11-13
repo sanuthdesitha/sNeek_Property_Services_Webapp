@@ -4,6 +4,8 @@ import { Role } from "@prisma/client";
 import AiConfigurationPage from "@/app/v2/admin/ai/page";
 import { DEFAULT_VISION_SETTINGS } from "@/lib/ai/vision-settings-schema";
 const mocks = vi.hoisted(() => ({ role: vi.fn(), config: vi.fn() }));
+vi.mock("@/lib/ai/photo-review-evaluation", () => ({ getPhotoReviewAgreement: async () => ({ since: "2026-08-16T00:00:00.000Z", rows: [], skipped: 0 }) }));
+vi.mock("@/components/v2/admin/photo-review-opt-out", () => ({ PhotoReviewOptOutPanel: () => null }));
 vi.mock("@/lib/ai/provider/store", async () => (await import("../helpers/ai-provider-store-mock")).aiStoreMock({ routing: null }));
 vi.mock("@/components/v2/admin/property-photo-memory", () => ({ PropertyPhotoMemoryPanel: () => null }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.role }));

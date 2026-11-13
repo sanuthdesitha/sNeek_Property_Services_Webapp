@@ -21,12 +21,14 @@ export async function GET() {
 }
 export async function PATCH(request: Request) {
   try {
-    await requireRole([Role.ADMIN]);
+    const session = await requireRole([Role.ADMIN]);
+    if (session.impersonation) return NextResponse.json({ error: "Photo check settings cannot be changed while testing as someone." }, { status: 403, headers });
     const body = await request.json().catch(() => null);
     const result = visionSettingsSchema.safeParse(body);
     if (!result.success) return NextResponse.json({ error: "Invalid vision settings" }, { status: 400, headers });
+    if (result.data.minorPoints > result.data.majorPoints) return NextResponse.json({ error: "A minor finding cannot deduct more points than a major one." }, { status: 400, headers });
     if (result.data.dedicatedRecognitionEnabled && !getRecognitionConfiguration().configured) return NextResponse.json({ error: "Configure MODEL_SERVICE_URL and MODEL_SERVICE_TOKEN on the server before enabling dedicated recognition." }, { status: 400, headers });
     if ((result.data.comparisonEnabled || (result.data.assignmentEnabled && !result.data.dedicatedRecognitionEnabled)) && !(await getResolvedVisionProviderConfiguration(result.data.provider)).configured) return NextResponse.json({ error: `Configure ${result.data.provider === "ollama" ? "Ollama connection in Settings → Ollama" : result.data.provider === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY"} on the server before enabling photo analysis with this provider.` }, { status: 400, headers });
-    return NextResponse.json({ settings: await saveVisionSettings(result.data) }, { headers });
+    return NextResponse.json({ settings: await saveVisionSettings(result.data, session.user.id) }, { headers });
   } catch (error) { return failure(error); }
 }
