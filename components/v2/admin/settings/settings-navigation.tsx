@@ -13,6 +13,7 @@ import {
   Truck,
   KeyRound,
   Settings2,
+  Sparkles,
   Search,
   LayoutGrid,
 } from "lucide-react";
@@ -32,6 +33,7 @@ const icons = {
   quality: ShieldCheck,
   operations: Truck,
   access: KeyRound,
+  ai: Sparkles,
   system: Settings2,
 };
 const linkStyle =

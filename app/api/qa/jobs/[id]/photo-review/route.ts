@@ -101,7 +101,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         const settings = visionSettingsSchema.parse(review.settings);
         const findings = parsePhotoReviewResult(review.result).observations.flatMap(item => item.findings);
         if (body.findingIds.some(id => !findings.some(finding => finding.id === id))) throw new ReviewError("One or more selected findings are unavailable.");
-        const deduction = proposedPhotoDeduction(findings, body.findingIds, settings.minConfidence, settings.maxScoreContribution);
+        const deduction = proposedPhotoDeduction(findings, body.findingIds, settings.minConfidence, settings.maxScoreContribution, { minor: settings.minorPoints, major: settings.majorPoints });
         if (deduction <= 0) throw new ReviewError("Select an eligible finding, or dismiss the suggestions.");
         const scoreReview = authoritative(await tx.qAReview.findMany({ where: { jobId: params.id } }));
         if (!scoreReview || scoreReview.id !== body.expectedReviewId || scoreReview.score !== body.expectedScore) throw new ReviewError("The QA score changed. Refresh and review the deduction again.");

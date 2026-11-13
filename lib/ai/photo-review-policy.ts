@@ -1,23 +1,37 @@
 import { z } from "zod";
+export type ConfidenceBand = "low" | "medium" | "high";
+/** Normalised to the submitted photo: fractions from the top-left corner. */
+export type FindingRegion = { x: number; y: number; width: number; height: number };
 export type PhotoFinding = {
   id: string; mediaId: string; fieldId: string; fieldLabel: string;
   description: string; severity: "minor" | "major"; confidence: number;
+  /** Per-field checks (2026-11-14); absent on older reviews. */
+  criterion?: string; observation?: string; confidenceBand?: ConfidenceBand;
+  referenceMediaKey?: string | null; region?: FindingRegion | null; outcome?: "issue";
 };
+export type PhotoOutcome = "meets" | "issue" | "cannot_tell" | "not_checked";
 export type PhotoObservation = {
   mediaId: string; fieldId: string; fieldLabel: string;
   assessment: "pass" | "issue" | "inconclusive" | "skipped";
   summary: string; findings: PhotoFinding[];
+  /** Per-field checks (2026-11-14): the first-class outcome and, for cannot_tell / not_checked, why. */
+  outcome?: PhotoOutcome; reason?: string | null; criteria?: string | null;
 };
+
+/** The model states a band; deduction eligibility compares this number with the minimum confidence. */
+export const CONFIDENCE_BAND_VALUE: Readonly<Record<ConfidenceBand, number>> = { low: 0.4, medium: 0.7, high: 0.9 };
+export type DeductionPoints = { minor: number; major: number };
+export const DEFAULT_DEDUCTION_POINTS: DeductionPoints = { minor: 2, major: 5 };
 export type PhotoReviewResult = { observations: PhotoObservation[]; totalPhotos: number };
 
 /** Multiple angles of one field cannot multiply the deduction for the same area. */
-export function proposedPhotoDeduction(findings: PhotoFinding[], selectedIds: string[], minConfidence: number, cap: number) {
+export function proposedPhotoDeduction(findings: PhotoFinding[], selectedIds: string[], minConfidence: number, cap: number, points: DeductionPoints = DEFAULT_DEDUCTION_POINTS) {
   const selected = new Set(selectedIds);
   const perField = new Map<string, number>();
   for (const finding of findings) {
     if (!selected.has(finding.id) || finding.confidence < minConfidence || !Number.isFinite(finding.confidence)) continue;
-    const points = finding.severity === "major" ? 5 : 2;
-    perField.set(finding.fieldId, Math.max(perField.get(finding.fieldId) ?? 0, points));
+    const value = finding.severity === "major" ? points.major : points.minor;
+    perField.set(finding.fieldId, Math.max(perField.get(finding.fieldId) ?? 0, value));
   }
   return Math.min(Math.max(0, Math.min(20, cap)), Array.from(perField.values()).reduce((a, b) => a + b, 0));
 }

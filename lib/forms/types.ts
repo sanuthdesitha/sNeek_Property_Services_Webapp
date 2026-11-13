@@ -270,6 +270,8 @@ export interface FormField {
   // positively, surface the example media as a popup/inline preview. Defaults
   // to true when references exist; set false to keep references collapsed.
   showExampleOnTick?: boolean;
+  /** Optional acceptance criteria for the AI photo check of this field (office only; never shown to cleaners). */
+  aiCriteria?: string;
   // logic + scoring
   conditional?: FormCondition;
   scoring?: { weight: number; max: number };

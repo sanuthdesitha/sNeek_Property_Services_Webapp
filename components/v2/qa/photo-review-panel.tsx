@@ -2,12 +2,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
-import { proposedPhotoDeduction, type PhotoReviewResult } from "@/lib/ai/photo-review-policy";
+import { DEFAULT_DEDUCTION_POINTS, proposedPhotoDeduction, type PhotoReviewResult } from "@/lib/ai/photo-review-policy";
+import { PhotoIntegrityFlags } from "./photo-integrity-flags";
 
 type Payload = {
   enabled: boolean; hasSubmission: boolean; canApprove: boolean;
   scoreReview: { id: string; score: number } | null;
-  review: { id: string; status: string; error?: string | null; reviewedAt?: string | null; result: PhotoReviewResult | null; settings: { minConfidence: number; maxScoreContribution: number }; decision?: { action: string; deduction?: number; scoreBefore?: number; scoreAfter?: number; reason: string } } | null;
+  review: { id: string; status: string; error?: string | null; reviewedAt?: string | null; result: PhotoReviewResult | null; settings: { minConfidence: number; maxScoreContribution: number; minorPoints?: number; majorPoints?: number }; decision?: { action: string; deduction?: number; scoreBefore?: number; scoreAfter?: number; reason: string } } | null;
   photos: { mediaId: string; url: string | null; referenceUrls: (string | null)[] }[];
 };
 
@@ -37,7 +38,7 @@ export function PhotoReviewPanel({ jobId }: { jobId: string }) {
   }, [jobId, reload]);
   const review = data?.review;
   const findings = review?.result?.observations.flatMap(item => item.findings) ?? [];
-  const deduction = review ? proposedPhotoDeduction(findings, selected, review.settings.minConfidence, review.settings.maxScoreContribution) : 0;
+  const deduction = review ? proposedPhotoDeduction(findings, selected, review.settings.minConfidence, review.settings.maxScoreContribution, { minor: review.settings.minorPoints ?? DEFAULT_DEDUCTION_POINTS.minor, major: review.settings.majorPoints ?? DEFAULT_DEDUCTION_POINTS.major }) : 0;
   const ready = review?.status === "READY" && !review.reviewedAt;
   async function act(action: "analyze" | "approve" | "dismiss") {
     if (actionPending.current || loading || !data) return;
@@ -90,5 +91,6 @@ export function PhotoReviewPanel({ jobId }: { jobId: string }) {
         <div className="flex flex-wrap gap-2"><EButton disabled={saving || !data.canApprove || deduction <= 0 || reason.trim().length < 3} onClick={() => act("approve")}>Approve selected deduction</EButton><EButton variant="outline" disabled={saving || reason.trim().length < 3} onClick={() => act("dismiss")}>Dismiss suggestions</EButton></div>
       </div> : null}
     </> : null}
+    <PhotoIntegrityFlags key={jobId} jobId={jobId} />
   </ECardBody></ECard>;
 }

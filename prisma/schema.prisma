@@ -1944,8 +1944,24 @@ model SubmissionMedia {
   mimeType       String?
   label          String?
   createdAt      DateTime  @default(now())
+  /// Photo integrity (2026-11-14), computed by the media-integrity worker from
+  /// the stored bytes. Null = not checked yet / not recorded; never a pass.
+  contentSha256      String?
+  /// 64-bit difference hash (hex) of the photo with the evidence stamp areas cropped.
+  perceptualHash     String?
+  /// Camera capture time from EXIF in the stored file, when present.
+  capturedAt         DateTime?
+  /// "exif-offset" (EXIF with its time zone) or "exif-local" (no zone; read in the business time zone).
+  capturedAtSource   String?
+  integrityCheckedAt DateTime?
+  /// Why the check could not run (fixed text, no provider or storage detail).
+  integrityError     String?
 
   submission FormSubmission @relation(fields: [submissionId], references: [id])
+
+  @@index([contentSha256])
+  @@index([perceptualHash])
+  @@index([integrityCheckedAt, mediaType])
 }
 
 model QAReview {

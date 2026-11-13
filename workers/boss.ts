@@ -693,6 +693,12 @@ async function main() {
     await boss.work("ai-tasks", safeHandler("ai-tasks", async () => { const { processAiTaskQueue } = await import("@/lib/ai/provider/tasks"); await processAiTaskQueue(); }));
   }
 
+  // Photo integrity facts (hashes, camera time) from stored photo bytes; deterministic, no AI.
+  if (jobEnabled("media-integrity")) {
+    await boss.schedule("media-integrity", "*/5 * * * *", {}, { tz: TZ });
+    await boss.work("media-integrity", safeHandler("media-integrity", async () => { const { processPhotoIntegrityQueue } = await import("@/lib/media/photo-integrity-queue"); await processPhotoIntegrityQueue(); }));
+  }
+
   if (jobEnabled("ai-photo-review")) {
     await boss.schedule("ai-photo-review", "*/5 * * * *", {}, { tz: TZ });
     await boss.work("ai-photo-review", safeHandler("ai-photo-review", async () => { const { processPhotoReviewQueue } = await import("@/lib/ai/photo-review"); await processPhotoReviewQueue(); }));
