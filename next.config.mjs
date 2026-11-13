@@ -42,6 +42,13 @@ const nextConfig = {
       },
     ],
   },
+  // The container image build sets SNEEK_SKIP_BUILD_CHECKS=true (Dockerfile).
+  // Type checking this codebase needs several GB of memory, which stalled the
+  // VPS build until the deployment was cancelled. Types and lint are checked
+  // before every merge (`tsc --noEmit`), so the image build only compiles.
+  // A build without the variable (local, CI) still checks both.
+  typescript: { ignoreBuildErrors: process.env.SNEEK_SKIP_BUILD_CHECKS === "true" },
+  eslint: { ignoreDuringBuilds: process.env.SNEEK_SKIP_BUILD_CHECKS === "true" },
   experimental: {
     serverActions: {
       allowedOrigins,

@@ -25,6 +25,9 @@ COPY . .
 
 ENV NODE_ENV=production
 ENV NEXT_DIST_DIR=.next-prod
+# Skip the type check and lint inside the image build (see next.config.mjs):
+# they need more memory than a small VPS has and are run before every merge.
+ENV SNEEK_SKIP_BUILD_CHECKS=true
 
 RUN npx prisma generate
 RUN node ./scripts/run-next.cjs build
