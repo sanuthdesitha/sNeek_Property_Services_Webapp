@@ -211,3 +211,23 @@ export async function loadLaundryRunPage(
   };
   return { card, extras };
 }
+
+/**
+ * "Done by" choices for Change state on several runs: the laundry team members
+ * who work on every one of them (by partner and property), then the office
+ * person saving. Names only for the menu; the server checks the choice again.
+ */
+export async function loadDoneByOptions(taskIds: string[], viewer: { id: string; name: string | null }): Promise<Array<{ id: string; label: string }>> {
+  const tasks = await db.laundryTask.findMany({ where: { id: { in: taskIds } }, select: { supplierId: true, supplier: { select: { name: true } }, property: { select: { accessInfo: true, laundryEnabled: true } } } });
+  const teams = await loadSupplierTeams(tasks.map((task) => task.supplierId ?? "").filter(Boolean));
+  let common: Map<string, string> | null = null;
+  for (const task of tasks) {
+    const members = task.supplierId ? teamForRun(teams, task.supplierId, task.property) : [];
+    const here = new Map(members.map((member) => [member.id, `${member.name?.trim() || "Laundry team member"}${task.supplier?.name ? `, ${task.supplier.name}` : ""}`]));
+    common = common === null ? here : new Map(Array.from(common).filter(([id]) => here.has(id)));
+  }
+  return [
+    ...Array.from(common ?? new Map<string, string>(), ([id, label]) => ({ id, label })),
+    { id: viewer.id, label: `Office: ${viewer.name?.trim() || "me"}` },
+  ];
+}
