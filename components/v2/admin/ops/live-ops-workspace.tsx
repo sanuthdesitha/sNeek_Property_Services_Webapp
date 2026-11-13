@@ -185,6 +185,7 @@ export function LiveOpsWorkspace({ properties, attention, initialView, todayKey,
             properties={properties}
             pings={feed.pings.data}
             drivers={board?.drivers ?? []}
+            jobs={board?.jobs}
             layers={layers}
             selectedUserId={selected}
             onSelect={select}
