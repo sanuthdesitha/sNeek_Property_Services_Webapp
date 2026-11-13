@@ -12,6 +12,8 @@ export const visionSettingsSchema = z.object({
   maxScoreContribution: z.number().min(0).max(20),
   scoreMode: z.literal("review"),
   model: z.string().trim().min(1).max(100).regex(/^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/).refine(value => !value.includes("://"), "Enter a model name, not a URL"),
+  /** Queued reviews only: the photo_compare route (Settings, AI) when the review was queued. Never saved as a setting. */
+  snapshotRoute: z.object({ provider: z.enum(["anthropic", "openai", "openai_compatible", "ollama"]), model: z.string().trim().min(1).max(100) }).strict().optional(),
 }).strict();
 export type VisionSettings = z.infer<typeof visionSettingsSchema>;
 export const DEFAULT_VISION_SETTINGS: VisionSettings = {

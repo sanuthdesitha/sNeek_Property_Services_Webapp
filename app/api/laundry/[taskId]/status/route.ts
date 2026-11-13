@@ -12,6 +12,7 @@ import { isLaundryOfficeRole, propertyIsVisibleToLaundry } from "@/lib/laundry/t
 import { isAtLaundryStatus } from "@/lib/laundry/status-groups";
 
 import { recordFailedPickup, FailedPickupError } from "@/lib/laundry/failed-pickup";
+import { keepTeamRecordBesideCorrection } from "@/lib/laundry/run-corrections";
 import { recordQuantityPickup, QuantityPickupError } from "@/lib/laundry/quantity-pickup";
 const schema = z.object({
   status: z.enum([
@@ -184,6 +185,26 @@ export async function POST(
       const supplier = await db.laundrySupplier.findUnique({ where: { id: supplierId.trim() }, select: { id: true } });
       if (!supplier) {
         return NextResponse.json({ error: "That laundry supplier no longer exists. Choose another." }, { status: 400 });
+      }
+    }
+
+    // A run the office voided (2026-11-14) takes no further handoffs.
+    if (existing.voidedAt) {
+      return NextResponse.json({ error: "The office cancelled this laundry run. Nothing needs doing.", code: "VOIDED" }, { status: 409 });
+    }
+
+    // The laundry team's own pickup or drop-off arriving after the office
+    // already recorded that leg (for example saved on a phone without signal):
+    // kept beside the office correction, never applied over it.
+    if (!isLaundryOfficeRole(session.user.role) && (nextStatus === "PICKED_UP" || nextStatus === "DROPPED")) {
+      const leg = nextStatus === "PICKED_UP" ? "PICKUP" : "DROP";
+      const legAlreadyRecorded = leg === "PICKUP" ? Boolean(existing.pickedUpAt) : Boolean(existing.droppedAt);
+      if (legAlreadyRecorded) {
+        const photoKey = (leg === "PICKUP" ? pickupPhotoKey : dropoffPhotoKey)?.trim() || null;
+        const kept = await keepTeamRecordBesideCorrection(session.user, {
+          taskId: existing.id, leg, photoKey, photoUrl: photoKey ? publicUrl(photoKey) : null, bagCount: bagCount ?? null, notes: notes ?? null,
+        });
+        if (kept) return NextResponse.json({ ok: true, keptBesideCorrection: true, confirmationId: kept.confirmationId });
       }
     }
 

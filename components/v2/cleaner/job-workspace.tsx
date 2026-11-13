@@ -119,7 +119,7 @@ import { useDraftSave } from "@/lib/cleaner/use-draft-save";
 import { readCleanerLocalDraft, writeCleanerLocalDraft, clearCleanerLocalDraft, hasLegacyCleanerLocalDraft } from "@/lib/cleaner/local-draft";
 import { DraftSaveStatus } from "@/components/v2/cleaner/draft-save-status";
 import { getAccuratePosition } from "@/lib/geo/get-position";
-import { useLocationGate, type GateFix } from "@/components/v2/location/location-gate";
+import { isGateNoFix, useLocationGate, type GateFix, type GateNoFix } from "@/components/v2/location/location-gate";
 
 import { ActionFab } from "@/components/v2/cleaner/job-stages/action-fab";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
@@ -1041,10 +1041,13 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       // for THIS cleaner's segment (teammates and resumes included); it is no
       // longer only the first arrival that is checked.
       let startFix: GateFix | null = null;
+      // Permission granted but no position: start with the person's reason.
+      let startNoFix: GateNoFix["noFix"] | null = null;
       if (!nfcArrival) {
         const ready = await locationGate.ensureReady();
         if (!ready) return;
-        startFix = ready === "NOT_REQUIRED" ? null : ready;
+        if (isGateNoFix(ready)) startNoFix = ready.noFix;
+        else if (ready !== "NOT_REQUIRED") startFix = ready;
       }
       if (!isResume && startFix) {
         const gps = startFix;
@@ -1088,7 +1091,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
             accuracy: startFix.accuracy,
             ...(offSiteAnswer ? { reasonCode: offSiteAnswer.code, note: offSiteAnswer.note } : {}),
           },
-        } : {}),
+        } : startNoFix ? { startLocation: { noFix: startNoFix } } : {}),
       }, draftIdentity).catch((err: any) => {
         // 409 = there are things this cleaner must READ before the clock
         // starts. The server returns the resolved list so the dialog and the

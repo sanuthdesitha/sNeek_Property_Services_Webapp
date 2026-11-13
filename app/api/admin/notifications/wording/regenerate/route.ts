@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const actorRole = await requireWordingEditor(session);
     const body: unknown = await request.json();
-    const result = await regenerateWording(body);
+    const result = await regenerateWording(body, { kind: "user", userId: session.user.id });
     const target = body as { typeKey?: string; partId?: string; transport?: string };
     await db.auditLog.create({ data: {
       userId: session.user.id, action: "NOTIFICATION_WORDING_PROPOSAL_REQUESTED", entity: "AppSetting", entityId: `notificationWording:${String(target.typeKey ?? "")}`,

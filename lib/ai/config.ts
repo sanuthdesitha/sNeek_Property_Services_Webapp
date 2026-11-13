@@ -20,8 +20,13 @@ export function getAiConfiguration(): { provider: AiProvider; model: string; con
 }
 
 /** Resolved runtime settings. Sync exports above remain env-only for older callers. */
+/** A saved, encrypted key (Settings, AI) wins; the environment applies until a key is saved. */
+async function hasProviderSecret(provider: "openai" | "anthropic"): Promise<boolean> {
+  const { readProviderSecret } = await import("./provider/store");
+  try { return Boolean(await readProviderSecret(provider)); } catch { return false; }
+}
 export async function getResolvedVisionProviderConfiguration(provider: AiProvider) {
-  if (provider !== "ollama") return getVisionProviderConfiguration(provider);
+  if (provider !== "ollama") return { ...getVisionProviderConfiguration(provider), configured: await hasProviderSecret(provider) };
   const { getOllamaSettings } = await import("./ollama-settings");
   const { validateOllamaBaseUrl } = await import("./ollama-settings-schema");
   const settings = await getOllamaSettings();
@@ -35,5 +40,7 @@ export async function getResolvedAiConfiguration(): Promise<{provider: AiProvide
   if (settings.useForText) return {provider:"ollama",model:settings.textModel,configured:validateOllamaBaseUrl(settings.baseUrl)};
   const fallback = getAiConfiguration();
   // An explicit saved false disables an old environment Ollama selection.
-  return fallback.provider === "ollama" ? { ...fallback, configured: false } : fallback;
+  if (fallback.provider === "ollama") return { ...fallback, configured: false };
+  const requested = process.env.AI_TEXT_PROVIDER?.trim() || "anthropic";
+  return { ...fallback, configured: ["openai", "anthropic"].includes(requested) && await hasProviderSecret(fallback.provider as "openai" | "anthropic") };
 }

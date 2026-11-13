@@ -82,7 +82,7 @@ async function upcoming(todayKey: string): Promise<GlanceUpcoming[]> {
 
 async function laundryDue(todayKey: string): Promise<number> {
   const range = { gte: utcDay(todayKey), lt: utcDay(addDaysToKey(todayKey, 1)) };
-  return db.laundryTask.count({ where: { OR: [{ pickupDate: range }, { dropoffDate: range }] } });
+  return db.laundryTask.count({ where: { voidedAt: null, OR: [{ pickupDate: range }, { dropoffDate: range }] } });
 }
 
 export async function loadCommandGlance(now: Date, timeZone: string): Promise<GlancePayload> {

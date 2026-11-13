@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 import { Role } from "@prisma/client";
 import { GET, POST } from "@/app/api/admin/marketing/ai-compose/route";
 vi.mock("@/lib/db", () => ({ db: { appSetting: { findUnique: async () => null } } }));
+vi.mock("@/lib/ai/provider/store", async () => (await import("../helpers/ai-provider-store-mock")).aiStoreMock({ allowCloudImages: false }));
 
 const mocks = vi.hoisted(() => ({ authorize: vi.fn(), create: vi.fn(), constructor: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.authorize }));

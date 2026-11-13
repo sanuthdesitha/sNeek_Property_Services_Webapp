@@ -113,6 +113,11 @@ export async function PATCH(
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = updateLaundryTaskSchema.parse(await req.json());
+    // A voided run (2026-11-14) is not edited or decided: undo the void first.
+    const voidState = await db.laundryTask.findUnique({ where: { id: params.taskId }, select: { voidedAt: true } });
+    if (voidState?.voidedAt) {
+      return NextResponse.json({ error: "This run is voided. An administrator can undo the void before it is edited.", code: "VOIDED" }, { status: 409 });
+    }
     if (body.action) {
       const task = await db.laundryTask.findUnique({
         where: { id: params.taskId },
@@ -426,10 +431,14 @@ export async function DELETE(req: NextRequest, { params }: { params: { taskId: s
     await verifySensitiveAction(session.user.id, body?.security, "laundry.delete");
     const existing = await db.laundryTask.findUnique({
       where: { id: params.taskId },
-      select: { id: true, jobId: true, status: true, pickedUpAt: true, droppedAt: true, confirmations: { select: { id: true } } },
+      select: { id: true, jobId: true, status: true, pickedUpAt: true, droppedAt: true, voidedAt: true, confirmations: { select: { id: true } } },
     });
     if (!existing) {
       return NextResponse.json({ error: "Laundry task not found." }, { status: 404 });
+    }
+    // A voided run keeps its record and history (2026-11-14).
+    if (existing.voidedAt) {
+      return NextResponse.json({ error: "This run is voided and its record is kept. Undo the void first if it must be removed.", code: "VOIDED" }, { status: 409 });
     }
     await db.laundryConfirmation.deleteMany({ where: { laundryTaskId: params.taskId } });
     await db.laundryTask.delete({ where: { id: params.taskId } });

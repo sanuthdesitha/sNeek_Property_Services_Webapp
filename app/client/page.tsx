@@ -89,7 +89,7 @@ export default async function ClientDashboard() {
 
   const propertyStocks = client
     ? await db.propertyStock.findMany({
-        where: { property: { clientId: client.id }, voidedAt: null },
+        where: { property: { clientId: client.id } },
         include: {
           property: { select: { id: true, name: true } },
           item: { select: { name: true } },
@@ -101,7 +101,7 @@ export default async function ClientDashboard() {
 
   const laundryUpdates = client && visibility.showLaundryUpdates
     ? await db.laundryTask.findMany({
-        where: { property: { clientId: client.id } },
+        where: { property: { clientId: client.id }, voidedAt: null },
         select: {
           id: true,
           status: true,

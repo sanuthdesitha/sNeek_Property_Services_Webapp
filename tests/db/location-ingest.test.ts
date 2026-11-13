@@ -6,7 +6,7 @@ const m = vi.hoisted(() => ({ client: null as any }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db", () => ({ db: new Proxy({}, { get: (_target, key) => { const value = m.client[key]; return typeof value === "function" ? value.bind(m.client) : value; } }) }));
 vi.mock("@/lib/gps/departure-clockout", () => ({ handleGeofenceDeparture: vi.fn(async () => ({})) }));
-import { ingestCleanerBatch, writeLastLocation } from "@/lib/gps/ingest-service";
+import { ingestCleanerBatch, recordLateRouteFix, writeLastLocation } from "@/lib/gps/ingest-service";
 import { recordCheckoutLocation } from "@/lib/jobs/checkout-location";
 
 const url = process.env.SNEEK_TEST_DATABASE_URL;
@@ -31,6 +31,7 @@ describe.skipIf(!url)("location ingest on PostgreSQL (loopback)", () => {
     await m.client.timeLog.create({ data: { id, jobId: id, userId: id, startedAt: new Date(Date.now() - 30 * 60_000) } });
   });
   afterEach(async () => {
+    await m.client.auditLog.deleteMany({ where: { entityId: { in: [id, `${id}-route`] } } });
     await m.client.cleanerLocationPing.deleteMany({ where: { userId: id } });
     await m.client.userLastLocation.deleteMany({ where: { userId: id } });
     await m.client.timeLog.deleteMany({ where: { jobId: id } });
@@ -82,5 +83,31 @@ describe.skipIf(!url)("location ingest on PostgreSQL (loopback)", () => {
     const second = await m.client.$transaction((tx: any) => recordCheckoutLocation(tx, { jobId: id, userId: id, timeLogId: id, lat: -33.9, lng: 151.2 }));
     expect([first.segmentRecorded, second.segmentRecorded]).toEqual([true, false]);
     expect(await m.client.timeLog.findUnique({ where: { id } })).toMatchObject({ stopLat: -33.86, stopAccuracyM: 12, stopDistanceM: 3 });
+  });
+
+  it("stores the first live fix after a no-fix start as a LATE start location, once", async () => {
+    await m.client.timeLog.update({ where: { id }, data: { startVerdict: "NO_FIX", startLocationSource: "NO_FIX", startReasonCode: "TIMEOUT", startNote: "No GPS signal here" } });
+    await ingestCleanerBatch({ userId: id, impersonating: false, body: batch("late-1", 5_000, -33.8601) });
+    buckets()?.clear();
+    await ingestCleanerBatch({ userId: id, impersonating: false, body: batch("late-2", 1_000, -33.95) });
+    const log = await m.client.timeLog.findUnique({ where: { id } });
+    expect(log).toMatchObject({ startVerdict: "NO_FIX", startLocationSource: "GPS_LATE", startLat: -33.8601, startNote: "No GPS signal here" });
+    expect(log.startLocationAt).toBeInstanceOf(Date);
+    expect(log.startDistanceM).toBeLessThan(50);
+  });
+
+  it("does not let a backlog fix (not live) become the late start location", async () => {
+    await m.client.timeLog.update({ where: { id }, data: { startVerdict: "NO_FIX", startLocationSource: "NO_FIX" } });
+    await ingestCleanerBatch({ userId: id, impersonating: false, body: batch("old", 20 * 60_000) });
+    expect((await m.client.timeLog.findUnique({ where: { id } })).startLat).toBeNull();
+  });
+
+  it("records a driver's first fix after a no-fix route start once", async () => {
+    const routeId = `${id}-route`;
+    await m.client.auditLog.create({ data: { userId: id, action: "LAUNDRY_ROUTE_START_NO_FIX", entity: "LaundryRoute", entityId: routeId, after: { reason: "No GPS signal here" } } });
+    const fix = { lat: -33.86, lng: 151.2, accuracy: 9, measuredAt: new Date() };
+    expect(await recordLateRouteFix({ userId: id, routeId, fix })).toBe(true);
+    expect(await recordLateRouteFix({ userId: id, routeId, fix })).toBe(false);
+    expect(await m.client.auditLog.count({ where: { entityId: routeId, action: "LAUNDRY_ROUTE_LATE_FIX" } })).toBe(1);
   });
 });

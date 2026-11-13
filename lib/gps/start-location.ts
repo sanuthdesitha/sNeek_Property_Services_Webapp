@@ -13,7 +13,23 @@ import { z } from "zod";
 import { classifyCheckInLocation, haversine, resolveOnSiteRadius } from "./distance";
 import { OFF_SITE_REASON_CODES, isValidOffSiteReason } from "./off-site-reasons";
 
-export const startLocationSchema = z.object({
+/**
+ * The device's error when no fix could be had after the normal attempt.
+ * PERMISSION_DENIED is NOT here: a refused permission refuses the start
+ * (live location is mandatory); only a phone that is allowed but cannot get a
+ * position (indoors, weak GPS, timeout, fault) may start with a reason.
+ */
+export const NO_FIX_ERRORS = ["TIMEOUT", "UNAVAILABLE", "UNSUPPORTED"] as const;
+export type NoFixError = (typeof NO_FIX_ERRORS)[number];
+
+/** A short reason the person gives for starting without a fix. */
+export const noFixSchema = z.object({
+  reason: z.string().trim().min(3, "Say why there is no location.").max(200),
+  error: z.enum(NO_FIX_ERRORS),
+});
+export type NoFixInput = z.infer<typeof noFixSchema>;
+
+const fixSchema = z.object({
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
   accuracy: z.number().nonnegative().optional().nullable(),
@@ -21,21 +37,43 @@ export const startLocationSchema = z.object({
   note: z.string().trim().max(2000).optional().nullable(),
 });
 
+export const startLocationSchema = z.union([fixSchema, z.object({ noFix: noFixSchema })]);
+
+export type StartLocationFixInput = z.infer<typeof fixSchema>;
 export type StartLocationInput = z.infer<typeof startLocationSchema>;
+
+/** Office wording for a no-fix start (job page, Live ops, notices). */
+export const NO_FIX_LABEL = "Started without a location fix";
+
+export function noFixErrorLabel(error: string | null | undefined): string {
+  switch (error) {
+    case "TIMEOUT":
+      return "the phone timed out looking for a position";
+    case "UNAVAILABLE":
+      return "the phone reported no position available";
+    case "UNSUPPORTED":
+      return "the device has no location service";
+    default:
+      return "no position from the device";
+  }
+}
 
 export type StartLocationColumns = {
   startLat: number | null;
   startLng: number | null;
   startAccuracyM: number | null;
   startDistanceM: number | null;
-  startVerdict: "ON_SITE" | "OFF_SITE" | "UNRELIABLE" | "NO_GEOFENCE" | null;
+  startVerdict: "ON_SITE" | "OFF_SITE" | "UNRELIABLE" | "NO_GEOFENCE" | "NO_FIX" | null;
   startReasonCode: string | null;
   startNote: string | null;
-  startLocationSource: "GPS" | "NFC";
+  startLocationSource: "GPS" | "NFC" | "NO_FIX";
+  startLocationAt?: Date | null;
 };
 
 export type StartLocationRecord = {
   columns: StartLocationColumns;
+  /** Started without a fix: tell the office (inbox) so they can follow up. */
+  noFix?: NoFixInput;
   /** The fix to seed the live position with (null for a tag-only start). */
   fix: { lat: number; lng: number; accuracy: number | null } | null;
 };
@@ -48,8 +86,28 @@ export function evaluateStartLocation(input: {
   location: StartLocationInput | null;
   property: { name?: string | null; latitude?: number | null; longitude?: number | null; geofenceRadiusM?: number | null } | null;
   tagTapped: boolean;
+  now?: Date;
 }): StartLocationDecision {
-  const { location, property } = input;
+  const { property } = input;
+  // Allowed, notice accepted, but no position after the normal attempt:
+  // start with the person's reason. Judged neither on site nor off site; the
+  // tracker's first later fix becomes a LATE start location.
+  if (input.location && "noFix" in input.location) {
+    const noFix = input.location.noFix;
+    return {
+      ok: true,
+      record: {
+        fix: null,
+        noFix,
+        columns: {
+          startLat: null, startLng: null, startAccuracyM: null, startDistanceM: null,
+          startVerdict: "NO_FIX", startReasonCode: noFix.error, startNote: noFix.reason,
+          startLocationSource: "NO_FIX", startLocationAt: null,
+        },
+      },
+    };
+  }
+  const location: StartLocationFixInput | null = input.location;
   if (!location) {
     if (input.tagTapped) {
       return {
@@ -103,6 +161,7 @@ export function evaluateStartLocation(input: {
         startReasonCode: verdict === "OFF_SITE" ? reasonCode : null,
         startNote: verdict === "OFF_SITE" ? location.note?.trim() || null : null,
         startLocationSource: "GPS",
+        startLocationAt: input.now ?? new Date(),
       },
     },
   };

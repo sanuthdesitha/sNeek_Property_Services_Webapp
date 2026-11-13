@@ -39,7 +39,7 @@ import { toast } from "@/hooks/use-toast";
 import { compareByTimeThenSuburb, type RouteStopKind } from "@/lib/laundry/route-plan";
 import { LaundryRouteMap } from "@/components/v2/laundry/route-map";
 import { useSession } from "next-auth/react";
-import { useLocationGate } from "@/components/v2/location/location-gate";
+import { isGateNoFix, useLocationGate } from "@/components/v2/location/location-gate";
 
 type Candidate = {
   taskId: string;
@@ -236,10 +236,12 @@ export function RouteBuilder() {
         // Starting a route turns live location on: the notice must be
         // accepted and the phone must give a fix (the server checks both).
         let location: { lat: number; lng: number; accuracy: number | null } | null = null;
+        let noFix: { reason: string; error: string } | null = null;
         if (activate && isDriver) {
           const ready = await locationGate.ensureReady();
           if (!ready) return;
-          location = ready === "NOT_REQUIRED" ? null : ready;
+          if (isGateNoFix(ready)) noFix = ready.noFix;
+          else if (ready !== "NOT_REQUIRED") location = ready;
         }
         const res = await fetch("/api/laundry/route", {
           method: "POST",
@@ -253,7 +255,7 @@ export function RouteBuilder() {
               propertyId: s.candidate.propertyId,
             })),
             activate,
-            ...(location ? { location } : {}),
+            ...(location ? { location } : noFix ? { noFix } : {}),
           }),
         });
         const data = await res.json().catch(() => null);

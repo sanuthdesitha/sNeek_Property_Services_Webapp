@@ -61,7 +61,7 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { getTrackerStatus, requestTrackerRestart } from "@/lib/gps/live-fix-store";
-import { useLocationGate } from "@/components/v2/location/location-gate";
+import { isGateNoFix, useLocationGate } from "@/components/v2/location/location-gate";
 
 /** A tracker fix younger than this is good enough for an ETA recompute. */
 const ETA_FIX_MAX_AGE_MS = 30_000;
@@ -291,7 +291,7 @@ export function DrivingMode({
   async function startDriving(stop: RouteStop) {
     const ready = await locationGate.ensureReady();
     if (!ready) throw new Error("Location is needed to start the drive.");
-    const body = ready === "NOT_REQUIRED" ? {} : { lat: ready.lat, lng: ready.lng, accuracy: ready.accuracy };
+    const body = ready === "NOT_REQUIRED" ? {} : isGateNoFix(ready) ? { noFix: ready.noFix } : { lat: ready.lat, lng: ready.lng, accuracy: ready.accuracy };
     try {
       await post(`/api/cleaner/jobs/${stop.jobId}/start-driving`, body);
     } catch (error) {

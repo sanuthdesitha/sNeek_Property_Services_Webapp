@@ -26,6 +26,8 @@ export type LiveCleanerState = {
   /** What their phone last reported (lib/gps/staleness TrackingState). */
   trackingState: string | null;
   lastFixAt: string | null;
+  /** Their running clock started without a location fix and no late fix has arrived. */
+  startedWithoutFix?: boolean;
 };
 
 export type LiveJobRow = {

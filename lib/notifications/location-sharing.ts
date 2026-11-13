@@ -128,3 +128,42 @@ export async function sendLeftSiteClockOutNotices(input: {
     : [];
   return { cleaner, office };
 }
+
+/**
+ * A start (clock-in or resume, on the way, or a laundry route) went ahead
+ * without a location fix because the phone could not get one (permission was
+ * granted). The office is told in the inbox so they can follow up; the
+ * tracker keeps trying and the first later fix is recorded as late.
+ * `scopeJobId` is the job the start belongs to (a driver's: the route's
+ * current stop's job), checked through JOB_OFFICE.
+ */
+export async function sendStartWithoutFixNotice(input: {
+  kind: "clock" | "drive" | "route";
+  scopeJobId: string;
+  placeLabel: string;
+  personName: string | null;
+  reason: string;
+  errorLabel: string;
+  occurrenceId: string;
+}): Promise<RecipientOutcome[]> {
+  const typeKey = "location.start_without_fix";
+  const wording = await loadNotificationWording(typeKey);
+  const part = input.kind === "route" ? "office-route" : input.kind === "drive" ? "office-drive" : "office-clock";
+  const inbox = wording.render(part, "INBOX", {
+    personName: input.personName ?? "Someone",
+    placeLabel: input.placeLabel,
+    reason: input.reason,
+    errorLabel: input.errorLabel,
+  });
+  const officeTeam = await officeRecipients();
+  if (officeTeam.length === 0) return [];
+  return sendOfficeNotification({
+    typeKey, eventKey: typeKey, eventId: `no-fix:${input.kind}:${input.occurrenceId}`,
+    entity: { type: input.kind === "route" ? "LaundryRoute" : input.kind === "clock" ? "TimeLog" : "Job", id: input.occurrenceId }, actorId: null,
+    scopeType: "JOB_OFFICE", scopeId: () => input.scopeJobId,
+    category: input.kind === "route" ? "laundry" : "jobs", severity: "ACTION", jobId: input.kind === "route" ? null : input.scopeJobId,
+    subject: inbox.title, body: inbox.body, url: input.kind === "route" ? "/v2/admin/laundry?tab=live" : `/v2/admin/jobs/${input.scopeJobId}`,
+    transports: ["INBOX"], recipients: officeTeam,
+    ...(await controlsFor(typeKey)),
+  });
+}

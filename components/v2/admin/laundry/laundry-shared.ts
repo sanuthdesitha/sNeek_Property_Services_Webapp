@@ -93,6 +93,9 @@ export type LaundryTaskDTO = {
   createdAt?: string | null;
   /** The version loaded; sent back as the stale-write guard on edits and moves. */
   updatedAt?: string | null;
+  /** Void (2026-11-14): set when the office voided the run (office feeds only). */
+  voidedAt?: string | null;
+  voidReason?: string | null;
   property?: {
     id?: string;
     name?: string | null;

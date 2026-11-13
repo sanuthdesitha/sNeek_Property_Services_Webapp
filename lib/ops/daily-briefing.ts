@@ -49,7 +49,7 @@ export async function sendDailyOpsBriefing(now = new Date()) {
       select: { status: true },
     }),
     db.job.count({ where: { status: "UNASSIGNED", scheduledDate: { gte: todayStart, lt: todayEnd } } }),
-    db.laundryTask.count({ where: { pickupDate: { gte: todayStart, lt: todayEnd } } }),
+    db.laundryTask.count({ where: { voidedAt: null, pickupDate: { gte: todayStart, lt: todayEnd } } }),
     db.issueTicket.count({ where: { status: { in: ["OPEN", "IN_PROGRESS"] }, createdAt: { lte: fortyEightHoursAgo } } }),
     db.quoteLead.count({ where: { createdAt: { gte: subHours(now, 24) } } }),
     // Include ALREADY-EXPIRED docs, not just upcoming ones — a lapsed police

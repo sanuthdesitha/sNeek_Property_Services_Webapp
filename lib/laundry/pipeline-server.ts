@@ -83,6 +83,8 @@ export type PipelineResponse = {
   drivers: Array<{ id: string; name: string }>;
   suppliers: Array<{ id: string; name: string }>;
   approvalsFlagged: number;
+  /** Runs voided in the last 30 days (office viewers; 0 for others). */
+  voidedRecent: number;
   settings: PipelineSettings;
   truncated: boolean;
   generatedAt: string;
@@ -254,5 +256,64 @@ export async function loadLaundryPipeline(
     settings,
     truncated,
     generatedAt: now.toISOString(),
+  };
+}
+
+/** One run with the Pipeline card's facts, for the run full page (any day, voided included). */
+export type RunCard = Record<string, unknown> & {
+  id: string;
+  status: string;
+  updatedAt: string;
+  lane: PipelineLane | null;
+  carriedIn: boolean;
+  exceptions: PipelineException[];
+  readiness: boolean | null;
+  bagCount: number | null;
+  driver: PipelineDriverStop | null;
+  dayOf: { day: number; planned: number } | null;
+  nextGuest: { checkinAt: string | null; name: string | null } | null;
+  cleaners: string[];
+  supplierTeam: SupplierTeamSummary;
+  teamReplies: TeamReplySummary[];
+};
+
+export async function loadRunCard(taskId: string, viewer: { role: Role; userId: string }, now = new Date()): Promise<RunCard | null> {
+  const todayKey = sydneyTodayKey(now);
+  const appSettings = await getAppSettings();
+  const settings: PipelineSettings = {
+    maxOutdoorDays: appSettings.laundryOperations?.maxOutdoorDays ?? 3,
+    requireDropoffPhoto: appSettings.laundryPortalVisibility?.requireDropoffPhoto === true,
+  };
+  const raw = await db.laundryTask.findUnique({ where: { id: taskId }, include: pipelineInclude });
+  if (!raw) return null;
+  const [task] = await withHandoffActorNames(filterTasksVisibleToUser([raw], viewer.role, viewer.userId));
+  if (!task) return null;
+  const [teams, replyRows, stops] = await Promise.all([
+    task.supplierId ? loadSupplierTeams([task.supplierId]) : Promise.resolve(new Map<string, SupplierTeamMember[]>()),
+    loadTeamReplies({ taskIds: [task.id] }, 60, now).catch(() => []),
+    loadDriverStops(todayKey).catch(() => ({ byTask: new Map<string, PipelineDriverStop>(), drivers: [] })),
+  ]);
+  const placement = task.voidedAt ? null : classifyLane(task, todayKey, todayKey);
+  const { job, ...rest } = task;
+  const arriving = job ? buildGuestSummary(parseJobInternalNotes(job.internalNotes).reservationContext) : null;
+  const pickedKey = dayKeyOf(task.pickedUpAt) ?? dayKeyOf(task.pickupDate);
+  const dropKey = dayKeyOf(task.dropoffDate);
+  return {
+    ...rest,
+    job: job ? { id: job.id, jobNumber: job.jobNumber, scheduledDate: job.scheduledDate, status: job.status } : null,
+    updatedAt: task.updatedAt.toISOString(),
+    lane: placement?.lane ?? null,
+    carriedIn: placement?.carriedIn ?? false,
+    exceptions: task.voidedAt ? [] : detectExceptions(task, { todayKey, now, settings }),
+    readiness: latestReadiness(task.confirmations),
+    bagCount: latestBagCount(task.confirmations),
+    driver: stops.byTask.get(task.id) ?? null,
+    dayOf: pickedKey && dropKey && (task.status === "PICKED_UP" || task.status === "READY_TO_RETURN")
+      ? { day: daysBetweenKeys(pickedKey, todayKey) + 1, planned: Math.max(1, daysBetweenKeys(pickedKey, dropKey)) }
+      : null,
+    nextGuest: arriving?.hasAnything ? { checkinAt: arriving.checkinAtLocal, name: arriving.name } : null,
+    cleaners: job?.assignments.map((row) => row.user.name?.trim() || "Cleaner") ?? [],
+    supplierTeam: supplierTeamSummary(task, teams),
+    teamReplies: repliesByTask(replyRows).get(task.id) ?? [],
   };
 }

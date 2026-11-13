@@ -18,6 +18,8 @@ import { db } from "@/lib/db";
 import { propertyIsVisibleToLaundry } from "./teams";
 import { partnerMayWriteRun } from "./partner-entry-rules";
 import { LAUNDRY_SKIP_REASON_CODES } from "./constants";
+import { stripTaskFromStops } from "./deletion";
+import { parseRouteStops } from "./route-plan";
 import {
   emailedReportContaining,
   emailedReportLabel,
@@ -334,8 +336,17 @@ export async function voidLaundryRun(actor: CorrectionActor, input: VoidInput, r
       where: { id: task.id },
       data: { status: "SKIPPED_PICKUP", voidedAt: now, voidedById: actor.id, voidReason: reason, voidPreviousStatus: task.status, notifyLaundry: false },
     });
+    // Off every draft or active laundry route (as a soft delete does).
+    const routes = await tx.laundryRoute.findMany({ where: { status: { in: ["ACTIVE", "DRAFT"] } }, select: { id: true, stops: true } });
+    let strippedRoutes = 0;
+    for (const route of routes) {
+      const { stops, removed } = stripTaskFromStops(parseRouteStops(route.stops), task.id);
+      if (!removed) continue;
+      strippedRoutes += 1;
+      await tx.laundryRoute.update({ where: { id: route.id }, data: { stops: stops as unknown as Prisma.InputJsonValue } });
+    }
     await tx.laundryConfirmation.create({
-      data: { laundryTaskId: task.id, confirmedById: actor.id, laundryReady: true, notes: JSON.stringify({ event: RUN_VOIDED_EVENT, reason, previousStatus: task.status }) },
+      data: { laundryTaskId: task.id, confirmedById: actor.id, laundryReady: true, notes: JSON.stringify({ event: RUN_VOIDED_EVENT, reason, previousStatus: task.status, strippedRoutes }) },
     });
     const pending = pendingFailedPickupRequest(task.confirmations);
     if (pending) {

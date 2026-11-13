@@ -687,6 +687,12 @@ async function main() {
 
   // Closes out submitted jobs nobody inspected. Without it a clean sits in
   // QA_REVIEW indefinitely, which also holds up the cleaner being paid for it.
+  // Queued AI work (Settings, AI connection tests): every minute, leased, polled by the screen.
+  if (jobEnabled("ai-tasks")) {
+    await boss.schedule("ai-tasks", "* * * * *", {}, { tz: TZ });
+    await boss.work("ai-tasks", safeHandler("ai-tasks", async () => { const { processAiTaskQueue } = await import("@/lib/ai/provider/tasks"); await processAiTaskQueue(); }));
+  }
+
   if (jobEnabled("ai-photo-review")) {
     await boss.schedule("ai-photo-review", "*/5 * * * *", {}, { tz: TZ });
     await boss.work("ai-photo-review", safeHandler("ai-photo-review", async () => { const { processPhotoReviewQueue } = await import("@/lib/ai/photo-review"); await processPhotoReviewQueue(); }));

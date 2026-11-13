@@ -2298,7 +2298,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       const res = await fetch(`/api/cleaner/jobs/${jobId}/start-driving`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(position ? { lat: position.lat, lng: position.lng, accuracy: position.accuracy } : {}),
+        body: JSON.stringify(position ? { lat: position.lat, lng: position.lng, accuracy: position.accuracy } : ready.noFix ? { noFix: ready.noFix } : {}),
       });
 
       if (!res.ok) {
@@ -2473,7 +2473,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           allowFutureStart,
           propertyCodeConfirmed,
           laundryBagConfirmed,
-          ...(fix ? { startLocation: { lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, ...(offSiteReason ?? {}) } } : {}),
+          ...(fix ? { startLocation: { lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, ...(offSiteReason ?? {}) } } : ready.ok && ready.noFix ? { startLocation: { noFix: ready.noFix } } : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));

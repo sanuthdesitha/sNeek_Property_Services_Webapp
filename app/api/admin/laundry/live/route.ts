@@ -42,6 +42,7 @@ export async function GET() {
       }),
       db.laundryTask.findMany({
         where: {
+          voidedAt: null,
           OR: [
             { pickupDate: { gte: dayStart, lt: dayEnd } },
             { dropoffDate: { gte: dayStart, lt: dayEnd } },

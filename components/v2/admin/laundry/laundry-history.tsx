@@ -14,7 +14,7 @@ import { LAUNDRY_STATUS_OPTIONS, isCompleted, mediaCount, statusLabel, type Laun
 import { shortDay } from "./laundry-lane-card";
 import type { LaundryFeed } from "./use-laundry-feed";
 
-export type HistoryFilters = { search: string; status: string; show: "completed" | "active" | "all"; start: string; end: string };
+export type HistoryFilters = { search: string; status: string; show: "completed" | "active" | "all" | "voided"; start: string; end: string };
 
 type Props = {
   feed: LaundryFeed;
@@ -27,7 +27,9 @@ type Props = {
 export function filterHistory(tasks: LaundryTaskDTO[], filters: HistoryFilters): LaundryTaskDTO[] {
   const needle = filters.search.toLowerCase();
   return tasks
-    .filter((task) => (filters.show === "all" ? true : filters.show === "completed" ? isCompleted(task) : !isCompleted(task)))
+    // Voided runs (2026-11-14) appear only under the Voided filter.
+    .filter((task) => (filters.show === "voided" ? Boolean(task.voidedAt) : !task.voidedAt))
+    .filter((task) => (filters.show === "all" || filters.show === "voided" ? true : filters.show === "completed" ? isCompleted(task) : !isCompleted(task)))
     .filter((task) => filters.status === "all" || task.status === filters.status)
     .filter((task) =>
       [task.property?.name, task.property?.address, task.property?.suburb, task.property?.client?.name, task.supplier?.name]
@@ -56,6 +58,7 @@ export function LaundryHistory({ feed, filters, onFilters, openId, onOpen }: Pro
             <option value="completed">Completed (delivered or skipped)</option>
             <option value="active">Active runs</option>
             <option value="all">All runs</option>
+            <option value="voided">Voided</option>
           </ESelect>
         </EField>
         <EField label="Status">
@@ -95,7 +98,7 @@ export function LaundryHistory({ feed, filters, onFilters, openId, onOpen }: Pro
                   className="flex w-full flex-wrap items-center justify-between gap-2 rounded-[10px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-3 py-2.5 text-left hover:bg-[hsl(var(--e-muted))]"
                 >
                   <span className="min-w-0">
-                    <b className="break-words text-[0.875rem]">{task.property?.name ?? "Property"}</b>
+                    <b className={`break-words text-[0.875rem] ${task.voidedAt ? "text-[hsl(var(--e-muted-foreground))] line-through" : ""}`}>{task.property?.name ?? "Property"}</b>
                     <span className="block text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                       Pickup {shortDay(task.pickupDate)} · Drop-off {shortDay(task.dropoffDate)}
                       {task.supplier?.name ? ` · ${task.supplier.name}` : ""}
@@ -103,7 +106,7 @@ export function LaundryHistory({ feed, filters, onFilters, openId, onOpen }: Pro
                       {task.dropoffCostAud != null ? ` · $${Number(task.dropoffCostAud).toFixed(2)}` : ""}
                     </span>
                   </span>
-                  <EPill tone={task.status === "DROPPED" ? "ok" : task.status === "FLAGGED" ? "bad" : task.status === "SKIPPED_PICKUP" ? "warn" : "neutral"}>{statusLabel(task.status)}</EPill>
+                  {task.voidedAt ? <EPill tone="neutral">Voided{task.voidReason ? ` · ${task.voidReason}` : ""}</EPill> : <EPill tone={task.status === "DROPPED" ? "ok" : task.status === "FLAGGED" ? "bad" : task.status === "SKIPPED_PICKUP" ? "warn" : "neutral"}>{statusLabel(task.status)}</EPill>}
                 </button>
               </li>
             );

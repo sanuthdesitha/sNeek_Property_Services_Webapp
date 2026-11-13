@@ -62,6 +62,8 @@ export async function GET() {
       select: {
         userId: true,
         startedAt: true,
+        startVerdict: true,
+        startLat: true,
         job: {
           select: {
             id: true, jobNumber: true, status: true, departedAt: true, enRouteEtaMinutes: true,
@@ -98,9 +100,9 @@ export async function GET() {
   const nameById = new Map(users.map((u) => [u.id, u.name]));
   const locationByUser = new Map(locations.map((row) => [row.userId, row]));
 
-  const timerByUser = new Map<string, { startedAt: Date; job: (typeof runningLogs)[number]["job"] }>();
+  const timerByUser = new Map<string, { startedAt: Date; startVerdict: string | null; job: (typeof runningLogs)[number]["job"] }>();
   for (const log of runningLogs) {
-    if (!timerByUser.has(log.userId)) timerByUser.set(log.userId, { startedAt: log.startedAt, job: log.job });
+    if (!timerByUser.has(log.userId)) timerByUser.set(log.userId, { startedAt: log.startedAt, startVerdict: log.startVerdict === "NO_FIX" && log.startLat == null ? "NO_FIX" : log.startVerdict ?? null, job: log.job });
   }
 
   const label = (property: { name: string; suburb: string | null }) => (property.suburb ? `${property.name} (${property.suburb})` : property.name);
@@ -131,7 +133,7 @@ export async function GET() {
       : null;
     const hasGeofence = activeJob?.property.latitude != null && activeJob?.property.longitude != null;
     const judgement = judgeFix(fix, activeJob?.property);
-    const { status: liveStatus, label: liveLabel } = deriveLiveStatus({
+    const derived = deriveLiveStatus({
       hasOpenTimer: Boolean(timer),
       jobStatus: activeJob?.status ?? null,
       lastPingAt: fix?.measuredAt ?? null,
@@ -141,6 +143,11 @@ export async function GET() {
       hasGeofence,
       trackingState: location?.trackingState ?? null,
     });
+    // Started without a location fix and none since: say exactly that — it is
+    // neither on site nor off site (status stays NO_SIGNAL).
+    const startedWithoutFix = timer?.startVerdict === "NO_FIX";
+    const liveStatus = derived.status;
+    const liveLabel = startedWithoutFix && !fix ? "Clocked in · started without a location fix" : derived.label;
 
     let lat: number | null = null;
     let lng: number | null = null;
@@ -168,6 +175,7 @@ export async function GET() {
       liveStatus,
       liveLabel,
       trackingState: location?.trackingState ?? null,
+      startedWithoutFix,
       trackingStateLabel: trackingStateLabel(location?.trackingState),
       trackingStateAt: location?.trackingStateAt?.toISOString() ?? null,
       distanceM: judgement.distanceM != null ? Math.round(judgement.distanceM) : null,

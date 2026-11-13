@@ -11,6 +11,8 @@
  * Edit, Delete and every other run action live.
  */
 import * as React from "react";
+import Link from "next/link";
+import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
 import { formatInTimeZone } from "date-fns-tz";
 import { cn } from "@/lib/utils";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
@@ -116,9 +118,11 @@ type Props = {
   onMove: () => void;
   /** The Pipeline's "today" (Sydney), for the exception actions. */
   todayKey?: string;
+  /** The card's ⋯ menu (2026-11-14): the side panel's actions plus Change state and Void. */
+  menuItems?: ERowMenuItem[];
 };
 
-export function LaundryLaneCard({ card, active, selectable, selected, saving, moveLabel, onOpen, onToggle, onMove, todayKey }: Props) {
+export function LaundryLaneCard({ card, active, selectable, selected, saving, moveLabel, onOpen, onToggle, onMove, todayKey, menuItems }: Props) {
   const pill = cardPill(card);
   const chaseOffered = chaseAppliesToTask(card, todayKey);
   const hasExceptionAction = requestOptionsForTask(card, todayKey).length > 0 || chaseOffered;
@@ -152,6 +156,10 @@ export function LaundryLaneCard({ card, active, selectable, selected, saving, mo
           {moveLabel ? <EButton size="sm" variant="outline" disabled={saving} onClick={onMove}>{moveLabel}</EButton> : null}
         </div>
       ) : null}
+      <div className="flex items-center justify-end gap-2">
+        <Link href={`/v2/admin/laundry/runs/${encodeURIComponent(card.id)}`} className="text-[0.75rem] font-semibold text-[hsl(var(--e-primary))] underline-offset-2 hover:underline max-sm:inline-flex max-sm:min-h-11 max-sm:items-center">Open run</Link>
+        {menuItems?.length ? <ERowMenu label={`More for ${name}`} items={menuItems} disabled={saving} /> : null}
+      </div>
     </li>
   );
 }

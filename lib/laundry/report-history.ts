@@ -39,6 +39,10 @@ export async function logLaundryReportActivity(input: LogLaundryReportActivityIn
         propertyName: data.propertyName ?? null,
         taskId: primaryRow?.taskId ?? null,
         rowCount: data.rows.length,
+        // The runs the report listed (2026-11-14): an emailed report locks
+        // these runs against Void and against moving back past Dropped off.
+        taskIds: data.rows.map((row) => row.taskId),
+        dateField: data.dateField,
         totalAmount: data.totalAmount,
         recipient: input.recipient?.trim() || null,
       } as any,

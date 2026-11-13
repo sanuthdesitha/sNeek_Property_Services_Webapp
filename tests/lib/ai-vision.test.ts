@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_VISION_SETTINGS } from "@/lib/ai/vision-settings-schema";
 const mocks = vi.hoisted(() => ({ create: vi.fn(), retrieve: vi.fn(), settings: vi.fn(), config: vi.fn() }));
+vi.mock("@/lib/ai/provider/store", async () => (await import("../helpers/ai-provider-store-mock")).aiStoreMock({ allowCloudImages: true }));
 vi.mock("@anthropic-ai/sdk", () => ({ default: class { messages = { create: mocks.create }; models = { retrieve: mocks.retrieve }; } }));
 vi.mock("@/lib/ai/vision-settings", () => ({ getVisionSettings: mocks.settings }));
 vi.mock("@/lib/ai/config", () => ({ getVisionProviderConfiguration: mocks.config, getResolvedVisionProviderConfiguration: mocks.config }));

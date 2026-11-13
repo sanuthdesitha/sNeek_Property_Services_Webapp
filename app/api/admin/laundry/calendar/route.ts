@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
 
     const tasks = await db.laundryTask.findMany({
       where: {
+        voidedAt: null,
         OR: [
           { pickupDate: { gte: start, lt: end } },
           { dropoffDate: { gte: start, lt: end } },

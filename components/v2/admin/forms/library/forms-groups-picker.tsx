@@ -3,16 +3,19 @@
 /**
  * Phones only (board "M-InsightsForms", Forms library): the groups panel
  * behind one "All forms 18 ▾" picker. The button names the current choice
- * (All forms, a group, Drafts or Archived, plus a tag) with its real count;
- * the sheet holds the very same FormsGroupsPanel, so creating, renaming and
+ * (All forms, a group, Drafts or Archived, plus a tag) with its real count and
+ * opens the very same FormsGroupsPanel under it, so creating, renaming and
  * deleting groups and picking a tag work exactly as on desktop. Choosing an
- * entry closes the sheet.
+ * entry closes it.
+ *
+ * Drawn as a sheet; built as an in-page disclosure because the panel's group
+ * "⋯" menu and its delete confirmation open in portals, which a modal bottom
+ * sheet makes unclickable. The panel stays mounted while closed, so a group
+ * name being typed survives closing it.
  */
 import * as React from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { EBottomSheet } from "@/components/v2/ui/bottom-sheet";
-import { EButton } from "@/components/v2/ui/primitives";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
 import { FormsGroupsPanel, type GroupsPanelProps } from "./forms-groups-panel";
 
@@ -30,30 +33,25 @@ export function groupsPickerLabel(props: Pick<GroupsPanelProps, "groups" | "coun
 
 export function FormsGroupsPicker(props: GroupsPanelProps) {
   const [open, setOpen] = React.useState(false);
+  const regionId = React.useId();
   const current = groupsPickerLabel(props);
   const filtered = props.scope !== "active" || props.group !== "" || props.tag !== "";
   return (
     <>
       <button
         type="button"
-        aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={`Groups: ${current.label}${props.tag ? `, tag ${props.tag}` : ""}. Change`}
-        onClick={() => setOpen(true)}
+        aria-controls={regionId}
+        aria-label={`Groups: ${current.label}${props.tag ? `, tag ${props.tag}` : ""}. ${open ? "Hide" : "Change"}`}
+        onClick={() => setOpen((value) => !value)}
         className={cn(E_CHIP_CLASS, "min-h-11 max-w-full gap-1.5 px-3.5 text-[0.8125rem]", filtered && E_CHIP_ON_CLASS)}
       >
         <span className="truncate">{current.label}</span>
         {typeof current.count === "number" ? <span className="e-tnum">{current.count}</span> : null}
         {props.tag ? <span className="truncate">· {props.tag}</span> : null}
-        <ChevronDown aria-hidden className="h-4 w-4 shrink-0" />
+        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 transition-transform", open && "rotate-180")} />
       </button>
-      <EBottomSheet
-        open={open}
-        onOpenChange={setOpen}
-        title="Forms"
-        description="Groups, tags, drafts and archived forms"
-        footer={<EButton className="w-full" onClick={() => setOpen(false)}>Done</EButton>}
-      >
+      <div id={regionId} hidden={!open} className="order-last basis-full" data-forms-groups-picker="">
         <FormsGroupsPanel
           {...props}
           onSelect={(patch) => {
@@ -65,7 +63,7 @@ export function FormsGroupsPicker(props: GroupsPanelProps) {
             setOpen(false);
           }}
         />
-      </EBottomSheet>
+      </div>
     </>
   );
 }

@@ -6,14 +6,17 @@ import { db } from "@/lib/db";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
 import { getEtaMinutes, geocodeAddress, type EtaMode } from "@/lib/jobs/eta";
 import { LOCATION_NOTICE_REQUIRED, hasAcknowledgedLocationNotice } from "@/lib/gps/notice-server";
-import { sendCleanerSharingNotice } from "@/lib/notifications/location-sharing";
+import { sendCleanerSharingNotice, sendStartWithoutFixNotice } from "@/lib/notifications/location-sharing";
 import { ingestCleanerBatch } from "@/lib/gps/ingest-service";
+import { NO_FIX_LABEL, noFixErrorLabel, noFixSchema } from "@/lib/gps/start-location";
 import { sydneyTodayKey } from "@/lib/time/sydney-range";
 
 const schema = z.object({
   lat: z.number().min(-90).max(90).optional().nullable(),
   lng: z.number().min(-180).max(180).optional().nullable(),
   accuracy: z.number().nonnegative().optional().nullable(),
+  /** Location allowed but no position could be had: go on the way with a reason. */
+  noFix: noFixSchema.optional(),
 });
 
 /**
@@ -36,7 +39,7 @@ export async function POST(
       if (!(await hasAcknowledgedLocationNotice(session.user.id, "CLEANER"))) {
         return NextResponse.json(LOCATION_NOTICE_REQUIRED, { status: 409 });
       }
-      if (body.lat == null || body.lng == null) {
+      if ((body.lat == null || body.lng == null) && !body.noFix) {
         return NextResponse.json({ error: "LOCATION_REQUIRED", message: "Turn on location for this app to start the drive. The office sees your location until you clock out." }, { status: 409 });
       }
     }
@@ -132,6 +135,20 @@ export async function POST(
       await ingestCleanerBatch({
         userId: session.user.id, impersonating: false, jobIdFromUrl: job.id,
         body: { pings: [{ lat: body.lat, lng: body.lng, accuracy: body.accuracy ?? null }] },
+      }).catch(() => undefined);
+    }
+    if (!impersonating && (body.lat == null || body.lng == null) && body.noFix) {
+      const noFix = body.noFix;
+      await db.auditLog.create({
+        data: {
+          userId: session.user.id, jobId: job.id, action: "EN_ROUTE_START_NO_FIX", entity: "Job", entityId: job.id,
+          after: { label: NO_FIX_LABEL, reason: noFix.reason, deviceError: noFix.error },
+        },
+      }).catch(() => undefined);
+      await sendStartWithoutFixNotice({
+        kind: "drive", scopeJobId: job.id, placeLabel: `${job.jobNumber || job.id}: ${job.property?.name ?? "the job"}`,
+        personName: session.user.name ?? null, reason: noFix.reason, errorLabel: noFixErrorLabel(noFix.error),
+        occurrenceId: `${job.id}:${sydneyTodayKey()}`,
       }).catch(() => undefined);
     }
     if (!impersonating) {

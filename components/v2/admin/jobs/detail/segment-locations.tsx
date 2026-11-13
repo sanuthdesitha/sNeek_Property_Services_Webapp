@@ -7,6 +7,7 @@
  */
 import { formatInTimeZone } from "date-fns-tz";
 import { offSiteReasonLabel } from "@/lib/gps/off-site-reasons";
+import { NO_FIX_LABEL, noFixErrorLabel } from "@/lib/gps/start-location";
 import { EBadge } from "@/components/v2/ui/primitives";
 
 export type SegmentLocationLog = {
@@ -22,6 +23,7 @@ export type SegmentLocationLog = {
   startReasonCode: string | null;
   startNote: string | null;
   startLocationSource: string | null;
+  startLocationAt?: Date | null;
   stopLat: number | null;
   stopLng: number | null;
   stopAccuracyM: number | null;
@@ -44,8 +46,29 @@ function mapsLink(lat: number, lng: number): string {
   return `https://www.google.com/maps?q=${lat},${lng}`;
 }
 
-function StartCell({ log }: { log: SegmentLocationLog }) {
+/** Started without a fix: never on site, never off site; a later fix is labelled late. */
+function NoFixStart({ log, timeZone }: { log: SegmentLocationLog; timeZone: string }) {
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      <EBadge tone="neutral" soft>{NO_FIX_LABEL}</EBadge>
+      <span className="basis-full text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+        Reason: {log.startNote ?? "none given"} · device: {noFixErrorLabel(log.startReasonCode)}
+      </span>
+      {log.startLat != null && log.startLng != null ? (
+        <span className="basis-full">
+          Late location{log.startLocationAt ? ` at ${formatInTimeZone(log.startLocationAt, timeZone, "HH:mm")}` : ""}: {metres(log.startDistanceM)}{log.startDistanceM != null ? " from the pin" : ""}{log.startAccuracyM != null ? ` · ±${Math.round(log.startAccuracyM)} m` : ""}{" "}
+          <a className="text-[hsl(var(--e-accent-portal))] hover:underline" href={mapsLink(log.startLat, log.startLng)} target="_blank" rel="noreferrer">Map</a>
+        </span>
+      ) : (
+        <span className="basis-full text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">No later position yet.</span>
+      )}
+    </span>
+  );
+}
+
+function StartCell({ log, timeZone }: { log: SegmentLocationLog; timeZone: string }) {
   if (log.startLocationSource === "NFC") return <span>Tag tapped at the door</span>;
+  if (log.startVerdict === "NO_FIX") return <NoFixStart log={log} timeZone={timeZone} />;
   if (log.startLat == null || log.startLng == null) return <span className="text-[hsl(var(--e-muted-foreground))]">Not recorded</span>;
   const verdict = log.startVerdict ? VERDICT[log.startVerdict] : null;
   return (
@@ -83,7 +106,7 @@ export function SegmentLocations({ logs, timeZone }: { logs: SegmentLocationLog[
                 {formatInTimeZone(log.startedAt, timeZone, "dd MMM HH:mm")}{log.stoppedAt ? `–${formatInTimeZone(log.stoppedAt, timeZone, "HH:mm")}` : " –"}
               </span>
             </span>
-            <span className="min-w-0"><span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))] sm:hidden">Start: </span><StartCell log={log} /></span>
+            <span className="min-w-0"><span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))] sm:hidden">Start: </span><StartCell log={log} timeZone={timeZone} /></span>
             <span className="min-w-0"><span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))] sm:hidden">Stop: </span><StopCell log={log} /></span>
           </li>
         ))}

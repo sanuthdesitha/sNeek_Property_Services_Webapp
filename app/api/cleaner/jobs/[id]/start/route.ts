@@ -20,7 +20,8 @@ import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/met
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import { LOCATION_NOTICE_REQUIRED, hasAcknowledgedLocationNotice } from "@/lib/gps/notice-server";
 import { evaluateStartLocation, startLocationSchema, type StartLocationRecord } from "@/lib/gps/start-location";
-import { sendCleanerSharingNotice } from "@/lib/notifications/location-sharing";
+import { sendCleanerSharingNotice, sendStartWithoutFixNotice } from "@/lib/notifications/location-sharing";
+import { NO_FIX_LABEL, noFixErrorLabel } from "@/lib/gps/start-location";
 import { ingestCleanerBatch } from "@/lib/gps/ingest-service";
 import {
   buildStartBriefingAck,
@@ -440,6 +441,14 @@ export async function POST(
       // writer must roll this transaction back rather than swallow P2002 in an
       // already-aborted PostgreSQL transaction.
       const created = await db.timeLog.create({ data: { jobId: params.id, userId: session.user.id, startedAt: new Date(), ...(startLocation?.columns ?? {}) } });
+      if (startLocation?.noFix) {
+        await db.auditLog.create({
+          data: {
+            userId: session.user.id, jobId: params.id, action: "CLOCK_START_NO_FIX", entity: "TimeLog", entityId: created.id,
+            after: { label: NO_FIX_LABEL, reason: startLocation.noFix.reason, deviceError: startLocation.noFix.error, firstStart: isFirstStartForCleaner } as any,
+          },
+        });
+      }
       if (startLocation?.columns.startVerdict === "OFF_SITE") {
         await db.auditLog.create({
           data: {
@@ -452,7 +461,16 @@ export async function POST(
         const fix = startLocation?.fix ?? null;
         // Tracking begins here unless the cleaner was already on the way.
         const startsTracking = job.status !== JobStatus.EN_ROUTE;
+        const noFix = startLocation?.noFix ?? null;
         afterCommit.push(async () => {
+          if (noFix) {
+            await sendStartWithoutFixNotice({
+              kind: "clock", scopeJobId: params.id,
+              placeLabel: `${job.jobNumber || job.id}: ${job.property?.name ?? "the job"}`,
+              personName: session.user.name ?? null, reason: noFix.reason, errorLabel: noFixErrorLabel(noFix.error),
+              occurrenceId: created.id,
+            });
+          }
           if (fix) {
             await ingestCleanerBatch({ userId: session.user.id, impersonating: false, jobIdFromUrl: params.id, body: { pings: [{ lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy }] } });
           }

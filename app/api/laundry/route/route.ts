@@ -27,7 +27,8 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getApiErrorStatus } from "@/lib/api/http";
 import { LOCATION_NOTICE_REQUIRED, hasAcknowledgedLocationNotice } from "@/lib/gps/notice-server";
-import { sendDriverSharingNotice } from "@/lib/notifications/location-sharing";
+import { sendDriverSharingNotice, sendStartWithoutFixNotice } from "@/lib/notifications/location-sharing";
+import { NO_FIX_LABEL, noFixErrorLabel, noFixSchema } from "@/lib/gps/start-location";
 import { ingestDriverBatch } from "@/lib/gps/ingest-service";
 import { laundryWeekTaskInclude, filterTasksVisibleToUser } from "@/lib/laundry/week-feed";
 import { loadCandidatesAndTasks, sydneyDayKey } from "@/lib/laundry/route-candidates";
@@ -138,6 +139,8 @@ const postSchema = z.object({
   location: z
     .object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracy: z.number().nonnegative().optional().nullable() })
     .optional(),
+  /** Location allowed but no position could be had: start with a reason. */
+  noFix: noFixSchema.optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -200,7 +203,7 @@ export async function POST(req: NextRequest) {
       if (!(await hasAcknowledgedLocationNotice(session.user.id, "LAUNDRY"))) {
         return NextResponse.json(LOCATION_NOTICE_REQUIRED, { status: 409 });
       }
-      if (!body.location) {
+      if (!body.location && !body.noFix) {
         return NextResponse.json({ error: "LOCATION_REQUIRED", message: "Turn on location for this app to start the route. The office sees your location until you end it." }, { status: 409 });
       }
     }
@@ -229,6 +232,23 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    if (startsTracking && !body.location && body.noFix) {
+      const noFix = body.noFix;
+      await db.auditLog.create({
+        data: {
+          userId: session.user.id, action: "LAUNDRY_ROUTE_START_NO_FIX", entity: "LaundryRoute", entityId: route.id,
+          after: { label: NO_FIX_LABEL, reason: noFix.reason, deviceError: noFix.error },
+        },
+      });
+      const firstStop = nextStops[0];
+      const task = firstStop ? await db.laundryTask.findUnique({ where: { id: firstStop.taskId }, select: { jobId: true } }) : null;
+      if (task) {
+        await sendStartWithoutFixNotice({
+          kind: "route", scopeJobId: task.jobId, placeLabel: "laundry route", personName: session.user.name ?? null,
+          reason: noFix.reason, errorLabel: noFixErrorLabel(noFix.error), occurrenceId: route.id,
+        }).catch(() => undefined);
+      }
+    }
     if (startsTracking) {
       const fix = body.location;
       if (fix) {

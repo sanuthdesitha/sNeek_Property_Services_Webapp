@@ -3,7 +3,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getVisionSettings } from "./vision-settings";
-import { visionSettingsSchema } from "./vision-settings-schema";
+import { visionSettingsSchema, type VisionSettings } from "./vision-settings-schema";
+import { resolveFeatureRoute } from "./provider/routing";
+import { isAiUnavailable } from "./provider/types";
 import { compareReferencePhotos } from "./vision";
 import { deriveVisionFields } from "./form-fields";
 import { loadVisionImage } from "./images";
@@ -15,12 +17,29 @@ export function photoSourceFingerprint(submission: any) {
   return createHash("sha256").update(JSON.stringify({ data: submission.data, media: submission.media.map((m: any) => [m.id, m.fieldId, m.s3Key, m.mediaType]), laundryReady: submission.laundryReady, property: jobFormProperty(submission.data.__templateSchema, submission.job.property) })).digest("hex");
 }
 
+/**
+ * The settings a queued review keeps: thresholds, the photo model and the
+ * photo_compare route at queue time. Processing refuses a review whose
+ * provider has since been deselected.
+ */
+export async function photoReviewSnapshot(settings: VisionSettings): Promise<VisionSettings> {
+  const route = await resolveFeatureRoute("photo_compare").catch(() => null);
+  return route ? { ...settings, snapshotRoute: { provider: route.provider, model: route.model } } : settings;
+}
+
 /** Called inside the successful submission transaction; never calls the provider. */
 export async function enqueuePhotoReview(submissionId: string, tx: Prisma.TransactionClient = db) {
   const settings = await getVisionSettings().catch(() => null);
   if (!settings?.comparisonEnabled) return false;
-  await tx.aiPhotoReview.upsert({ where: { submissionId }, create: { submissionId, settings }, update: {} });
+  const snapshot = await photoReviewSnapshot(settings);
+  await tx.aiPhotoReview.upsert({ where: { submissionId }, create: { submissionId, settings: snapshot }, update: {} });
   return true;
+}
+
+const REVIEW_FAILURE = "Photo analysis could not finish. Check AI configuration and uploaded reference photos, then retry.";
+/** A refusal a person can act on keeps its own safe message; anything else stays generic. */
+function reviewFailureMessage(error: unknown): string {
+  return isAiUnavailable(error) ? error.message : REVIEW_FAILURE;
 }
 
 /** Durable bounded batches. A lease token prevents an expired worker committing over a newer worker. */
@@ -58,7 +77,7 @@ export async function processPhotoReviewQueue() {
         } else {
           const references = await Promise.all(field.referenceKeys.map((key, i) => loadVisionImage(key, `reference-${i}`)));
           const image = await loadVisionImage(photo.s3Key, photo.id);
-          const assessment = await compareReferencePhotos({ references, submission: image, context: `${field.sectionLabel}: ${field.label}` }, settings);
+          const assessment = await compareReferencePhotos({ references, submission: image, context: `${field.sectionLabel}: ${field.label}` }, settings, { entity: { type: "FormSubmission", id: submission.id } });
           observation = { mediaId: photo.id, fieldId: field.id, fieldLabel: field.label, assessment: assessment.assessment, summary: assessment.summary,
             findings: assessment.assessment === "issue" ? assessment.issues.map((issue, index) => ({ id: `${photo.id}:${index}`, mediaId: photo.id, fieldId: field.id, fieldLabel: field.label, description: issue.description, severity: issue.severity, confidence: Math.min(issue.confidence, assessment.confidence) })) : [] };
         }
@@ -71,9 +90,9 @@ export async function processPhotoReviewQueue() {
       parsePhotoReviewResult(result);
       const committed = await db.aiPhotoReview.updateMany({ where: { id: candidate.id, leaseToken: token, status: "RUNNING" }, data: { status: result.observations.length >= photos.length ? "READY" : "PENDING", result: result as any, sourceFingerprint: fingerprint, leaseToken: null, leaseUntil: null, attempts: 0, error: null } });
       if (committed.count) processed++;
-    } catch {
+    } catch (error) {
       // Never persist provider bodies, signed links or credential-bearing errors.
-      await db.aiPhotoReview.updateMany({ where: { id: candidate.id, leaseToken: token, status: "RUNNING" }, data: { status: "FAILED", leaseToken: null, leaseUntil: null, error: "Photo analysis could not finish. Check AI configuration and uploaded reference photos, then retry." } }).catch(() => undefined);
+      await db.aiPhotoReview.updateMany({ where: { id: candidate.id, leaseToken: token, status: "RUNNING" }, data: { status: "FAILED", leaseToken: null, leaseUntil: null, error: reviewFailureMessage(error) } }).catch(() => undefined);
     }
   }
   return { processed };

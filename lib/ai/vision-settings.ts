@@ -13,7 +13,7 @@ export async function getVisionSettings(): Promise<VisionSettings> {
   return parsed.provider === "ollama" ? { ...parsed, model: (await getResolvedVisionProviderConfiguration("ollama")).model } : parsed;
 }
 export async function saveVisionSettings(input: unknown): Promise<VisionSettings> {
-  const parsed = visionSettingsSchema.parse(input);
+  const { snapshotRoute: _queuedOnly, ...parsed } = visionSettingsSchema.parse(input);
   const value = parsed.provider === "ollama" ? { ...parsed, model: (await getResolvedVisionProviderConfiguration("ollama")).model } : parsed;
   await db.appSetting.upsert({ where: { key: VISION_SETTINGS_KEY }, create: { key: VISION_SETTINGS_KEY, value }, update: { value } });
   return value;

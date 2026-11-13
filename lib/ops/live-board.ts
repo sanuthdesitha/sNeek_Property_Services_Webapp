@@ -34,7 +34,7 @@ async function loadTodayJobs(todayKey: string) {
       requiresSafetyCheckin: true, safetyCheckinAt: true, gpsDistanceMeters: true, gpsCheckInAt: true,
       property: { select: { name: true, suburb: true, address: true, latitude: true, longitude: true, geofenceRadiusM: true } },
       assignments: { where: { removedAt: null }, select: { user: { select: { id: true, name: true, email: true, phone: true } } } },
-      timeLogs: { where: { stoppedAt: null }, select: { id: true, userId: true, startedAt: true } },
+      timeLogs: { where: { stoppedAt: null }, select: { id: true, userId: true, startedAt: true, startVerdict: true, startLat: true } },
     },
   });
   return jobs.filter((job) => !parseJobInternalNotes(job.internalNotes).isDraft && job.cleanSkipStatus !== "SKIPPED");
@@ -124,6 +124,8 @@ async function buildJobRow(
       minutes: result.minutes,
       trackingState: ping?.trackingState ?? null,
       lastFixAt: ping?.measuredAt?.toISOString() ?? null,
+      // No fix at the start and no late fix since (the late fix fills startLat).
+      startedWithoutFix: job.timeLogs.some((log) => log.userId === cleaner.id && log.startVerdict === "NO_FIX" && log.startLat == null),
     };
     return { state, result };
   });

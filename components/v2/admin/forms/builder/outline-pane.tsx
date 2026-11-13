@@ -76,7 +76,8 @@ function OutlineRow({
   );
 }
 
-const PALETTE_LABEL: Partial<Record<FormFieldType, string>> = {
+/** Short palette names, shared with the phone "Add a question" sheet. */
+export const PALETTE_LABEL: Partial<Record<FormFieldType, string>> = {
   checkbox: "Tick",
   barcode: "Scan",
   instruction: "Note",

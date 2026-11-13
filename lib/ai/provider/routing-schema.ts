@@ -80,6 +80,15 @@ export const aiCompatibleEndpointSchema = z.object({
   label: z.string().trim().max(60),
 }).strict();
 
+/** Prices the owner enters per model (USD per million tokens). Unknown prices stay "Not known", never $0. */
+export const aiModelPriceSchema = z.object({
+  provider: z.enum(AI_PROVIDER_KINDS),
+  model: aiModelName,
+  inputUsdPerMillion: z.number().finite().min(0).max(1000),
+  outputUsdPerMillion: z.number().finite().min(0).max(1000),
+}).strict();
+export type AiModelPrice = z.infer<typeof aiModelPriceSchema>;
+
 const featureShape = Object.fromEntries(AI_FEATURES.map((feature) => [feature, aiFeatureSettingsSchema])) as Record<AiFeature, typeof aiFeatureSettingsSchema>;
 
 export const aiRoutingSchema = z.object({
@@ -89,6 +98,7 @@ export const aiRoutingSchema = z.object({
   defaultRoute: aiRouteSchema.nullable(),
   features: z.object(featureShape).strict(),
   compatible: aiCompatibleEndpointSchema,
+  prices: z.array(aiModelPriceSchema).max(50),
 }).strict();
 export type AiRoutingSettings = z.infer<typeof aiRoutingSchema>;
 
@@ -110,6 +120,7 @@ export const DEFAULT_AI_ROUTING: AiRoutingSettings = {
     agent_summaries: featureDefaults(60),
   },
   compatible: { baseUrl: "", label: "" },
+  prices: [],
 };
 
 /** What the settings screen sends: the routing without the server-owned revision. */

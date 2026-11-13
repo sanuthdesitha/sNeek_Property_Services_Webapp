@@ -190,7 +190,7 @@ export function LaundryWorkspace({ canReviewBags = false, timeZone = "Australia/
             .
           </p>
         ) : null}
-        {tab === "property" ? <LaundryInvestigation initialTasks={feed.tasks} canReviewBags={canReviewBags} /> : null}
+        {tab === "property" ? <LaundryInvestigation initialTasks={feed.tasks.filter((task) => !task.voidedAt)} canReviewBags={canReviewBags} /> : null}
         {tab === "live" ? <LaundryLive timeZone={timeZone} /> : null}
         {tab === "costs" ? <LaundryReports key={reportTask?.id ?? "all"} task={reportTask} onClearTask={() => setReportTask(null)} /> : null}
         {tab === "suppliers" ? <LaundrySuppliers /> : null}

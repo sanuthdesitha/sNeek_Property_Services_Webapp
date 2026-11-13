@@ -16,6 +16,7 @@ import { db } from "@/lib/db";
 import { sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { isArrivedAtStop, nextIncompleteStop, parseRouteStops, ROUTE_ARRIVAL_RADIUS_M, type RouteStopKind } from "@/lib/laundry/route-plan";
 import { checkGeofenceForPing, type GeofenceCheckResult } from "./geofence";
+import { haversine } from "./distance";
 import { handleGeofenceDeparture } from "./departure-clockout";
 import {
   addDrop,
@@ -163,6 +164,34 @@ function tooMany(retryAfterMs: number): IngestOutcome {
   return { status: 429, body: { error: "Rate limited", retryAfterMs } };
 }
 
+/**
+ * The first live fix after a no-fix start becomes the segment's late start
+ * location: source GPS_LATE, measured time kept, verdict stays NO_FIX so it
+ * is never read as an on-site or off-site start.
+ */
+export async function recordLateStartLocation(input: {
+  userId: string;
+  jobId: string;
+  fix: { lat: number; lng: number; accuracy?: number | null; measuredAt: Date };
+  property: { latitude: number | null; longitude: number | null };
+}): Promise<boolean> {
+  const distance = input.property.latitude != null && input.property.longitude != null
+    ? Math.round(haversine(input.fix.lat, input.fix.lng, input.property.latitude, input.property.longitude))
+    : null;
+  const written = await db.timeLog.updateMany({
+    where: { jobId: input.jobId, userId: input.userId, stoppedAt: null, startVerdict: "NO_FIX", startLat: null },
+    data: {
+      startLat: input.fix.lat,
+      startLng: input.fix.lng,
+      startAccuracyM: input.fix.accuracy ?? null,
+      startDistanceM: distance,
+      startLocationSource: "GPS_LATE",
+      startLocationAt: input.fix.measuredAt,
+    },
+  });
+  return written.count > 0;
+}
+
 /** Cleaner fixes. `jobIdFromUrl` binds every fix to that job (the per-job route). */
 export async function ingestCleanerBatch(input: {
   userId: string;
@@ -199,7 +228,7 @@ export async function ingestCleanerBatch(input: {
   let anyActive: IngestWindow | null = null;
   let lastRefusal: IngestWindow | null = null;
   let newestOverall: { fix: CorrectedFix; jobId: string; source: LocationPingSource } | null = null;
-  const liveByJob: Array<{ jobId: string; fix: CorrectedFix }> = [];
+  const liveByJob: Array<{ jobId: string; fix: CorrectedFix; property: { latitude: number | null; longitude: number | null } }> = [];
 
   for (const [jobId, fixes] of Array.from(byJob.entries())) {
     const decision = await resolveCleanerJobWindow({ userId: input.userId, jobId, impersonating: false, now: receivedAt });
@@ -231,7 +260,7 @@ export async function ingestCleanerBatch(input: {
       newestOverall = { fix: newest, jobId, source: decision.source };
     }
     const live = newestLive(corrected.accepted, receivedAt);
-    if (live) liveByJob.push({ jobId, fix: live });
+    if (live) liveByJob.push({ jobId, fix: live, property: decision.job.property });
   }
 
   let window: IngestWindow = anyActive ?? lastRefusal ?? { active: false };
@@ -253,6 +282,12 @@ export async function ingestCleanerBatch(input: {
       laundryRouteId: null,
       state: stateFor(batch, receivedAt, hasLive),
     }));
+  }
+
+  // A clock segment started WITHOUT a fix takes the first later live fix as
+  // its LATE start location (once; never overwrites a recorded start).
+  for (const { jobId, fix, property } of liveByJob) {
+    await bestEffort(() => recordLateStartLocation({ userId: input.userId, jobId, fix, property }));
   }
 
   // Arrival / departure: newest LIVE fix per job only. Best-effort: the
@@ -302,6 +337,27 @@ async function detectRouteArrival(routeId: string, fix: CorrectedFix): Promise<{
     data: { stops: stamped as unknown as Prisma.InputJsonValue },
   });
   return written.count === 1 ? { taskId: next.taskId, kind: next.kind } : null;
+}
+
+/**
+ * A route started WITHOUT a fix (audited LAUNDRY_ROUTE_START_NO_FIX): the
+ * first later live fix is recorded once as LAUNDRY_ROUTE_LATE_FIX, so the
+ * office can see when the driver's position first arrived.
+ */
+export async function recordLateRouteFix(input: { userId: string; routeId: string; fix: { lat: number; lng: number; accuracy?: number | null; measuredAt: Date } }): Promise<boolean> {
+  const latest = await db.auditLog.findFirst({
+    where: { entity: "LaundryRoute", entityId: input.routeId, action: { in: ["LAUNDRY_ROUTE_START_NO_FIX", "LAUNDRY_ROUTE_LATE_FIX"] } },
+    orderBy: { createdAt: "desc" },
+    select: { action: true },
+  });
+  if (latest?.action !== "LAUNDRY_ROUTE_START_NO_FIX") return false;
+  await db.auditLog.create({
+    data: {
+      userId: input.userId, action: "LAUNDRY_ROUTE_LATE_FIX", entity: "LaundryRoute", entityId: input.routeId,
+      after: { lat: input.fix.lat, lng: input.fix.lng, accuracy: input.fix.accuracy ?? null, measuredAt: input.fix.measuredAt.toISOString(), label: "Late first location" },
+    },
+  });
+  return true;
 }
 
 /** Driver fixes: only while the driver has an ACTIVE route today. */
@@ -359,6 +415,10 @@ export async function ingestDriverBatch(input: {
   }
   if (stored > 0) await bestEffort(() => db.user.update({ where: { id: input.userId }, data: { lastSeenAt: receivedAt } }));
 
+  if (live) {
+    const fix = live;
+    await bestEffort(() => recordLateRouteFix({ userId: input.userId, routeId: route.id, fix }));
+  }
   let arrivedStop: { taskId: string; kind: RouteStopKind } | null = null;
   if (live) {
     try {

@@ -3,14 +3,14 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { JobStatus, Role } from "@prisma/client";
 const mocks = vi.hoisted(() => ({ role: vi.fn(), settings: vi.fn(), job: vi.fn(), update: vi.fn(),
-  log: vi.fn(), logs: vi.fn(), createLog: vi.fn(), tasks: vi.fn(), audit: vi.fn(), notify: vi.fn(), db: {} as any }));
+  log: vi.fn(), logs: vi.fn(), createLog: vi.fn(), tasks: vi.fn(), audit: vi.fn(), notify: vi.fn(), noFixNotice: vi.fn(), db: {} as any }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.role }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: mocks.settings }));
 vi.mock("@/lib/jobs/continuation-requests", () => ({ listContinuationRequests: async () => [] }));
 vi.mock("@/lib/notifications/client-job-notifications", () => ({ sendClientJobNotification: mocks.notify }));
 // Live location 2026-11: after-commit side effects of a start are mocked.
 vi.mock("@/lib/gps/ingest-service", () => ({ ingestCleanerBatch: vi.fn(async () => ({ status: 200, body: {} })) }));
-vi.mock("@/lib/notifications/location-sharing", () => ({ sendCleanerSharingNotice: vi.fn(async () => []) }));
+vi.mock("@/lib/notifications/location-sharing", () => ({ sendCleanerSharingNotice: vi.fn(async () => []), sendStartWithoutFixNotice: mocks.noFixNotice }));
 vi.mock("@/lib/cleaner/action-receipt", () => ({ ActionReceiptError: class extends Error {}, withCleanerAction: async (_context: unknown, run: any) => run(mocks.db) }));
 import { POST } from "@/app/api/cleaner/jobs/[id]/start/route";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
@@ -147,4 +147,25 @@ it("records no location while an administrator is viewing as the cleaner", async
   mocks.job.mockResolvedValue(farJob());
   expect((await start({ propertyCodeConfirmed: true })).status).toBe(200);
   expect(mocks.createLog.mock.calls[0][0].data).not.toHaveProperty("startLat");
+});
+
+// ── No fix available (follow-up, 2026-11-14) ─────────────────────────────────
+it("allows a start without a fix when the phone cannot get one, with a reason, told to the office", async () => {
+  mocks.job.mockResolvedValue(farJob());
+  mocks.noFixNotice.mockResolvedValue([]);
+  const response = await start({ propertyCodeConfirmed: true, startLocation: { noFix: { reason: "No GPS signal here", error: "TIMEOUT" } } });
+  expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+  expect(mocks.createLog.mock.calls[0][0].data).toMatchObject({ startVerdict: "NO_FIX", startLocationSource: "NO_FIX", startReasonCode: "TIMEOUT", startNote: "No GPS signal here", startLat: null });
+  expect(mocks.audit.mock.calls.some(([arg]) => arg.data.action === "CLOCK_START_NO_FIX" && arg.data.after.deviceError === "TIMEOUT")).toBe(true);
+  await vi.waitFor(() => expect(mocks.noFixNotice).toHaveBeenCalledWith(expect.objectContaining({ kind: "clock", scopeJobId: "job", reason: "No GPS signal here" })));
+});
+
+it("still refuses a refused permission, a missing reason, or an unaccepted notice", async () => {
+  mocks.job.mockResolvedValue(farJob());
+  expect((await start({ propertyCodeConfirmed: true, startLocation: { noFix: { reason: "Denied", error: "PERMISSION_DENIED" } } })).status).toBe(400);
+  expect((await start({ propertyCodeConfirmed: true, startLocation: { noFix: { reason: "", error: "TIMEOUT" } } })).status).toBe(400);
+  mocks.db.locationTrackingNotice = { findUnique: async () => null };
+  const notice = await start({ propertyCodeConfirmed: true, startLocation: { noFix: { reason: "No GPS signal here", error: "TIMEOUT" } } });
+  expect((await notice.json()).error).toBe("LOCATION_NOTICE_REQUIRED");
+  expect(mocks.createLog).not.toHaveBeenCalled();
 });

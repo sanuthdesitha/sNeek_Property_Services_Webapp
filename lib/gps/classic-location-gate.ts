@@ -12,7 +12,7 @@ import { LOCATION_NOTICE_TEXT, LOCATION_NOTICE_VERSION } from "./notice";
 import { OFF_SITE_REASON_CODES } from "./off-site-reasons";
 
 export type ClassicGateResult =
-  | { ok: true; fix: { lat: number; lng: number; accuracy: number | null } | null }
+  | { ok: true; fix: { lat: number; lng: number; accuracy: number | null } | null; noFix?: { reason: string; error: "TIMEOUT" | "UNAVAILABLE" | "UNSUPPORTED" } }
   | { ok: false; message: string };
 
 export async function ensureClassicLocationReady(): Promise<ClassicGateResult> {
@@ -39,7 +39,13 @@ export async function ensureClassicLocationReady(): Promise<ClassicGateResult> {
     const fix = await getAccuratePosition();
     return { ok: true, fix: { lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy } };
   } catch (error) {
-    return { ok: false, message: error instanceof GpsError ? error.message : "Location is unavailable on this device." };
+    // A refused permission refuses the start; no position (indoors, weak GPS,
+    // timeout) may start with a short reason, recorded and told to the office.
+    if (error instanceof GpsError && error.code === "PERMISSION_DENIED") return { ok: false, message: error.message };
+    const code = error instanceof GpsError && error.code !== "PERMISSION_DENIED" ? error.code : "UNAVAILABLE";
+    const reason = window.prompt(`${error instanceof GpsError ? error.message : "Location is unavailable."}\n\nYou can still start without a location fix. Why is there no location? (e.g. "No GPS signal here")`, "No GPS signal here");
+    if (!reason || reason.trim().length < 3) return { ok: false, message: "Give a short reason to start without a location fix." };
+    return { ok: true, fix: null, noFix: { reason: reason.trim().slice(0, 200), error: code } };
   }
 }
 

@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DEFAULT_VISION_SETTINGS } from "@/lib/ai/vision-settings-schema";
 const mocks = vi.hoisted(() => ({ settings: vi.fn(), anthropicCreate: vi.fn(), anthropicRetrieve: vi.fn() }));
+vi.mock("@/lib/ai/provider/store", async () => (await import("../helpers/ai-provider-store-mock")).aiStoreMock({ allowCloudImages: true }));
 vi.mock("@/lib/ai/vision-settings", () => ({ getVisionSettings: mocks.settings }));
 vi.mock("@anthropic-ai/sdk", () => ({ default: class { messages = { create: mocks.anthropicCreate }; models = { retrieve: mocks.anthropicRetrieve }; } }));
 import { assignPhotosToFields, compareReferencePhotos, checkVisionConnection, type VisionImage } from "@/lib/ai/vision";
@@ -76,7 +77,10 @@ it("rejects multiple outputs and refuses convenient top-level output_text spoofi
   await expect(assignPhotosToFields(input)).rejects.toThrow("No result was applied");
 });
 it("retains exact destination and completeness validation after OpenAI parsing", async () => {
-  fetchMock.mockResolvedValueOnce(response(envelope({ assignments: [{ ...assignment.assignments[0], fieldId: "foreign-room" }] }))).mockResolvedValueOnce(response(envelope({ assignments: [] })));
+  // Each invalid answer gets exactly one repair request (provider layer), which answers the same way.
+  const foreign = () => response(envelope({ assignments: [{ ...assignment.assignments[0], fieldId: "foreign-room" }] }));
+  const empty = () => response(envelope({ assignments: [] }));
+  fetchMock.mockResolvedValueOnce(foreign()).mockResolvedValueOnce(foreign()).mockResolvedValueOnce(empty()).mockResolvedValueOnce(empty());
   await expect(assignPhotosToFields(input)).rejects.toThrow("identifiers");
   await expect(assignPhotosToFields(input)).rejects.toThrow("Incomplete vision assignments");
 });
@@ -85,13 +89,17 @@ it("bounds provider responses even without Content-Length", async () => {
   await expect(assignPhotosToFields(input)).rejects.toThrow("No result was applied");
   await expect(assignPhotosToFields(input)).rejects.toThrow("No result was applied");
 });
-it("never retries or exposes failed provider bodies or transport errors", async () => {
-  fetchMock.mockResolvedValueOnce(new Response("private provider key details", { status: 429 }));
-  await expect(assignPhotosToFields(input)).rejects.toThrow("Vision analysis could not be completed. No result was applied.");
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+it("retries 429 at most twice, never retries transport errors, and never exposes provider bodies", async () => {
+  // Owner rule 2026-11-14: bounded retry only for 429/5xx (two retries), nothing else.
+  const limited = () => new Response("private provider key details", { status: 429, headers: { "Retry-After": "0.01" } });
+  fetchMock.mockResolvedValueOnce(limited()).mockResolvedValueOnce(limited()).mockResolvedValueOnce(limited());
+  const error = await assignPhotosToFields(input).catch((caught: Error) => caught);
+  expect(error).toBeInstanceOf(Error); expect((error as Error).message).toBe("Vision analysis could not be completed. No result was applied.");
+  expect(JSON.stringify(error)).not.toContain("private provider key details");
+  expect(fetchMock).toHaveBeenCalledTimes(3);
   fetchMock.mockRejectedValueOnce(new Error("private transport failure"));
   await expect(assignPhotosToFields(input)).rejects.toThrow("Vision analysis could not be completed. No result was applied.");
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock).toHaveBeenCalledTimes(4);
 });
 it("connection check only retrieves model access, without images or a generation request", async () => {
   fetchMock.mockResolvedValue(response({ object: "model", id: "gpt-4.1" }));
