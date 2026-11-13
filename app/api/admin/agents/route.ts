@@ -2,14 +2,14 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { resolveAppUrl } from "@/lib/app-url";
 import { createAgent, listAgents, setAgentsPaused } from "@/lib/agents/admin";
-import { readableScopesFor } from "@/lib/agents/access";
+import { manageableWriteScopesFor, readableScopesFor } from "@/lib/agents/access";
 import { AGENT_ADMIN_HEADERS, agentAdminFailure, requireAgentAdmin } from "@/lib/agents/admin-http";
 import { AGENT_MCP_PATH } from "@/lib/agents/scopes";
 
 export const dynamic = "force-dynamic";
 
 const bodySchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("create"), name: z.string(), areas: z.array(z.string()), expiresInDays: z.number(), credentials: z.unknown() }).strict(),
+  z.object({ action: z.literal("create"), name: z.string(), areas: z.array(z.string()), writeAreas: z.array(z.string()).optional(), expiresInDays: z.number(), credentials: z.unknown() }).strict(),
   z.object({ action: z.literal("pause"), paused: z.boolean(), credentials: z.unknown() }).strict(),
 ]);
 
@@ -17,8 +17,8 @@ const bodySchema = z.discriminatedUnion("action", [
 export async function GET(request: Request) {
   try {
     const session = await requireAgentAdmin();
-    const [list, grantable] = await Promise.all([listAgents(), readableScopesFor(session.user.id)]);
-    return NextResponse.json({ ...list, grantable, mcpUrl: resolveAppUrl(AGENT_MCP_PATH, request) }, { headers: AGENT_ADMIN_HEADERS });
+    const [list, grantable, grantableWrite] = await Promise.all([listAgents(), readableScopesFor(session.user.id), manageableWriteScopesFor(session.user.id)]);
+    return NextResponse.json({ ...list, grantable, grantableWrite, mcpUrl: resolveAppUrl(AGENT_MCP_PATH, request) }, { headers: AGENT_ADMIN_HEADERS });
   } catch (error) { return agentAdminFailure(error); }
 }
 

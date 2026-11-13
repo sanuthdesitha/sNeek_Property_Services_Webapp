@@ -349,6 +349,10 @@ const ADMIN_SECTIONS: Record<string, OpsFeature | "owner"> = {
   "recurring-jobs": "calendar",
   approvals: "approvals",
   "all-approvals": "approvals",
+  // Approvals › Agent requests (step 6). Each decision also re-checks the action's own areas.
+  "agent-requests": "approvals",
+  // Agent accounts and tokens (Settings › Access › Agents): administrators only.
+  agents: "owner",
   "booking-requests": "approvals",
   "client-approvals": "approvals",
   cases: "cases",

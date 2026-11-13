@@ -34,7 +34,7 @@ const SENSITIVE_KEYS = ["accessCode", "alarmCode", "keyLocation", "accessInfo", 
 const CANARY = "CANARY-1234-SECRET";
 
 function context(scopes: AgentScopeKey[]): AgentContext {
-  return { agentId: "agent-1", agentName: "Hermes", tokenId: "tok-1", creatorId: "admin-1", expiresAt: new Date("2026-12-01T00:00:00Z"), scopes, withheld: [] };
+  return { agentId: "agent-1", agentName: "Hermes", tokenId: "tok-1", creatorId: "admin-1", expiresAt: new Date("2026-12-01T00:00:00Z"), scopes, withheld: [], writeScopes: [], writeWithheld: [] };
 }
 const call = (name: string, args: Record<string, unknown> = {}, id: number | string = 1) => handleMcpPost({ authorization: "Bearer snk_agent_x", body: { jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } } });
 const property = { id: "p1", name: "Beach House", address: "1 Sea St", suburb: "Bondi", state: "NSW", bedrooms: 2, bathrooms: 1 };

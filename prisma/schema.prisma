@@ -5608,6 +5608,9 @@ model AgentProfile {
   createdById String
   /// Scope pack keys (lib/agents/scopes.ts); read-only.
   areas       String[]
+  /// Write pack keys (lib/agents/write-scopes.ts), default none. A write pack
+  /// only lets the agent ASK: every write waits for a person's approval.
+  writeAreas  String[]  @default([])
   /// ACTIVE | REVOKED
   status      String    @default("ACTIVE")
   revokedAt   DateTime?
@@ -5615,7 +5618,8 @@ model AgentProfile {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  tokens AgentToken[]
+  tokens         AgentToken[]
+  actionRequests AgentActionRequest[]
 
   @@index([status, createdAt])
 }
@@ -5657,6 +5661,66 @@ model AgentAuditEntry {
 
   @@index([agentId, createdAt])
   @@index([createdAt])
+}
+
+/// A change an agent asked for (step 6). Never executed by the agent: it waits
+/// for a person to approve it in Approvals › Agent requests, and approval runs
+/// the existing domain service as that person. A database trigger refuses
+/// DELETE, changes to what was asked, and any change out of a final status.
+model AgentActionRequest {
+  id             String    @id @default(cuid())
+  agentId        String
+  tokenId        String
+  /// The agent's creator when the request was made (whose live access caps it).
+  creatorId      String
+  /// The MCP tool that made the request (lib/agents/action-catalog.ts).
+  tool           String
+  /// The write pack the tool needs (lib/agents/write-scopes.ts).
+  area           String
+  /// The validated arguments, as the tool accepted them.
+  arguments      Json
+  /// The dry run shown to the approver: summary, details and the entity state it was made against.
+  preview        Json
+  /// Unique per agent: a repeated key returns the same request.
+  idempotencyKey String
+  /// WAITING | APPROVED | REJECTED | EXPIRED | EXECUTED | FAILED
+  status         String    @default("WAITING")
+  decidedById    String?
+  decidedAt      DateTime?
+  decisionReason String?
+  executedAt     DateTime?
+  result         Json?
+  error          String?
+  expiresAt      DateTime  @default(dbgenerated("(CURRENT_TIMESTAMP + '24:00:00'::interval)"))
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  agent  AgentProfile       @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  events AgentActionEvent[]
+
+  @@unique([agentId, idempotencyKey])
+  @@index([status, createdAt])
+  @@index([status, expiresAt])
+}
+
+/// Append-only decision history of an agent request (a database trigger
+/// refuses UPDATE and DELETE): created, approved, rejected, expired, executed,
+/// failed, with the actual person (or null for the agent and the sweep).
+model AgentActionEvent {
+  id         String   @id @default(cuid())
+  requestId  String
+  /// CREATED | APPROVED | REJECTED | EXPIRED | EXECUTED | FAILED
+  kind       String
+  actorId    String?
+  agentId    String?
+  fromStatus String?
+  toStatus   String
+  detail     Json?
+  createdAt  DateTime @default(now())
+
+  request AgentActionRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@index([requestId, createdAt])
 }
 
 model ShoppingClientCharge {

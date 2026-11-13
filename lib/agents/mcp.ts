@@ -4,18 +4,26 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { AgentAuthError, authenticateAgent, type AgentContext } from "./access";
-import { AGENT_TOOLS, ToolDeniedError, ToolInputError, toolsFor, UNTRUSTED_NOTICE } from "./tools";
+import { ALL_AGENT_TOOLS, ToolDeniedError, ToolInputError, toolsFor, UNTRUSTED_NOTICE, type AgentTool } from "./tools";
 
 /**
  * A small Model Context Protocol server over Streamable HTTP (2026-11-14),
  * implemented directly (JSON-RPC 2.0, JSON responses, stateless; no SSE
  * stream and no session id). Methods: initialize, notifications/initialized,
- * ping, tools/list, tools/call. Read-only: there are no write tools.
+ * ping, tools/list, tools/call. Write tools (step 6) only create requests
+ * that wait for a person's approval; nothing here can execute a change (the
+ * executor, lib/agents/action-execute.ts, is never imported by this module).
  */
 
 export const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"] as const;
-const SERVER_INFO = { name: "sneek-estate", title: "sNeek Estate (read-only)", version: "1.0.0" };
-const INSTRUCTIONS = `Read-only access to sNeek operations within this agent's scope. ${UNTRUSTED_NOTICE} Missing values read "not recorded"; they are never zero. This server cannot change anything.`;
+const SERVER_INFO = { name: "sneek-estate", title: "sNeek Estate", version: "1.1.0" };
+const INSTRUCTIONS = `Access to sNeek operations within this agent's scope. ${UNTRUSTED_NOTICE} Missing values read "not recorded"; they are never zero. This server cannot change anything by itself: a write tool (request_*) only creates a request that waits for a person to approve it in the app, and get_action_request reports what happened.`;
+
+function toolAnnotations(tool: AgentTool) {
+  return tool.kind === "write"
+    ? { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    : { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+}
 
 const messageSchema = z.object({
   jsonrpc: z.literal("2.0"),
@@ -103,14 +111,14 @@ export async function handleMcpPost(input: { authorization: string | null; body:
     return { status: 200, body: { jsonrpc: "2.0", id: replyId, result: {} } };
   }
   if (method === "tools/list") {
-    const tools = toolsFor(context).map((tool) => ({ name: tool.name, title: tool.title, description: tool.description, inputSchema: tool.inputSchema, annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false } }));
+    const tools = toolsFor(context).map((tool) => ({ name: tool.name, title: tool.title, description: tool.description, inputSchema: tool.inputSchema, annotations: toolAnnotations(tool) }));
     await audit({ context, method, outcome: "OK", resultBytes: JSON.stringify(tools).length, started });
     return { status: 200, body: { jsonrpc: "2.0", id: replyId, result: { tools } } };
   }
   if (method === "tools/call") {
     const name = typeof params?.name === "string" ? params.name : "";
     const args = params?.arguments && typeof params.arguments === "object" && !Array.isArray(params.arguments) ? params.arguments as Record<string, unknown> : {};
-    const tool = AGENT_TOOLS.find((item) => item.name === name);
+    const tool = ALL_AGENT_TOOLS.find((item) => item.name === name);
     if (!tool) {
       await audit({ context, method, tool: name.slice(0, 100) || null, outcome: "INVALID", errorCode: "UNKNOWN_TOOL", started });
       return { status: 200, body: rpcError(replyId, -32602, `Unknown tool: ${name.slice(0, 100)}`) };

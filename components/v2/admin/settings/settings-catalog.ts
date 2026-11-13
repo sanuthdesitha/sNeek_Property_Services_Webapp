@@ -270,7 +270,7 @@ export const SETTINGS_DESTINATIONS = [
   {
     key: "agents",
     label: "Agents (Hermes, Claude)",
-    description: "Connect AI agents that read your operations within the access you choose; tokens, revoke, recent calls.",
+    description: "Connect AI agents that read your operations within the access you choose and may ask for changes a person approves; tokens, write packs, revoke, recent calls.",
     group: "access",
     adminOnly: true,
     href: "/v2/admin/settings/agents",

@@ -66,7 +66,7 @@ export function citableRecords(tool: string, result: Row): Map<string, Citation>
 
 /** The signed-in person's read context: the same packs an agent they created could get. */
 export async function personContext(user: { id: string; name?: string | null }): Promise<AgentContext> {
-  return { agentId: `person:${user.id}`, agentName: user.name ?? "You", tokenId: "", creatorId: user.id, expiresAt: new Date(8.64e15), scopes: await readableScopesFor(user.id), withheld: [] };
+  return { agentId: `person:${user.id}`, agentName: user.name ?? "You", tokenId: "", creatorId: user.id, expiresAt: new Date(8.64e15), scopes: await readableScopesFor(user.id), withheld: [], writeScopes: [], writeWithheld: [] };
 }
 
 export async function askOperations(input: { question: string; user: { id: string; name?: string | null } }): Promise<AskResult> {
@@ -75,7 +75,8 @@ export async function askOperations(input: { question: string; user: { id: strin
   if (!route.enabled) return { state: "unavailable", reason: "Ask is switched off in Settings, AI." };
   if (!route.configured) return { state: "unavailable", reason: "No AI provider is configured for Ask (Settings, AI)." };
   const context = await personContext(input.user);
-  const tools = toolsFor(context).filter((tool) => tool.name !== "whoami");
+  // Read tools only: Ask never offers the agent request tools.
+  const tools = toolsFor(context).filter((tool) => tool.name !== "whoami" && AGENT_TOOLS.includes(tool));
   if (!tools.length) return { state: "unavailable", reason: "Your access includes none of the areas Ask can read." };
   const actor = { kind: "user" as const, userId: input.user.id };
   try {

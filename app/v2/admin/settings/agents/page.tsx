@@ -17,7 +17,7 @@ export default async function AgentsSettingsPage() {
       <EPageHeader
         eyebrow="Settings · Access"
         title="Agents"
-        description="Connect Hermes, Claude or any MCP client so it can read your operations within the access you choose. Agents cannot change anything."
+        description="Connect Hermes, Claude or any MCP client so it can read your operations within the access you choose. Agents cannot change anything themselves: with a write pack they can only ask, and a person approves each change in Approvals."
         actions={<EButton asChild variant="outline"><a href="/v2/admin/settings/access">Back to access</a></EButton>}
       />
       <AgentsWorkspace />

@@ -9,13 +9,19 @@ import { ACCOUNTABILITY_SOURCES } from "@/lib/admin/approvals/sources";
 import { listQaOutcomeApprovals } from "@/lib/qa/outcome-approvals";
 import type { AgentContext } from "./access";
 import type { AgentScopeKey } from "./scopes";
+import type { AgentWriteScopeKey } from "./write-scopes";
+import { AGENT_ACTIONS, type AgentActionDefinition } from "./action-catalog";
+import { AgentRequestRefused, agentRequestStatus, proposeAgentAction } from "./action-requests";
 
 /**
- * Read-only agent tools (2026-11-14). Every query names its fields explicitly,
+ * Agent tools (2026-11-14). Read tools: every query names its fields explicitly,
  * so access codes, alarm codes, key locations, access guides, PINs, tokens,
  * passwords, bank details and photo bytes can never be returned. Missing
  * values are "not recorded", never zero. Free text written by clients,
  * guests or cleaners is wrapped as untrusted data.
+ *
+ * Write tools (step 6) never change anything: each one only creates a WAITING
+ * request (lib/agents/action-requests.ts) that a person approves in the app.
  */
 
 export const NOT_RECORDED = "not recorded";
@@ -35,8 +41,12 @@ export type AgentTool = {
   name: string;
   title: string;
   description: string;
-  /** null: available to every agent (whoami). */
+  /** "write": only asks (creates a request that waits for a person). */
+  kind: "read" | "write";
+  /** null: available to every agent (whoami). Read tools only. */
   scope: AgentScopeKey | null;
+  /** The write pack a write tool needs. */
+  writeScope?: AgentWriteScopeKey;
   inputSchema: Record<string, unknown>;
   input: z.ZodType<Record<string, unknown>>;
   /** Argument names kept in the audit summary (values truncated). */
@@ -71,16 +81,20 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: "whoami",
     title: "Who am I",
     description: "This agent's name, what it may read right now, its token expiry and the business time zone.",
+    kind: "read",
     scope: null,
     inputSchema: object({}),
     input: z.object({}).strict(),
     auditKeys: [],
     run: async (context) => ({
       agent: context.agentName,
-      readOnly: true,
+      readOnly: context.writeScopes.length === 0,
       scopes: context.scopes,
       withheldScopes: context.withheld,
       withheldReason: context.withheld.length ? "The administrator who created this agent can no longer read these areas." : null,
+      writeScopes: context.writeScopes,
+      withheldWriteScopes: context.writeWithheld,
+      writeNote: "Write tools never change anything themselves: each creates a request that waits for a person's approval in the app. Poll get_action_request for the outcome.",
       tokenExpiresAt: context.expiresAt.toISOString(),
       timeZone: await businessTimeZone(),
     }),
@@ -89,6 +103,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: "list_today_jobs",
     title: "Jobs on a day",
     description: "Jobs scheduled today (or on a given date within 14 days), with property, times, status and assigned cleaners.",
+    kind: "read",
     scope: "jobs",
     inputSchema: object({ date: { type: "string", description: "YYYY-MM-DD, default today in the business time zone" } }),
     input: z.object({ date: dateKey.optional() }).strict(),
@@ -119,6 +134,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: "get_job",
     title: "Job details",
     description: "One job by id or job number: schedule, status, property (no access details), cleaners, laundry and open cases.",
+    kind: "read",
     scope: "jobs",
     inputSchema: object({ jobId: { type: "string" }, jobNumber: { type: "string" } }),
     input: z.object({ jobId: z.string().min(1).max(100).optional(), jobNumber: z.string().min(1).max(50).optional() }).strict().refine((value) => Boolean(value.jobId) !== Boolean(value.jobNumber), "Give jobId or jobNumber"),
@@ -158,6 +174,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: "live_ops_summary",
     title: "Live operations summary",
     description: "Today's job counts by status and jobs without a cleaner; laundry and case counts when the agent can read them.",
+    kind: "read",
     scope: "jobs",
     inputSchema: object({}),
     input: z.object({}).strict(),
@@ -186,6 +203,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: "laundry_runs",
     title: "Laundry runs",
     description: "Laundry runs with a pickup from a date (default today) for up to 14 days.",
+    kind: "read",
     scope: "laundry",
     inputSchema: object({ from: { type: "string", description: "YYYY-MM-DD" }, days: { type: "integer", minimum: 1, maximum: 14 } }),
     input: z.object({ from: dateKey.optional(), days: z.number().int().min(1).max(14).optional() }).strict(),
@@ -218,6 +236,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: "list_cases",
     title: "Cases",
     description: "Open cases (or the latest of every state), newest first.",
+    kind: "read",
     scope: "cases",
     inputSchema: object({ include: { type: "string", enum: ["open", "all"] } }),
     input: z.object({ include: z.enum(["open", "all"]).optional() }).strict(),
@@ -244,6 +263,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: "approvals_waiting",
     title: "Approvals waiting",
     description: "How many requests wait in the main approval queues. A partial view: open Approvals in the app for every queue.",
+    kind: "read",
     scope: "approvals",
     inputSchema: object({}),
     input: z.object({}).strict(),
@@ -260,6 +280,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: "stock_needs",
     title: "Urgent stock needs",
     description: "Open urgent stock needs by property and item, oldest first.",
+    kind: "read",
     scope: "stock",
     inputSchema: object({}),
     input: z.object({}).strict(),
@@ -286,6 +307,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: "find_properties",
     title: "Find properties",
     description: "Properties whose name, suburb or street address contains the search text. Never returns access codes, alarm codes, key locations or access guides.",
+    kind: "read",
     scope: "properties",
     inputSchema: object({ query: { type: "string", minLength: 2, maxLength: 80 } }, ["query"]),
     input: z.object({ query: z.string().trim().min(2).max(80) }).strict(),
@@ -305,6 +327,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: "find_people",
     title: "Find people",
     description: "Staff (needs staff lookup) or clients (needs client lookup) whose name or email contains the search text.",
+    kind: "read",
     scope: null,
     inputSchema: object({ query: { type: "string", minLength: 2, maxLength: 80 }, kind: { type: "string", enum: ["staff", "clients"] } }, ["query", "kind"]),
     input: z.object({ query: z.string().trim().min(2).max(80), kind: z.enum(["staff", "clients"]) }).strict(),
@@ -330,6 +353,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: "invoice_summary",
     title: "Recent invoices",
     description: "The 25 most recent client invoices (number, client, status, total, sent and paid dates) and how many invoices are in each status.",
+    kind: "read",
     scope: "finance",
     inputSchema: object({ status: { type: "string", description: "Optional status filter, for example SENT or OVERDUE" } }),
     input: z.object({ status: z.string().regex(/^[A-Z_]{2,30}$/).optional() }).strict(),
@@ -351,6 +375,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: "pay_summary",
     title: "Pay requests waiting",
     description: "The 25 oldest cleaner pay requests waiting for a decision (cleaner, title, type, requested amount, job).",
+    kind: "read",
     scope: "payroll",
     inputSchema: object({}),
     input: z.object({}).strict(),
@@ -373,9 +398,60 @@ export const AGENT_TOOLS: AgentTool[] = [
 export class ToolInputError extends Error { constructor(message: string) { super(message); this.name = "ToolInputError"; } }
 export class ToolDeniedError extends Error { constructor(message: string) { super(message); this.name = "ToolDeniedError"; } }
 
+/** A write tool: validates, checks the write pack, dry-runs and stores a WAITING request. Nothing else. */
+function writeTool(action: AgentActionDefinition): AgentTool {
+  return {
+    name: action.tool,
+    title: action.title,
+    description: action.description,
+    kind: "write",
+    scope: null,
+    writeScope: action.writeScope,
+    inputSchema: action.inputSchema,
+    // Strict validation (with the idempotency key) happens in proposeAgentAction.
+    input: z.record(z.unknown()),
+    auditKeys: action.auditKeys,
+    run: async (context, args) => {
+      try {
+        return await proposeAgentAction(context, action.tool, args);
+      } catch (error) {
+        if (error instanceof AgentRequestRefused) {
+          if (error.code === "SCOPE" || error.code === "PAUSED") throw new ToolDeniedError(error.message);
+          throw new ToolInputError(error.message);
+        }
+        throw error;
+      }
+    },
+  };
+}
+
+export const ACTION_STATUS_TOOL: AgentTool = {
+  name: "get_action_request",
+  title: "Request status",
+  description: "The status of one of this agent's requests: WAITING, APPROVED (outcome not recorded yet), REJECTED, EXPIRED, EXECUTED or FAILED, with the reason.",
+  kind: "read",
+  scope: null,
+  inputSchema: object({ requestId: { type: "string" } }, ["requestId"]),
+  input: z.object({ requestId: z.string().min(1).max(100) }).strict(),
+  auditKeys: ["requestId"],
+  run: async (context, args) => {
+    const receipt = await agentRequestStatus(context, args.requestId as string);
+    if (!receipt) throw new ToolInputError("No request of this agent has that id.");
+    return receipt;
+  },
+};
+
+export const AGENT_WRITE_TOOLS: AgentTool[] = AGENT_ACTIONS.map(writeTool);
+
+/** Every tool the server knows (read, status and write). */
+export const ALL_AGENT_TOOLS: AgentTool[] = [...AGENT_TOOLS, ACTION_STATUS_TOOL, ...AGENT_WRITE_TOOLS];
+
 /** Tools this agent may see and call right now. */
 export function toolsFor(context: AgentContext): AgentTool[] {
-  return AGENT_TOOLS.filter((tool) => {
+  return ALL_AGENT_TOOLS.filter((tool) => {
+    if (tool.kind === "write") return Boolean(tool.writeScope && context.writeScopes.includes(tool.writeScope));
+    // The status tool: for agents that can ask (or could, before a pack was withheld).
+    if (tool === ACTION_STATUS_TOOL) return context.writeScopes.length > 0 || context.writeWithheld.length > 0;
     if (tool.name === "find_people") return context.scopes.includes("people_staff") || context.scopes.includes("people_clients");
     return tool.scope === null || context.scopes.includes(tool.scope);
   });

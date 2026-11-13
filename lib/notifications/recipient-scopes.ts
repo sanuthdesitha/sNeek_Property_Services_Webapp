@@ -4,6 +4,8 @@ import type { NotificationEnvelope } from "./intent-contract";
 import { STAFF_MESSAGE_ROLES } from "./staff-roles";
 import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
 import { EMPTY_OPS_POLICY, isOpsSubject, opsPolicySchema, resolveOpsLevels } from "@/lib/rbac/ops-policy";
+import { evaluateCapability } from "@/lib/rbac/access-evaluator";
+import { isAgentWriteScopeKey, agentWriteScope } from "@/lib/agents/write-scopes";
 
 /** The AppSetting key of the operations policy (same as lib/rbac/ops-access.ts, which needs request headers). */
 const OPS_POLICY_SETTING_KEY = "ops_feature_permissions_v1";
@@ -51,11 +53,17 @@ const OPS_POLICY_SETTING_KEY = "ops_feature_permissions_v1";
  *   gives the jobs feature at least "read" (re-read each time, like
  *   URGENT_STOCK_OFFICE). Used for the automatic "left the site" clock-out.
  *
+ * - AGENT_ACTION_APPROVER (id = agent action request id, step 6 2026-11-14):
+ *   the people who could approve the request: an active ADMIN, or an active
+ *   OPS_MANAGER whose pack gives Approvals at least "read" and every area of
+ *   the request's write pack at "manage" (plus its capability). Only while the
+ *   request is still WAITING (a decided or expired request is not delivered).
+ *
  * In every scope the role recorded in the envelope must still be the
  * recipient's role: a role change between queueing and dispatch skips the
  * delivery instead of disclosing to a different kind of account.
  */
-export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "LAUNDRY_TASK_SUPPLIER_TEAM", "STAFF_MEMBER", "JOB_CLIENT_CONTACT", "LOST_ITEM_PROPERTY_CLIENT", "URGENT_STOCK_PURCHASE_ASK", "URGENT_STOCK_OFFICE", "JOB_OFFICE"] as const;
+export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "LAUNDRY_TASK_SUPPLIER_TEAM", "STAFF_MEMBER", "JOB_CLIENT_CONTACT", "LOST_ITEM_PROPERTY_CLIENT", "URGENT_STOCK_PURCHASE_ASK", "URGENT_STOCK_OFFICE", "JOB_OFFICE", "AGENT_ACTION_APPROVER"] as const;
 export type RecipientScopeType = (typeof RECIPIENT_SCOPE_TYPES)[number];
 
 export { STAFF_MESSAGE_ROLES };
@@ -64,7 +72,7 @@ export type RecipientAuthorization =
   | { ok: true; role: Role }
   | { ok: false; errorCode: "recipient_unavailable" | "recipient_not_in_scope" | "unsupported_recipient_scope" };
 
-type ScopeReader = Pick<Prisma.TransactionClient, "user" | "jobAssignment" | "laundryTask" | "job"> & Partial<Pick<Prisma.TransactionClient, "lostFoundItem" | "property" | "urgentStockPurchaseAsk" | "appSetting">>;
+type ScopeReader = Pick<Prisma.TransactionClient, "user" | "jobAssignment" | "laundryTask" | "job"> & Partial<Pick<Prisma.TransactionClient, "lostFoundItem" | "property" | "urgentStockPurchaseAsk" | "appSetting" | "agentActionRequest">>;
 type Recipient = NotificationEnvelope["recipient"];
 
 export function isSupportedEntityScope(type: string): type is RecipientScopeType {
@@ -122,6 +130,32 @@ export async function officeFeatureRecipientAllowed(reader: ScopeReader, user: {
 }
 
 /**
+ * Could this ADMIN / OPS_MANAGER account approve this waiting agent request
+ * right now? ADMIN always; an operations manager by Approvals (read or manage)
+ * and every area of the request's write pack at manage, plus the pack's
+ * capability. Fails closed when the request, its pack or the policy cannot be read.
+ */
+export async function agentApproverRecipientAllowed(reader: ScopeReader, user: { id: string; role: Role }, requestId: string): Promise<boolean> {
+  if (!reader.agentActionRequest) return false;
+  const request = await reader.agentActionRequest.findUnique({ where: { id: requestId }, select: { status: true, area: true } });
+  if (!request || request.status !== "WAITING" || !isAgentWriteScopeKey(request.area)) return false;
+  if (user.role === "ADMIN") return true;
+  if (user.role !== "OPS_MANAGER" || !reader.appSetting) return false;
+  const account = await reader.user.findUnique({ where: { id: user.id }, select: { extraRoles: { select: { role: true } } } });
+  const heldRoles: string[] = [user.role, ...(account?.extraRoles ?? []).map((row) => row.role)];
+  if (!isOpsSubject({ role: user.role, heldRoles })) return true;
+  const record = await reader.appSetting.findUnique({ where: { key: OPS_POLICY_SETTING_KEY } });
+  const parsed = record ? opsPolicySchema.safeParse(record.value) : null;
+  if (parsed && !parsed.success) return false;
+  const policy = parsed ? parsed.data : EMPTY_OPS_POLICY;
+  const levels = resolveOpsLevels(policy, user.id);
+  const pack = agentWriteScope(request.area);
+  if (levels.approvals !== "read" && levels.approvals !== "manage") return false;
+  if (!pack.opsAreas.every((area) => levels[area] === "manage")) return false;
+  return !pack.capability || evaluateCapability(policy, { id: user.id, role: user.role, heldRoles }, pack.capability);
+}
+
+/**
  * Current authorization of one recipient for an ENTITY scope. ADMIN_OPERATIONS
  * keeps its original inline rule in the dispatchers and is not handled here.
  */
@@ -170,5 +204,7 @@ export async function authorizeEntityRecipient(reader: ScopeReader, recipient: R
       if (!job) return { ok: false, errorCode: "recipient_not_in_scope" };
       return (await officeFeatureRecipientAllowed(reader, user, "jobs")) ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
     }
+    case "AGENT_ACTION_APPROVER":
+      return (await agentApproverRecipientAllowed(reader, user, scope.id)) ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
   }
 }
