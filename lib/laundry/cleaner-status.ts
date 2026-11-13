@@ -12,6 +12,8 @@ import { getAssignedLaundryUsersForProperty } from "@/lib/laundry/teams";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import { LAUNDRY_CLEANER_FALLBACK_DROPOFF_HOURS, LAUNDRY_CLEANER_FALLBACK_PICKUP_HOURS } from "@/lib/scheduling-rules/constants";
+import { SchedulingRulesUnavailableError } from "@/lib/scheduling-rules/store";
+import { recordUnplannedLaundryOutcome, UNPLANNED_LAUNDRY_TEXT } from "@/lib/scheduling-rules/unplanned-laundry";
 
 export type CleanerLaundryOutcome = "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
 export type CleanerLaundryUpdateSource = "EARLY_UPDATE" | "FINAL_SUBMISSION";
@@ -262,7 +264,22 @@ export async function applyCleanerLaundryStatusUpdate(params: {
 
   let laundryTask = job.laundryTask;
   if (!laundryTask) {
-    const ensuredLaundryTask = await ensureLaundryTaskForJob(job.id, execution?.transaction);
+    // Scheduling work fails closed, the cleaner's save never does: when the
+    // scheduling rules cannot be read the run is not planned, the outcome is
+    // kept with a recorded reason, and the hourly retry plans it later.
+    let ensuredLaundryTask: Awaited<ReturnType<typeof ensureLaundryTaskForJob>>;
+    try {
+      ensuredLaundryTask = await ensureLaundryTaskForJob(job.id, execution?.transaction);
+    } catch (error) {
+      if (!(error instanceof SchedulingRulesUnavailableError)) throw error;
+      await recordUnplannedLaundryOutcome(database, {
+        jobId: job.id, cleanerId: params.cleanerId, laundryOutcome: params.laundryOutcome, bagLocation: params.bagLocation ?? null,
+        laundryBagCount: params.laundryBagCount ?? null, laundryPhotoKey: params.laundryPhotoKey ?? null,
+        laundrySkipReasonCode: params.laundrySkipReasonCode ?? null, laundrySkipReasonNote: params.laundrySkipReasonNote ?? null,
+        source: params.source, portalUrl: params.portalUrl, reason: error.reason, recordedAt: new Date().toISOString(),
+      });
+      return { ok: true, duplicated: false, laundryTask: null, laundryRunNotPlanned: UNPLANNED_LAUNDRY_TEXT };
+    }
     laundryTask = ensuredLaundryTask
       ? await database.laundryTask.findUnique({
           where: { id: ensuredLaundryTask.id },

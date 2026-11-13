@@ -501,8 +501,10 @@ export async function ensureLaundryTaskForJob(jobId: string, transaction?: Prism
   if (job.isRework) return null;
   if (!job.property.laundryEnabled) return null;
 
-  // A new run: the live scheduling rules (fails closed when they are unavailable).
-  const resolver = await liveLaundryResolver(database);
+  // A new run: the live scheduling rules (fails closed when they are
+  // unavailable). Read on the main client, never the caller's transaction, so
+  // a failed read cannot abort the caller's own save (the cleaner's outcome).
+  const resolver = await liveLaundryResolver();
   const draftItem = await planWith(job, resolver.forNewRun(), database);
   if (transaction) {
     // Partner schedule defaults: planned times only, never the dates above.
