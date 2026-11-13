@@ -272,7 +272,8 @@ describe("client home and dashboard reliability", () => {
     expect(mocks.reports).toHaveBeenCalledWith("va-1");
     expect(mocks.finance).toHaveBeenCalledWith("client-1", ["property-1"]);
     expect(mocks.properties).toHaveBeenCalledWith(ctx);
-    for (const query of [mocks.stocks, mocks.laundry]) {
+    expect(mocks.laundry).toHaveBeenCalledWith(expect.objectContaining({ where: { property: propertyWhere, voidedAt: null } }));
+    for (const query of [mocks.stocks]) {
       expect(query).toHaveBeenCalledWith(expect.objectContaining({ where: { property: propertyWhere } }));
     }
     expect(mocks.attention).toHaveBeenCalledWith(expect.objectContaining({ clientId: "client-1", propertyIds: ["property-1"] }));
