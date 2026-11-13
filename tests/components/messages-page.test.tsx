@@ -130,4 +130,13 @@ describe("Messages page", () => {
     expect(within(compose).getByRole("button", { name: "Send email" }).hasAttribute("disabled")).toBe(true);
     expect(compose.textContent).toMatch(/access does not include sending from the composer/);
   });
+
+  it("docks New message on the phone conversation list and hides it once composing (board M-QuotesMessages)", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("max-width"), media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    page();
+    const bar = await screen.findByRole("region", { name: "Messages actions" });
+    fireEvent.click(within(bar).getByRole("button", { name: "New message" }));
+    expect(screen.getByRole("complementary", { name: "Compose with a template" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Messages actions" })).toBeNull();
+  });
 });

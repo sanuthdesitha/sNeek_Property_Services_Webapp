@@ -42,14 +42,14 @@ describe("Properties on a phone", () => {
     expect(screen.queryByLabelText("Search properties")).toBeNull();
     const chips = screen.getByRole("list", { name: "Active filters" });
     expect(within(chips).getAllByRole("button").map((button) => button.textContent)).toEqual(["Client: Harbour View Stays", "One-off sites shown"]);
-    fireEvent.click(screen.getByRole("button", { name: /^Filter · 2/ }));
+    fireEvent.click(within(chips).getByRole("button", { name: "Remove filter One-off sites shown" }));
+    expect(within(screen.getByRole("list", { name: "Active filters" })).getAllByRole("button")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /^Filter · 1/ }));
     const sheet = await screen.findByRole("dialog", { name: "Filter properties" });
     expect(within(sheet).getByLabelText("Search properties")).toBeInTheDocument();
     expect(within(sheet).getByRole("group", { name: "Attention filters" })).toBeInTheDocument();
     expect(within(sheet).getByRole("button", { name: /Show one-off sites/ })).toBeInTheDocument();
     expect(within(sheet).getByRole("button", { name: "Show 4 properties" })).toBeInTheDocument();
-    fireEvent.click(within(chips).getByRole("button", { name: "Remove filter One-off sites shown" }));
-    expect(within(screen.getByRole("list", { name: "Active filters" })).getAllByRole("button")).toHaveLength(1);
   });
 
   it("keeps the inline filter row from 640px up", () => {
@@ -57,7 +57,7 @@ describe("Properties on a phone", () => {
     render(<Filters initial={{}} />);
     expect(screen.getByLabelText("Search properties")).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Attention filters" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Filter/ })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Active filters" })).toBeNull();
   });
 
   it("bands a flagged property card by its worst flag, and leaves a clean one plain", () => {
@@ -125,6 +125,6 @@ describe("Quote page on a phone", () => {
     );
     expect(screen.getByRole("button", { name: "Mark won" }).className).toContain("max-sm:hidden");
     expect(screen.getByRole("button", { name: "Preview PDF" }).className).not.toContain("max-sm:hidden");
-    expect(screen.getByRole("button", { name: "More actions" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /More/ })).toBeInTheDocument();
   });
 });

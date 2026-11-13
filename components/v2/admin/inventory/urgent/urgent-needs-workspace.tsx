@@ -16,6 +16,10 @@ import { EDataTable } from "@/components/v2/ui/data-table";
 import { EPagination } from "@/components/v2/ui/pagination";
 import { EFilterChips } from "@/components/v2/ui/filter-chips";
 import { EFilterPopover } from "@/components/v2/ui/filter-popover";
+import { EFilterBar, EFilterBarInlineOnly, type EActiveFilter } from "@/components/v2/ui/filter-bar";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
+import { Settings } from "lucide-react";
 import { EField, EInput, ESelect } from "@/components/v2/admin/estate-kit";
 import type { UrgentNeedListRow, UrgentListSummary } from "@/lib/inventory/urgent-stock-list";
 import { URGENT_FILTERS, URGENT_FILTER_LABEL, type UrgentSort } from "@/lib/inventory/urgent-stock-actions";
@@ -26,7 +30,7 @@ import { PropertyStayPreparation } from "./property-stay-preparation";
 import { NeedActionDialog } from "./need-action-dialog";
 import { ReportNeedDialog } from "./report-need-dialog";
 import { ReminderSettingsDialog } from "./reminder-settings-dialog";
-import { urgentListQuery, type UrgentView } from "./urgent-view";
+import { DEFAULT_URGENT_VIEW, urgentListQuery, type UrgentView } from "./urgent-view";
 import { URGENT_PAGE_SIZE, useUrgentNeeds, useUrgentView } from "./use-urgent-needs";
 import { AddToRunDialog } from "./add-to-run-dialog";
 
@@ -35,6 +39,17 @@ function summaryLine(summary: UrgentListSummary | undefined): string {
   const needs = `${summary.open} urgent ${summary.open === 1 ? "need" : "needs"} across ${summary.properties} ${summary.properties === 1 ? "property" : "properties"}`;
   // As drawn ("2 must arrive before the next clean"), with the real window stated.
   return `${needs} · ${summary.dueSoon} must arrive before the next clean (within 48 hours)`;
+}
+
+/** One removable chip per filter that differs from the default (phone filter bar). */
+function urgentActiveFilters(view: UrgentView, propertyName: string | null, update: (patch: Partial<UrgentView>) => void): EActiveFilter[] {
+  const active: EActiveFilter[] = [];
+  if (view.filter !== DEFAULT_URGENT_VIEW.filter) {
+    active.push({ key: "stage", label: `Stage: ${URGENT_FILTER_LABEL[view.filter]}`, onRemove: () => update({ filter: DEFAULT_URGENT_VIEW.filter }) });
+  }
+  if (view.q.trim()) active.push({ key: "q", label: `Search: ${view.q.trim()}`, onRemove: () => update({ q: "" }) });
+  if (view.propertyId) active.push({ key: "property", label: `Property: ${propertyName ?? "Selected"}`, onRemove: () => update({ propertyId: "" }) });
+  return active;
 }
 
 /**
@@ -65,6 +80,8 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, canResolve, 
   const selectedRows = rows.filter((row) => selected.has(row.id));
   const property = data?.propertyOptions.find((option) => option.id === view.propertyId);
   const openRow = view.open ? rows.find((row) => row.id === view.open) ?? null : null;
+  const phone = useIsPhone();
+  const activeFilters = urgentActiveFilters(view, property?.name ?? null, update);
 
   return (
     <div className="flex min-w-0 gap-4">
@@ -74,22 +91,37 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, canResolve, 
             <h1 className="e-display-md">Stock</h1>
             <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{summaryLine(data?.summary)}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {canEditReminders ? <EButton size="sm" variant="outline" onClick={() => setSettingsOpen(true)}>Reminder settings</EButton> : null}
-            <EButton size="sm" onClick={() => setReportOpen(true)}>Report a need</EButton>
-          </div>
+          {phone ? (
+            // Phones: Reminder settings as the gear in the header; Report a need docks at the bottom.
+            canEditReminders ? (
+              <EButton size="icon" variant="outline" aria-label="Reminder settings" title="Reminder settings" onClick={() => setSettingsOpen(true)}>
+                <Settings aria-hidden className="h-4 w-4" />
+              </EButton>
+            ) : null
+          ) : (
+            <div className="flex flex-wrap items-center gap-2 max-sm:hidden">
+              {canEditReminders ? <EButton size="sm" variant="outline" onClick={() => setSettingsOpen(true)}>Reminder settings</EButton> : null}
+              <EButton size="sm" onClick={() => setReportOpen(true)}>Report a need</EButton>
+            </div>
+          )}
         </header>
 
         {tabs}
 
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Phones: stage, search and property sit behind one Filter button; unchanged from 640px. */}
+        <EFilterBar
+          label="Filter urgent needs"
+          active={activeFilters}
+          onClear={() => update({ filter: DEFAULT_URGENT_VIEW.filter, q: "", propertyId: "" })}
+          resultLabel={data ? `Show ${data.total} ${data.total === 1 ? "need" : "needs"}` : undefined}
+        >
           <EFilterChips
             label="Need stages"
             chips={URGENT_FILTERS.filter((filter) => filter !== "all").map((filter) => ({ key: filter, label: URGENT_FILTER_LABEL[filter], count: filter === "closed" ? null : data?.counts[filter] ?? null }))}
             active={view.filter === "all" ? "open" : view.filter}
             onChange={(filter) => update({ filter })}
           />
-          <span className="min-w-0 flex-1" />
+          <EFilterBarInlineOnly><span className="min-w-0 flex-1" /></EFilterBarInlineOnly>
           <EInput type="search" aria-label="Search" placeholder="Search item or property" value={view.q} onChange={(event) => update({ q: event.target.value })} className="h-8 w-full sm:w-[200px]" />
           <EFilterPopover label="Property" value={property?.name ?? (view.propertyId ? "Selected" : null)}>
             <EField label="Property">
@@ -99,7 +131,7 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, canResolve, 
               </ESelect>
             </EField>
           </EFilterPopover>
-        </div>
+        </EFilterBar>
 
         <div className="overflow-hidden rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
           <EDataTable<UrgentNeedListRow, UrgentSort>
@@ -159,6 +191,7 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, canResolve, 
         />
       ) : null}
       {addingToRun ? <AddToRunDialog needs={[addingToRun]} onClose={() => setAddingToRun(null)} onDone={() => list.reload()} /> : null}
+      <EPhoneActionBar label="Urgent needs actions" hidden={selected.size > 0} primary={<EButton onClick={() => setReportOpen(true)}>Report a need</EButton>} />
       <ReportNeedDialog key={view.propertyId} open={reportOpen} initialPropertyId={view.propertyId} onClose={() => setReportOpen(false)} onReported={() => { setReportOpen(false); list.reload(); }} />
       <ReminderSettingsDialog open={canEditReminders && settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
