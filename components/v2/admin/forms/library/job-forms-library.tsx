@@ -20,6 +20,8 @@ import { useFormRowActions } from "./use-form-row-actions";
 import { FormsCompare } from "./forms-compare";
 import { cn } from "@/lib/utils";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
+import { FormsGroupsPicker } from "./forms-groups-picker";
 
 type LibraryView = "list" | "compare";
 
@@ -50,23 +52,27 @@ export function JobFormsLibrary({ canWrite }: { canWrite: boolean }) {
     busyId: rowActions.busyId,
   });
   const selectedIds = Array.from(selected);
+  const phone = useIsPhone();
+  const groupsPanelProps = {
+    groups: groups.groups,
+    groupsError: groups.error,
+    counts: payload?.counts ?? null,
+    scope: state.scope,
+    group: state.group,
+    tag: state.tag,
+    canWrite,
+    onSelect: (patch: Pick<typeof state, "scope" | "group">) => update(patch),
+    onTag: (tag: string) => update({ tag }),
+    onGroupsChanged: refresh,
+  };
 
   return (
     <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-stretch">
-      <FormsGroupsPanel
-        groups={groups.groups}
-        groupsError={groups.error}
-        counts={payload?.counts ?? null}
-        scope={state.scope}
-        group={state.group}
-        tag={state.tag}
-        canWrite={canWrite}
-        onSelect={(patch) => update(patch)}
-        onTag={(tag) => update({ tag })}
-        onGroupsChanged={refresh}
-      />
+      {/* Phones: groups, tags, drafts and archived in the "All forms" picker sheet (board "M-InsightsForms"). */}
+      {phone ? null : <FormsGroupsPanel {...groupsPanelProps} />}
       <section aria-label="Forms in group" className="flex min-w-0 flex-1 flex-col gap-2.5">
         <div className="flex flex-wrap items-center gap-2.5">
+          {phone ? <FormsGroupsPicker {...groupsPanelProps} /> : null}
           <div className="min-w-0 flex-1">
             <FormsToolbar state={state} update={update} problemCount={payload?.counts.problems ?? null} usageCovered={payload ? payload.checksBasis === "all" : true} />
           </div>

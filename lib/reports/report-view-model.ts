@@ -600,7 +600,8 @@ function buildQa(
  * form answers remain only as a fallback for legacy jobs without a task.
  */
 function buildLaundryVm(job: any, submission: any): ReportLaundryVM {
-  const task = job?.laundryTask;
+  // A voided run never counted (2026-11-14): the cleaner's form answers stand.
+  const task = job?.laundryTask?.voidedAt ? null : job?.laundryTask;
   const confirmation = task?.confirmations?.[0] ?? null;
   const status = String(task?.status ?? "");
 

@@ -312,6 +312,12 @@ export async function applyCleanerLaundryStatusUpdate(params: {
     });
   }
 
+  // A run the office voided (2026-11-14) is never changed by a cleaner's
+  // outcome: the void stands until an administrator undoes it.
+  if (laundryTask.voidedAt) {
+    return { ok: true, duplicated: true, laundryTask };
+  }
+
   const latestConfirmation = laundryTask.confirmations?.[0] ?? null;
   const jobNumber = getJobReference(job);
 

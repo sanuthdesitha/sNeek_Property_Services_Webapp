@@ -335,7 +335,8 @@ export async function buildLaundrySyncDraft(
       continue;
     }
 
-    if (isLaundryTaskCompleted(currentTask)) {
+    // Completed runs and runs the office voided (2026-11-14) are never planned again.
+    if (isLaundryTaskCompleted(currentTask) || currentTask.voidedAt) {
       continue;
     }
 
@@ -426,7 +427,8 @@ export async function applyLaundryPlanDraft(items: LaundryPlanDraftItem[]) {
       await tx.$queryRaw`SELECT "id" FROM "LaundryTask" WHERE "jobId" = ${item.jobId} FOR UPDATE`;
       const current = await tx.laundryTask.findUnique({ where: { jobId: item.jobId }, include: { confirmations: { select: { id: true } } } });
       // Completed/suppressed evidence and dates are not planner-owned.
-      if (current && (isLaundryTaskCompleted(current) || current.status === LaundryStatus.SKIPPED_PICKUP || (current.status === LaundryStatus.FLAGGED && current.confirmations.length > 0))) {
+      // A voided run (voidedAt) is stored as SKIPPED_PICKUP, so it is never touched here either.
+      if (current && (isLaundryTaskCompleted(current) || current.voidedAt || current.status === LaundryStatus.SKIPPED_PICKUP || (current.status === LaundryStatus.FLAGGED && current.confirmations.length > 0))) {
         continue;
       }
       const keepHumanStatus = current != null && !canPlannerOverrideStatus(current);
