@@ -11,6 +11,8 @@ import { loadTeamReplies, repliesByTask } from "./team-request-replies";
 import type { TeamReplySummary } from "./team-request-reply-rules";
 import { LaundryStatus, Prisma, Role } from "@prisma/client";
 import { db } from "@/lib/db";
+import { NOT_VOIDED } from "./void-scope";
+import { isLaundryOfficeRole } from "./teams";
 import { getAppSettings } from "@/lib/settings";
 import { addDaysToKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { parseRouteStops } from "@/lib/laundry/route-plan";
@@ -168,15 +170,19 @@ export async function loadLaundryPipeline(
     or.push({ status: { in: [LaundryStatus.PENDING, LaundryStatus.CONFIRMED, LaundryStatus.FLAGGED] }, pickupDate: { lt: dayStart } });
   }
 
-  const [rawTasks, stops, runsToday, inTransit, deliveredToday, approvalsFlagged, suppliers] = await Promise.all([
-    db.laundryTask.findMany({ where: { OR: or }, include: pipelineInclude, orderBy: { pickupDate: "asc" }, take: PIPELINE_TASK_CAP + 1 }),
+  // Voided runs (2026-11-14) are in no lane, tile or count; the "Voided N"
+  // chip counts the runs voided in the last 30 days and opens Completed history.
+  const voidedSince = sydneyDayStart(addDaysToKey(todayKey, -30));
+  const [rawTasks, stops, runsToday, inTransit, deliveredToday, approvalsFlagged, suppliers, voidedRecent] = await Promise.all([
+    db.laundryTask.findMany({ where: { ...NOT_VOIDED, OR: or }, include: pipelineInclude, orderBy: { pickupDate: "asc" }, take: PIPELINE_TASK_CAP + 1 }),
     loadDriverStops(dayKey),
-    db.laundryTask.count({ where: { OR: [{ pickupDate: { gte: todayStart, lt: tomorrowStart } }, { dropoffDate: { gte: todayStart, lt: tomorrowStart } }] } }),
+    db.laundryTask.count({ where: { ...NOT_VOIDED, OR: [{ pickupDate: { gte: todayStart, lt: tomorrowStart } }, { dropoffDate: { gte: todayStart, lt: tomorrowStart } }] } }),
     // In transit = picked up and not delivered, including "Ready to return".
     db.laundryTask.count({ where: { status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.READY_TO_RETURN] } } }),
     db.laundryTask.count({ where: { status: LaundryStatus.DROPPED, droppedAt: { gte: todayStart, lt: tomorrowStart } } }),
     db.laundryTask.count({ where: { status: LaundryStatus.FLAGGED } }),
     db.laundrySupplier.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    isLaundryOfficeRole(viewer.role) ? db.laundryTask.count({ where: { voidedAt: { gte: voidedSince } } }) : Promise.resolve(0),
   ]);
 
   const truncated = rawTasks.length > PIPELINE_TASK_CAP;
@@ -244,6 +250,7 @@ export async function loadLaundryPipeline(
     drivers: stops.drivers,
     suppliers,
     approvalsFlagged,
+    voidedRecent,
     settings,
     truncated,
     generatedAt: now.toISOString(),
