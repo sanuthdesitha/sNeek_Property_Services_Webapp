@@ -12,6 +12,7 @@ import { ArrowRight, Layers, ShoppingCart } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, ECard, EStatCard } from "@/components/v2/ui/primitives";
 import { EField, ESelect, ETableShell } from "@/components/v2/admin/estate-kit";
+import { PhoneStackedTable } from "@/components/v2/admin/phone-stacked-table";
 import {
   DEFAULT_SHOPPING_GROUP_MODE,
   SHOPPING_GROUP_MODES,
@@ -146,6 +147,7 @@ export function EstateShoppingRuns() {
             No shopping runs.
           </p>
         ) : (
+          <PhoneStackedTable>
           <ETableShell
             headers={[
               { label: "Run" },
@@ -190,6 +192,7 @@ export function EstateShoppingRuns() {
               </tr>
             ))}
           </ETableShell>
+          </PhoneStackedTable>
         )}
       </ECard>
 

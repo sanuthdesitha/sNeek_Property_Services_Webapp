@@ -32,6 +32,7 @@ import {
   ETableShell,
   ETextarea,
 } from "@/components/v2/admin/estate-kit";
+import { PhoneStackedTable } from "@/components/v2/admin/phone-stacked-table";
 
 const TASKS_API = "/api/scan-tasks";
 const PROPERTIES_API = "/api/admin/properties?includeOneOff=1";
@@ -298,6 +299,7 @@ export function EstateScanTasks() {
             Nobody has been asked to count anything yet.
           </p>
         ) : (
+          <PhoneStackedTable>
           <ETableShell
             headers={[
               { label: "Property" },
@@ -334,6 +336,7 @@ export function EstateScanTasks() {
               </tr>
             ))}
           </ETableShell>
+          </PhoneStackedTable>
         )}
       </ECard>
 

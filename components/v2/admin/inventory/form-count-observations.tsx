@@ -14,6 +14,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EFilterChips } from "@/components/v2/ui/filter-chips";
 import { EField, EModal, ETextarea } from "@/components/v2/admin/estate-kit";
+import { PhoneStackedTable } from "@/components/v2/admin/phone-stacked-table";
 import type { FormCountFilter, FormCountList, FormCountRow } from "@/lib/inventory/stock-count-observation-list";
 
 const STATUS_LABEL: Record<FormCountRow["status"], string> = {
@@ -82,6 +83,7 @@ function CountsTable({ filter, timeZone }: { filter: FormCountFilter; timeZone: 
   return (
     <>
       {rows.length === 0 ? <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Nothing here.</p> : (
+        <PhoneStackedTable>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[44rem] text-left text-[0.8125rem]">
             <thead className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">
@@ -101,6 +103,7 @@ function CountsTable({ filter, timeZone }: { filter: FormCountFilter; timeZone: 
             </tbody>
           </table>
         </div>
+        </PhoneStackedTable>
       )}
       <EModal open={reviewing !== null} onClose={() => (saving ? undefined : setReviewing(null))} eyebrow="Counts from job forms" title="Mark reviewed">
         <form onSubmit={submit}>

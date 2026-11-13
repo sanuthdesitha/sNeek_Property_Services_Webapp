@@ -15,6 +15,7 @@ import { formatDistanceToNow } from "date-fns";
 import { AlertTriangle, ArrowRight, Boxes, Building2, ShoppingCart } from "lucide-react";
 import { EBadge, ECard, EStatCard } from "@/components/v2/ui/primitives";
 import { EChipTabs, ETableShell } from "@/components/v2/admin/estate-kit";
+import { PhoneStackedTable } from "@/components/v2/admin/phone-stacked-table";
 import {
   STALE_RESTOCK_DAYS,
   normalizePropertyInventoryFilter,
@@ -118,6 +119,7 @@ export function EstatePropertyMatrix({
             No properties match this filter.
           </p>
         ) : (
+          <PhoneStackedTable>
           <ETableShell
             headers={[
               { label: "Property" },
@@ -183,6 +185,7 @@ export function EstatePropertyMatrix({
               );
             })}
           </ETableShell>
+          </PhoneStackedTable>
         )}
       </ECard>
     </div>

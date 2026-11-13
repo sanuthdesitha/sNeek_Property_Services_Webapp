@@ -713,6 +713,11 @@ async function main() {
     await boss.work("scheduling-rules-activate", safeHandler("scheduling-rules-activate", async () => {
       const { activateDueSchedulingRules } = await import("@/lib/scheduling-rules/store");
       await activateDueSchedulingRules(new Date());
+      // Plan the laundry runs whose cleaner outcome was saved while the rules
+      // could not be read (the outcome is replayed onto the new run).
+      const { retryUnplannedLaundryRuns } = await import("@/lib/scheduling-rules/unplanned-laundry-retry");
+      const retried = await retryUnplannedLaundryRuns();
+      if (retried.pending > 0) logger.info(retried, "Unplanned laundry runs retried");
     }));
   }
 

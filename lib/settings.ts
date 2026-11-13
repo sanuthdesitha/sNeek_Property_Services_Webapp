@@ -2009,7 +2009,9 @@ function mergeAppSettingsInput(current: AppSettings, input: Partial<AppSettings>
     recurringJobs: input.recurringJobs ?? current.recurringJobs,
     autoAssign: input.autoAssign ?? current.autoAssign,
     routeOptimization: input.routeOptimization ?? current.routeOptimization,
-    qaAutomation: input.qaAutomation ?? current.qaAutomation,
+    // Merge: the Safeguards screen sends only the five fields it edits, and a
+    // replace used to reset assignedOnly and createIssueTicket to defaults.
+    qaAutomation: input.qaAutomation ? { ...current.qaAutomation, ...input.qaAutomation } : current.qaAutomation,
     // Merge rather than replace so a partial PATCH (e.g. just the default rate)
     // doesn't blank the other QA-pay defaults.
     qaPay: sanitizeQaPaySettings({ ...current.qaPay, ...(input.qaPay ?? {}) }, current.qaPay),

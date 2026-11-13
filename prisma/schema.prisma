@@ -2748,6 +2748,14 @@ model LaundryTask {
   /// organisation time). Null = no time planned; never guessed.
   pickupTime         String?       @db.VarChar(5)
   dropoffTime        String?       @db.VarChar(5)
+  /// Void (2026-11-14): the office said this run should never have counted.
+  /// A voided run is stored as SKIPPED_PICKUP (so every list that already
+  /// leaves skipped runs out leaves it out) and is marked here; `voidPreviousStatus`
+  /// is what Undo void restores. The record, photos and history are kept.
+  voidedAt           DateTime?
+  voidedById         String?
+  voidReason         String?       @db.Text
+  voidPreviousStatus LaundryStatus?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -2760,6 +2768,7 @@ model LaundryTask {
 
   @@index([droppedAt])
   @@index([status])
+  @@index([voidedAt])
 }
 
 /// A laundry partner team member's answer to an "Ask laundry team" request,

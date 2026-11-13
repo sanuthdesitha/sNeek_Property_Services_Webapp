@@ -14,6 +14,7 @@ import { JobTaskSource, Prisma, QaAssignmentStatus, Role } from "@prisma/client"
 import { db } from "@/lib/db";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import type { OpsLevels } from "@/lib/rbac/ops-catalog";
+import { readUnplannedLaundry, UNPLANNED_LAUNDRY_TEXT } from "@/lib/scheduling-rules/unplanned-laundry";
 
 const JOB_SELECT = {
   id: true, jobNumber: true, updatedAt: true, jobType: true, status: true,
@@ -197,6 +198,10 @@ export async function loadJobPageRelated(job: JobPageJob, access: JobPageAccess)
         : Promise.resolve(null),
     ]);
 
+  // Scheduling rules were unreadable when the cleaner reported laundry: the
+  // outcome was saved but the run is not planned yet (retried hourly).
+  const laundryNotPlanned = job.laundryTask ? null : await readUnplannedLaundry(db, job.id).catch(() => null);
+
   const propertyRecord: Record<string, unknown> = fullProperty ? (JSON.parse(JSON.stringify(fullProperty)) as Record<string, unknown>) : {};
   for (const key of PROPERTY_SECRET_KEYS) delete propertyRecord[key];
 
@@ -212,6 +217,7 @@ export async function loadJobPageRelated(job: JobPageJob, access: JobPageAccess)
     urgentNeeds,
     messageCount,
     latestClientMessage,
+    laundryNotPlanned: laundryNotPlanned ? UNPLANNED_LAUNDRY_TEXT : null,
     links: {
       quotes: opsAllows(access.levels, "quotes"),
       lostFound: opsAllows(access.levels, "lost-found"),

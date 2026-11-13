@@ -6,10 +6,21 @@ vi.mock("@/lib/auth/client-portal", () => ({ requireClientPortal: mocks.portal, 
 vi.mock("@/lib/db", () => ({ db: { job: { findFirst: mocks.job } } }));
 vi.mock("@/lib/jobs/progress", () => ({ computeJobProgressPercent: mocks.progress }));
 const portal = () => ({ actor: "VA", clientId: "client", propertyIds: ["allowed"], permissions: { reports: false, invoicesView: false }, visibility: { showCleanerNames: false, showReports: true, showReportDownloads: true, showLiveProgress: false, showFinanceDetails: true, showJobs: true, showLaundryUpdates: true, showLaundryCosts: false }, settings: {} });
-const job = () => ({ id: "job", status: "EN_ROUTE", scheduledDate: new Date("2026-09-13T00:00:00Z"), property: { latitude: 1, longitude: 2, showCleanerContactToClient: true }, cleanerLocationPings: [{ lat: 3, lng: 4, accuracy: 5, heading: 6, speed: 7, timestamp: new Date() }], assignments: [{ isPrimary: true, user: { id: "cleaner", name: "Private name", image: "image", phone: "private phone" } }], report: { id: "report", clientVisible: false, pdfUrl: "private report" }, invoiceLines: [{ id: "invoice" }], laundryTask: { id: "laundry", confirmations: [{ id: "confirmation", notes: '{"totalPrice":999,"note":"Private"}', laundryReady: true }] }, auditLogs: [{ id: "audit", action: "job.updated", user: { name: "Private name" } }] });
+const job = () => ({ id: "job", status: "EN_ROUTE", scheduledDate: new Date("2026-09-13T00:00:00Z"), property: { latitude: 1, longitude: 2, showCleanerContactToClient: true, client: { showCleanerLiveLocation: true } as { showCleanerLiveLocation: boolean } | null }, cleanerLocationPings: [{ lat: 3, lng: 4, accuracy: 5, heading: 6, speed: 7, timestamp: new Date() }], assignments: [{ isPrimary: true, user: { id: "cleaner", name: "Private name", image: "image", phone: "private phone" } }], report: { id: "report", clientVisible: false, pdfUrl: "private report" }, invoiceLines: [{ id: "invoice" }], laundryTask: { id: "laundry", confirmations: [{ id: "confirmation", notes: '{"totalPrice":999,"note":"Private"}', laundryReady: true }] }, auditLogs: [{ id: "audit", action: "job.updated", user: { name: "Private name" } }] });
 const request = () => GET(new Request("http://localhost/api/client/jobs/job"), { params: { id: "job" } });
 beforeEach(() => { vi.resetAllMocks(); mocks.portal.mockResolvedValue(portal()); mocks.job.mockResolvedValue(job()); mocks.progress.mockResolvedValue(42); });
 describe("client job privacy projection", () => {
+  // Live location 2026-11: the fixture's client has the live-location switch on;
+  // these two cases pin the default (off) for anyone who has not switched it on.
+  it.each([null, { showCleanerLiveLocation: false }])("sends no live trip unless the client's live-location switch is on (%j)", async (client) => {
+    const j = job(); j.property.client = client; mocks.job.mockResolvedValue(j);
+    const body = await (await request()).json();
+    expect(body.liveTrip).toBeNull();
+  });
+  it("reads the client's switch with the job", async () => {
+    await request();
+    expect(mocks.job.mock.calls[0][0].select.property.select.client).toEqual({ select: { showCleanerLiveLocation: true } });
+  });
   it.each(["EN_ROUTE", "IN_PROGRESS", "CANCELLED"])("does not release reports before completed status (%s)", async (status) => {
     const j = job(); j.status = status; j.report.clientVisible = true; mocks.job.mockResolvedValue(j); mocks.portal.mockResolvedValue({ ...portal(), actor: "CLIENT" }); expect((await (await request()).json()).report).toBeNull();
   });
