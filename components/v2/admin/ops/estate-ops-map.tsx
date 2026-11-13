@@ -40,6 +40,11 @@ type MapProps = {
   onSelect: (userId: string) => void;
   /** Overlay (the selected person's card) drawn over the map's top-right corner. */
   overlay?: React.ReactNode;
+  /**
+   * Phone: changes when the map screen is shown again. A map laid out while
+   * hidden has no size, so it re-fits to everyone once it is visible.
+   */
+  refitKey?: string;
 };
 
 // Google Maps has no types installed in this project; the handles stay opaque.
@@ -53,7 +58,8 @@ type TrailState =
   | { status: "ready"; userId: string; points: TrailPoint[]; truncated: boolean }
   | { status: "error"; userId: string };
 
-const MAP_HEIGHT = "h-[320px] sm:h-[440px] xl:h-[600px]";
+// Phone: the map is its own screen, so it takes most of the viewport (sm: and up unchanged).
+const MAP_HEIGHT = "h-[62vh] min-h-[320px] sm:h-[440px] xl:h-[600px]";
 const DRIVER_COLOR = "#b8913f";
 
 function google(): MapsHandle {
@@ -89,7 +95,7 @@ function syncMarkers(map: MapsHandle, store: Map<string, MarkerEntry>, wanted: A
   });
 }
 
-export function EstateOpsMap({ properties, pings, drivers, layers, selectedUserId, onSelect, overlay }: MapProps) {
+export function EstateOpsMap({ properties, pings, drivers, layers, selectedUserId, onSelect, overlay, refitKey }: MapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapsHandle>(null);
   const cleanerMarkers = useRef<Map<string, MarkerEntry>>(new Map());
@@ -289,6 +295,18 @@ export function EstateOpsMap({ properties, pings, drivers, layers, selectedUserI
     if (any) map.fitBounds(bounds, 56);
   }, [pings]);
 
+  useEffect(() => {
+    if (!refitKey || refitKey === "hidden" || !mapReady) return;
+    const frame = window.requestAnimationFrame(() => {
+      const entry = selectedUserId ? cleanerMarkers.current.get(selectedUserId) ?? driverMarkers.current.get(selectedUserId) : null;
+      if (entry && mapRef.current) mapRef.current.panTo(entry.marker.getPosition());
+      else fitAll();
+    });
+    return () => window.cancelAnimationFrame(frame);
+    // Only when the screen is shown again, not on every position update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refitKey, mapReady]);
+
   if (loadFailed) {
     return (
       <div className="space-y-3 p-4">
@@ -311,7 +329,7 @@ export function EstateOpsMap({ properties, pings, drivers, layers, selectedUserI
           </button>
         ) : null}
         {mapReady && selectedUserId ? (
-          <div className="absolute bottom-3 left-3 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2">
+          <div className="absolute bottom-3 left-3 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 max-sm:bottom-auto max-sm:top-14">
             <button type="button" onClick={() => void loadTrail()} disabled={trail.status === "loading"} className="inline-flex min-h-9 items-center gap-1.5 rounded-[var(--e-radius-pill)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.92)] px-3 py-1.5 text-[0.75rem] font-[550] shadow-[var(--e-elevation-1)] hover:bg-[hsl(var(--e-muted))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))] disabled:opacity-60">
               {trail.status === "loading" ? "Loading trail…" : trail.status === "ready" ? "Refresh today's trail" : "Show today's trail"}
             </button>
@@ -320,7 +338,7 @@ export function EstateOpsMap({ properties, pings, drivers, layers, selectedUserI
             </span>
           </div>
         ) : null}
-        {overlay ? <div className="pointer-events-none absolute right-3 top-3 w-[230px] max-w-[calc(100%-1.5rem)] [&>*]:pointer-events-auto">{overlay}</div> : null}
+        {overlay ? <div className="pointer-events-none absolute right-3 top-3 w-[230px] max-w-[calc(100%-1.5rem)] max-sm:bottom-3 max-sm:left-3 max-sm:top-auto max-sm:w-auto [&>*]:pointer-events-auto">{overlay}</div> : null}
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2.5 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
         {STALE_TIERS.map((tier) => (

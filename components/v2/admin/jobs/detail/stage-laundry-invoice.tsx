@@ -26,7 +26,8 @@ function day(value: Date | null | undefined, timeZone: string, pattern = "EEE d 
 export function StageLaundry({ data, stage, collapsed }: { data: JobPageData; stage: TimelineStage; collapsed: boolean }) {
   const task = data.job.laundryTask;
   const tz = data.timeZone;
-  const actions = <Link href="/v2/admin/laundry" className="inline-flex min-h-11 items-center font-[550] text-[hsl(var(--e-accent-portal))] hover:underline">Open in Laundry</Link>;
+  // The run's own full page (2026-11-14); the Laundry page when there is no run.
+  const actions = <Link href={task ? `/v2/admin/laundry/runs/${encodeURIComponent(task.id)}` : "/v2/admin/laundry"} className="inline-flex min-h-11 items-center font-[550] text-[hsl(var(--e-accent-portal))] hover:underline">{task ? "Open run" : "Open in Laundry"}</Link>;
   if (!task) return <StageShell stage={stage} collapsed={collapsed} />;
   const images: Array<{ url: string; label: string }> = [];
   if (task.pickupKeyPhotoUrl) images.push({ url: task.pickupKeyPhotoUrl, label: "Key at pickup" });
@@ -39,7 +40,7 @@ export function StageLaundry({ data, stage, collapsed }: { data: JobPageData; st
   return (
     <StageShell stage={stage} actions={actions} collapsed={collapsed}>
       <p className="tabular-nums">
-        <EBadge tone="info" soft>{titleCase(String(task.status))}</EBadge>{" "}
+        {task.voidedAt ? <EBadge tone="neutral" soft>Voided by office</EBadge> : <EBadge tone="info" soft>{titleCase(String(task.status))}</EBadge>}{" "}
         {task.noPickupRequired ? <EBadge tone="neutral" soft>No pickup required</EBadge> : null}{" "}
         <Muted>
           pickup {day(task.pickupDate, "UTC")}, {task.pickedUpAt ? `done ${day(task.pickedUpAt, tz, "d MMM HH:mm")}` : "not yet"} · drop-off {day(task.dropoffDate, "UTC")}, {task.droppedAt ? `done ${day(task.droppedAt, tz, "d MMM HH:mm")}` : "not yet"} · {measured || "weight and cost not recorded"}

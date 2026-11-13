@@ -32,7 +32,7 @@ import { LaundryNewRun } from "./laundry-new-run";
 import { LaundryAddRun } from "./laundry-add-run";
 import { LaundryInvestigation } from "./laundry-investigation";
 import { LaundryStatistics } from "./laundry-statistics";
-import { LaundryPipelineTab } from "./laundry-pipeline-tab";
+import { LaundryPipelineTab, NO_RUN_TOOLS, type RunTools } from "./laundry-pipeline-tab";
 import { useLaundryPipeline, type PipelineData, type PipelineQuery } from "./use-laundry-pipeline";
 import { useLaundryFeed } from "./use-laundry-feed";
 import type { HistoryFilters } from "./laundry-history";
@@ -55,7 +55,7 @@ function writeUrl(patch: Record<string, string | null>) {
   window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
 }
 
-export function LaundryWorkspace({ canReviewBags = false, timeZone = "Australia/Sydney" }: { canReviewBags?: boolean; timeZone?: string }) {
+export function LaundryWorkspace({ canReviewBags = false, timeZone = "Australia/Sydney", runTools = NO_RUN_TOOLS }: { canReviewBags?: boolean; timeZone?: string; runTools?: RunTools }) {
   const [tab, setTabState] = useRestorableState<LaundryTab>("laundry-workspace:tab", "pipeline");
   const [view, setView] = useRestorableState<PipelineView>("laundry-workspace:view", "board");
   const [exceptionsFirst, setExceptionsFirst] = useRestorableState("laundry-workspace:exceptions-first", true);
@@ -162,6 +162,7 @@ export function LaundryWorkspace({ canReviewBags = false, timeZone = "Australia/
       <div role="tabpanel" aria-label={LAUNDRY_TAB_LABELS[tab]}>
         {tab === "pipeline" ? (
           <LaundryPipelineTab
+            runTools={{ ...runTools, timeZone }}
             pipeline={pipeline}
             query={query}
             onQuery={(patch) => setQuery((current) => ({ ...current, ...patch }))}

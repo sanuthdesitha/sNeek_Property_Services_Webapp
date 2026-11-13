@@ -29,6 +29,7 @@ import { IntegrationsSection } from "@/components/v2/admin/settings/integrations
 import { IcalSection } from "@/components/v2/admin/settings/ical-section";
 import { GatewaysSection } from "@/components/v2/admin/settings/gateways-section";
 import { OllamaSection } from "@/components/v2/admin/settings/ollama-section";
+import { AiSection } from "@/components/v2/admin/settings/ai-section";
 import { XeroSection } from "@/components/v2/admin/settings/xero-section";
 import { FinanceNotificationsSection } from "@/components/v2/admin/settings/finance-notifications-section";
 import { OverviewSection } from "@/components/v2/admin/settings/overview-section";
@@ -150,6 +151,7 @@ export default async function SettingsPage({
       ) : null}
 
       {activeTab === "ollama" && isAdmin ? <OllamaSection /> : null}
+      {activeTab === "ai" && isAdmin ? <AiSection /> : null}
       {activeTab === "overview" ? (
         <OverviewSection
           settings={{

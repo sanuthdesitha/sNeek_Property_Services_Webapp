@@ -220,14 +220,14 @@ export async function loadLaundryRunPage(
 export async function loadDoneByOptions(taskIds: string[], viewer: { id: string; name: string | null }): Promise<Array<{ id: string; label: string }>> {
   const tasks = await db.laundryTask.findMany({ where: { id: { in: taskIds } }, select: { supplierId: true, supplier: { select: { name: true } }, property: { select: { accessInfo: true, laundryEnabled: true } } } });
   const teams = await loadSupplierTeams(tasks.map((task) => task.supplierId ?? "").filter(Boolean));
-  let common: Map<string, string> | null = null;
-  for (const task of tasks) {
+  const perRun: Array<Map<string, string>> = tasks.map((task) => {
     const members = task.supplierId ? teamForRun(teams, task.supplierId, task.property) : [];
-    const here = new Map(members.map((member) => [member.id, `${member.name?.trim() || "Laundry team member"}${task.supplier?.name ? `, ${task.supplier.name}` : ""}`]));
-    common = common === null ? here : new Map(Array.from(common).filter(([id]) => here.has(id)));
-  }
+    return new Map(members.map((member) => [member.id, `${member.name?.trim() || "Laundry team member"}${task.supplier?.name ? `, ${task.supplier.name}` : ""}`] as [string, string]));
+  });
+  const first = perRun[0] ?? new Map<string, string>();
+  const common: Array<[string, string]> = Array.from(first.entries()).filter(([id]) => perRun.every((run) => run.has(id)));
   return [
-    ...Array.from(common ?? new Map<string, string>(), ([id, label]) => ({ id, label })),
+    ...common.map(([id, label]) => ({ id, label })),
     { id: viewer.id, label: `Office: ${viewer.name?.trim() || "me"}` },
   ];
 }

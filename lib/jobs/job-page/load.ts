@@ -76,6 +76,7 @@ const JOB_SELECT = {
   report: { select: { clientVisible: true, sentToClient: true } },
   laundryTask: {
     select: {
+      id: true, voidedAt: true,
       status: true, pickupDate: true, dropoffDate: true, flagNotes: true, confirmedAt: true,
       pickedUpAt: true, droppedAt: true, noPickupRequired: true, bagWeightKg: true, dropoffCostAud: true,
       receiptImageUrl: true, pickupKeyPhotoUrl: true, dropoffKeyPhotoUrl: true,

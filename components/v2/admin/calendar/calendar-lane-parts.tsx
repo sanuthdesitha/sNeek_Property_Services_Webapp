@@ -16,6 +16,16 @@ export function laundryHref(day: string): string {
   return `/v2/admin/laundry?date=${day}`;
 }
 
+/**
+ * A day with one laundry run opens that run's full page (2026-11-14); a day
+ * with several opens the Laundry Pipeline on that day.
+ */
+export function laundryCellHref(day: string, counts: CalendarLaundryDay): string {
+  const runIds = new Set(counts.items.map((item) => item.id.replace(/-(pickup|drop)$/, "")));
+  if (runIds.size === 1) return `/v2/admin/laundry/runs/${encodeURIComponent(Array.from(runIds)[0])}`;
+  return laundryHref(day);
+}
+
 export function laundryText(counts: CalendarLaundryDay): string {
   const parts: string[] = [];
   if (counts.pickups > 0) parts.push(`Pickup ×${counts.pickups}`);
@@ -31,7 +41,7 @@ export function LaundryCell({ day, counts }: { day: string; counts: CalendarLaun
   if (!counts || (counts.pickups === 0 && counts.drops === 0)) return null;
   return (
     <Link
-      href={laundryHref(day)}
+      href={laundryCellHref(day, counts)}
       title={laundryTitle(counts)}
       className="block rounded-[6px] border border-[hsl(var(--e-gold)/0.45)] bg-[hsl(var(--e-gold-soft))] px-1.5 py-1 text-[0.71875rem] text-[hsl(var(--e-gold-ink))] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]"
     >

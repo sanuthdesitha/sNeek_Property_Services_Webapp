@@ -12,6 +12,10 @@
  * - Off site with the clock running → Call, Pause clock (same rule: dialog over
  *   POST /api/admin/jobs/[id]/pause-clock), Review clock (the job's Activity tab).
  * - Not started past start time → Call, Reassign.
+ *
+ * Phone (below 640px): each row keeps its main fix on the card (late: Call and
+ * Tell client; off site: Call and Pause clock) and the rest of the SAME
+ * actions under "More" in a bottom sheet. From 640px up the rows are unchanged.
  */
 import { useState } from "react";
 import Link from "next/link";
@@ -24,6 +28,9 @@ import { DeclineReasonDialog } from "../office-actions/decline-reason-dialog";
 import { decideContinuation, type ContinuationDecision } from "./continuation-decision";
 import { DelayNoticeDialog } from "./delay-notice-dialog";
 import { PauseClockDialog } from "./pause-clock-dialog";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
+import { PhoneActionSheet } from "@/components/v2/admin/phone-action-sheet";
+import type { ERowMenuItem } from "@/components/v2/ui/row-menu";
 
 type ExceptionProps = {
   jobs: LiveJobRow[];
@@ -126,6 +133,12 @@ function requestedLine(job: LiveJobRow, timeZone: string): string | null {
 export function LiveExceptions({ jobs, continuations, readOnly, canNotifyClient = false, canPauseClock = false, todayKey = "", timeZone = "Australia/Sydney", onReassign, onSelect, onDecided }: ExceptionProps) {
   const [noticeJob, setNoticeJob] = useState<LiveJobRow | null>(null);
   const [pauseJob, setPauseJob] = useState<LiveJobRow | null>(null);
+  const phone = useIsPhone();
+  const [sheet, setSheet] = useState<{ title: string; items: ERowMenuItem[] } | null>(null);
+  const more = (title: string, items: ERowMenuItem[]) =>
+    items.length > 0 ? (
+      <EButton size="sm" variant="outline" aria-label={`More actions for ${title}`} onClick={() => setSheet({ title, items })}>More</EButton>
+    ) : null;
   const notify = canNotifyClient && !readOnly;
   const pause = canPauseClock && !readOnly;
   const late = jobs.filter((job) => job.state === "late").sort((a, b) => (b.minutes ?? 0) - (a.minutes ?? 0));
@@ -143,13 +156,17 @@ export function LiveExceptions({ jobs, continuations, readOnly, canNotifyClient 
           {requestedLine(job, timeZone) ? <p className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">{requestedLine(job, timeZone)}</p> : null}
           <div className="flex flex-wrap gap-2">
             <CallButton job={job} />
-            <EButton asChild size="sm" variant="outline"><Link href={jobTabHref(job.jobId, "messages")}>Message</Link></EButton>
+            {phone ? null : <EButton asChild size="sm" variant="outline"><Link href={jobTabHref(job.jobId, "messages")}>Message</Link></EButton>}
             {notify ? (
               <EButton size="sm" variant="outline" onClick={() => setNoticeJob(job)}>{job.delayNotice ? "Tell client again…" : "Tell client"}</EButton>
             ) : (
               <EButton asChild size="sm" variant="outline"><Link href={jobTabHref(job.jobId, "messages")} title="Opens the job's client messages">Tell client</Link></EButton>
             )}
-            {readOnly ? null : <EButton size="sm" onClick={() => onReassign(job.jobId)}>Reassign</EButton>}
+            {readOnly || phone ? null : <EButton size="sm" onClick={() => onReassign(job.jobId)}>Reassign</EButton>}
+            {phone ? more(`${who(job)} · ${job.propertyName}`, [
+              { key: "message", label: "Message", href: jobTabHref(job.jobId, "messages") },
+              ...(readOnly ? [] : [{ key: "reassign", label: "Reassign", onSelect: () => onReassign(job.jobId) }]),
+            ]) : null}
           </div>
         </li>
       ))}
@@ -164,7 +181,9 @@ export function LiveExceptions({ jobs, continuations, readOnly, canNotifyClient 
           <div className="flex flex-wrap gap-2">
             <CallButton job={job} />
             {pause && (job.runningClocks?.length ?? 0) > 0 ? <EButton size="sm" onClick={() => setPauseJob(job)}>Pause clock</EButton> : null}
-            <EButton asChild size="sm" variant="outline"><Link href={jobTabHref(job.jobId, "activity")}>Review clock</Link></EButton>
+            {phone && pause && (job.runningClocks?.length ?? 0) > 0
+              ? more(`${who(job)} · ${job.propertyName}`, [{ key: "review", label: "Review clock", href: jobTabHref(job.jobId, "activity") }])
+              : <EButton asChild size="sm" variant="outline"><Link href={jobTabHref(job.jobId, "activity")}>Review clock</Link></EButton>}
           </div>
         </li>
       ))}
@@ -180,6 +199,9 @@ export function LiveExceptions({ jobs, continuations, readOnly, canNotifyClient 
       ))}
       <DelayNoticeDialog job={noticeJob} todayKey={todayKey} timeZone={timeZone} onClose={() => setNoticeJob(null)} onRequested={onDecided} />
       <PauseClockDialog job={pauseJob} timeZone={timeZone} onClose={() => setPauseJob(null)} onPaused={onDecided} />
+      {phone ? (
+        <PhoneActionSheet open={sheet !== null} onOpenChange={(open) => { if (!open) setSheet(null); }} title={sheet?.title ?? "More actions"} items={sheet?.items ?? []} />
+      ) : null}
     </ul>
   );
 }

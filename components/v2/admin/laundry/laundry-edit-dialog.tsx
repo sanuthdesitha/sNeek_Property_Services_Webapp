@@ -4,7 +4,7 @@
  * ESTATE laundry edit dialog — v2-native replacement for the v1 "Edit laundry
  * task" dialog (app/admin/laundry/page.tsx). Same field set, same endpoint:
  *   PATCH /api/admin/laundry/[taskId]
- * with pickup/drop-off dates, status, flag notes, skip reason code/note, admin
+ * with pickup/drop-off dates, flag notes, skip reason code/note, admin
  * override note, drop-off price (→ dropoffCostAud / report amount), bag weight,
  * evidence photos (uploaded via /api/uploads/direct → evidencePhotoKeys) and an
  * evidence note. No dependency on components/ui/*.
@@ -15,7 +15,7 @@ import { toast } from "@/hooks/use-toast";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EField, EInput, EModal, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
-import { LAUNDRY_STATUS_OPTIONS, statusLabel, type LaundryTaskDTO } from "./laundry-shared";
+import { statusLabel, type LaundryTaskDTO } from "./laundry-shared";
 
 function dateInputValue(value?: string | Date | null) {
   if (!value) return "";
@@ -160,7 +160,6 @@ export function LaundryEditDialog({
       body: JSON.stringify({
         pickupDate,
         dropoffDate,
-        status: form.status,
         flagNotes: form.flagNotes || null,
         skipReasonCode: form.status === "SKIPPED_PICKUP" ? (form.skipReasonCode === "NONE" ? null : form.skipReasonCode) : null,
         skipReasonNote: form.skipReasonNote || null,
@@ -206,15 +205,12 @@ export function LaundryEditDialog({
           </EField>
         </div>
 
-        <EField label="Status">
-          <ESelect value={form.status} onChange={(e) => set({ status: e.target.value })}>
-            {LAUNDRY_STATUS_OPTIONS.map((status) => (
-              <option key={status} value={status}>
-                {statusLabel(status)}
-              </option>
-            ))}
-          </ESelect>
-        </EField>
+        {/* The Status field moved to "Change state" (2026-11-14), which asks for
+            the real time it happened instead of stamping the time of the save. */}
+        <p className="text-[0.8125rem]">
+          State: <b>{statusLabel(form.status)}</b>.{" "}
+          <span className="text-[hsl(var(--e-muted-foreground))]">To record what actually happened, use Change state on the run page or the card's ⋯ menu.</span>
+        </p>
 
         <EField label="Flag notes" hint="Optional notes shown against the task.">
           <ETextarea rows={2} value={form.flagNotes} onChange={(e) => set({ flagNotes: e.target.value })} placeholder="Optional notes" />

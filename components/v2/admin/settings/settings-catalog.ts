@@ -37,10 +37,16 @@ export const SETTINGS_GROUPS = [
     description: "Portal visibility, profiles and staff permissions.",
   },
   {
+    key: "ai",
+    label: "AI",
+    shortLabel: "AI",
+    description: "Local or cloud models per feature, photo checks, usage and connection tests.",
+  },
+  {
     key: "system",
     label: "System",
     shortLabel: "System",
-    description: "AI connection diagnostics and the settings audit trail.",
+    description: "The settings audit trail.",
   },
 ] as const;
 
@@ -262,10 +268,25 @@ export const SETTINGS_DESTINATIONS = [
     href: "/v2/admin/settings/access",
   },
   {
+    key: "ai",
+    label: "AI providers and models",
+    description: "Choose local or cloud models per feature, store keys encrypted, test each feature and see this month's usage.",
+    group: "ai",
+    adminOnly: true,
+  },
+  {
+    key: "ai-workflows",
+    label: "Photo checks and memory",
+    description: "Photo comparison and assignment switches, thresholds and the property photo memory.",
+    group: "ai",
+    adminOnly: true,
+    href: "/v2/admin/ai",
+  },
+  {
     key: "ollama",
     label: "Ollama",
     description: "Local AI models, connection settings and diagnostics.",
-    group: "system",
+    group: "ai",
     adminOnly: true,
   },
   {
