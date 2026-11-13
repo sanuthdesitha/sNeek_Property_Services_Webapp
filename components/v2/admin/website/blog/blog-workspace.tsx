@@ -220,6 +220,7 @@ export function BlogWorkspace() {
           />
         ) : (
           <ETableShell
+            phoneStack
             headers={[
               { label: "Post" },
               { label: "Status" },

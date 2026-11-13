@@ -12,7 +12,7 @@ import type { DragEvent } from "react";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { UserRound } from "lucide-react";
-import { JOB_STATUS_TONES, statusBlockStyle } from "@/lib/jobs/status-presentation";
+import { JOB_STATUS_TONES, statusTintStyle } from "@/lib/jobs/status-presentation";
 import { STATUS_LABELS } from "@/lib/jobs/status-labels";
 import { JobStatusIcon } from "@/components/shared/job-status-icon";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
@@ -164,7 +164,7 @@ export function EBoardCard({ job, density = "default", selected, active = false,
       draggable={draggable}
       onDragStart={draggable && onDragStart ? (event) => onDragStart(event, job) : undefined}
       data-active={active || undefined}
-      style={statusBlockStyle(status)}
+      style={statusTintStyle(status)}
       className={`rounded-[var(--e-radius)] border bg-[hsl(var(--e-surface))] ${padding} ${active ? "border-[hsl(var(--e-primary))]" : "border-[hsl(var(--e-border))]"}`}
     >
       <div className="flex items-start justify-between gap-2">

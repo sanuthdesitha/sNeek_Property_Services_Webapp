@@ -328,13 +328,13 @@ export function ComplianceBoard({
   return (
     <div className="space-y-6">
       <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <EStatCard label="Expired" value={String(expired.length)} icon={<ShieldAlert className="h-4 w-4" />} deltaTone="danger" delta={expired.length ? "Action needed" : "Clear"} />
+        <EStatCard label="Expired" value={String(expired.length)} icon={<ShieldAlert className="h-4 w-4" />} deltaTone={expired.length ? "danger" : "success"} delta={expired.length ? "Action needed" : "Clear"} />
         <EStatCard label="Expiring ≤14d" value={String(expiring.length)} icon={<Clock className="h-4 w-4" />} />
         <EStatCard label="Pending review" value={String(pending.length)} icon={<FileWarning className="h-4 w-4" />} />
         <EStatCard label="Outstanding requests" value={String(requests.length)} icon={<FilePlus2 className="h-4 w-4" />} />
       </section>
 
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
         <EButton variant="outline" size="sm" onClick={() => setUploadOpen(true)}>
           <UploadCloud className="h-4 w-4" />
           Upload for someone

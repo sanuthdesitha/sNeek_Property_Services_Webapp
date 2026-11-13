@@ -223,9 +223,9 @@ export function EStatCard({
       {/* The label may shrink and wrap; the icon never overlaps it in a narrow column. */}
       <div className="flex items-start justify-between gap-2">
         {/* Phones: tighter tracking so a one-word label ("Candidates") fits beside the icon instead of breaking mid-word. */}
-        <EEyebrow className="min-w-0 [overflow-wrap:anywhere] max-sm:tracking-[0.12em]">{label}</EEyebrow>
+        <EEyebrow className="min-w-0 [overflow-wrap:anywhere] max-sm:tracking-[0.1em]">{label}</EEyebrow>
         {icon ? (
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-accent-portal))]">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-accent-portal))] max-sm:h-7 max-sm:w-7">
             {icon}
           </span>
         ) : null}

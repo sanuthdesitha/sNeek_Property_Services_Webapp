@@ -357,7 +357,7 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
 
   return (
     <div className="space-y-8">
-      <JobStatusProgress status={job.status} />
+      <JobStatusProgress status={job.status} tintOnly />
       <div>
         <EButton asChild variant="ghost" size="sm" className="-ml-2"><Link href="/v2/client/jobs" className="inline-block">
             <ArrowLeft className="h-4 w-4" /> Jobs

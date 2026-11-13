@@ -1,7 +1,7 @@
 "use client";
 import { JobStatusIcon } from "@/components/shared/job-status-icon";
 
-import { statusBlockStyle } from "@/lib/jobs/status-presentation";
+import { statusTintStyle } from "@/lib/jobs/status-presentation";
 
 
 import { useRestorableState } from "@/hooks/use-restorable-state";
@@ -474,7 +474,7 @@ function JobCard({
   }
 
   return (
-    <ECard style={statusBlockStyle(job.status)} className={cn(!isUpcoming && "opacity-90")}>
+    <ECard style={statusTintStyle(job.status)} className={cn(!isUpcoming && "opacity-90")}>
       <span className="float-left m-4"><JobStatusIcon status={job.status} /></span>
       <ECardBody className="pt-5">
         <div className="flex flex-wrap items-start justify-between gap-4">

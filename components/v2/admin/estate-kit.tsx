@@ -428,21 +428,28 @@ export function EKpiLink({
 }
 
 /* ── Table shell (hairline, warm header) ───────────────────────────────── */
+/** Phone-only stacking: each row becomes a wrapped card (first cell full width, the rest flow beside each other). */
+const TABLE_PHONE_STACK_CLASS =
+  "max-sm:block max-sm:min-w-0 max-sm:[&_tbody]:block max-sm:[&_tr]:flex max-sm:[&_tr]:flex-wrap max-sm:[&_tr]:items-center max-sm:[&_tr]:gap-x-1 max-sm:[&_tr]:py-2 max-sm:[&_td]:py-1 max-sm:[&_td:first-child]:basis-full";
+
 export function ETableShell({
   headers,
   className,
+  phoneStack = false,
   children,
 }: {
   headers: Array<{ label: React.ReactNode; align?: "left" | "right" | "center"; className?: string }>;
   className?: string;
+  /** Below 640px stack rows instead of scrolling sideways (headers are hidden; cells must label themselves). */
+  phoneStack?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div className={cn("overflow-x-auto", className)}>
       {/* min-w makes the overflow wrapper real: w-full alone just crushed
           five columns into a 295px card and the scrollbar never appeared. */}
-      <table className="w-full min-w-[46rem] text-[0.875rem]">
-        <thead>
+      <table className={cn("w-full min-w-[46rem] text-[0.875rem]", phoneStack && TABLE_PHONE_STACK_CLASS)}>
+        <thead className={phoneStack ? "max-sm:hidden" : undefined}>
           <tr className="border-b border-[hsl(var(--e-border))]">
             {headers.map((h, i) => (
               <th

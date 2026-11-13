@@ -1,7 +1,7 @@
 "use client";
 import { JobStatusIcon } from "@/components/shared/job-status-icon";
 
-import { statusBlockStyle } from "@/lib/jobs/status-presentation";
+import { statusTintStyle } from "@/lib/jobs/status-presentation";
 
 
 import { useRestorableState } from "@/hooks/use-restorable-state";
@@ -307,7 +307,7 @@ export function HistoryBoard() {
 
                 <div className="space-y-3 md:hidden">
                   {g.rows.map((t) => (
-                    <article style={statusBlockStyle(t.status, "laundry")} key={t.id} className="min-w-0 space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3 [overflow-wrap:anywhere]">
+                    <article style={statusTintStyle(t.status, "laundry")} key={t.id} className="min-w-0 space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3 [overflow-wrap:anywhere]">
                       <p className="font-medium">{propertyLabel(t)}</p>
                       <JobStatusIcon status={t.status} domain="laundry" /><EBadge tone={toneFor(t.status)} soft>{labelFor(t.status)}</EBadge>
                       <dl className="grid grid-cols-2 gap-2 text-sm">
@@ -333,7 +333,7 @@ export function HistoryBoard() {
                   ]}
                 >
                   {g.rows.map((t) => (
-                    <tr style={statusBlockStyle(t.status, "laundry")} key={t.id}>
+                    <tr style={statusTintStyle(t.status, "laundry")} key={t.id}>
                       <td className="px-4 py-3">
                         <p className="min-w-0 truncate font-medium">{propertyLabel(t)}</p>
                       </td>

@@ -22,6 +22,10 @@ const ACCENT_PATTERNS: RegExp[] = [
   /borderLeft(?:Color|Width|Style)?\s*:/g,
   /shadow-\[inset_\d+px_0_0/g,
   /border-left(?:-color|-width)?\s*:/g,
+  // Logical-property spellings and the classic helper that sets one.
+  /borderInlineStart(?:Color|Width|Style)?\s*:/g,
+  /\bstatusBlockStyle\(/g,
+  /JobStatusProgress\s+status=\{[^}]*\}\s*\/>/g,
 ];
 
 /** Deliberate exceptions: file → exact snippet that must contain the match, and why. */

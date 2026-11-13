@@ -165,7 +165,9 @@ export function EToneCard({
   const headerRow = (
     <>
       <div className="min-w-0 flex-1">{header}</div>
-      {pill ? tone ? <ETonePill tone={tone}>{pill}</ETonePill> : <span className="shrink-0">{pill}</span> : null}
+      {/* The pill may wrap but never takes more than about half the row, so a long value
+          ("Airbnb turnover · not a rework · …") cannot squeeze the title to one letter per line. */}
+      {pill ? tone ? <ETonePill tone={tone} className="max-w-[55%] whitespace-normal break-words">{pill}</ETonePill> : <span className="max-w-[55%] shrink-0 break-words text-right">{pill}</span> : null}
     </>
   );
   return (
