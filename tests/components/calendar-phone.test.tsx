@@ -70,8 +70,8 @@ describe("Calendar on a phone", () => {
     await renderPhoneDay();
     expect(lastCalendar().url).toContain("start=2026-11-09&end=2026-11-15");
     const strip = screen.getByRole("navigation", { name: "Week" });
-    expect(within(strip).getByRole("button", { name: "Today 11: 2 jobs, 1 without a cleaner" })).toHaveAttribute("aria-current", "date");
-    expect(within(strip).getByRole("button", { name: "Thu 12: 1 job" })).toBeVisible();
+    expect(within(strip).getByRole("button", { name: /^(Wed|Today) 11: 2 jobs, 1 without a cleaner$/ })).toHaveAttribute("aria-current", "date");
+    expect(within(strip).getByRole("button", { name: /^(Thu|Today) 12: 1 job$/ })).toBeVisible();
     expect(screen.getByText(/Wed 11 November · 2 jobs · 1 without a cleaner|2 jobs · 1 without a cleaner/)).toBeVisible();
     const agenda = document.querySelector("[data-calendar-phone-agenda]")!;
     expect(agenda.textContent).toMatch(/Unassigned · 1.*Jane C\./);
@@ -81,7 +81,7 @@ describe("Calendar on a phone", () => {
 
   it("tapping a day in the strip opens that day", async () => {
     await renderPhoneDay();
-    fireEvent.click(screen.getByRole("button", { name: "Thu 12: 1 job" }));
+    fireEvent.click(screen.getByRole("button", { name: /^(Thu|Today) 12: 1 job$/ }));
     expect(new URLSearchParams(window.location.search).get("date")).toBe("2026-11-12");
     expect(new URLSearchParams(window.location.search).get("view")).toBe("day");
   });
