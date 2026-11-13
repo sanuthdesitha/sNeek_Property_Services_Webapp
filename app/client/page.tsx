@@ -89,7 +89,7 @@ export default async function ClientDashboard() {
 
   const propertyStocks = client
     ? await db.propertyStock.findMany({
-        where: { property: { clientId: client.id } },
+        where: { property: { clientId: client.id }, voidedAt: null },
         include: {
           property: { select: { id: true, name: true } },
           item: { select: { name: true } },

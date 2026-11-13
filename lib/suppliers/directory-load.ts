@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { dayKeyOf } from "@/lib/laundry/pipeline";
 import { sydneyTodayKey } from "@/lib/time/sydney-range";
 import type { LaundryPartnerStats, SupplierChaseRecord, TradeSupplierRecord } from "./directory-types";
+import { NOT_VOIDED } from "@/lib/laundry/void-scope";
 
 /**
  * Read models behind the Suppliers directory that are not the supplier records
@@ -88,6 +89,7 @@ export async function loadPartnerStats(partners: ReadonlyArray<{ id: string; avg
   const [runs, chases] = await Promise.all([
     db.laundryTask.findMany({
       where: {
+        ...NOT_VOIDED,
         supplierId: { in: ids },
         OR: [{ status: { in: [...NOT_PICKED, LaundryStatus.PICKED_UP, LaundryStatus.READY_TO_RETURN] } }, { droppedAt: { gte: since } }, { pickupDate: { gte: since } }],
       },

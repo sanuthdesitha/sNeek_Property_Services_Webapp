@@ -10,8 +10,7 @@ import { QaTemplatesManager } from "@/components/v2/admin/qa/qa-templates-manage
 import { FormsTabNav } from "@/components/v2/admin/forms/library/forms-tab-nav";
 import { FORMS_TAB_LABEL } from "@/components/v2/admin/forms/library/forms-tab-labels";
 import { JobFormsLibrary } from "@/components/v2/admin/forms/library/job-forms-library";
-import { NewFormMenu } from "@/components/v2/admin/forms/library/new-form-menu";
-import { ImportFormsButton } from "@/components/v2/admin/forms/library/import-forms";
+import { FormsHeaderActions } from "@/components/v2/admin/forms/library/forms-header-actions";
 import { ValidationEnforcementCard } from "@/components/v2/admin/forms/library/validation-enforcement-card";
 import { getAppSettings } from "@/lib/settings";
 import { FormStatsPanel } from "@/components/v2/admin/forms/library/form-stats-panel";
@@ -72,10 +71,7 @@ export default async function EstateFormsPage({ searchParams }: { searchParams: 
         description="Every form in one library: job checklists, QA inspection templates and message templates"
         actions={
           canWrite ? (
-            <div className="flex flex-wrap items-center gap-2">
-              {allowed.includes("forms") ? <ImportFormsButton /> : null}
-              <NewFormMenu canQa={allowed.includes("qa")} canMessages={allowed.includes("messages")} />
-            </div>
+            <FormsHeaderActions canImport={allowed.includes("forms")} canQa={allowed.includes("qa")} canMessages={allowed.includes("messages")} />
           ) : undefined
         }
       />

@@ -15,6 +15,7 @@ import {
   type LaundryTeamTotals,
   type LaundryUserStats,
 } from "@/lib/accountability/laundry-stats";
+import { NOT_VOIDED } from "@/lib/laundry/void-scope";
 
 export type LaundryTeamMember = LaundryUserStats & { name: string };
 
@@ -46,6 +47,7 @@ export async function getLaundryTeamMetrics(windowStart: Date, now: Date = new D
     }),
     db.laundryTask.findMany({
       where: {
+        ...NOT_VOIDED,
         OR: [
           { pickedUpAt: { gte: windowStart } },
           { droppedAt: { gte: windowStart } },

@@ -12,6 +12,7 @@ import {
   yearEndKey,
   addDaysToKey,
 } from "@/lib/time/sydney-range";
+import { NOT_VOIDED } from "@/lib/laundry/void-scope";
 
 export type LaundryInvoicePeriod = "daily" | "weekly" | "monthly" | "annual" | "custom";
 
@@ -321,6 +322,8 @@ export async function getLaundryInvoiceData(input: LaundryInvoiceQueryInput): Pr
         where: {
           ...buildDateRangeWhere(input, start, end),
           ...scopeWhere,
+          // Voided runs are on no laundry report, admin or partner (2026-11-14).
+          ...NOT_VOIDED,
         },
         include: {
           property: { select: { id: true, name: true, suburb: true } },

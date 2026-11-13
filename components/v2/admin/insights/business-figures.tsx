@@ -8,6 +8,7 @@
  * viewers without finance.
  */
 import * as React from "react";
+import { CollapsibleFigures } from "@/components/v2/ui/collapsible-figures";
 import Link from "next/link";
 import { ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import type { BusinessCards } from "@/lib/insights/business";
@@ -124,7 +125,9 @@ export function FigureDefinitions({ cards, minBasis }: { cards: BusinessCards; m
 
 export function FigureCards({ cards, previousLabel }: { cards: BusinessCards; previousLabel: string | null }) {
   const shown = CARD_SPECS.filter((spec) => cards[spec.key]);
+  // Phones fold the figures behind one row (board "M-InsightsForms"); unchanged from 640px.
   return (
+    <CollapsibleFigures storageKey="insights:business" count={shown.length} label="Business figures">
     <section aria-label="Figures for the period" className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       {shown.map((spec) => (
         <FigureCard
@@ -136,5 +139,6 @@ export function FigureCards({ cards, previousLabel }: { cards: BusinessCards; pr
         />
       ))}
     </section>
+    </CollapsibleFigures>
   );
 }

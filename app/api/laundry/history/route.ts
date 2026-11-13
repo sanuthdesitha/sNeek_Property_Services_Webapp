@@ -16,6 +16,8 @@ export async function GET() {
       }
     }
     const tasks = await db.laundryTask.findMany({
+      // Voided runs are gone from the laundry history (2026-11-14).
+      where: { voidedAt: null },
       include: {
         property: {
           select: {

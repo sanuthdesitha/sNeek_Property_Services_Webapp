@@ -58,10 +58,10 @@ async function getStats(scope: Awaited<ReturnType<typeof laundryTaskScope>>) {
     revenueWeek,
     deliveredTasks,
   ] = await Promise.all([
-    db.laundryTask.count({ where: { ...scope, createdAt: { gte: weekStart } } }).catch(() => 0),
-    db.laundryTask.count({ where: { ...scope, droppedAt: { gte: weekStart } } }).catch(() => 0),
+    db.laundryTask.count({ where: { ...scope, voidedAt: null, createdAt: { gte: weekStart } } }).catch(() => 0),
+    db.laundryTask.count({ where: { ...scope, voidedAt: null, droppedAt: { gte: weekStart } } }).catch(() => 0),
     db.laundryTask
-      .groupBy({ by: ["status"], _count: { _all: true }, where: { ...scope, noPickupRequired: false } })
+      .groupBy({ by: ["status"], _count: { _all: true }, where: { ...scope, voidedAt: null, noPickupRequired: false } })
       .catch(() => [] as Array<{ status: LaundryStatus; _count: { _all: number } }>),
     // Immediate attention — same buckets as the v1 planner's panel.
     db.laundryTask

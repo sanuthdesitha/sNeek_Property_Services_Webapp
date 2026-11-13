@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { buildLaundryOpsStats, laundryWindowStartKey, type LaundryOpsStats, type LaundryStatsTask } from "@/lib/laundry/ops-stats";
 import { sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
+import { NOT_VOIDED } from "@/lib/laundry/void-scope";
 
 export const LAUNDRY_STATS_TREND_WEEKS = 8;
 export const LAUNDRY_STATS_LEADERBOARD_SIZE = 10;
@@ -28,7 +29,7 @@ export async function loadLaundryStats(): Promise<LaundryStatsPayload> {
   // The PICKED_UP arm is deliberately unbounded: a bag that went out three
   // months ago and never came back is exactly what "at laundry now" must show.
   const tasks = (await db.laundryTask.findMany({
-    where: { OR: [{ pickupDate: { gte: windowStart } }, { droppedAt: { gte: windowStart } }, { status: { in: ["PICKED_UP", "READY_TO_RETURN"] } }] },
+    where: { ...NOT_VOIDED, OR: [{ pickupDate: { gte: windowStart } }, { droppedAt: { gte: windowStart } }, { status: { in: ["PICKED_UP", "READY_TO_RETURN"] } }] },
     select: {
       id: true,
       status: true,

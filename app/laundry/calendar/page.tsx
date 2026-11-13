@@ -27,6 +27,7 @@ export default async function LaundryCalendarPage() {
   const settings = await getAppSettings();
 
   const tasks = await db.laundryTask.findMany({
+    where: { voidedAt: null },
     include: {
       property: { select: { name: true, suburb: true } },
       job: { select: { jobType: true } },

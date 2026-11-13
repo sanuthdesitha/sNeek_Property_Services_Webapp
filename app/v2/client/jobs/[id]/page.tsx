@@ -141,6 +141,7 @@ async function getScopedJob(id: string, scope: Pick<ClientPortalContext, "client
         laundryTask: {
           select: {
             id: true,
+            voidedAt: true,
             status: true,
             pickupDate: true,
             dropoffDate: true,
@@ -293,8 +294,10 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
     permissions: portalCtx.permissions,
     visibility: { showFinanceDetails: portal?.visibility?.showFinanceDetails === true },
   });
-  const job = await getScopedJob(params.id, { clientId, propertyIds: portalCtx.propertyIds }, showCosts);
-  if (!job) notFound();
+  const scopedJob = await getScopedJob(params.id, { clientId, propertyIds: portalCtx.propertyIds }, showCosts);
+  if (!scopedJob) notFound();
+  // A voided laundry run never reaches the client (2026-11-14).
+  const job = scopedJob.laundryTask?.voidedAt ? { ...scopedJob, laundryTask: null } : scopedJob;
 
   // Open client requests on this job — drives the action hub's pending states.
   const clientTasks = await db.jobTask

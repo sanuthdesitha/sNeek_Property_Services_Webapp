@@ -132,7 +132,7 @@ export async function loadClientHome(portal: ClientPortalContext) {
     visibility.showLaundryUpdates
       ? clientId
         ? settle(db.laundryTask.findMany({
-            where: { property: propertyWhere },
+            where: { property: propertyWhere, voidedAt: null },
             select: {
               id: true, status: true, pickupDate: true, dropoffDate: true, droppedAt: true,
               property: { select: { id: true, name: true, suburb: true } },

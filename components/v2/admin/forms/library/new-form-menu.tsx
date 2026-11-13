@@ -7,12 +7,17 @@
 import { ChevronDown } from "lucide-react";
 import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
 
-export function NewFormMenu({ canQa, canMessages }: { canQa: boolean; canMessages: boolean }) {
-  const items: ERowMenuItem[] = [
+/** The menu's items (also docked at the bottom of a phone). */
+export function newFormItems(canQa: boolean, canMessages: boolean): ERowMenuItem[] {
+  return [
     { key: "job", label: "Job form (blank, starter or copy)", href: "/v2/admin/forms/new" },
     ...(canQa ? [{ key: "qa", label: "QA template", href: "/v2/admin/forms?tab=qa" }] : []),
     ...(canMessages ? [{ key: "message", label: "Message template", href: "/v2/admin/forms?tab=messages&view=messages" }] : []),
   ];
+}
+
+export function NewFormMenu({ canQa, canMessages }: { canQa: boolean; canMessages: boolean }) {
+  const items = newFormItems(canQa, canMessages);
   return (
     <ERowMenu
       label="New form"
