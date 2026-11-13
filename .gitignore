@@ -74,3 +74,5 @@ prisma/migrations/*.sql.bak
 
 # Locally uploaded AI model weights; deploy separately, never commit.
 /models/
+/.next-audit/
+/.next-audit.__build/
