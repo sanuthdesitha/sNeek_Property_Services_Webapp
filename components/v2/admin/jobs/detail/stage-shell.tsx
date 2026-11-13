@@ -8,6 +8,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import type { TimelineStage } from "@/lib/jobs/job-page/timeline";
+import { PhoneFold } from "@/components/v2/admin/phone-fold";
 import { JobDisclosure } from "./job-disclosure";
 
 const STATE_WORDS = { done: "done", now: "current stage", todo: "not yet" } as const;
@@ -41,7 +42,7 @@ export function StageShell({
 }) {
   const headingId = `${stage.anchor}-title`;
   return (
-    <article id={stage.anchor} aria-labelledby={headingId} className="relative min-w-0 scroll-mt-24">
+    <article id={stage.anchor} aria-labelledby={headingId} className="relative min-w-0 scroll-mt-24 max-sm:scroll-mt-44">
       <span aria-hidden className={cn("absolute -left-[23px] top-[14px] h-3 w-3 rounded-full", DOT_CLASS[stage.state])} />
       <div className={cn("flex min-w-0 flex-col gap-2 rounded-[var(--e-radius-lg)] border px-4 py-3 text-[0.8125rem]", CARD_CLASS[stage.state])}>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -62,6 +63,9 @@ export function StageShell({
             <JobDisclosure id={`${stage.anchor}-details`} label="Show details">
               <div className="flex flex-col gap-2">{children}</div>
             </JobDisclosure>
+          ) : stage.state === "done" ? (
+            // Phones (board M-JobDetail): a finished stage folds to its headline.
+            <PhoneFold label={stage.label}>{children}</PhoneFold>
           ) : (
             children
           )

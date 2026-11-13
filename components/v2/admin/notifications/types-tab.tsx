@@ -2,12 +2,14 @@
 
 import * as React from "react";
 import { EAlert } from "@/components/v2/ui/primitives";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
+import { NotificationsPhoneBack } from "./phone-back";
 import type { CatalogResponse } from "@/lib/notifications/catalog-view-types";
 import type { WordingSummary } from "@/lib/notifications/wording/view-types";
 import { sendJson, useNotificationRead } from "./use-notification-read";
 import { TypeDetails } from "./type-details";
 import { TypeList } from "./type-list";
-import { WordingWorkspace } from "./wording-workspace";
+import { WordingWorkspace, type WordingPhoneScreen } from "./wording-workspace";
 
 type SummaryResponse = { summaries: WordingSummary[]; canEdit: boolean; editReason: string | null };
 
@@ -49,6 +51,9 @@ export function TypesTab({ isAdmin, readOnly, timeZone, companyName, initialType
   const [switching, setSwitching] = React.useState(false);
   const [switchError, setSwitchError] = React.useState<string | null>(null);
   const workspaceRef = React.useRef<HTMLDivElement>(null);
+  const phone = useIsPhone();
+  // Phones: type list → type screen → wording editor, as stacked screens.
+  const [phoneScreen, setPhoneScreen] = React.useState<"list" | WordingPhoneScreen>(initialType ? "type" : "list");
 
   const types = catalog?.types ?? [];
   const selected = types.find((type) => type.key === selectedKey) ?? types[0] ?? null;
@@ -66,7 +71,17 @@ export function TypesTab({ isAdmin, readOnly, timeZone, companyName, initialType
     } catch {
       // The address bar is a convenience; selection works without it.
     }
+    if (phone) {
+      setPhoneScreen("type");
+      window.scrollTo?.({ top: 0 });
+      return;
+    }
     if (window.matchMedia?.("(max-width: 1023px)").matches) workspaceRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function phoneTo(screen: "list" | WordingPhoneScreen) {
+    setPhoneScreen(screen);
+    window.scrollTo?.({ top: 0 });
   }
 
   async function saveSwitch(body: unknown) {
@@ -94,10 +109,17 @@ export function TypesTab({ isAdmin, readOnly, timeZone, companyName, initialType
       {summaryRead.error ? <EAlert tone="warning" title="Wording status unavailable">{summaryRead.error} The list still works; edited and missing-variable counts are not shown.</EAlert> : null}
       {switchError && !selected ? <EAlert tone="danger" title="Switch not changed">{switchError}</EAlert> : null}
       <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start">
-        <TypeList
-          types={types} summaries={summaries} controlsUpdatedAt={catalog.controlsUpdatedAt} selectedKey={selected?.key ?? null} onSelect={select}
-          canSwitch={canSwitch} switching={switching} onSwitch={(body) => void saveSwitch(body)} switchNote={switchNote}
-        />
+        {phone && phoneScreen !== "list" && selected ? (
+          phoneScreen === "type" ? (
+            <NotificationsPhoneBack title={selected.name} subtitle="Notification types" backLabel="Back to notification types" onBack={() => phoneTo("list")} />
+          ) : null
+        ) : (
+          <TypeList
+            types={types} summaries={summaries} controlsUpdatedAt={catalog.controlsUpdatedAt} selectedKey={selected?.key ?? null} onSelect={select}
+            canSwitch={canSwitch} switching={switching} onSwitch={(body) => void saveSwitch(body)} switchNote={switchNote}
+          />
+        )}
+        {phone && phoneScreen === "list" ? null : (
         <div ref={workspaceRef} className="flex min-w-0 flex-1 scroll-mt-4 flex-col gap-3 lg:flex-row lg:items-start">
           {selected ? (
             <WordingWorkspace
@@ -109,10 +131,13 @@ export function TypesTab({ isAdmin, readOnly, timeZone, companyName, initialType
               testable={selected.testable === true}
               testBlockedReason={readOnly ? "Test sends are disabled while impersonating." : null}
               onSaved={summaryRead.reload}
+              phoneScreen={phone && phoneScreen !== "list" ? phoneScreen : undefined}
+              onPhoneScreen={phoneTo}
               details={<TypeDetails type={selected} summary={summaries.get(selected.key)} controlsUpdatedAt={catalog.controlsUpdatedAt} canSwitch={canSwitch} switchNote={switchNote} saving={switching} error={switchError} onSave={(body) => void saveSwitch(body)} timeZone={timeZone} />}
             />
           ) : <p className="text-sm">No notification types.</p>}
         </div>
+        )}
       </div>
     </section>
   );

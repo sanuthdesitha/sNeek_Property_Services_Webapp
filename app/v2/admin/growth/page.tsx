@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { getAppSettings } from "@/lib/settings";
 import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
 import { GrowthHub } from "@/components/v2/admin/growth/growth-hub";
 import { loadGrowthSummary } from "@/lib/growth/summary";
 
@@ -32,15 +33,27 @@ export default async function AdminGrowthPage() {
         actions={
           <>
             {summary.website ? (
-              <EButton asChild variant="outline" size="sm"><Link href="/v2/admin/website/blog">Write blog post</Link></EButton>
+              <EButton asChild variant="outline" size="sm" className="max-sm:hidden"><Link href="/v2/admin/website/blog">Write blog post</Link></EButton>
             ) : null}
             {summary.campaigns ? (
-              <EButton asChild size="sm"><Link href="/v2/admin/marketing">New campaign</Link></EButton>
+              <EButton asChild size="sm" className="max-sm:hidden"><Link href="/v2/admin/marketing">New campaign</Link></EButton>
             ) : null}
           </>
         }
       />
       <GrowthHub summary={summary} timezone={timezone} />
+      {/* Phones: the header actions move into thumb reach above the tab bar. */}
+      {summary.website || summary.campaigns ? (
+        <EPhoneActionBar
+          label="Growth actions"
+          secondary={summary.website && summary.campaigns ? <EButton asChild variant="outline"><Link href="/v2/admin/website/blog">Write blog post</Link></EButton> : undefined}
+          primary={
+            summary.campaigns
+              ? <EButton asChild><Link href="/v2/admin/marketing">New campaign</Link></EButton>
+              : <EButton asChild variant="outline"><Link href="/v2/admin/website/blog">Write blog post</Link></EButton>
+          }
+        />
+      ) : null}
     </div>
   );
 }

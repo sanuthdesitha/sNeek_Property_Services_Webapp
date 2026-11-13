@@ -9,6 +9,8 @@ import { AccessCapabilities, capabilityCount } from "./access-capabilities";
 import { AccessLevelControl } from "./access-level-control";
 import { SensitiveBadge } from "./access-badges";
 import { GROUP_ORDER, plainLabel } from "./access-labels";
+import { AccessAreaRows } from "./access-phone";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 
 type Feature = (typeof OPS_FEATURES)[number];
 
@@ -51,6 +53,7 @@ export function AccessMatrix({
   onLevel: (area: OpsFeature, level: AccessLevel) => void;
   onCapability: (key: CapabilityKey, on: boolean) => void;
 }) {
+  const phone = useIsPhone();
   const [openAreas, setOpenAreas] = useState<Set<string>>(new Set());
   const [openFolds, setOpenFolds] = useState<Set<string>>(new Set());
   const levels = resolveAccessLevels(draft, userId);
@@ -108,8 +111,13 @@ export function AccessMatrix({
     );
   }
 
+  // Phones: one row per area with a level button and sheet (same draft calls).
+  if (phone) {
+    return <AccessAreaRows draft={draft} saved={saved} userId={userId} personName={personName} editable={editable} onLevel={onLevel} onCapability={onCapability} />;
+  }
+
   return (
-    <div className="overflow-x-auto rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
+    <div className="overflow-x-auto rounded-[var(--e-radius-lg)] max-sm:hidden border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
       <table className="w-full min-w-[560px] border-collapse text-[0.875rem]">
         <caption className="sr-only">Access for {personName} by area</caption>
         <thead>

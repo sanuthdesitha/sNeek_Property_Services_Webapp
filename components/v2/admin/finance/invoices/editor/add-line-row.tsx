@@ -32,6 +32,14 @@ export type AddLineRowProps = {
   onAddJob: (jobId: string) => void;
 };
 
+/** Why a saved item's GST setting does not apply here, or null when it matches. */
+export function savedItemGstNote(itemGst: boolean, gstEnabled: boolean): string | null {
+  if (itemGst === gstEnabled) return null;
+  return itemGst
+    ? "This item is saved as charging GST, but GST is off on this invoice. The invoice's GST switch decides."
+    : "This item is saved as GST-free, but GST is on for this invoice and applies to every line. The invoice's GST switch decides.";
+}
+
 function SuggestionText({ suggestion }: { suggestion: Suggestion }) {
   if (suggestion.kind === "item") {
     return (
@@ -77,13 +85,7 @@ export function AddLineRow(props: AddLineRowProps) {
     }
     const { item } = suggestion;
     props.onNewLine({ description: item.name, quantity: newLine.quantity || "1", unitPrice: item.rate.toFixed(2) });
-    setGstNote(
-      item.gst === props.gstEnabled
-        ? null
-        : item.gst
-          ? "This item is saved as charging GST, but GST is off on this invoice. The invoice's GST switch decides."
-          : "This item is saved as GST-free, but GST is on for this invoice and applies to every line. The invoice's GST switch decides.",
-    );
+    setGstNote(savedItemGstNote(item.gst, props.gstEnabled));
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {

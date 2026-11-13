@@ -1,40 +1,45 @@
 "use client";
 
+/**
+ * The one location tracker for cleaners and laundry drivers (one capture loop
+ * per device). Mounted by the portal layouts while the server says the person
+ * is inside their tracking window (lib/gps/tracking-window):
+ *   - cleaners: useGpsTracker({ jobId }) → POST /api/cleaner/location/ping
+ *   - drivers:  useRouteTracker({ routeId }) → POST /api/laundry/location/ping
+ *
+ * Capture: a seed fix, a high-accuracy watch, and a heartbeat that asks for a
+ * FRESH fix when nothing was queued for 45 s (a still phone). Each fix keeps
+ * the time it was measured; it is never re-stamped as "now".
+ *
+ * Transport: fixes wait in IndexedDB (lib/gps/queue) with a client id and are
+ * flushed every 30 s, on reconnect, when the page is hidden and on pagehide
+ * (keepalive), in batches of 50 with the phone's `sentAt` so the server can
+ * correct clock skew. A rejected batch the server can never accept is
+ * dropped; anything else is kept for the next flush.
+ *
+ * Honesty: the phone's state (sharing / in the background / permission off /
+ * offline / no fix available) is sent with the next flush, so the office sees
+ * WHY a position stopped, not just that it did. A watch that died or went
+ * quiet is restarted when the page is visible again, or when location
+ * permission is granted again.
+ *
+ * Never runs while an administrator is impersonating (the server refuses too).
+ */
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { enqueuePing, drainQueue, clearQueue } from "./queue";
-
-const FLUSH_INTERVAL_MS = 30_000;
-// Re-emit the last known fix on this cadence even when the device hasn't moved.
-// watchPosition only fires on movement, so a cleaner standing still on-site
-// would otherwise stop producing pings and the admin map would show them as
-// stale mid-job. The heartbeat keeps the server's "last seen" fresh.
-const HEARTBEAT_INTERVAL_MS = 45_000;
-
-// The server validates a batch of at most 50 (`/api/cleaner/location/ping`).
-// This MUST NOT drift from that number: a larger batch fails validation, the
-// flush never clears the queue, and the queue only grows — one backgrounded
-// tab was enough to wedge a cleaner's tracking for the rest of their shift.
-const MAX_BATCH = 50;
-
-// watchPosition fires on every movement — roughly once a second on a moving
-// phone — which is how the queue outran the batch limit in the first place.
-// A fix is only worth recording if enough time has passed or the phone has
-// actually moved; the v1 page has thresholded like this all along.
-const MIN_FIX_INTERVAL_MS = 20_000;
-const MIN_FIX_DISTANCE_M = 50;
-
-/** Metres between two coordinates. Small-angle equirectangular is plenty for
- *  a 50 m threshold and avoids importing the server-side geo module. */
-function roughDistanceM(
-  a: { lat: number; lng: number },
-  b: { lat: number; lng: number }
-): number {
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const x = toRad(b.lng - a.lng) * Math.cos(toRad((a.lat + b.lat) / 2));
-  const y = toRad(b.lat - a.lat);
-  return Math.sqrt(x * x + y * y) * 6_371_000;
-}
+import {
+  FLUSH_INTERVAL_MS,
+  HEARTBEAT_INTERVAL_MS,
+  MAX_BATCH,
+  interpretFlushResponse,
+  newClientPingId,
+  shouldQueueFix,
+  shouldRestartWatch,
+  trackingStateFor,
+} from "./tracker-core";
+import { publishRouteArrival, resetTrackerStatus, subscribeTrackerRestart, updateTrackerStatus, type LiveFix } from "./live-fix-store";
+import type { TrackingState } from "./staleness";
 
 export type GpsPermission = "prompt" | "granted" | "denied";
 
@@ -45,279 +50,358 @@ export interface GpsLastFix {
   timestamp: string;
 }
 
-interface UseGpsTrackerOpts {
-  jobId: string;
-  enabled?: boolean;
+type Portal = "cleaner" | "laundry";
+
+type TrackerOptions = {
+  portal: Portal;
+  /** The job (cleaner) or route (driver) being tracked; empty disables. */
+  subjectId: string;
+  enabled: boolean;
+  /** Cleaner on the way with the client's live-location switch on. */
+  clientSees?: boolean;
+  /** The server says the window closed: re-ask whether to track. */
+  onWindowClosed?: () => void;
+};
+
+const ENDPOINT: Record<Portal, string> = {
+  cleaner: "/api/cleaner/location/ping",
+  laundry: "/api/laundry/location/ping",
+};
+const ROLE: Record<Portal, string> = { cleaner: "CLEANER", laundry: "LAUNDRY" };
+
+async function readJson(res: { json?: () => Promise<unknown> }): Promise<unknown> {
+  if (typeof res.json !== "function") return null;
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
 }
 
-/**
- * Hook the cleaner-side job screen calls while a job is active. While enabled
- * it asks the browser for high-accuracy position updates, queues each fix in
- * IndexedDB, and flushes the queue to /api/cleaner/location/ping every 30s
- * (and immediately on `online` events). All network failures are swallowed —
- * pings remain in the queue until a flush succeeds.
- */
-export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
+function positionToFix(position: GeolocationPosition): LiveFix {
+  return {
+    lat: position.coords.latitude,
+    lng: position.coords.longitude,
+    accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
+    heading: position.coords.heading ?? null,
+    speed: position.coords.speed ?? null,
+    measuredAt: Number.isFinite(position.timestamp) ? position.timestamp : Date.now(),
+  };
+}
+
+function isVisible(): boolean {
+  return typeof document === "undefined" || document.visibilityState !== "hidden";
+}
+
+function isOnline(): boolean {
+  return typeof navigator === "undefined" || navigator.onLine !== false;
+}
+
+export function useLocationTracker({ portal, subjectId, enabled, clientSees = false, onWindowClosed }: TrackerOptions) {
   const { data: session, status } = useSession();
-  const scope = status === "authenticated" && session?.user?.id && session.user.role === "CLEANER"
-    ? JSON.stringify([session.user.id, session.user.role, session.impersonation?.actorId,
-      session.impersonation?.mode, session.impersonation?.startedAt]) : null;
-  const active = enabled && scope !== null && Boolean(jobId.trim());
-  const flushBusyRef = useRef(false);
+  const impersonating = Boolean(session?.impersonation);
+  const scope = status === "authenticated" && session?.user?.id && session.user.role === ROLE[portal] && !impersonating
+    ? JSON.stringify([session.user.id, session.user.role, session.impersonation?.actorId, session.impersonation?.mode, session.impersonation?.startedAt])
+    : null;
+  const active = enabled && scope !== null && Boolean(subjectId.trim());
   const [permission, setPermission] = useState<GpsPermission>("prompt");
   const [lastFix, setLastFix] = useState<GpsLastFix | null>(null);
-  // Last raw coordinates + when we last enqueued anything — shared with the
-  // heartbeat so it can re-emit a stationary position and avoid double-emitting
-  // right after a real fix.
-  const lastCoordsRef = useRef<{ lat: number; lng: number; accuracy: number | null } | null>(null);
-  const lastEnqueueAtRef = useRef(0);
+  const [restartToken, setRestartToken] = useState(0);
 
+  const lastQueuedRef = useRef<{ lat: number; lng: number; queuedAt: number } | null>(null);
+  const lastEnqueueAtRef = useRef(0);
+  const lastFixAtRef = useRef<number | null>(null);
+  const watchAliveRef = useRef(false);
+  const permissionRef = useRef<GpsPermission>("prompt");
+  const unavailableRef = useRef(false);
+  const flushBusyRef = useRef(false);
+  const flushRef = useRef<(options?: { keepalive?: boolean }) => Promise<void>>(async () => {});
+  const lastSentStateRef = useRef<TrackingState>("SHARING");
+  const pendingStateRef = useRef<TrackingState | null>(null);
+  const onWindowClosedRef = useRef(onWindowClosed);
+  onWindowClosedRef.current = onWindowClosed;
+
+  /** Recompute the phone's state; queue it for the office when it changed. */
+  const noteStateRef = useRef<() => void>(() => {});
+  noteStateRef.current = () => {
+    const state = trackingStateFor({ permission: permissionRef.current, visible: isVisible(), online: isOnline(), unavailable: unavailableRef.current });
+    if (active) updateTrackerStatus({ state });
+    if (state === lastSentStateRef.current && pendingStateRef.current === null) return;
+    pendingStateRef.current = state;
+  };
+
+  // Shared status for the indicator, driving mode and the route screen.
   useEffect(() => {
-    lastCoordsRef.current = null;
-    lastEnqueueAtRef.current = 0;
-    setLastFix(null);
-    setPermission("prompt");
-    let cancelled = false;
-    if (!active || typeof navigator === "undefined" || !navigator.geolocation) {
+    if (!active) {
+      resetTrackerStatus();
       return;
     }
+    updateTrackerStatus({ active: true, portal, clientSees, permission: permissionRef.current, lastFix: null });
+    return () => resetTrackerStatus();
+  }, [active, portal, clientSees, subjectId, scope]);
 
-    const recordFix = async (
-      coords: { lat: number; lng: number; accuracy: number | null; heading?: number | null; speed?: number | null; timestamp: string },
-    ) => {
+  // Capture: seed fix + watch. Restarted on subject/scope change and on demand.
+  useEffect(() => {
+    lastQueuedRef.current = null;
+    lastEnqueueAtRef.current = 0;
+    lastFixAtRef.current = null;
+    watchAliveRef.current = false;
+    unavailableRef.current = false;
+    setLastFix(null);
+    setPermission("prompt");
+    permissionRef.current = "prompt";
+    let cancelled = false;
+    if (!active || typeof navigator === "undefined" || !navigator.geolocation) return;
+
+    const accept = async (position: GeolocationPosition, bypassThrottle: boolean) => {
       if (cancelled) return;
-      // Throttle repeated watch callbacks. Heartbeat measurements below are
-      // obtained independently with maximumAge: 0.
-      const previous = lastCoordsRef.current;
-      if (previous) {
-        const sinceMs = Date.now() - lastEnqueueAtRef.current;
-        const movedM = roughDistanceM(previous, coords);
-        if (sinceMs < MIN_FIX_INTERVAL_MS && movedM < MIN_FIX_DISTANCE_M) return;
-      }
-      lastCoordsRef.current = { lat: coords.lat, lng: coords.lng, accuracy: coords.accuracy };
-      lastEnqueueAtRef.current = Date.now();
+      const fix = positionToFix(position);
+      setPermission("granted");
+      permissionRef.current = "granted";
+      unavailableRef.current = false;
+      lastFixAtRef.current = Date.now();
+      const view: GpsLastFix = { lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, timestamp: new Date(fix.measuredAt).toISOString() };
+      setLastFix(view);
+      updateTrackerStatus({ permission: "granted", lastFix: fix });
+      noteStateRef.current();
+      const now = Date.now();
+      if (!bypassThrottle && !shouldQueueFix(lastQueuedRef.current, fix, now)) return;
+      lastQueuedRef.current = { lat: fix.lat, lng: fix.lng, queuedAt: now };
+      lastEnqueueAtRef.current = now;
       try {
         await enqueuePing({
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          jobId,
+          id: newClientPingId(now),
+          jobId: portal === "cleaner" ? subjectId : "",
+          ...(portal === "laundry" ? { routeId: subjectId } : {}),
           scope: scope!,
-          lat: coords.lat,
-          lng: coords.lng,
-          accuracy: coords.accuracy ?? undefined,
-          heading: coords.heading ?? undefined,
-          speed: coords.speed ?? undefined,
-          timestamp: coords.timestamp,
+          lat: fix.lat,
+          lng: fix.lng,
+          accuracy: fix.accuracy ?? undefined,
+          heading: fix.heading ?? undefined,
+          speed: fix.speed ?? undefined,
+          timestamp: view.timestamp,
         });
       } catch {
         // IndexedDB unavailable / quota exceeded — best-effort.
       }
     };
 
-    // Seed an immediate one-shot fix so the cleaner appears on the map fast,
-    // without waiting for watchPosition's first movement-triggered callback.
+    const onError = (err: GeolocationPositionError) => {
+      if (cancelled) return;
+      if (err.code === err.PERMISSION_DENIED) {
+        setPermission("denied");
+        permissionRef.current = "denied";
+        watchAliveRef.current = false;
+        updateTrackerStatus({ permission: "denied" });
+      } else {
+        unavailableRef.current = true;
+      }
+      noteStateRef.current();
+      if (pendingStateRef.current) void flushRef.current();
+    };
+
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        if (cancelled) return;
-        setPermission("granted");
-        const fix: GpsLastFix = {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy ?? null,
-          timestamp: new Date(pos.timestamp).toISOString(),
-        };
-        setLastFix(fix);
-        void recordFix({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy ?? null,
-          heading: pos.coords.heading,
-          speed: pos.coords.speed,
-          timestamp: new Date(pos.timestamp).toISOString(),
-        });
-      },
-      () => {},
+      (position) => void accept(position, false),
+      onError,
       { enableHighAccuracy: true, maximumAge: 15_000, timeout: 20_000 },
     );
-
     const id = navigator.geolocation.watchPosition(
-      async (pos) => {
-        if (cancelled) return;
-        setPermission("granted");
-        const fix: GpsLastFix = {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy ?? null,
-          timestamp: new Date(pos.timestamp).toISOString(),
-        };
-        setLastFix(fix);
-        await recordFix({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy ?? null,
-          heading: pos.coords.heading,
-          speed: pos.coords.speed,
-          timestamp: new Date(pos.timestamp).toISOString(),
-        });
-      },
-      (err) => {
-        if (cancelled) return;
-        if (err.code === err.PERMISSION_DENIED) setPermission("denied");
-      },
-      // High-accuracy positioning: tells the browser to use GPS hardware where
-      // available rather than cell tower / WiFi triangulation. maximumAge:0
-      // prevents reuse of stale cached fixes. 20s timeout gives the GPS chip
-      // time to acquire a satellite lock indoors.
+      (position) => void accept(position, false),
+      onError,
       { enableHighAccuracy: true, maximumAge: 0, timeout: 20_000 },
     );
+    watchAliveRef.current = true;
 
     return () => {
       cancelled = true;
+      watchAliveRef.current = false;
       navigator.geolocation.clearWatch(id);
-      lastCoordsRef.current = null;
+      lastQueuedRef.current = null;
       lastEnqueueAtRef.current = 0;
     };
-  }, [active, enabled, jobId, scope]);
+  }, [active, portal, subjectId, scope, restartToken]);
 
-  // Periodic flush + flush-on-reconnect.
+  // Flush: interval, reconnect, page hidden / pagehide (keepalive), visible again.
   useEffect(() => {
     if (!active) return;
-
     let cancelled = false;
     const controller = new AbortController();
-    const flush = async () => {
+
+    const flush = async (options: { keepalive?: boolean } = {}) => {
       if (cancelled || flushBusyRef.current) return;
-      if (typeof navigator !== "undefined" && !navigator.onLine) return;
+      if (!isOnline()) return;
       flushBusyRef.current = true;
       try {
         const pings = (await drainQueue()).filter((ping) => ping.scope === scope);
         if (cancelled) return;
-        if (pings.length === 0) return;
-
-        // Send in server-sized batches. Draining the whole queue into one
-        // request is what broke this: past 50 the payload failed validation,
-        // `res.ok` stayed false, the queue was never cleared, and every later
-        // flush re-sent an ever-larger payload that could never succeed.
-        for (let i = 0; i < pings.length; i += MAX_BATCH) {
+        const state = pendingStateRef.current;
+        if (pings.length === 0 && !state) return;
+        const batches: Array<typeof pings> = [];
+        for (let i = 0; i < pings.length; i += MAX_BATCH) batches.push(pings.slice(i, i + MAX_BATCH));
+        if (batches.length === 0) batches.push([]);
+        for (let index = 0; index < batches.length; index += 1) {
           if (cancelled) return;
-          const batch = pings.slice(i, i + MAX_BATCH);
-          const res = await fetch("/api/cleaner/location/ping", {
+          const batch = batches[index];
+          const stateToSend = index === 0 ? state : null;
+          const res = await fetch(ENDPOINT[portal], {
             method: "POST",
             headers: { "content-type": "application/json" },
             signal: controller.signal,
-            // Local queue identity and ownership are never part of the API payload.
-            body: JSON.stringify(batch.map(({ id: _id, scope: _scope, ...rest }) => rest)),
+            ...(options.keepalive ? { keepalive: true } : {}),
+            body: JSON.stringify({
+              sentAt: new Date().toISOString(),
+              // Local queue scope never leaves the device; the queue id becomes the client id.
+              pings: batch.map(({ id, scope: _scope, routeId: _routeId, jobId, ...rest }) => ({
+                clientId: id,
+                ...(portal === "cleaner" ? { jobId } : {}),
+                ...rest,
+              })),
+              ...(stateToSend ? { state: { state: stateToSend, at: new Date().toISOString() } } : {}),
+            }),
           });
           if (cancelled) return;
-
-          if (res.ok) {
-            await clearQueue(batch.map((p) => p.id));
-            continue;
+          const verdict = interpretFlushResponse(res.status, await readJson(res));
+          if (cancelled) return;
+          if (verdict.kind === "retain") return;
+          if (batch.length) await clearQueue(batch.map((p) => p.id));
+          if (stateToSend) {
+            lastSentStateRef.current = stateToSend;
+            if (pendingStateRef.current === stateToSend) pendingStateRef.current = null;
           }
-
-          // Only validation failures are permanent. Auth, rate limits and
-          // other failures must retain the batch and stop this flush.
-          if (res.status === 400 || res.status === 422) {
-            await clearQueue(batch.map((p) => p.id));
-            continue;
-          }
-          return;
+          updateTrackerStatus({ lastSentAt: Date.now() });
+          if (verdict.arrivedStop) publishRouteArrival(verdict.arrivedStop);
+          if (verdict.windowClosed) onWindowClosedRef.current?.();
         }
       } catch {
-        // Network or DB error — pings stay queued.
+        // Network or storage error — fixes stay queued.
       } finally {
         flushBusyRef.current = false;
       }
     };
+    flushRef.current = flush;
 
-    const interval = setInterval(flush, FLUSH_INTERVAL_MS);
-    flush(); // immediate drain on mount
-
-    const onOnline = () => flush();
-    if (typeof window !== "undefined") {
-      window.addEventListener("online", onOnline);
-    }
+    const interval = setInterval(() => void flush(), FLUSH_INTERVAL_MS);
+    void flush();
+    const onOnline = () => {
+      noteStateRef.current();
+      void flush();
+    };
+    const onOffline = () => noteStateRef.current();
+    const onVisibility = () => {
+      noteStateRef.current();
+      if (isVisible()) {
+        void flush();
+        if (shouldRestartWatch({ visible: true, watchAlive: watchAliveRef.current, lastFixAt: lastFixAtRef.current, now: Date.now(), permission: permissionRef.current })) {
+          setRestartToken((value) => value + 1);
+        }
+      } else {
+        // The browser may stop this page any moment now: send what is queued
+        // and tell the office the app went to the background.
+        void flush({ keepalive: true });
+      }
+    };
+    const onPageHide = () => {
+      pendingStateRef.current = "BACKGROUND";
+      void flush({ keepalive: true });
+    };
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       cancelled = true;
       controller.abort();
       clearInterval(interval);
-      if (typeof window !== "undefined") {
-        window.removeEventListener("online", onOnline);
-      }
+      flushRef.current = async () => {};
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [active, enabled, scope, jobId]);
+  }, [active, portal, scope, subjectId]);
 
-  // A heartbeat requests a new fix. Re-stamping old coordinates as "now"
-  // makes a lost signal look live and can misplace a moving cleaner indefinitely.
+  // Heartbeat: a fresh fix when nothing was queued for 45 s (never a re-stamp).
   useEffect(() => {
-    if (!active || !navigator.geolocation) return;
+    if (!active || typeof navigator === "undefined" || !navigator.geolocation) return;
     let cancelled = false;
     let pending = false;
     const beat = setInterval(() => {
       if (cancelled || pending || Date.now() - lastEnqueueAtRef.current < HEARTBEAT_INTERVAL_MS) return;
       pending = true;
-      navigator.geolocation.getCurrentPosition(async position => {
+      navigator.geolocation.getCurrentPosition(async (position) => {
         pending = false;
         if (cancelled) return;
-        const fix = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-          timestamp: new Date(position.timestamp).toISOString(),
-        };
-        setLastFix(fix);
-        lastCoordsRef.current = fix;
+        const fix = positionToFix(position);
+        const view: GpsLastFix = { lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, timestamp: new Date(fix.measuredAt).toISOString() };
+        setLastFix(view);
+        lastFixAtRef.current = Date.now();
+        lastQueuedRef.current = { lat: fix.lat, lng: fix.lng, queuedAt: Date.now() };
         lastEnqueueAtRef.current = Date.now();
+        updateTrackerStatus({ lastFix: fix });
         try {
-          await enqueuePing({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, jobId, scope: scope!, ...fix });
+          await enqueuePing({
+            id: newClientPingId(Date.now()),
+            jobId: portal === "cleaner" ? subjectId : "",
+            ...(portal === "laundry" ? { routeId: subjectId } : {}),
+            scope: scope!,
+            lat: fix.lat,
+            lng: fix.lng,
+            accuracy: fix.accuracy ?? undefined,
+            timestamp: view.timestamp,
+          });
         } catch { /* Offline queue unavailable; the next genuine fix retries. */ }
       }, () => { pending = false; }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20_000 });
     }, HEARTBEAT_INTERVAL_MS);
     return () => { cancelled = true; clearInterval(beat); };
-  }, [active, jobId, scope]);
+  }, [active, portal, subjectId, scope]);
+
+  // Permission changes: restart when granted again, report when turned off.
+  useEffect(() => {
+    if (!active || typeof navigator === "undefined" || !navigator.permissions?.query) return;
+    let cancelled = false;
+    let statusHandle: PermissionStatus | null = null;
+    const onChange = () => {
+      if (cancelled || !statusHandle) return;
+      if (statusHandle.state === "granted" && permissionRef.current !== "granted") {
+        setRestartToken((value) => value + 1);
+      } else if (statusHandle.state === "denied") {
+        setPermission("denied");
+        permissionRef.current = "denied";
+        updateTrackerStatus({ permission: "denied" });
+        noteStateRef.current();
+        void flushRef.current();
+      }
+    };
+    navigator.permissions
+      .query({ name: "geolocation" as PermissionName })
+      .then((handle) => {
+        if (cancelled) return;
+        statusHandle = handle;
+        handle.addEventListener?.("change", onChange);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      statusHandle?.removeEventListener?.("change", onChange);
+    };
+  }, [active]);
+
+  // "Retry location" from anywhere on the page.
+  useEffect(() => {
+    if (!active) return;
+    return subscribeTrackerRestart(() => setRestartToken((value) => value + 1));
+  }, [active]);
 
   return { permission, lastFix };
 }
 
-export function GpsPermissionBanner({ permission }: { permission: GpsPermission }) {
-  if (permission !== "denied") return null;
-  return (
-    <div
-      role="status"
-      className="sticky top-0 z-30 bg-warning/10 px-4 py-2 text-center text-sm text-warning"
-    >
-      Live tracking is off — your manager can&apos;t see your location. Enable
-      location in your browser settings.
-    </div>
-  );
+/** Cleaner tracker (the job they are on the way to or clocked in on). */
+export function useGpsTracker({ jobId, enabled = true, clientSees = false, onWindowClosed }: { jobId: string; enabled?: boolean; clientSees?: boolean; onWindowClosed?: () => void }) {
+  return useLocationTracker({ portal: "cleaner", subjectId: jobId, enabled, clientSees, onWindowClosed });
 }
 
-/**
- * Small inline indicator for the cleaner: surfaces the last-known GPS
- * accuracy, and warns when the accuracy is poor enough that the reported
- * location is likely useless for arrival detection. Android in particular
- * defaults to "approximate" location after Android 12 — the user has to
- * grant "precise" location for the GPS chip to engage.
- */
-export function GpsAccuracyIndicator({
-  permission,
-  lastFix,
-}: {
-  permission: GpsPermission;
-  lastFix: GpsLastFix | null;
-}) {
-  if (permission !== "granted" || !lastFix) return null;
-  const acc = lastFix.accuracy ?? 0;
-  const lowAccuracy = acc > 200;
-  return (
-    <p className="text-xs text-muted-foreground">
-      Last GPS fix: <span className="font-medium">±{Math.round(acc)}m</span>
-      {lowAccuracy && (
-        <span className="ml-2 text-warning">
-          Low accuracy — grant "Precise location" in your phone&apos;s settings
-          to fix this.
-        </span>
-      )}
-    </p>
-  );
+/** Laundry driver tracker (their ACTIVE route today). */
+export function useRouteTracker({ routeId, enabled = true, onWindowClosed }: { routeId: string; enabled?: boolean; onWindowClosed?: () => void }) {
+  return useLocationTracker({ portal: "laundry", subjectId: routeId, enabled, onWindowClosed });
 }

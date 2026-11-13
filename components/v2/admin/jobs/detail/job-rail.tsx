@@ -10,10 +10,11 @@ import type { ReactNode } from "react";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import { messagesHref } from "@/lib/jobs/job-page/primary-action";
 import { formatMoney, moneyText, type MoneyFigure } from "@/lib/jobs/job-page/money";
+import { PhoneFold } from "@/components/v2/admin/phone-fold";
 import { JobLinkedActions } from "./job-linked-actions";
 import { titleCase, type JobPageData } from "./job-page-data";
 
-function RailCard({ title, action, children, id }: { title: string; action?: ReactNode; children: ReactNode; id?: string }) {
+function RailCard({ title, action, children, id, fold = false }: { title: string; action?: ReactNode; children: ReactNode; id?: string; fold?: boolean }) {
   const headingId = `rail-${title.toLowerCase().replace(/\s+/g, "-")}`;
   return (
     <section id={id} aria-labelledby={headingId} className="flex min-w-0 flex-col gap-2 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-4 py-3 text-[0.8125rem]">
@@ -21,7 +22,8 @@ function RailCard({ title, action, children, id }: { title: string; action?: Rea
         <h2 id={headingId} className="e-eyebrow">{title}</h2>
         {action}
       </div>
-      {children}
+      {/* Phones (board M-JobDetail): secondary rail cards fold under their title. */}
+      {fold ? <PhoneFold label={title}>{children}</PhoneFold> : children}
     </section>
   );
 }
@@ -121,7 +123,7 @@ function MoneyCard({ data }: { data: JobPageData }) {
   const money = data.model.money;
   const locked = money.chargeState === "locked";
   return (
-    <RailCard title="Money" id="money" action={<Link href="#billing" className="text-[hsl(var(--e-accent-portal))] hover:underline">Edit billing</Link>}>
+    <RailCard title="Money" id="money" fold action={<Link href="#billing" className="text-[hsl(var(--e-accent-portal))] hover:underline">Edit billing</Link>}>
       <Pairs>
         <Pair term="Client charge">
           <span className="font-[600]"><Figure figure={money.charge} /></span>{" "}
@@ -162,7 +164,7 @@ function LinkedCard({ data }: { data: JobPageData }) {
   const linkClass = "text-[hsl(var(--e-accent-portal))] hover:underline";
   const invoice = model.liveInvoice;
   return (
-    <RailCard title="Linked">
+    <RailCard title="Linked" fold>
       <Pairs>
         {related.links.quotes ? (
           <Pair term="Quote">{related.quote ? <><Link href={`/v2/admin/quotes/${related.quote.id}`} className={linkClass}>Open quote</Link> <EBadge tone="neutral" soft>{titleCase(String(related.quote.status))}</EBadge></> : <span className="text-[hsl(var(--e-muted-foreground))]">None</span>}</Pair>
@@ -206,7 +208,7 @@ function LinkedCard({ data }: { data: JobPageData }) {
 function MessagesCard({ data }: { data: JobPageData }) {
   const latest = data.related.latestClientMessage;
   return (
-    <RailCard title="Client messages">
+    <RailCard title="Client messages" fold>
       {latest ? (
         <p className="[overflow-wrap:anywhere]">
           “{latest.body.length > 160 ? `${latest.body.slice(0, 157)}…` : latest.body}”{" "}
@@ -224,7 +226,7 @@ function MessagesCard({ data }: { data: JobPageData }) {
 
 export function JobRail({ data }: { data: JobPageData }) {
   return (
-    <aside aria-label="Job details" className="flex w-full min-w-0 flex-col gap-3 lg:w-[340px] lg:flex-none">
+    <aside id="job-details" aria-label="Job details" className="flex w-full min-w-0 scroll-mt-24 flex-col gap-3 max-sm:scroll-mt-44 lg:w-[340px] lg:flex-none">
       <PeopleCard data={data} />
       <AccessCard data={data} />
       <MoneyCard data={data} />

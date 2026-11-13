@@ -8,10 +8,13 @@
  * existing dialog or calls an existing route; the routes re-check permission.
  */
 import Link from "next/link";
-import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ChevronDown, MoreHorizontal } from "lucide-react";
 import { EButton } from "@/components/v2/ui/primitives";
 import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
+import { isPhoneNow, PhoneActionSheet } from "@/components/v2/admin/phone-action-sheet";
 import { downloadFromApi } from "@/lib/client/download";
 import { toast } from "@/hooks/use-toast";
 import type { JobPrimaryAction, JobSecondaryAction } from "@/lib/jobs/job-page/primary-action";
@@ -57,8 +60,8 @@ function DisabledReason({ id, text }: { id: string; text: string }) {
   );
 }
 
-function ActionButton({ action, variant, onPress }: { action: JobPrimaryAction | JobSecondaryAction; variant: "primary" | "outline"; onPress?: () => void }) {
-  const reasonId = `reason-${action.kind}`;
+function ActionButton({ action, variant, onPress, idSuffix = "" }: { action: JobPrimaryAction | JobSecondaryAction; variant: "primary" | "outline"; onPress?: () => void; idSuffix?: string }) {
+  const reasonId = `reason-${action.kind}${idSuffix}`;
   if (action.disabledReason) {
     return (
       <>
@@ -87,6 +90,15 @@ export function JobHeaderActions(props: JobHeaderActionsProps) {
   const [dialog, setDialog] = useState<JobDialogKey | null>(props.initialOpen === "reschedule" ? "schedule" : null);
   const [messagingTeam, setMessagingTeam] = useState(false);
   const restore = useJobRestore();
+  // Phones (board M-JobDetail): the actions dock in a bottom bar and "More"
+  // is a bottom sheet with the same items. From 640px up nothing changes.
+  const phone = useIsPhone();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  // An old danger link opens the desktop menu, or the sheet on a phone.
+  const [desktopMenuSignal] = useState(() => props.initialOpen === "menu" && !isPhoneNow());
+  useEffect(() => {
+    if (phone && props.initialOpen === "menu") setSheetOpen(true);
+  }, [phone, props.initialOpen]);
 
   async function downloadReport() {
     try {
@@ -117,43 +129,94 @@ export function JobHeaderActions(props: JobHeaderActionsProps) {
     };
   });
 
-  return (
-    <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
-      {props.secondary.map((action) =>
-        action.kind === "send-back" ? (
-          <QuickQaReview
-            key={action.kind}
-            jobId={props.jobId}
-            jobStatus={props.status}
-            hasReview={props.hasQaReview}
-            intent="rework"
-            triggerLabel={action.label}
-            disabledReason={action.disabledReason}
-          />
-        ) : (
-          <ActionButton key={action.kind} action={action} variant="outline" onPress={action.kind === "send-reminder" ? () => setDialog("reminder") : undefined} />
-        ),
-      )}
-      {props.primary ? (
-        <ActionButton
-          action={props.primary.kind === "restore" && restore?.state.kind === "saving" ? { ...props.primary, label: "Restoring…", disabledReason: "Restoring…" } : props.primary}
-          variant="primary"
-          onPress={props.primary.kind === "restore" ? () => void restore?.restore() : props.primary.kind === "message-team" ? () => setMessagingTeam(true) : undefined}
-        />
-      ) : null}
-      <ERowMenu
-        label="More job actions"
-        items={items}
-        trigger={
-          <>
-            More <ChevronDown aria-hidden className="h-3.5 w-3.5" />
-          </>
-        }
-        triggerVariant="outline"
-        className="h-8 px-3 text-[0.8125rem]"
-        footnote={props.menuFootnote}
-        openSignal={props.initialOpen === "menu"}
+  function renderSecondary(action: JobSecondaryAction, idSuffix = "") {
+    return action.kind === "send-back" ? (
+      <QuickQaReview
+        key={action.kind}
+        jobId={props.jobId}
+        jobStatus={props.status}
+        hasReview={props.hasQaReview}
+        intent="rework"
+        triggerLabel={action.label}
+        disabledReason={action.disabledReason}
       />
+    ) : (
+      <ActionButton key={action.kind} action={action} variant="outline" idSuffix={idSuffix} onPress={action.kind === "send-reminder" ? () => setDialog("reminder") : undefined} />
+    );
+  }
+
+  function renderPrimary(primary: JobPrimaryAction, idSuffix = "") {
+    return (
+      <ActionButton
+        action={primary.kind === "restore" && restore?.state.kind === "saving" ? { ...primary, label: "Restoring…", disabledReason: "Restoring…" } : primary}
+        variant="primary"
+        idSuffix={idSuffix}
+        onPress={primary.kind === "restore" ? () => void restore?.restore() : primary.kind === "message-team" ? () => setMessagingTeam(true) : undefined}
+      />
+    );
+  }
+
+  // Phone bar: "More", one secondary and the primary. Other secondaries lead
+  // the sheet. "Send back for rework" owns a dialog that cannot open inside
+  // the docked bar, so on a phone it jumps to the Submitted stage, which
+  // carries the same button (with "Approve and complete").
+  const barSecondary = props.secondary.find((action) => action.kind !== "send-back") ?? null;
+  const sheetSecondaries = props.secondary.filter((action) => action !== barSecondary);
+  const sheetItems: ERowMenuItem[] = [
+    ...sheetSecondaries.map((action, index): ERowMenuItem => ({
+      key: `status-${action.kind}`,
+      label: action.label,
+      disabled: action.disabledReason !== null,
+      hint: action.disabledReason ?? undefined,
+      href: action.kind === "send-back" ? "#s-submitted" : action.href ?? undefined,
+      heading: index === 0 ? "This job now" : undefined,
+      onSelect: action.href || action.kind === "send-back" ? undefined : action.kind === "send-reminder" ? () => setDialog("reminder") : undefined,
+    })),
+    ...items.map((item, index) => (index === 0 && sheetSecondaries.length > 0 && !item.heading ? { ...item, heading: "Job" } : item)),
+  ];
+  const moreButton = (
+    <EButton key="more" variant="outline" size="icon" aria-label="More job actions" aria-haspopup="dialog" aria-expanded={sheetOpen} onClick={() => setSheetOpen(true)}>
+      <MoreHorizontal aria-hidden className="h-4 w-4" />
+    </EButton>
+  );
+
+  return (
+    <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 max-sm:contents">
+      <div className="contents max-sm:hidden">
+        {props.secondary.map((action) => renderSecondary(action))}
+        {props.primary ? renderPrimary(props.primary) : null}
+        <ERowMenu
+          label="More job actions"
+          items={items}
+          trigger={
+            <>
+              More <ChevronDown aria-hidden className="h-3.5 w-3.5" />
+            </>
+          }
+          triggerVariant="outline"
+          className="h-8 px-3 text-[0.8125rem]"
+          footnote={props.menuFootnote}
+          openSignal={desktopMenuSignal}
+        />
+      </div>
+      {phone ? (
+        <>
+          {/* The bar sits inside the header, so its own end-of-page spacer is hidden here; the page adds one at its end. */}
+          <div className="contents [&>[aria-hidden]]:hidden">
+          <EPhoneActionBar
+            label="Job actions"
+            secondary={
+              <>
+                {moreButton}
+                {barSecondary ? renderSecondary(barSecondary, "-phone") : null}
+              </>
+            }
+            primary={props.primary ? renderPrimary(props.primary, "-phone") : <span className="flex-1" />}
+          />
+          </div>
+          <PhoneActionSheet open={sheetOpen} onOpenChange={setSheetOpen} title="Job actions" items={sheetItems} footnote={props.menuFootnote} />
+        </>
+      ) : null}
       {messagingTeam ? <MessageTeamDialog key={props.jobId} jobId={props.jobId} onClose={() => setMessagingTeam(false)} /> : null}
       <JobActionDialogs
         dialog={dialog}

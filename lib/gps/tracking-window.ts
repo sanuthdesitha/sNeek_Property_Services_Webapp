@@ -52,7 +52,7 @@ export type CleanerJobFacts = {
   ownOpenTimerStartedAt: Date | null;
 };
 
-export type WindowDecision<T = Record<string, never>> =
+export type WindowDecision<T extends object = Record<never, never>> =
   | ({ ok: true } & T)
   | { ok: false; reason: TrackingRefusal };
 

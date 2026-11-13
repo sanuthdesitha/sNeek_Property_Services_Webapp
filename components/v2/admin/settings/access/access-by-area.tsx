@@ -5,7 +5,9 @@ import { OPS_FEATURES, type AccessLevel, type OpsFeature } from "@/lib/rbac/ops-
 import { resolveAccessLevels, type OpsPolicy } from "@/lib/rbac/ops-policy";
 import { isAdminPerson, type AccessPerson } from "@/lib/rbac/access-screen-types";
 import { AccessLevelControl } from "./access-level-control";
-import { displayName, plainLabel } from "./access-labels";
+import { displayName, firstName, plainLabel } from "./access-labels";
+import { AccessLevelSheetButton } from "./access-phone";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 
 /** One area across everyone: who has Off, View, Manage or Full. Edits join the same draft. */
 export function AccessByArea({
@@ -21,6 +23,7 @@ export function AccessByArea({
   editable: (person: AccessPerson) => boolean;
   onLevel: (userId: string, area: OpsFeature, level: AccessLevel) => void;
 }) {
+  const phone = useIsPhone();
   const [area, setArea] = useState<OpsFeature>("jobs");
   const feature = OPS_FEATURES.find((item) => item.key === area);
   return (
@@ -39,6 +42,17 @@ export function AccessByArea({
             <span className="text-[0.875rem]">{displayName(person)}</span>
             {isAdminPerson(person) ? (
               <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Full (administrator)</span>
+            ) : phone ? (
+              <AccessLevelSheetButton
+                value={resolveAccessLevels(draft, person.id)[area]}
+                saved={resolveAccessLevels(saved, person.id)[area]}
+                label={`${displayName(person)}, ${plainLabel(feature?.label ?? area)}`}
+                title={displayName(person)}
+                description={plainLabel(feature?.label ?? area)}
+                personName={firstName(person)}
+                disabled={!editable(person)}
+                onChange={(level) => onLevel(person.id, area, level)}
+              />
             ) : (
               <AccessLevelControl
                 value={resolveAccessLevels(draft, person.id)[area]}

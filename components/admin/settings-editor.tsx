@@ -65,6 +65,14 @@ function dedupeOptionList(values: string[]) {
   return result;
 }
 
+/**
+ * Scheduling rules (laundry operations, recurring jobs, auto-assign, auto
+ * clock-out, QA automation, reminder switches) are owned by Settings ›
+ * Scheduling rules (versioned, PIN-locked). They show here read-only; the
+ * server keeps the stored values whatever this form sends.
+ */
+const SCHEDULING_RULES_LOCKED = true;
+
 export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = false }: SettingsEditorProps) {
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
   const [saving, setSaving] = useState(false);
@@ -1271,7 +1279,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                     laundryOperations: { ...prev.laundryOperations, pickupCutoffTime: e.target.value || "10:00" },
                   }))
                 }
-                disabled={readOnly}
+                disabled={SCHEDULING_RULES_LOCKED || readOnly}
               />
             </div>
             <div className="space-y-1.5">
@@ -1285,7 +1293,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                     laundryOperations: { ...prev.laundryOperations, defaultPickupTime: e.target.value || "09:00" },
                   }))
                 }
-                disabled={readOnly}
+                disabled={SCHEDULING_RULES_LOCKED || readOnly}
               />
             </div>
             <div className="space-y-1.5">
@@ -1299,7 +1307,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                     laundryOperations: { ...prev.laundryOperations, defaultDropoffTime: e.target.value || "16:00" },
                   }))
                 }
-                disabled={readOnly}
+                disabled={SCHEDULING_RULES_LOCKED || readOnly}
               />
             </div>
             <div className="space-y-1.5">
@@ -1318,7 +1326,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                     },
                   }))
                 }
-                disabled={readOnly}
+                disabled={SCHEDULING_RULES_LOCKED || readOnly}
               />
               <p className="text-xs text-muted-foreground">
                 Used when fast-return is disabled and there is no next known clean date.
@@ -1340,7 +1348,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       laundryOperations: { ...prev.laundryOperations, fastReturnWhenNoNextClean: value },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
               <div className="space-y-1.5">
@@ -1361,7 +1369,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       },
                     }))
                   }
-                  disabled={readOnly || !settings.laundryOperations.fastReturnWhenNoNextClean}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly || !settings.laundryOperations.fastReturnWhenNoNextClean}
                 />
               </div>
             </div>
@@ -1431,7 +1439,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
             </div>
@@ -1455,7 +1463,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
             </div>
@@ -1602,7 +1610,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
             </div>
@@ -1632,7 +1640,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
             </div>
@@ -1661,7 +1669,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       autoClockOut: { ...prev.autoClockOut, enabled: value },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
               <div className="flex items-center justify-between rounded border p-2">
@@ -1680,7 +1688,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       autoClockOut: { ...prev.autoClockOut, stopAtEstimatedDuration: value },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
               <div className="space-y-1.5">
@@ -1702,7 +1710,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
               <div className="space-y-1.5">
@@ -1723,7 +1731,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
                 <p className="text-xs text-muted-foreground">
                   Used when a job does not have fixed / allocated pay hours set.
@@ -1744,7 +1752,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       autoClockOut: { ...prev.autoClockOut, fallbackAtMidnight: value },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
             </div>
@@ -1891,7 +1899,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       recurringJobs: { ...prev.recurringJobs, enabled: value },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
               <div className="space-y-1.5">
@@ -1910,7 +1918,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
             </div>
@@ -1923,7 +1931,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                   onCheckedChange={(value) =>
                     setSettings((prev) => ({ ...prev, autoAssign: { ...prev.autoAssign, enabled: value } }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
               <div className="space-y-1.5">
@@ -1944,7 +1952,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
             </div>
@@ -1960,7 +1968,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       qaAutomation: { ...prev.qaAutomation, autoCreateReworkJob: value },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
               <div className="space-y-1.5">
@@ -1979,7 +1987,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
               <div className="space-y-1.5">
@@ -1998,7 +2006,7 @@ export function SettingsEditor({ initialSettings, cleanerOptions, readOnly = fal
                       },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled={SCHEDULING_RULES_LOCKED || readOnly}
                 />
               </div>
             </div>

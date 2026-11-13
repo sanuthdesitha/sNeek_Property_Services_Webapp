@@ -119,6 +119,7 @@ import { useDraftSave } from "@/lib/cleaner/use-draft-save";
 import { readCleanerLocalDraft, writeCleanerLocalDraft, clearCleanerLocalDraft, hasLegacyCleanerLocalDraft } from "@/lib/cleaner/local-draft";
 import { DraftSaveStatus } from "@/components/v2/cleaner/draft-save-status";
 import { getAccuratePosition } from "@/lib/geo/get-position";
+import { useLocationGate, type GateFix } from "@/components/v2/location/location-gate";
 
 import { ActionFab } from "@/components/v2/cleaner/job-stages/action-fab";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
@@ -307,6 +308,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   const [busy, setBusy] = React.useState<string | null>(null);
   /** Set when the browser refuses a location fix — clock-in is blocked until fixed. */
   const [gpsBlocked, setGpsBlocked] = React.useState<string | null>(null);
+  const locationGate = useLocationGate("CLEANER");
   /** Server asked why the cleaner is starting away from the property. */
   const [offSitePrompt, setOffSitePrompt] = React.useState<{
     message?: string;
@@ -1033,24 +1035,19 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     let actionError: unknown;
     setBusy("clockin");
     try {
-      if (!isResume) {
-        // GPS IS REQUIRED TO START. This used to catch a permission denial into
-        // a blue "info" toast and clock in regardless — so "location required"
-        // was advisory, and a job could be started from anywhere with no
-        // evidence at all. A denial now stops the clock-in and tells the
-        // cleaner how to re-enable it.
-        let gps: { lat: number; lng: number; accuracy?: number | null };
-        try {
-          gps = await getGps();
-        } catch (geoErr: any) {
-          setGpsBlocked(geoErr?.message ?? "Location is unavailable.");
-          flash(
-            "danger",
-            "Location is required to start a job. Turn on location for this site, then try again."
-          );
-          return;
-        }
-
+      // LIVE LOCATION IS REQUIRED FOR EVERY START AND RESUME (2026-11): the
+      // notice must be accepted and the phone must give a fix, unless this
+      // cleaner arrived by tapping the tag. The fix is judged by the server
+      // for THIS cleaner's segment (teammates and resumes included); it is no
+      // longer only the first arrival that is checked.
+      let startFix: GateFix | null = null;
+      if (!nfcArrival) {
+        const ready = await locationGate.ensureReady();
+        if (!ready) return;
+        startFix = ready === "NOT_REQUIRED" ? null : ready;
+      }
+      if (!isResume && startFix) {
+        const gps = startFix;
         const checkin = await onlineAction.post(`/api/cleaner/jobs/${jobId}/gps-checkin`, {
           lat: gps.lat,
           lng: gps.lng,
@@ -1084,13 +1081,34 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         propertyCodeConfirmed,
         laundryBagConfirmed,
         ...(briefingAck ? { startBriefingAck: briefingAck } : {}),
+        ...(startFix ? {
+          startLocation: {
+            lat: startFix.lat,
+            lng: startFix.lng,
+            accuracy: startFix.accuracy,
+            ...(offSiteAnswer ? { reasonCode: offSiteAnswer.code, note: offSiteAnswer.note } : {}),
+          },
+        } : {}),
       }, draftIdentity).catch((err: any) => {
         // 409 = there are things this cleaner must READ before the clock
         // starts. The server returns the resolved list so the dialog and the
         // gate can never disagree about what has to be read.
         if ((err?.data as any)?.code === "START_BRIEFING_REQUIRED") return err.data;
+        // 409 = THIS cleaner's fix is beyond the on-site radius (a teammate
+        // or a resume): the same coded-reason prompt as the arrival check-in.
+        if ((err?.data as any)?.error === "OFF_SITE_REASON_REQUIRED") return err.data;
+        if ((err?.data as any)?.error === "LOCATION_NOTICE_REQUIRED") locationGate.forgetAcknowledgement();
         throw err;
       });
+
+      if (started?.error === "OFF_SITE_REASON_REQUIRED") {
+        setOffSitePrompt({
+          message: started.message,
+          distanceMeters: started.distanceMeters ?? null,
+          reasons: started.reasons ?? [],
+        });
+        return;
+      }
 
       if (started?.code === "START_BRIEFING_REQUIRED") {
         setBriefingPrompt({
@@ -1135,8 +1153,15 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     let actionError: unknown;
     setBusy("pause");
     try {
-      await onlineAction.post(`/api/cleaner/jobs/${jobId}/stop`, {}, draftIdentity);
-      flash("info", "Clock paused.");
+      const data = await onlineAction.post(`/api/cleaner/jobs/${jobId}/stop`, {}, draftIdentity);
+      // Where this segment ended (optional; never blocks pausing).
+      if (data?.clockOut?.timeLogId) try {
+        const gps = await getGps();
+        await post(`/api/cleaner/jobs/${jobId}/gps-checkout`, { lat: gps.lat, lng: gps.lng, accuracy: gps.accuracy, timeLogId: data.clockOut.timeLogId });
+      } catch {
+        /* GPS optional */
+      }
+      flash("info", "Clock paused. Your location is no longer shared.");
       await load();
     } catch (e: any) {
       actionError = e;
@@ -1165,7 +1190,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       const data = await onlineAction.post(`/api/cleaner/jobs/${jobId}/clock-out-early`, {}, draftIdentity);
       if (data.clockOut?.timeLogId) try {
         const gps = await getGps();
-        await post(`/api/cleaner/jobs/${jobId}/gps-checkout`, { lat: gps.lat, lng: gps.lng, timeLogId: data.clockOut.timeLogId });
+        await post(`/api/cleaner/jobs/${jobId}/gps-checkout`, { lat: gps.lat, lng: gps.lng, accuracy: gps.accuracy, timeLogId: data.clockOut.timeLogId });
       } catch {
         /* GPS optional */
       }
@@ -1423,7 +1448,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       // A stale tab or a delayed form must not request a new checkout location.
       if (data.clockOut?.timeLogId) try {
         const gps = await getGps();
-        await post(`/api/cleaner/jobs/${jobId}/gps-checkout`, { lat: gps.lat, lng: gps.lng, timeLogId: data.clockOut.timeLogId });
+        await post(`/api/cleaner/jobs/${jobId}/gps-checkout`, { lat: gps.lat, lng: gps.lng, accuracy: gps.accuracy, timeLogId: data.clockOut.timeLogId });
       } catch {
         /* GPS optional at clock-out */
       }
@@ -1655,6 +1680,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   return (
     <EvidenceContext.Provider value={evidenceScope}>
     <div className="space-y-5">
+      {locationGate.element}
       {/* The header carries Back (to Today), the title and Property info (board "One job, four moments"). */}
       <JobHeader api={api} />
       {/* The five-stage rail sits right under the header; the written job

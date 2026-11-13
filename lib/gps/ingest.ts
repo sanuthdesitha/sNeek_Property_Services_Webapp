@@ -76,7 +76,7 @@ export function parseLocationBatch(body: unknown): { ok: true; batch: ParsedBatc
     const parsed = z.array(fixSchema).max(MAX_BATCH).safeParse(body);
     return parsed.success ? { ok: true, batch: { sentAt: null, fixes: parsed.data, state: null } } : { ok: false, error: "Invalid input" };
   }
-  if (body && typeof body === "object" && ("pings" in body || "state" in body || "sentAt" in body)) {
+  if (body && typeof body === "object" && ("pings" in body || "state" in body)) {
     const parsed = envelopeSchema.safeParse(body);
     if (!parsed.success) return { ok: false, error: "Invalid input" };
     const state = parsed.data.state
@@ -88,7 +88,10 @@ export function parseLocationBatch(body: unknown): { ok: true; batch: ParsedBatc
     };
   }
   const single = fixSchema.safeParse(body);
-  return single.success ? { ok: true, batch: { sentAt: null, fixes: [single.data], state: null } } : { ok: false, error: "Invalid input" };
+  if (!single.success) return { ok: false, error: "Invalid input" };
+  const sentAt = (body as { sentAt?: unknown }).sentAt;
+  const sentAtDate = typeof sentAt === "string" && z.string().datetime().safeParse(sentAt).success ? new Date(sentAt) : null;
+  return { ok: true, batch: { sentAt: sentAtDate, fixes: [single.data], state: null } };
 }
 
 /** Receive time minus the phone's send time; 0 when unknown; null when untrustworthy. */

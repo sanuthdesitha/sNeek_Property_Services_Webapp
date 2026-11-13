@@ -62,6 +62,8 @@ export default async function SettingsPage({
   // Roles and permissions moved to its own page (Access and permissions);
   // the old tab URL keeps working.
   if (searchParams.tab === "roles") redirect("/v2/admin/settings/access");
+  // Scheduling rules live on their own page; a tab link opens it.
+  if (searchParams.tab === "scheduling-rules") redirect("/v2/admin/settings/scheduling-rules");
   // A person granted "Edit access and permissions" also sees that destination.
   const canEditAccess = !isAdmin && (await can(session, "access.edit_permissions"));
   const availableTabs = availableSettings(isAdmin, canEditAccess ? ["roles"] : []);

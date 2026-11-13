@@ -10,7 +10,9 @@
  */
 import * as React from "react";
 import Link from "next/link";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { formatInTimeZone } from "date-fns-tz";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 import { EPill } from "@/components/v2/ui/pill";
 import { matchesSettingsQuery, SETTINGS_ELSEWHERE, type SettingsDestinationState, type SettingsRecentChange } from "@/lib/admin/settings-home-types";
 
@@ -44,6 +46,16 @@ function DestinationLink({ item, state, isAdmin }: { item: HomeDestination; stat
 
 export function SettingsHome({ groups, destinations, isAdmin, states, recent, auditHref, timezone }: SettingsHomeProps) {
   const [query, setQuery] = React.useState("");
+  const phone = useIsPhone();
+  // Phones: categories fold; needs attention comes first (board "M-SettingsActivityGrowth").
+  const [openGroups, setOpenGroups] = React.useState<ReadonlySet<string>>(new Set());
+  const toggleGroup = (key: string) =>
+    setOpenGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   const trimmed = query.trim();
   const groupLabel = (key: string) => groups.find((group) => group.key === key)?.label ?? key;
   const results = trimmed
@@ -56,8 +68,8 @@ export function SettingsHome({ groups, destinations, isAdmin, states, recent, au
 
   return (
     <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
-      <div className="min-w-0 space-y-4">
-        <div className="flex flex-col gap-1">
+      <div className="min-w-0 space-y-4 max-sm:contents">
+        <div className="flex flex-col gap-1 max-sm:order-1">
           <label htmlFor="settings-home-search" className="text-[0.75rem] font-[550]">Search settings</label>
           <input
             id="settings-home-search"
@@ -69,7 +81,7 @@ export function SettingsHome({ groups, destinations, isAdmin, states, recent, au
           />
         </div>
         {trimmed ? (
-          <section aria-label="Search results" className="rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-3">
+          <section aria-label="Search results" className="max-sm:order-2 rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-3">
             <p className="e-eyebrow mb-2" aria-live="polite">{results.length} match{results.length === 1 ? "" : "es"} for “{trimmed}”</p>
             {results.length === 0 ? <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No setting matches. Try another word.</p> : null}
             <ul className="divide-y divide-[hsl(var(--e-border))]">
@@ -87,24 +99,42 @@ export function SettingsHome({ groups, destinations, isAdmin, states, recent, au
             </ul>
           </section>
         ) : null}
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 max-sm:order-4 max-sm:gap-2.5">
           {groups.map((group) => {
             const items = destinations.filter((item) => item.group === group.key);
             if (items.length === 0) return null;
             return (
-              <section key={group.key} aria-labelledby={`settings-group-${group.key}`} className="rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4">
-                <h2 id={`settings-group-${group.key}`} className="text-[0.9375rem] font-[650]">{group.label}</h2>
+              <section key={group.key} aria-labelledby={`settings-group-${group.key}`} className="rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4 max-sm:p-3">
+                <h2 id={`settings-group-${group.key}`} className="text-[0.9375rem] font-[650]">
+                  {phone ? (
+                    <button
+                      type="button"
+                      aria-expanded={openGroups.has(group.key)}
+                      aria-controls={`settings-group-items-${group.key}`}
+                      onClick={() => toggleGroup(group.key)}
+                      className="flex min-h-11 w-full items-center justify-between gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]"
+                    >
+                      <span className="min-w-0">
+                        {group.label}
+                        <span className="ml-1.5 text-[0.75rem] font-[500] text-[hsl(var(--e-muted-foreground))]">{items.length}</span>
+                      </span>
+                      {openGroups.has(group.key) ? <ChevronDown aria-hidden className="h-4 w-4 shrink-0" /> : <ChevronRight aria-hidden className="h-4 w-4 shrink-0" />}
+                    </button>
+                  ) : group.label}
+                </h2>
                 <p className="mb-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{group.description}</p>
-                <div className="flex flex-col">
-                  {items.map((item) => <DestinationLink key={item.key} item={item} state={states[item.key]} isAdmin={isAdmin} />)}
-                </div>
+                {phone && !openGroups.has(group.key) ? null : (
+                  <div id={phone ? `settings-group-items-${group.key}` : undefined} className="flex flex-col">
+                    {items.map((item) => <DestinationLink key={item.key} item={item} state={states[item.key]} isAdmin={isAdmin} />)}
+                  </div>
+                )}
               </section>
             );
           })}
         </div>
       </div>
-      <aside aria-label="Settings status" className="min-w-0 space-y-4">
-        <section aria-labelledby="settings-attention" className="rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4">
+      <aside aria-label="Settings status" className="min-w-0 space-y-4 max-sm:contents">
+        <section aria-labelledby="settings-attention" className="max-sm:order-3 rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4">
           <h2 id="settings-attention" className="text-[0.9375rem] font-[650]">Needs attention</h2>
           {attention.length === 0 ? (
             <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Nothing recorded needs attention. Connections without a stored status are not shown here.</p>
@@ -120,7 +150,7 @@ export function SettingsHome({ groups, destinations, isAdmin, states, recent, au
           )}
         </section>
         {recent !== null && isAdmin ? (
-          <section aria-labelledby="settings-recent" className="rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4">
+          <section aria-labelledby="settings-recent" className="max-sm:order-5 rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4">
             <div className="flex items-center justify-between gap-2">
               <h2 id="settings-recent" className="text-[0.9375rem] font-[650]">Recently changed</h2>
               {auditHref ? <Link href={auditHref} className="text-[0.8125rem] text-[hsl(var(--e-primary))] hover:underline">All</Link> : null}
@@ -134,7 +164,7 @@ export function SettingsHome({ groups, destinations, isAdmin, states, recent, au
             )}
           </section>
         ) : null}
-        <section aria-labelledby="settings-what" className="rounded-[12px] border border-[hsl(var(--e-border))] p-4 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+        <section aria-labelledby="settings-what" className="max-sm:order-6 rounded-[12px] border border-[hsl(var(--e-border))] p-4 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
           <h2 id="settings-what" className="mb-1 text-[0.9375rem] font-[650] text-[hsl(var(--e-foreground))]">What you see</h2>
           {isAdmin
             ? "Operations managers see only the settings their access allows; items marked “Admin” stay with administrators. Old links such as ?tab=xero still open the right page."

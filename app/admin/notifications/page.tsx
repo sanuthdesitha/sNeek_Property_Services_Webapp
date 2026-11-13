@@ -403,8 +403,8 @@ export default function NotificationsPage() {
                       ["Auto-approve laundry drafts", "autoApproveLaundrySyncDrafts"],
                     ].map(([label, key]) => (
                       <div key={key} className="flex items-center justify-between rounded-lg border p-3">
-                        <Label className="text-sm">{label}</Label>
-                        <Switch checked={Boolean((scheduled as any)[key])} onCheckedChange={(value) => setScheduled((prev) => prev ? { ...prev, [key]: value } : prev)} />
+                        <Label className="text-sm">{label}{["reminder24hEnabled", "reminder2hEnabled", "autoApproveLaundrySyncDrafts"].includes(key) ? " (locked: Settings › Scheduling rules)" : ""}</Label>
+                        <Switch checked={Boolean((scheduled as any)[key])} disabled={["reminder24hEnabled", "reminder2hEnabled", "autoApproveLaundrySyncDrafts"].includes(key)} onCheckedChange={(value) => setScheduled((prev) => prev ? { ...prev, [key]: value } : prev)} />
                       </div>
                     ))}
                   </div>
@@ -412,7 +412,7 @@ export default function NotificationsPage() {
                     <div className="space-y-1.5"><Label>Tomorrow prep time</Label><Input type="time" value={scheduled.tomorrowPrepTime} onChange={(e) => setScheduled((prev) => prev ? { ...prev, tomorrowPrepTime: e.target.value || prev.tomorrowPrepTime } : prev)} /></div>
                     <div className="space-y-1.5"><Label>Stock alert time</Label><Input type="time" value={scheduled.stockAlertsTime} onChange={(e) => setScheduled((prev) => prev ? { ...prev, stockAlertsTime: e.target.value || prev.stockAlertsTime } : prev)} /></div>
                     <div className="space-y-1.5"><Label>Admin summary time</Label><Input type="time" value={scheduled.adminAttentionSummaryTime} onChange={(e) => setScheduled((prev) => prev ? { ...prev, adminAttentionSummaryTime: e.target.value || prev.adminAttentionSummaryTime } : prev)} /></div>
-                    <div className="space-y-1.5"><Label>Laundry horizon (days)</Label><Input type="number" min={1} max={120} value={scheduled.laundrySyncNotificationHorizonDays} onChange={(e) => setScheduled((prev) => prev ? { ...prev, laundrySyncNotificationHorizonDays: Number(e.target.value || prev.laundrySyncNotificationHorizonDays) } : prev)} /></div>
+                    <div className="space-y-1.5"><Label>Laundry horizon (days) (locked: Settings › Scheduling rules)</Label><Input type="number" disabled min={1} max={120} value={scheduled.laundrySyncNotificationHorizonDays} onChange={(e) => setScheduled((prev) => prev ? { ...prev, laundrySyncNotificationHorizonDays: Number(e.target.value || prev.laundrySyncNotificationHorizonDays) } : prev)} /></div>
                   </div>
                   <div className="grid gap-3">
                     {NOTIFICATION_CATEGORIES.map((category) => (

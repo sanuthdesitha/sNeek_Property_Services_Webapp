@@ -192,6 +192,16 @@ export const SETTINGS_DESTINATIONS = [
     adminOnly: true,
   },
   {
+    // Owner decision 2026-11-14: the laundry and job auto-scheduling rules,
+    // visible and locked, with versions, backups and restore.
+    key: "scheduling-rules",
+    label: "Scheduling rules",
+    description: "How laundry runs and jobs are planned automatically. Locked, versioned, with backups and restore.",
+    group: "operations",
+    adminOnly: false,
+    href: "/v2/admin/settings/scheduling-rules",
+  },
+  {
     key: "lost-found",
     label: "Lost and found",
     description: "How long found items are held before they are flagged for a decision.",

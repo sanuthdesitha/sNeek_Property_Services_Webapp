@@ -38,6 +38,8 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { compareByTimeThenSuburb, type RouteStopKind } from "@/lib/laundry/route-plan";
 import { LaundryRouteMap } from "@/components/v2/laundry/route-map";
+import { useSession } from "next-auth/react";
+import { useLocationGate } from "@/components/v2/location/location-gate";
 
 type Candidate = {
   taskId: string;
@@ -143,6 +145,9 @@ export function RouteBuilder() {
   const [saving, setSaving] = React.useState<null | "draft" | "start">(null);
   const [errored, setErrored] = React.useState(false);
   const hydratedRef = React.useRef(false);
+  const { data: session } = useSession();
+  const isDriver = session?.user?.role === "LAUNDRY" && !session.impersonation;
+  const locationGate = useLocationGate("LAUNDRY");
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -228,6 +233,14 @@ export function RouteBuilder() {
       }
       setSaving(activate ? "start" : "draft");
       try {
+        // Starting a route turns live location on: the notice must be
+        // accepted and the phone must give a fix (the server checks both).
+        let location: { lat: number; lng: number; accuracy: number | null } | null = null;
+        if (activate && isDriver) {
+          const ready = await locationGate.ensureReady();
+          if (!ready) return;
+          location = ready === "NOT_REQUIRED" ? null : ready;
+        }
         const res = await fetch("/api/laundry/route", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -240,29 +253,32 @@ export function RouteBuilder() {
               propertyId: s.candidate.propertyId,
             })),
             activate,
+            ...(location ? { location } : {}),
           }),
         });
         const data = await res.json().catch(() => null);
         if (!res.ok) {
+          if (data?.error === "LOCATION_NOTICE_REQUIRED") locationGate.forgetAcknowledgement();
           toast({
             title: "Could not save the route",
-            description: data?.error ?? "Please try again.",
+            description: data?.message ?? data?.error ?? "Please try again.",
             variant: "destructive",
           });
           return;
         }
         setRoute(data?.route ?? null);
+        if (activate) window.dispatchEvent(new Event("sneek:laundry-route-changed"));
         toast({
           title: activate ? "Route started" : "Draft saved",
           description: activate
-            ? "GPS sharing begins on the live route surface."
+            ? "Your location is now shared with the office until you end the route. Keep the app open while driving."
             : `${selected.length} stop${selected.length === 1 ? "" : "s"} saved for today.`,
         });
       } finally {
         setSaving(null);
       }
     },
-    [selected],
+    [selected, isDriver, locationGate],
   );
 
   // Runner mode: an ACTIVE route exists — show the live route surface instead
@@ -279,6 +295,7 @@ export function RouteBuilder() {
 
   return (
     <div className="space-y-6">
+      {locationGate.element}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <EEyebrow>ROUTE BUILDER</EEyebrow>

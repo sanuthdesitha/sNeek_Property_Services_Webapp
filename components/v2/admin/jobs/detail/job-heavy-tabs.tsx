@@ -7,6 +7,7 @@
 import { formatInTimeZone } from "date-fns-tz";
 import type { ReactNode } from "react";
 import { ClockLocationsMap } from "@/components/shared/clock-locations-map";
+import { SegmentLocations } from "./segment-locations";
 import type { JobPageView } from "@/lib/jobs/job-page/deep-link";
 import { HISTORY_LIMIT } from "@/lib/jobs/job-page/load";
 import { ClockRecordsEditor, GpsRecordEditor } from "../job-clock-gps-editor";
@@ -77,6 +78,7 @@ function ClockTab({ data }: { data: JobPageData }) {
             userName: log.user?.name ?? log.user?.email ?? "Cleaner",
           }))}
         />
+        <SegmentLocations logs={job.timeLogs} timeZone={data.timeZone} />
         {job.gpsCheckInLat != null || job.gpsCheckOutLat != null ? (
           <ClockLocationsMap
             property={{ lat: job.property?.latitude ?? null, lng: job.property?.longitude ?? null, name: job.property?.name ?? null }}

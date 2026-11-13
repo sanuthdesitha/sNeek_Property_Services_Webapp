@@ -13,6 +13,9 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
 import { EButton, ECard, EPageHeader } from "@/components/v2/ui/primitives";
 import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
+import { EFilterBar, type EActiveFilter } from "@/components/v2/ui/filter-bar";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 import { EConfirmModal, EInput, ESelect } from "@/components/v2/admin/estate-kit";
 import type { LaundryPartnerRecord, StockSupplierRecord } from "@/lib/suppliers/directory-types";
 import {
@@ -33,6 +36,7 @@ import { LaundryPartnerEditor, type PartnerEditorTarget } from "../laundry-partn
 import { StockSupplierEditor, type StockEditorTarget } from "./stock-supplier-editor";
 import { SupplierPanel } from "./supplier-panel";
 import { MAINTENANCE_HREF } from "./supplier-panel-sections";
+import { SupplierCards } from "./supplier-cards";
 import { SupplierTable } from "./supplier-table";
 import { useSupplierDirectory } from "./use-supplier-directory";
 
@@ -65,6 +69,7 @@ export function SuppliersDirectory({ tabs }: { tabs?: React.ReactNode }) {
   const [stockTarget, setStockTarget] = React.useState<StockEditorTarget | null>(null);
   const [deleteFor, setDeleteFor] = React.useState<StockSupplierRecord | null>(null);
   const [deleting, setDeleting] = React.useState(false);
+  const phone = useIsPhone();
 
   const entries = React.useMemo(() => (data ? buildDirectoryEntries(data) : []), [data]);
   const visible = React.useMemo(() => filterDirectory(entries, filters), [entries, filters]);
@@ -138,6 +143,13 @@ export function SuppliersDirectory({ tabs }: { tabs?: React.ReactNode }) {
     { key: "trade", label: "Trade (in Maintenance)", href: MAINTENANCE_HREF },
   ];
   const total = entries.length;
+  // Phones: search and filters sit behind one Filter button; active ones show as chips.
+  const activeFilters: EActiveFilter[] = [
+    ...(filters.q.trim() ? [{ key: "q", label: `Search: ${filters.q.trim()}`, onRemove: () => setFilters((current) => ({ ...current, q: "" })) }] : []),
+    ...(filters.attention ? [{ key: "attention", label: "Needs attention", onRemove: () => setFilters((current) => ({ ...current, attention: false })) }] : []),
+    ...(filters.withLogins ? [{ key: "logins", label: "Has portal logins", onRemove: () => setFilters((current) => ({ ...current, withLogins: false })) }] : []),
+    ...(filters.category ? [{ key: "category", label: `Category: ${filters.category}`, onRemove: () => setFilters((current) => ({ ...current, category: "" })) }] : []),
+  ];
 
   return (
     <div className="space-y-5">
@@ -148,7 +160,7 @@ export function SuppliersDirectory({ tabs }: { tabs?: React.ReactNode }) {
         actions={
           <div className="flex flex-wrap gap-2">
             <EButton size="sm" variant="outline" disabled={!visible.length} onClick={() => downloadCsv(visible)}>Export</EButton>
-            <ERowMenu label="Add supplier" trigger="Add supplier ▾" items={addMenu} />
+            <ERowMenu label="Add supplier" trigger="Add supplier ▾" items={addMenu} className="max-sm:hidden" />
           </div>
         }
       />
@@ -160,7 +172,12 @@ export function SuppliersDirectory({ tabs }: { tabs?: React.ReactNode }) {
           </button>
         ))}
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <EFilterBar
+        label="Filter suppliers"
+        active={activeFilters}
+        onClear={() => setFilters((current) => ({ ...current, q: "", attention: false, withLogins: false, category: "" }))}
+        resultLabel={`Show ${visible.length} supplier${visible.length === 1 ? "" : "s"}`}
+      >
         <EInput className="w-full sm:w-[240px]" aria-label="Search suppliers" placeholder="Search name, contact, category" value={filters.q} onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value }))} />
         <Chip on={filters.attention} onClick={() => setFilters((current) => ({ ...current, attention: !current.attention }))}>Needs attention {data ? attentionCount : ""}</Chip>
         <Chip on={filters.withLogins} onClick={() => setFilters((current) => ({ ...current, withLogins: !current.withLogins }))}>Has portal logins {data ? loginCount : ""}</Chip>
@@ -168,7 +185,7 @@ export function SuppliersDirectory({ tabs }: { tabs?: React.ReactNode }) {
           <option value="">Category: all</option>
           {categories.map((category) => <option key={category} value={category}>{category}</option>)}
         </ESelect>
-      </div>
+      </EFilterBar>
       {data?.danglingLinks.length ? (
         <p role="status" className="text-[0.8125rem] text-[hsl(var(--e-warning,var(--e-danger)))]">
           {data.danglingLinks.length} laundry partner link{data.danglingLinks.length === 1 ? " points" : "s point"} to a stock supplier that no longer exists. Edit the partner to relink it.
@@ -189,7 +206,11 @@ export function SuppliersDirectory({ tabs }: { tabs?: React.ReactNode }) {
             <p className="py-16 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">{total ? "No supplier matches these filters." : "No suppliers yet. Use Add supplier."}</p>
           ) : (
             <>
-              <SupplierTable entries={visible} openKey={openKey} sort={filters.sort} dir={filters.dir} onSort={setSort} onOpen={(entry) => setParam("open", entry.key)} menuFor={menuFor} />
+              {phone ? (
+                <SupplierCards entries={visible} openKey={openKey} sort={filters.sort} dir={filters.dir} onSort={setSort} onOpen={(entry) => setParam("open", entry.key)} menuFor={menuFor} />
+              ) : (
+                <SupplierTable entries={visible} openKey={openKey} sort={filters.sort} dir={filters.dir} onSort={setSort} onOpen={(entry) => setParam("open", entry.key)} menuFor={menuFor} />
+              )}
               <p className="px-3 py-2.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">On time: share of runs back within the agreed turnaround, last 30 days. &quot;–&quot; where nothing is measured.</p>
             </>
           )}
@@ -206,6 +227,8 @@ export function SuppliersDirectory({ tabs }: { tabs?: React.ReactNode }) {
           {...actions}
         />
       </div>
+
+      <EPhoneActionBar label="Suppliers actions" primary={<ERowMenu label="Add supplier" trigger="+ Add supplier" items={addMenu} className="w-full justify-center" />} />
 
       <LaundryPartnerEditor
         target={partnerTarget}

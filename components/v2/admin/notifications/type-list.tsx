@@ -127,7 +127,7 @@ export function TypeList(props: Props) {
       <label htmlFor="notification-type-search" className="sr-only">Search notifications</label>
       <input id="notification-type-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search notifications and wording"
         className="h-11 w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-3 text-base sm:h-9 sm:text-sm" />
-      <div role="group" aria-label="Filter notification types" className="my-1.5 flex flex-wrap gap-1.5">
+      <div role="group" aria-label="Filter notification types" className="my-1.5 flex flex-wrap gap-1.5 max-sm:-mx-1 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:px-1 max-sm:pb-0.5 max-sm:[scrollbar-width:none] max-sm:[&>*]:shrink-0">
         {chips.map((chip) => (
           <button key={chip.key} type="button" aria-pressed={filter === chip.key} onClick={() => setFilter(chip.key)} className={cn(E_CHIP_CLASS, filter === chip.key && E_CHIP_ON_CLASS)}>
             {chip.label} <span className="e-tnum">{counts[chip.key]}</span>
@@ -137,7 +137,7 @@ export function TypeList(props: Props) {
       </div>
       <div className="flex justify-between px-2 text-xs text-[hsl(var(--e-muted-foreground))]" aria-hidden="true"><span>Notification</span><span>On · transports</span></div>
       {props.switchNote ? <p className="px-2 text-xs text-[hsl(var(--e-muted-foreground))]">{props.switchNote}</p> : null}
-      <div className="max-h-[60vh] overflow-y-auto lg:max-h-none">
+      <div className="max-h-[60vh] overflow-y-auto lg:max-h-none max-sm:max-h-none max-sm:overflow-visible">
         {visible.length === 0 ? <p className="px-2 py-3 text-sm text-[hsl(var(--e-muted-foreground))]">No notification matches this search or filter.</p> : null}
         {AUDIENCE_GROUPS.map((group) => {
           const rows = grouped.get(group) ?? [];

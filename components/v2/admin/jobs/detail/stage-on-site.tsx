@@ -7,7 +7,7 @@
 import Link from "next/link";
 import { formatInTimeZone } from "date-fns-tz";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
-import { DEFAULT_GEOFENCE_RADIUS_M } from "@/lib/gps/distance";
+import { classifyCheckInLocation } from "@/lib/gps/distance";
 import { jobPageViewHref } from "@/lib/jobs/job-page/deep-link";
 import { formatMinutes, siteMinutes } from "@/lib/jobs/job-page/facts";
 import type { TimelineStage } from "@/lib/jobs/job-page/timeline";
@@ -18,8 +18,12 @@ import { Muted, StageSection, StageShell } from "./stage-shell";
 function GpsBadge({ data }: { data: JobPageData }) {
   const distance = data.job.gpsDistanceMeters;
   if (distance == null) return <Muted>Clock-in location not recorded</Muted>;
-  const radius = data.job.property?.geofenceRadiusM ?? DEFAULT_GEOFENCE_RADIUS_M;
-  const inside = distance <= radius;
+  // The same rule the check-in was judged with (lib/gps/distance): 150 m or
+  // the property's own radius, and a fix coarser than 200 m judges nothing.
+  // The badge used the 75 m passive fence, so a check-in accepted on site at
+  // 120 m read "Started away".
+  const verdict = classifyCheckInLocation({ distanceM: distance, accuracyM: data.job.gpsCheckInAccuracyM ?? null, radiusM: data.job.property?.geofenceRadiusM ?? null });
+  const inside = verdict !== "OFF_SITE";
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
       <EBadge tone={inside ? "success" : "warning"} soft>

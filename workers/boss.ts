@@ -571,6 +571,12 @@ async function main() {
       if (result.count > 0) {
         logger.info({ deleted: result.count }, "Old location pings cleaned up");
       }
+      // Maintenance visit breadcrumbs follow the same 7-day retention (they
+      // had none and were kept forever; live location 2026-11).
+      const maintenance = await db.maintenanceLocationPing.deleteMany({ where: { createdAt: { lt: cutoff } } });
+      if (maintenance.count > 0) {
+        logger.info({ deleted: maintenance.count }, "Old maintenance location pings cleaned up");
+      }
     }));
   }
 

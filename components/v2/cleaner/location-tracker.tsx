@@ -8,12 +8,22 @@ import { ArrowRight, RefreshCw } from "lucide-react";
 import { useGpsTracker } from "@/lib/gps/client";
 import { isTrackedStatus } from "@/lib/gps/tracked-statuses";
 import { ActiveWorkStatus } from "./active-work-status";
+import { LocationSharingIndicator } from "@/components/v2/location/location-sharing-indicator";
 
 const PROBE_INTERVAL_MS = 60_000;
 
 const LABELS = { EN_ROUTE: "On the way", IN_PROGRESS: "In progress", PAUSED: "Paused" };
 type ActiveJob = { id: string; status: keyof typeof LABELS; property: { name: string }; draftIdentity?: string; clock?: { running: boolean; startedAt: string | null }; checkedAt?: string };
-type ProbeState = { scope: string; job: ActiveJob | null; failed: boolean; loading: boolean };
+/** Whether the GPS should run, from the server's tracking window (lib/gps/tracking-window). */
+type Tracking = { active: true; jobId: string; clientSees: boolean } | { active: false };
+type ProbeState = { scope: string; job: ActiveJob | null; tracking: Tracking; failed: boolean; loading: boolean };
+
+function parseTracking(value: unknown): Tracking {
+  if (!value || typeof value !== "object" || !("tracking" in value)) return { active: false };
+  const tracking = (value as { tracking?: unknown }).tracking as { active?: unknown; jobId?: unknown; clientSees?: unknown } | null;
+  if (!tracking || tracking.active !== true || typeof tracking.jobId !== "string" || !tracking.jobId.trim()) return { active: false };
+  return { active: true, jobId: tracking.jobId, clientSees: tracking.clientSees === true };
+}
 
 function parseJob(value: unknown): ActiveJob | null {
   if (!value || typeof value !== "object" || !("job" in value)) throw new Error("Invalid response");
@@ -65,7 +75,7 @@ export function LocationTracker() {
       if (controller) { queued = true; return; }
       controller = new AbortController();
       setState(previous => previous?.scope === scope ? { ...previous, loading: true }
-        : { scope: scope!, job: null, failed: false, loading: true });
+        : { scope: scope!, job: null, tracking: { active: false }, failed: false, loading: true });
       try {
         const res = await fetch("/api/cleaner/location/active-job", {
           method: "GET",
@@ -74,10 +84,13 @@ export function LocationTracker() {
           signal: controller.signal,
         });
         if (!res.ok) throw new Error("Active job unavailable");
-        const job = parseJob(await res.json());
-        if (isCurrent()) setState({ scope: scope!, job, failed: false, loading: false });
+        const body: unknown = await res.json();
+        const job = parseJob(body);
+        const tracking = parseTracking(body);
+        if (isCurrent()) setState({ scope: scope!, job, tracking, failed: false, loading: false });
       } catch {
-        if (isCurrent()) setState({ scope: scope!, job: null, failed: true, loading: false });
+        // A failed probe stops tracking (fail closed) until the next answer.
+        if (isCurrent()) setState({ scope: scope!, job: null, tracking: { active: false }, failed: true, loading: false });
       } finally {
         controller = null;
         if (isCurrent() && queued) { queued = false; void probe(); }
@@ -106,14 +119,25 @@ export function LocationTracker() {
 
   const current = scope && state?.scope === scope ? state : null;
   const job = current?.job ?? null;
+  const tracking = current?.tracking ?? { active: false as const };
   // Hiding the strip on a workspace must not interrupt the single GPS hook.
-  useGpsTracker({ jobId: job?.id ?? "", enabled: Boolean(job && isTrackedStatus(job.status)) });
+  // The GPS runs only inside the server's tracking window: on the way, or
+  // with this cleaner's clock running, on today's job — never while paused.
+  useGpsTracker({
+    jobId: tracking.active ? tracking.jobId : "",
+    enabled: tracking.active,
+    clientSees: tracking.active && tracking.clientSees,
+    onWindowClosed: () => refreshRef.current(),
+  });
 
-  if (!scope || !current || (!job && !current.failed)) return null;
+  if (!scope || !current) return null;
   const href = job ? `/v2/cleaner/jobs/${encodeURIComponent(job.id)}` : null;
-  if (href && (pathname === href || pathname?.startsWith(`${href}/`))) return null;
+  const onWorkspace = Boolean(href && (pathname === href || pathname?.startsWith(`${href}/`)));
+  if (onWorkspace || (!job && !current.failed)) return <LocationSharingIndicator />;
   const actionClass = "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded px-3 text-sm font-semibold hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50";
   return (
+    <>
+    <LocationSharingIndicator />
     <section aria-label="Active job" className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-4 py-2 text-[hsl(var(--e-foreground))] motion-reduce:animate-none">
       {current.failed ? <>
         <p role="status" className="min-w-0 flex-1 text-sm">Active job unavailable.</p>
@@ -130,5 +154,6 @@ export function LocationTracker() {
         <Link href={href} className={actionClass}>Resume job<ArrowRight aria-hidden="true" className="h-4 w-4" /></Link>
       </> : null}
     </section>
+    </>
   );
 }

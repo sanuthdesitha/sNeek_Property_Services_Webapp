@@ -44,15 +44,28 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = updateClientSchema.parse(await req.json());
     const client = await db.$transaction(async (tx) => {
       const existing = await tx.client.findUnique({
         where: { id: params.id },
-        select: { id: true, name: true, email: true, phone: true },
+        select: { id: true, name: true, email: true, phone: true, showCleanerLiveLocation: true },
       });
       if (!existing) {
         throw new Error("NOT_FOUND");
+      }
+      // Who switched the client's view of cleaners' live location, and when.
+      if (body.showCleanerLiveLocation !== undefined && body.showCleanerLiveLocation !== existing.showCleanerLiveLocation) {
+        await tx.auditLog.create({
+          data: {
+            userId: session.user.id,
+            action: "CLIENT_LIVE_LOCATION_SWITCH",
+            entity: "Client",
+            entityId: existing.id,
+            before: { showCleanerLiveLocation: existing.showCleanerLiveLocation },
+            after: { showCleanerLiveLocation: body.showCleanerLiveLocation },
+          },
+        });
       }
 
       const data = {

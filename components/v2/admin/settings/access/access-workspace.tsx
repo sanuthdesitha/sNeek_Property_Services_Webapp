@@ -3,6 +3,8 @@
 import type { SensitiveCredentialsInput } from "@/lib/security/pin-rules";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EAlert, EButton } from "@/components/v2/ui/primitives";
+import { ERowMenu } from "@/components/v2/ui/row-menu";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 import { accessWithin, isAdministrator, type AccessSubject } from "@/lib/rbac/access-evaluator";
 import { changedPeople } from "@/lib/rbac/access-draft";
 import { isAdminPerson, isOfficePerson, isStale, type AccessPerson, type AccessScreenData } from "@/lib/rbac/access-screen-types";
@@ -14,6 +16,7 @@ import { AccessHistoryTab } from "./access-history-tab";
 import { displayName } from "./access-labels";
 import { AccessPeopleList, type AccessSelection } from "./access-people-list";
 import { AccessPersonPane } from "./access-person-pane";
+import { AccessPhoneBack } from "./access-phone";
 import { AccessPresetsTab } from "./access-presets-tab";
 import { AccessRoleReference } from "./access-role-reference";
 import { AccessSaveDialog, AccessUnsavedBar, rebaseDraft, type SaveConflict } from "./access-save";
@@ -38,6 +41,9 @@ export function AccessWorkspace({ initialTab = "person" }: { initialTab?: Access
   const [conflict, setConflict] = useState<SaveConflict | null>(null);
   const [notice, setNotice] = useState("");
   const drafts = useAccessDraft();
+  const phone = useIsPhone();
+  // Phones: the people list and the selected person are two stacked screens.
+  const [phoneDetail, setPhoneDetail] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -118,6 +124,7 @@ export function AccessWorkspace({ initialTab = "person" }: { initialTab?: Access
 
   function select(next: AccessSelection) {
     setSelection(next);
+    setPhoneDetail(true);
     setNotice("");
     if (next.kind === "team") setTab("assistants");
     else if (tab === "assistants") setTab("person");
@@ -125,6 +132,7 @@ export function AccessWorkspace({ initialTab = "person" }: { initialTab?: Access
 
   function openTab(next: AccessTab) {
     setTab(next);
+    setPhoneDetail(false);
     // The assistants view opens on a team; the person view on a person.
     if (next === "assistants" && selection?.kind !== "team" && data?.assistantTeams[0]) setSelection({ kind: "team", id: data.assistantTeams[0].id });
     if (next === "person" && selection?.kind === "team" && data) setSelection(firstSelection(data));
@@ -139,7 +147,24 @@ export function AccessWorkspace({ initialTab = "person" }: { initialTab?: Access
             Who can do what in the office · {office.length} people with office access{unsaved.size ? ` · ${unsaved.size} unsaved ${unsaved.size === 1 ? "change" : "changes"}` : ""}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        {phone ? (
+          // Phones: the header buttons sit in one "more" menu.
+          <ERowMenu
+            label="More access actions"
+            items={[
+              { key: "presets", label: "Presets", onSelect: () => openTab("presets") },
+              {
+                key: "copy",
+                label: "Copy access from…",
+                disabled: !selectedPerson || !canEdit(selectedPerson) || !phoneDetail,
+                hint: phoneDetail ? undefined : "Open a person first",
+                onSelect: () => setCopyOpen(true),
+              },
+              ...(data.viewer.isAdmin ? [{ key: "give", label: "Give office access", href: "/v2/admin/accounts" }] : []),
+            ]}
+          />
+        ) : null}
+        <div className="flex flex-wrap gap-2 max-sm:hidden">
           <EButton variant="outline" size="sm" onClick={() => openTab("presets")}>Presets</EButton>
           <EButton variant="outline" size="sm" disabled={!selectedPerson || !canEdit(selectedPerson)} onClick={() => setCopyOpen(true)}>Copy access from…</EButton>
           {data.viewer.isAdmin ? <EButton asChild size="sm"><a href="/v2/admin/accounts">Give office access</a></EButton> : null}
@@ -153,8 +178,18 @@ export function AccessWorkspace({ initialTab = "person" }: { initialTab?: Access
       {tab === "history" ? <AccessHistoryTab history={data.history} names={names} presetNames={Object.fromEntries(draft.presets.map((preset) => [preset.id, preset.name]))} timeZone={data.timeZone} /> : null}
       {tab === "person" || tab === "assistants" ? (
         <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
-          <AccessPeopleList people={office} teams={data.assistantTeams} ownPortalCounts={data.ownPortalCounts} draft={draft} selection={selection} unsaved={unsaved} stale={stale} disabled={saving} onSelect={select} />
-          {selectedTeam ? (
+          {phone && phoneDetail ? (
+            <AccessPhoneBack
+              title={selectedTeam ? selectedTeam.name : selectedPerson ? displayName(selectedPerson) : "Access"}
+              subtitle={selectedTeam ? `${selectedTeam.clientName} · client assistants` : "Office access"}
+              backLabel="Back to people"
+              onBack={() => setPhoneDetail(false)}
+            />
+          ) : null}
+          {phone && phoneDetail ? null : (
+            <AccessPeopleList people={office} teams={data.assistantTeams} ownPortalCounts={data.ownPortalCounts} draft={draft} selection={selection} unsaved={unsaved} stale={stale} disabled={saving} onSelect={select} />
+          )}
+          {phone && !phoneDetail ? null : selectedTeam ? (
             <div className="min-w-0 flex-1"><AccessAssistantTeam key={selectedTeam.id} team={selectedTeam} canManage onSaved={() => undefined} /></div>
           ) : selectedPerson ? (
             <AccessPersonPane
@@ -175,9 +210,11 @@ export function AccessWorkspace({ initialTab = "person" }: { initialTab?: Access
           )}
         </div>
       ) : null}
-      {tab !== "person" && tab !== "assistants" ? (
+      {(tab !== "person" && tab !== "assistants") || (phone && !phoneDetail) ? (
         <AccessUnsavedBar saved={saved} draft={draft} names={names} busy={saving} onDiscard={() => drafts.discard()} onReview={() => { setSaveError(""); setSaveOpen(true); }} />
       ) : null}
+      {/* Phones: room under the last row for the docked unsaved bar. */}
+      {phone && dirty ? <div aria-hidden className="h-28" /> : null}
       {/* The old Roles settings reference, read-only and collapsed (parity, 2026-11-12). */}
       <AccessRoleReference />
 

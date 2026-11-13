@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { EButton, ECard } from "@/components/v2/ui/primitives";
+import { EToneNotice } from "@/components/v2/ui/tone-band";
 import {
   EField,
   EInput,
@@ -175,13 +176,18 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
         </div>
       </ECard>
 
+      <EToneNotice tone="info" title="Locked: scheduling rules">
+        Auto clock-out, recurring jobs, auto-assign and QA automation are scheduling rules. They are shown here for reference; change, compare or restore them in{" "}
+        <a className="font-medium underline" href="/v2/admin/settings/scheduling-rules">Settings › Scheduling rules</a>.
+      </EToneNotice>
+
       {/* Auto clock-out */}
       <ECard className="p-6">
         <div className="space-y-4">
           <EToggle
             checked={form.autoClockOut.enabled}
             onChange={(v) => setForm((p) => ({ ...p, autoClockOut: { ...p.autoClockOut, enabled: v } }))}
-            disabled={readOnly}
+            disabled
             label="Auto clock-out enabled"
             description="Automatically stop running time logs after the configured grace period."
           />
@@ -190,7 +196,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
             onChange={(v) =>
               setForm((p) => ({ ...p, autoClockOut: { ...p.autoClockOut, stopAtEstimatedDuration: v } }))
             }
-            disabled={readOnly}
+            disabled
             label="Stop timer at the job's estimated duration"
             description="Off by default. Turn on to auto clock-out when the estimated hours are used up."
           />
@@ -199,7 +205,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
             onChange={(v) =>
               setForm((p) => ({ ...p, autoClockOut: { ...p.autoClockOut, fallbackAtMidnight: v } }))
             }
-            disabled={readOnly}
+            disabled
             label="Fallback auto clock-out at midnight"
             description="Safety net when a job has no due or end time."
           />
@@ -208,7 +214,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
             onChange={(v) =>
               setForm((p) => ({ ...p, autoClockOut: { ...p.autoClockOut, geofenceExit: v } }))
             }
-            disabled={readOnly}
+            disabled
             label="Auto clock-out on geofence exit"
             description="Clock a cleaner out when GPS confirms they left the job site (sustained run outside the property geofence)."
           />
@@ -225,7 +231,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
                     autoClockOut: { ...p.autoClockOut, graceMinutes: Number(e.target.value || p.autoClockOut.graceMinutes) },
                   }))
                 }
-                disabled={readOnly}
+                disabled
               />
             </EField>
             <EField label="Maximum job length (hours)" hint="Used when a job does not have fixed / allocated pay hours set.">
@@ -243,7 +249,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
                     },
                   }))
                 }
-                disabled={readOnly}
+                disabled
               />
             </EField>
           </div>
@@ -297,7 +303,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
             <EToggle
               checked={form.recurringJobs.enabled}
               onChange={(v) => setForm((p) => ({ ...p, recurringJobs: { ...p.recurringJobs, enabled: v } }))}
-              disabled={readOnly}
+              disabled
               label="Recurring generation enabled"
             />
             <EField label="Lookahead days">
@@ -312,7 +318,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
                     recurringJobs: { ...p.recurringJobs, lookaheadDays: Number(e.target.value || p.recurringJobs.lookaheadDays) },
                   }))
                 }
-                disabled={readOnly}
+                disabled
               />
             </EField>
           </div>
@@ -323,7 +329,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
             <EToggle
               checked={form.autoAssign.enabled}
               onChange={(v) => setForm((p) => ({ ...p, autoAssign: { ...p.autoAssign, enabled: v } }))}
-              disabled={readOnly}
+              disabled
               label="Smart auto-assign enabled"
             />
             <EField label="Max daily jobs per cleaner">
@@ -341,7 +347,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
                     },
                   }))
                 }
-                disabled={readOnly}
+                disabled
               />
             </EField>
           </div>
@@ -352,7 +358,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
             <EToggle
               checked={form.qaAutomation.autoCreateReworkJob}
               onChange={(v) => setForm((p) => ({ ...p, qaAutomation: { ...p.qaAutomation, autoCreateReworkJob: v } }))}
-              disabled={readOnly}
+              disabled
               label="Offer a rework job on a QA fail"
             />
             <div className="grid gap-5 sm:grid-cols-2">
@@ -368,7 +374,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
                       qaAutomation: { ...p.qaAutomation, failureThreshold: Number(e.target.value || p.qaAutomation.failureThreshold) },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled
                 />
               </EField>
               <EField label="Rework delay (hours)">
@@ -383,7 +389,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
                       qaAutomation: { ...p.qaAutomation, reworkDelayHours: Number(e.target.value || p.qaAutomation.reworkDelayHours) },
                     }))
                   }
-                  disabled={readOnly}
+                  disabled
                 />
               </EField>
             </div>
@@ -393,7 +399,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
             <EToggle
               checked={form.qaAutomation.autoScoreEnabled}
               onChange={(v) => setForm((p) => ({ ...p, qaAutomation: { ...p.qaAutomation, autoScoreEnabled: v } }))}
-              disabled={readOnly}
+              disabled
               label="Auto-score uninspected jobs"
               description="Applies the suggested score (from the cleaner's submission) to submitted jobs that never got a QA inspection. A real inspection always wins and is never overwritten."
             />
@@ -412,7 +418,7 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
                     },
                   }))
                 }
-                disabled={readOnly || !form.qaAutomation.autoScoreEnabled}
+                disabled
               />
             </EField>
           </div>

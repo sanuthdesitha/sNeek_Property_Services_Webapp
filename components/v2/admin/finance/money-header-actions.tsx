@@ -156,7 +156,16 @@ function SavedItemsDisclosure() {
   );
 }
 
-export function MoneyHeaderActions({ xero, canBill }: { xero: XeroConnectionSummary; canBill: boolean }) {
+export function MoneyHeaderActions({
+  xero,
+  canBill,
+  newInvoiceDockedOnPhone = false,
+}: {
+  xero: XeroConnectionSummary;
+  canBill: boolean;
+  /** The client-invoice tab docks "New invoice" at the bottom of a phone, so the header menu hides there below 640px. */
+  newInvoiceDockedOnPhone?: boolean;
+}) {
   const router = useRouter();
   return (
     <>
@@ -165,6 +174,7 @@ export function MoneyHeaderActions({ xero, canBill }: { xero: XeroConnectionSumm
         <>
           <BillingScheduleButton />
           <ERowMenu
+            className={newInvoiceDockedOnPhone ? "max-sm:hidden" : undefined}
             label="New invoice"
             trigger={<>New invoice <span aria-hidden>▾</span></>}
             items={[

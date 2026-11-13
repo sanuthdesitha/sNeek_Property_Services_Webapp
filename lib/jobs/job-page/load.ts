@@ -87,7 +87,12 @@ const JOB_SELECT = {
   },
   timeLogs: {
     orderBy: { startedAt: "asc" as const },
-    select: { id: true, startedAt: true, stoppedAt: true, durationM: true, user: { select: { name: true, email: true } } },
+    select: {
+      id: true, startedAt: true, stoppedAt: true, durationM: true, user: { select: { name: true, email: true } },
+      // Where each cleaner was at the start and end of each segment (2026-11).
+      startLat: true, startLng: true, startAccuracyM: true, startDistanceM: true, startVerdict: true, startReasonCode: true, startNote: true, startLocationSource: true,
+      stopLat: true, stopLng: true, stopAccuracyM: true, stopDistanceM: true, stopLocationAt: true,
+    },
   },
   formSubmissions: {
     orderBy: { createdAt: "desc" as const },

@@ -23,6 +23,7 @@ import { db } from "@/lib/db";
 import { getApiErrorStatus } from "@/lib/api/http";
 import { getBriefingWeather } from "@/lib/briefing/weather";
 import { resolveCleanStart } from "@/lib/laundry/clean-start";
+import { loadSchedulingRuleBook } from "@/lib/scheduling-rules/store";
 import { fetchLaundryWeekTasks, type LaundryWeekTask } from "@/lib/laundry/week-feed";
 import { sydneyDayKey } from "@/lib/laundry/route-candidates";
 import {
@@ -161,8 +162,22 @@ export async function GET() {
           },
         })
       : [];
+    // The published "clean start when nothing is known" (Settings › Scheduling
+    // rules). When the rules are unavailable that fallback is not guessed: a
+    // drop whose start is otherwise unknown simply carries no deadline flag.
+    let defaultCleanStart: string | null = null;
+    if (timing.length) {
+      try {
+        defaultCleanStart = (await loadSchedulingRuleBook()).live.values["laundry.defaultCleanStartTime"];
+      } catch {
+        defaultCleanStart = null;
+      }
+    }
+    const UNKNOWN_START = "unknown";
     const cleanStartByTask = new Map(
-      timing.map((t) => [t.id, resolveCleanStart(t.job ?? {}, t.property)]),
+      timing
+        .map((t) => [t.id, resolveCleanStart(t.job ?? {}, t.property, defaultCleanStart ?? UNKNOWN_START)] as const)
+        .filter(([, start]) => start !== UNKNOWN_START),
     );
 
     const deadlineStops: DeadlineStop[] = orderedToday.map((s) => {

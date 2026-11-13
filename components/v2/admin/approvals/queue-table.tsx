@@ -128,7 +128,7 @@ export function QueueTable(props: QueueTableProps) {
           onChange={(event) => setSearch(event.target.value)}
         />
         {chips.length > 1 ? (
-          <div role="group" aria-label="Request type" className="flex flex-wrap gap-1.5">
+          <div role="group" aria-label="Request type" className="flex flex-wrap gap-1.5 max-sm:-mx-1 max-sm:w-[calc(100%+0.5rem)] max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:px-1 max-sm:pb-0.5 max-sm:[scrollbar-width:none] max-sm:[&>*]:shrink-0">
             <button type="button" aria-pressed={chip === "all"} className={cn(E_CHIP_CLASS, chip === "all" && E_CHIP_ON_CLASS)} onClick={() => setChip("all")}>
               All{capped ? null : <span className="e-tnum">{rows.length}</span>}
             </button>

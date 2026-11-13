@@ -5,6 +5,7 @@ import { fromZonedTime } from "date-fns-tz";
 import { Trash2 } from "lucide-react";
 import { EDataTable, type EDataColumn, type TableSort } from "@/components/v2/ui/data-table";
 import { EPagination } from "@/components/v2/ui/pagination";
+import { EFilterBar, EFilterBarInlineOnly, type EActiveFilter } from "@/components/v2/ui/filter-bar";
 import { EPill } from "@/components/v2/ui/pill";
 import { EAlert, EButton } from "@/components/v2/ui/primitives";
 import { EConfirmModal, EField, EInput, ESelect } from "@/components/v2/admin/estate-kit";
@@ -42,6 +43,17 @@ function buildUrl(filters: Filters, page: number, sort: TableSort<"time">, timeZ
   return `/api/admin/notifications/deliveries?${params.toString()}`;
 }
 
+const FILTER_LABEL: Record<keyof Filters, string> = { type: "Type", state: "State", transport: "Transport", recipient: "Recipient", from: "From", to: "To", source: "Source" };
+const SOURCE_LABEL: Record<string, string> = { intent: "Pipeline", notification: "Direct and inbox records", template_log: "Template and provider events" };
+
+function filterValueLabel(key: keyof Filters, value: string): string {
+  if (key === "type") return NOTIFICATION_CATALOG.find((type) => type.key === value)?.name ?? value;
+  if (key === "state") return DELIVERY_STATE_LABEL[value as keyof typeof DELIVERY_STATE_LABEL] ?? value;
+  if (key === "transport") return TRANSPORT_LABEL[value as keyof typeof TRANSPORT_LABEL] ?? value;
+  if (key === "source") return SOURCE_LABEL[value] ?? value;
+  return value;
+}
+
 export function DeliveryLogTab({ readOnly, onToast, timeZone }: { readOnly: boolean; onToast: (toast: EstateToast) => void; timeZone?: string }) {
   const [draft, setDraft] = React.useState<Filters>(EMPTY);
   const [filters, setFilters] = React.useState<Filters>(EMPTY);
@@ -73,6 +85,24 @@ export function DeliveryLogTab({ readOnly, onToast, timeZone }: { readOnly: bool
     read.reload();
   }
 
+  // Phones: the applied filters as removable chips beside the one Filter button.
+  const activeFilters: EActiveFilter[] = (Object.keys(EMPTY) as Array<keyof Filters>)
+    .filter((key) => filters[key])
+    .map((key) => ({
+      key,
+      label: `${FILTER_LABEL[key]}: ${filterValueLabel(key, filters[key])}`,
+      onRemove: () => {
+        setDraft((current) => ({ ...current, [key]: "" }));
+        setFilters((current) => ({ ...current, [key]: "" }));
+        setPage(1);
+      },
+    }));
+  function clearFilters() {
+    setDraft(EMPTY);
+    setFilters(EMPTY);
+    setPage(1);
+  }
+
   const columns: Array<EDataColumn<DeliveryLogRow, "time">> = [
     { key: "time", header: "Time", sortKey: "time", firstDir: "desc", cell: (row) => <span className="whitespace-nowrap text-xs">{formatDeliveryTime(row.time, timeZone)}</span> },
     { key: "type", header: "Type", className: "max-w-[14rem]", cell: (row) => (
@@ -97,7 +127,8 @@ export function DeliveryLogTab({ readOnly, onToast, timeZone }: { readOnly: bool
         <EButton variant="danger" size="sm" onClick={() => setClearOpen(true)}><Trash2 className="h-4 w-4" />Clear log</EButton>
       </div>
 
-      <form onSubmit={apply} className="grid gap-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] p-3 sm:grid-cols-2 lg:grid-cols-4">
+      <EFilterBar label="Filter deliveries" active={activeFilters} onClear={clearFilters} resultLabel="Done">
+      <form onSubmit={apply} className="grid basis-full gap-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] p-3 sm:grid-cols-2 lg:grid-cols-4">
         <EField label="Type">
           <ESelect value={draft.type} onChange={(event) => setDraft({ ...draft, type: event.target.value })}>
             <option value="">All types</option>
@@ -131,9 +162,10 @@ export function DeliveryLogTab({ readOnly, onToast, timeZone }: { readOnly: bool
         </EField>
         <div className="flex items-end gap-2">
           <EButton type="submit" size="sm">Apply filters</EButton>
-          <EButton type="button" size="sm" variant="ghost" onClick={() => { setDraft(EMPTY); setFilters(EMPTY); setPage(1); }}>Clear</EButton>
+          <EFilterBarInlineOnly><EButton type="button" size="sm" variant="ghost" onClick={clearFilters}>Clear</EButton></EFilterBarInlineOnly>
         </div>
       </form>
+      </EFilterBar>
 
       {read.error && read.data ? <EAlert tone="warning" title="Showing the last loaded page">{read.error}</EAlert> : null}
       <EDataTable

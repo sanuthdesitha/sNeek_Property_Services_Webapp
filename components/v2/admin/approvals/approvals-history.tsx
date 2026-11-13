@@ -15,6 +15,7 @@ import { toast } from "@/hooks/use-toast";
 import { useRestorableState } from "@/hooks/use-restorable-state";
 import { EDataTable, type EDataColumn } from "@/components/v2/ui/data-table";
 import { EFilterPopover } from "@/components/v2/ui/filter-popover";
+import { EFilterBar, type EActiveFilter } from "@/components/v2/ui/filter-bar";
 import { ERowMenu } from "@/components/v2/ui/row-menu";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import { EButton } from "@/components/v2/ui/primitives";
@@ -152,6 +153,7 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
     {
       key: "request",
       header: "Request",
+      phoneTitle: true,
       cell: (row) => (
         <div className="min-w-0">
           {[queueLabel(row.queue), row.subjectName, row.label].filter(Boolean).join(" · ")}
@@ -201,10 +203,24 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
   ];
 
   const deciderName = deciders.find((item) => item.id === filters.deciderId)?.name ?? (filters.deciderId ? "selected" : null);
+  // Phones: the filters sit behind one Filter button; active ones show as chips.
+  const activeFilters: EActiveFilter[] = [
+    ...(filters.queue ? [{ key: "queue", label: `Queue: ${queueLabel(filters.queue)}`, onRemove: () => setFilters((f) => ({ ...f, queue: "" })) }] : []),
+    ...(filters.deciderId ? [{ key: "decider", label: `Decided by: ${deciderName}`, onRemove: () => setFilters((f) => ({ ...f, deciderId: "" })) }] : []),
+    ...(filters.from || filters.to ? [{ key: "dates", label: `Dates: ${filters.from || "…"} to ${filters.to || "…"}`, onRemove: () => setFilters((f) => ({ ...f, from: "", to: "" })) }] : []),
+    ...(filters.paidAboveRequest ? [{ key: "above", label: "Paid above request", onRemove: () => setFilters((f) => ({ ...f, paidAboveRequest: false })) }] : []),
+    ...(search.trim() ? [{ key: "search", label: `Search: ${search.trim()}`, onRemove: () => setSearch("") }] : []),
+  ];
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-1.5">
+      <EFilterBar
+        label="Filter decisions"
+        className="gap-1.5"
+        active={activeFilters}
+        onClear={() => { setFilters({ queue: "", deciderId: "", from: "", to: "", paidAboveRequest: false }); setSearch(""); }}
+        resultLabel="Done"
+      >
         <EFilterPopover label="Queue" value={filters.queue ? queueLabel(filters.queue) : null} emptyValue="all">
           <label className="block text-[0.75rem] font-[550]" htmlFor="history-queue">Queue</label>
           <select id="history-queue" className={INPUT} value={filters.queue} onChange={(e) => setFilters((f) => ({ ...f, queue: e.target.value }))}>
@@ -237,7 +253,7 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
         </button>
         <label className="sr-only" htmlFor="history-search">Search decisions</label>
         <input id="history-search" className={INPUT + " h-9 sm:w-[220px]"} placeholder="Search property, note, person" value={search} onChange={(e) => setSearch(e.target.value)} />
-      </div>
+      </EFilterBar>
       <div className="overflow-hidden rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
         <EDataTable
           label="Decided requests"

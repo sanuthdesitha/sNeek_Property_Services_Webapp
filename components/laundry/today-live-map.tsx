@@ -125,8 +125,18 @@ export function RouteShareControl() {
           lng: longitude,
           accuracy: accuracy ?? undefined,
           timestamp: new Date(pos.timestamp).toISOString(),
+          sentAt: new Date().toISOString(),
         }),
       });
+      const data = (await res.json().catch(() => null)) as { window?: { active?: boolean; message?: string } } | null;
+      // The server records a driver only while their route is ACTIVE today
+      // (live location 2026-11): say so instead of showing "Sharing live".
+      if (res.ok && data?.window?.active === false) {
+        setError(data.window.message ?? "Location is shared only while your route is active. Start the route in the new laundry portal.");
+        stopWatch();
+        setSharing(false);
+        return;
+      }
       if (res.ok) setLastPingAt(new Date());
     } catch {
       // Transient network failure — next watch tick retries.

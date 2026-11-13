@@ -70,6 +70,7 @@ export default async function AdminClientDetailPage({ params, searchParams }: { 
   const actionsClient = {
     id: client.id, name: client.name, email: client.email, phone: client.phone, address: client.address, suburb: client.suburb,
     state: client.state, postcode: client.postcode, notes: client.notes, isActive: client.isActive, portalVisibilityOverrides: overrides,
+    showCleanerLiveLocation: client.showCleanerLiveLocation === true,
   };
   const base = `/v2/admin/clients/${client.id}`;
 

@@ -10,9 +10,16 @@
  * (`use-calendar-state`), data (`use-calendar-data`), moves
  * (`use-calendar-move`), drag (`use-chip-drag`), toolbar, views, chip,
  * move dialog and confirmation.
+ *
+ * Phones (below 640px, board "Admin phone: Calendar"): a week strip with
+ * per-day counts, the day agenda grouped by cleaner (`CalendarPhoneAgenda`),
+ * and "Move or reassign" as a bottom sheet (`CalendarMoveSheet`) that runs
+ * the same check and save as a drop. Day view reads the week around the day
+ * so the strip can count every day; the agenda still lists only that day.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ECard } from "@/components/v2/ui/primitives";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 import { JobPeekPanel } from "@/components/v2/admin/jobs/job-peek-panel";
 import { ReassignNoteDialog } from "@/components/v2/admin/jobs/reassign-note-dialog";
 import { useJobsReferenceData } from "@/components/v2/admin/jobs/use-jobs-reference-data";
@@ -32,6 +39,9 @@ import type { ChipActions } from "./calendar-job-chip";
 import { CalendarMonthGrid } from "./calendar-month-grid";
 import { CalendarMoveConfirm } from "./calendar-move-confirm";
 import { CalendarMoveDialog, type MoveDialogTarget } from "./calendar-move-dialog";
+import { CalendarMoveSheet } from "./calendar-move-sheet";
+import { CalendarPhoneAgenda } from "./calendar-phone-agenda";
+import { CalendarWeekStrip } from "./calendar-week-strip";
 import { CalendarError, CalendarFootnote, CalendarLoading } from "./calendar-states";
 import { CalendarToolbar } from "./calendar-toolbar";
 import { CalendarWeekGrid, type GridDisplay } from "./calendar-week-grid";
@@ -56,11 +66,14 @@ function plural(count: number, noun: string): string {
 export function CalendarWorkspace({ readOnly = false }: { readOnly?: boolean }) {
   const { state, ready, update } = useCalendarState();
   const wide = useIsWide();
+  const phone = useIsPhone();
   const today = useMemo(() => sydneyTodayKey(), []);
   const view: CalendarView = state.view ?? (wide ? "week" : "day");
   const cursor = state.date ?? today;
   const range = viewRange(view, cursor);
-  const query = ready ? calendarApiQuery(range, state) : null;
+  // Phones: Day reads its week (the same request Week makes) for the week strip.
+  const phoneDay = phone && view === "day";
+  const query = ready ? calendarApiQuery(phoneDay ? viewRange("week", cursor) : range, state) : null;
 
   const reloadRef = useRef<() => void>(() => undefined);
   const move = useCalendarMove(useCallback(() => reloadRef.current(), []));
@@ -116,8 +129,10 @@ export function CalendarWorkspace({ readOnly = false }: { readOnly?: boolean }) 
   }, [data]);
 
   const heading = rangeHeading(view, cursor);
+  const dayJobs = phoneDay && data ? data.jobs.filter((job) => job.day === cursor) : null;
   const summary = calendar.status === "error" ? `${heading} · could not be loaded`
     : !data ? `${heading} · loading…`
+    : dayJobs ? [heading, plural(dayJobs.length, "job"), `${dayJobs.filter((job) => job.cleaners.length === 0).length} without a cleaner`].join(" · ")
     : [heading, plural(data.summary.jobs, "job"), `${data.summary.withoutCleaner} without a cleaner`].join(" · ");
   const statusLine = [
     calendar.stale ? `Live refresh failed (${calendar.error}). Showing the calendar as last loaded; retrying automatically.` : null,
@@ -128,12 +143,34 @@ export function CalendarWorkspace({ readOnly = false }: { readOnly?: boolean }) 
 
   const cleanerRows = data?.cleanerRows ?? [];
   const busyMoving = move.state.phase === "checking";
+  const phoneList = phone && (view === "day" || view === "week");
+  const moveSheetOpen = phone && moveTarget !== null;
+
+  // Phones: a saved move closes the sheet; the status line says what was saved.
+  const movedJobId = move.state.phase === "done" ? move.state.request.job.id : null;
+  useEffect(() => {
+    if (movedJobId && moveTarget?.job.id === movedJobId) setMoveTarget(null);
+  }, [movedJobId, moveTarget]);
+
+  function closeMoveSheet() {
+    setMoveTarget(null);
+    // An unsaved check is dropped so the job is no longer held as pending.
+    if (move.state.phase !== "idle" && move.state.phase !== "done") move.dismiss();
+  }
 
   function renderBody() {
     if (calendar.status === "error") return <CalendarError message={calendar.error} onRetry={calendar.reload} />;
     if (!data) return <CalendarLoading />;
     const empty = data.jobs.length === 0 ? <p className="border-b border-[hsl(var(--e-border))] px-4 py-2 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No jobs in this range match the current filters.</p> : null;
     if (view === "agenda") return <CalendarAgenda data={data} actions={actions} display={display} emptyText="No jobs in this fortnight match the current filters." />;
+    if (phoneList) {
+      return (
+        <>
+          {data.jobs.length === 0 ? <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No jobs in this range match the current filters.</p> : null}
+          <CalendarPhoneAgenda data={data} lanes={lanes} days={view === "day" ? [cursor] : data.range.days} actions={actions} display={display} />
+        </>
+      );
+    }
     if (view === "month") return <>{empty}<CalendarMonthGrid data={data} cursor={cursor} actions={actions} display={display} onOpenDay={(day) => update({ view: "day", date: day })} /></>;
     if (!wide) return <>{empty}<CalendarDayList data={data} lanes={lanes} actions={actions} display={display} /></>;
     if (view === "day") return <>{empty}<CalendarDayView data={data} lanes={lanes} actions={actions} display={display} /></>;
@@ -159,8 +196,13 @@ export function CalendarWorkspace({ readOnly = false }: { readOnly?: boolean }) 
           onView={(next) => update({ view: next })}
           update={update}
           onRefresh={calendar.reload}
+          phone={phone}
+          weekStrip={phone ? (
+            <CalendarWeekStrip cursor={cursor} today={today} selected={view === "day" ? cursor : null} data={data}
+              onPick={(day) => update({ view: "day", date: day })} />
+          ) : undefined}
         />
-        <ECard className="overflow-hidden">{renderBody()}</ECard>
+        {phoneList && data && calendar.status !== "error" ? renderBody() : <ECard className="overflow-hidden">{renderBody()}</ECard>}
         {data && view !== "agenda" && view !== "month" ? <CalendarFootnote hoursBasis={data.hoursBasis} /> : null}
       </div>
 
@@ -174,7 +216,26 @@ export function CalendarWorkspace({ readOnly = false }: { readOnly?: boolean }) 
         </div>
       ) : null}
 
-      {moveTarget ? (
+      {moveSheetOpen && moveTarget ? (
+        <CalendarMoveSheet
+          key={moveTarget.job.id}
+          target={moveTarget}
+          data={data}
+          cleaners={cleanerRows}
+          moveState={move.state}
+          readOnly={readOnly}
+          onCheck={(draft) => void move.request({ job: moveTarget.job, ...draft })}
+          onSave={() => void move.confirm()}
+          onDiscardCheck={move.dismiss}
+          onClose={closeMoveSheet}
+          onAssignQa={() => {
+            const job = moveTarget.job;
+            closeMoveSheet();
+            setQaJob(job);
+          }}
+        />
+      ) : null}
+      {moveTarget && !moveSheetOpen ? (
         <CalendarMoveDialog
           key={moveTarget.job.id}
           target={moveTarget}
@@ -188,7 +249,7 @@ export function CalendarWorkspace({ readOnly = false }: { readOnly?: boolean }) 
           }}
         />
       ) : null}
-      <CalendarMoveConfirm state={move.state} onConfirm={() => void move.confirm()} onClose={move.dismiss} />
+      {moveSheetOpen ? null : <CalendarMoveConfirm state={move.state} onConfirm={() => void move.confirm()} onClose={move.dismiss} />}
       {move.reassignPreview ? <ReassignNoteDialog preview={move.reassignPreview} onClose={move.clearReassignPreview} /> : null}
       <CalendarAssignDialogs
         assignJob={assignJob}

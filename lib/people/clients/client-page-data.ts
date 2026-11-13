@@ -26,6 +26,7 @@ export async function loadClientPageData(id: string) {
         notes: true,
         isActive: true,
         portalVisibilityOverrides: true,
+        showCleanerLiveLocation: true,
         paymentTermsDays: true,
         createdAt: true,
         properties: {

@@ -8,6 +8,7 @@ import Link from "next/link";
 import { formatInTimeZone } from "date-fns-tz";
 import { EBadge } from "@/components/v2/ui/primitives";
 import { EStageBar } from "@/components/v2/ui/stage-bar";
+import { PhoneCarousel } from "@/components/v2/admin/phone-carousel";
 import { blockersHeading } from "@/lib/jobs/job-page/blockers";
 import type { JobPageOpen } from "@/lib/jobs/job-page/deep-link";
 import { formatMinutes, siteMinutes, type JobFact } from "@/lib/jobs/job-page/facts";
@@ -133,10 +134,12 @@ export function JobPageHeader({ data, now, initialOpen }: { data: JobPageData; n
       : null,
   ].filter(Boolean);
   return (
-    <div className="space-y-3">
+    // `sm:!mt-0`: the phone-only title row sits before this on the page; from
+    // 640px up it is not drawn, so the header keeps its first-child spacing.
+    <div className="space-y-3 sm:!mt-0">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[0.8125rem]">
+          <p className="text-[0.8125rem] max-sm:hidden">
             <Link href="/v2/admin/jobs" className="text-[hsl(var(--e-accent-portal))] hover:underline">← Jobs</Link>{" "}
             <span className="text-[hsl(var(--e-muted-foreground))]">· {job.jobNumber}</span>
           </p>
@@ -164,22 +167,45 @@ export function JobPageHeader({ data, now, initialOpen }: { data: JobPageData; n
         />
       </header>
       <div className="e-signature-rule" />
-      <EStageBar label="Job progress" stages={model.stages} className="max-sm:[&>li]:text-[0.625rem]" />
+      {/* Phones: a swipeable row that starts on the current stage. */}
+      <PhoneCarousel label="Job progress, swipe for every stage">
+        <EStageBar label="Job progress" stages={model.stages} className="max-sm:w-max max-sm:[&>li]:w-[5.75rem] max-sm:[&>li]:flex-none" />
+      </PhoneCarousel>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
         {model.facts.map((fact) => <FactCard key={fact.key} fact={fact} />)}
       </div>
       <Lead data={data} now={now} />
       {model.blockers.length > 0 ? (
-        <section aria-label="Needs attention" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-warning)/0.4)] bg-[hsl(var(--e-warning-soft))] px-4 py-3 text-[0.8125rem]">
-          <b>{blockersHeading(model.status, model.blockers.length)}</b>
+        <section aria-label="Needs attention" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-warning)/0.4)] bg-[hsl(var(--e-warning-soft))] px-4 py-3 text-[0.8125rem] max-sm:flex-col max-sm:items-stretch max-sm:gap-0">
+          <b className="max-sm:pb-1">{blockersHeading(model.status, model.blockers.length)}</b>
           {model.blockers.map((blocker, index) => (
-            <span key={blocker.key} className="inline-flex items-center gap-2">
-              {index > 0 ? <span aria-hidden className="text-[hsl(var(--e-muted-foreground))]">·</span> : null}
-              <a href={blocker.href} className="text-[hsl(var(--e-accent-portal))] hover:underline">{blocker.text}</a>
+            <span key={blocker.key} className="inline-flex items-center gap-2 max-sm:border-t max-sm:border-[hsl(var(--e-warning)/0.25)]">
+              {index > 0 ? <span aria-hidden className="text-[hsl(var(--e-muted-foreground))] max-sm:hidden">·</span> : null}
+              <a href={blocker.href} className="text-[hsl(var(--e-accent-portal))] hover:underline max-sm:flex max-sm:min-h-11 max-sm:flex-1 max-sm:items-center">{blocker.text}</a>
             </span>
           ))}
         </section>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Phones only (board M-JobDetail): the sticky title row under the app bar,
+ * with the way back to Jobs, the property, the job number and the status. The
+ * page's one h1 stays in the header below; from 640px up this is not drawn.
+ */
+export function JobPhoneTitle({ data }: { data: JobPageData }) {
+  const { job, model } = data;
+  return (
+    <div data-phone-title="" className="sticky top-16 z-20 -mx-4 flex h-11 items-center gap-2 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-background)/0.95)] px-4 backdrop-blur sm:hidden">
+      <Link href="/v2/admin/jobs" aria-label="Back to Jobs" className="-ml-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--e-radius)] text-[1.125rem] text-[hsl(var(--e-text-secondary))]">
+        <span aria-hidden>‹</span>
+      </Link>
+      <p className="min-w-0 flex-1 truncate text-[0.8125rem]">
+        <span className="font-[600]">{data.propLabel}</span> <span className="text-[hsl(var(--e-muted-foreground))]">· {job.jobNumber}</span>
+      </p>
+      <EBadge tone={model.badge.tone} soft className="shrink-0">{model.badge.label}</EBadge>
     </div>
   );
 }

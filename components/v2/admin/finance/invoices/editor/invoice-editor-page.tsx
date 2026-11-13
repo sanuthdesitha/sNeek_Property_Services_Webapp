@@ -6,17 +6,28 @@
  * send, Xero and history cards. Every change goes through the existing invoice
  * routes; see use-invoice-editor.ts for how saving (autosave with a
  * stale-write guard) works.
+ *
+ * Phones (below 640px, board "Admin phone: Invoice editor"): a thin stage
+ * line, the header facts folded to one line with Edit, a section switcher
+ * (Lines / Checks / Send / Xero / History), line cards grouped by property
+ * with Move up / Move down, an Add line sheet and a total bar whose button
+ * follows the stage. See editor-phone.tsx. From 640px up nothing changes.
  */
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
 import { EButton } from "@/components/v2/ui/primitives";
+import { ESectionSwitcher } from "@/components/v2/ui/phone-bars";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 import { EStageBar } from "@/components/v2/ui/stage-bar";
 import { clientInvoiceStages } from "@/lib/billing/client-invoice-stage";
 import type { ClientInvoiceEditorData, EditorLine } from "@/lib/billing/client-invoice-editor-types";
 import { StartedWorkReviewPanel } from "../../started-work-review";
 import { InvoiceDialogs, type InvoiceDialog } from "../invoice-dialogs";
-import { availableInvoiceActions, type InvoiceActionKey } from "../invoice-model";
+import { ACTS_ON_SAVED_INVOICE, availableInvoiceActions, editorPrimaryAction, fmtDay, invoiceActionLabel, type InvoiceActionKey } from "../invoice-model";
+import { formatPeriod } from "../invoice-columns";
+import { VOID_CREDIT_ACTIONS } from "../invoice-row-actions";
+import { EditorLineCards, PhoneHeaderFacts, PhoneLineSheet, PhoneStageLine, PhoneTotalBar, type PhoneLineSheetTarget, type TotalBarAction } from "./editor-phone";
 import { isDirectInvoiceAction, runDirectInvoiceAction } from "../invoice-direct-actions";
 import { EditorHeader, UNSAVED_ACTION_HINT } from "./editor-header";
 import { EditorFields, EditorTotals } from "./editor-fields";
@@ -51,6 +62,9 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
   const [dialog, setDialog] = useState<InvoiceDialog>(null);
   const [sendTo, setSendTo] = useState(initial.row.client.email ?? "");
   const [actionBusy, setActionBusy] = useState(false);
+  const phone = useIsPhone();
+  const [lineSheet, setLineSheet] = useState<PhoneLineSheetTarget | null>(null);
+  const [reviewed, setReviewed] = useState(false);
 
   const row = data.row;
   const editable = data.editLock.editable;
@@ -65,6 +79,12 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
   const sections = useMemo(() => lineSections(data.lines, grouped), [data.lines, grouped]);
   const stages = clientInvoiceStages(row);
   const actions = availableInvoiceActions(row);
+  const checksToLook = data.checks.items.filter((item) => item.state !== "ok").length;
+
+  // Phones: "Review" leads to the checks once per stage, then the stage's action.
+  useEffect(() => {
+    setReviewed(false);
+  }, [row.status]);
 
   useEffect(() => {
     if (!unsaved) return;
@@ -143,6 +163,39 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
 
   const canSend = actions.includes("send") || actions.includes("resend");
 
+  /** Phones: the total bar's button follows the stage: Review, Approve, Send, or the page's primary action. */
+  function totalBarAction(): TotalBarAction | null {
+    const primary = editorPrimaryAction(row);
+    if (!primary) return null;
+    if (primary === "approve" && !reviewed) {
+      return {
+        label: "Review",
+        disabled: false,
+        onClick: () => {
+          setReviewed(true);
+          document.getElementById("invoice-checks")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+        },
+      };
+    }
+    const waits = unsaved && ACTS_ON_SAVED_INVOICE.has(primary);
+    const refused = VOID_CREDIT_ACTIONS.has(primary) && data.canVoidCredit === false ? VOID_CREDIT_REFUSAL : null;
+    return {
+      label: invoiceActionLabel(primary, row),
+      disabled: frozen || waits || Boolean(refused),
+      title: refused ?? (waits ? UNSAVED_ACTION_HINT : undefined),
+      onClick: () => void runAction(primary),
+    };
+  }
+
+  const fieldsSummary = [
+    row.client.name,
+    formatPeriod(row.periodStart, row.periodEnd),
+    row.dueDate ? `due ${fmtDay(row.dueDate)}` : null,
+    data.gstEnabled ? "GST 10%" : "no GST",
+    grouped ? "grouped by property" : null,
+  ].filter((part) => part && part !== "—").join(" · ");
+  const addLineFailure = status.kind === "failed" && status.what === "Add line" ? status.message : null;
+
   return (
     <div className="min-w-0 space-y-3.5">
       <EditorHeader
@@ -160,7 +213,18 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
         voidCreditRefusal={data.canVoidCredit === false ? VOID_CREDIT_REFUSAL : null}
       />
       <CreditLinks data={data} />
-      <EStageBar label="Invoice stages" stages={stages.stages} terminal={stages.terminal} />
+      <EStageBar label="Invoice stages" stages={stages.stages} terminal={stages.terminal} className="max-sm:hidden" />
+      {phone ? <PhoneStageLine stages={stages.stages} terminal={stages.terminal} /> : null}
+      {phone ? <ESectionSwitcher
+        label="Invoice sections"
+        sections={[
+          { id: "invoice-lines", label: "Lines" },
+          { id: "invoice-checks", label: checksToLook > 0 ? `Checks · ${checksToLook}` : "Checks" },
+          { id: "invoice-send", label: "Send" },
+          { id: "invoice-xero", label: "Xero" },
+          { id: "invoice-history", label: "History" },
+        ]}
+      /> : null}
       <StatusBanner status={status} onDismiss={() => editor.setStatus({ kind: "idle" })} onReloadTheirs={() => void editor.reloadTheirs()} />
       {editor.reloadError ? (
         <div role="alert" className="flex flex-wrap items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.5)] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-warning))]">
@@ -202,41 +266,79 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
               />
             </div>
           ) : null}
-          <section aria-label="Invoice lines" className="overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
-            <EditorFields
-              data={data}
-              grouped={grouped}
-              canToggleGst={editable}
-              frozen={frozen}
-              onGst={(enabled) => void editor.mutate("GST", { gstEnabled: enabled }, { repeatable: true })}
-              onGrouped={onGrouped}
-              reference={<ClientReferenceField saved={row.clientReference} editable={editable} frozen={frozen} mutate={editor.mutate} />}
-              mutate={draftEditable ? editor.mutate : undefined}
-            />
-            <EditorLines
-              sections={sections}
-              drafts={drafts}
-              invalid={editor.invalid}
-              editable={editable}
-              frozen={frozen}
-              inputsFrozen={inputsFrozen}
-              suggestions={draftEditable ? suggestions : null}
-              gstEnabled={data.gstEnabled}
-              onAddJob={(jobId) => void addJobs([jobId])}
-              newLine={editor.newLine}
-              onDraft={editor.setLineDraft}
-              onNewLine={editor.setNewLine}
-              onAddLine={addLine}
-              onReorder={(ids) => void reorder(ids)}
-              onRefusedMove={(message) => toast({ title: "Line not moved", description: message })}
-              onRemove={setRemoving}
-              onRegroup={setRegrouping}
-            />
+          <section id="invoice-lines" aria-label="Invoice lines" className="scroll-mt-32 overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
+            {phone ? (
+              <PhoneHeaderFacts summary={fieldsSummary}>
+                <EditorFields
+                  data={data}
+                  grouped={grouped}
+                  canToggleGst={editable}
+                  frozen={frozen}
+                  onGst={(enabled) => void editor.mutate("GST", { gstEnabled: enabled }, { repeatable: true })}
+                  onGrouped={onGrouped}
+                  reference={<ClientReferenceField saved={row.clientReference} editable={editable} frozen={frozen} mutate={editor.mutate} />}
+                  mutate={draftEditable ? editor.mutate : undefined}
+                />
+              </PhoneHeaderFacts>
+            ) : (
+              <div className="max-sm:hidden">
+                <EditorFields
+                  data={data}
+                  grouped={grouped}
+                  canToggleGst={editable}
+                  frozen={frozen}
+                  onGst={(enabled) => void editor.mutate("GST", { gstEnabled: enabled }, { repeatable: true })}
+                  onGrouped={onGrouped}
+                  reference={<ClientReferenceField saved={row.clientReference} editable={editable} frozen={frozen} mutate={editor.mutate} />}
+                  mutate={draftEditable ? editor.mutate : undefined}
+                />
+              </div>
+            )}
+            {phone ? (
+              <EditorLineCards
+                sections={sections}
+                drafts={drafts}
+                invalid={editor.invalid}
+                editable={editable}
+                frozen={frozen}
+                onReorder={(ids) => void reorder(ids)}
+                onRemove={setRemoving}
+                onRegroup={setRegrouping}
+                onEdit={(line) => setLineSheet({ mode: "edit", line })}
+              />
+            ) : (
+              <div className="max-sm:hidden">
+                <EditorLines
+                  sections={sections}
+                  drafts={drafts}
+                  invalid={editor.invalid}
+                  editable={editable}
+                  frozen={frozen}
+                  inputsFrozen={inputsFrozen}
+                  suggestions={draftEditable ? suggestions : null}
+                  gstEnabled={data.gstEnabled}
+                  onAddJob={(jobId) => void addJobs([jobId])}
+                  newLine={editor.newLine}
+                  onDraft={editor.setLineDraft}
+                  onNewLine={editor.setNewLine}
+                  onAddLine={addLine}
+                  onReorder={(ids) => void reorder(ids)}
+                  onRefusedMove={(message) => toast({ title: "Line not moved", description: message })}
+                  onRemove={setRemoving}
+                  onRegroup={setRegrouping}
+                />
+              </div>
+            )}
             <EditorTotals
               data={data}
               unsaved={editor.dirtyIds.length > 0}
               actions={
                 <>
+                  {editable && phone ? (
+                    <EButton type="button" size="sm" variant="outline" disabled={frozen} onClick={() => setLineSheet({ mode: "add" })}>
+                      Add line
+                    </EButton>
+                  ) : null}
                   {draftEditable ? (
                     <EButton type="button" size="sm" variant="outline" disabled={frozen} onClick={() => setAddingJobs(true)}>
                       Add finished jobs{data.draft?.unbilledJobs !== null && data.draft?.unbilledJobs !== undefined ? ` (${data.draft.unbilledJobs} not billed)` : ""}
@@ -249,24 +351,57 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
           </section>
         </div>
         <aside aria-label="Checks and delivery" className="flex min-w-0 flex-col gap-3.5 xl:w-[330px] xl:flex-none">
-          <EditorChecks checks={data.checks} />
-          <SendCard
-            data={data}
-            to={sendTo}
-            onTo={setSendTo}
-            choices={sendChoices}
-            onChoices={setSendChoices}
-            canSend={canSend}
-            resend={actions.includes("resend")}
-            disabled={frozen || unsaved}
-            disabledReason={unsaved ? UNSAVED_ACTION_HINT : null}
-            onSend={() => void runAction(actions.includes("resend") ? "resend" : "send")}
-          />
-          <XeroCard data={data} onRefresh={() => void refreshFromXero()} refresh={xeroRefresh} disabled={frozen} />
-          <HistoryCard data={data} />
+          <div id="invoice-checks" className="scroll-mt-32">
+            <EditorChecks checks={data.checks} />
+          </div>
+          <div id="invoice-send" className="scroll-mt-32">
+            <SendCard
+              data={data}
+              to={sendTo}
+              onTo={setSendTo}
+              choices={sendChoices}
+              onChoices={setSendChoices}
+              canSend={canSend}
+              resend={actions.includes("resend")}
+              disabled={frozen || unsaved}
+              disabledReason={unsaved ? UNSAVED_ACTION_HINT : null}
+              onSend={() => void runAction(actions.includes("resend") ? "resend" : "send")}
+            />
+          </div>
+          <div id="invoice-xero" className="scroll-mt-32">
+            <XeroCard data={data} onRefresh={() => void refreshFromXero()} refresh={xeroRefresh} disabled={frozen} />
+          </div>
+          <div id="invoice-history" className="scroll-mt-32">
+            <HistoryCard data={data} />
+          </div>
         </aside>
       </div>
 
+      {phone && lineSheet ? (
+        <PhoneLineSheet
+          key={lineSheet.mode === "edit" ? lineSheet.line.id : "add"}
+          target={lineSheet}
+          newLine={editor.newLine}
+          drafts={drafts}
+          suggestions={draftEditable ? suggestions : null}
+          gstEnabled={data.gstEnabled}
+          frozen={frozen}
+          inputsFrozen={inputsFrozen}
+          failure={addLineFailure}
+          onNewLine={editor.setNewLine}
+          onAddLine={addLine}
+          onDraft={editor.setLineDraft}
+          onClose={() => setLineSheet(null)}
+        />
+      ) : null}
+      <PhoneTotalBar
+        totalLabel={row.kind === "CREDIT_NOTE" ? "Total credit" : "Total"}
+        total={data.totalAmount}
+        subtotal={data.subtotal}
+        gst={data.gstAmount}
+        note={unsaved ? "Unsaved changes. Totals are the saved figures." : reviewed && checksToLook > 0 ? `${checksToLook} ${checksToLook === 1 ? "check" : "checks"} to look at` : null}
+        action={totalBarAction()}
+      />
       {addingJobs ? <AddJobsDialog suggestions={suggestions} busy={frozen} onAdd={addJobs} onClose={() => setAddingJobs(false)} /> : null}
       <RemoveLineDialog
         line={removing}

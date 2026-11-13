@@ -13,7 +13,7 @@ vi.mock("pg-boss", () => ({ default: class {
   on = m.on; start = m.start; schedule = m.schedule;
   async work(name: string, handler: (job?: unknown) => Promise<void>) { m.handlers.set(name, handler); }
 } }));
-vi.mock("@/lib/db", () => ({ db: { timeLog: { findMany: m.timeLogs }, cleanerLocationPing: { deleteMany: m.cleanup } } }));
+vi.mock("@/lib/db", () => ({ db: { timeLog: { findMany: m.timeLogs }, cleanerLocationPing: { deleteMany: m.cleanup }, maintenanceLocationPing: { deleteMany: m.cleanup } } }));
 vi.mock("@/lib/logger", () => ({ logger: { info: m.info, warn: m.warn, error: m.error } }));
 vi.mock('@/lib/ical/sync', () => ({ syncAllIcal: m.call('syncAllIcal') }));
 vi.mock('@/lib/job-tasks/service', () => ({ autoApprovePendingClientJobTasks: m.call('autoApprovePendingClientJobTasks') }));

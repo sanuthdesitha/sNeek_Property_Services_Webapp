@@ -23,7 +23,10 @@ export async function GET() {
     const portal = portalFor(session.user.role);
     if (!portal) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
     const acknowledged = await hasAcknowledgedLocationNotice(session.user.id, portal);
-    return NextResponse.json({ portal, version: LOCATION_NOTICE_VERSION, acknowledged }, { headers: privateHeaders });
+    // While an administrator views as this person nothing records location,
+    // so no notice or fix is needed for a start (the start routes skip both).
+    const impersonating = Boolean(session.impersonation);
+    return NextResponse.json({ portal, version: LOCATION_NOTICE_VERSION, acknowledged, impersonating }, { headers: privateHeaders });
   } catch (err: any) {
     const status = err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : 500;
     return NextResponse.json({ error: status === 500 ? "Could not read the notice status." : err.message }, { status, headers: privateHeaders });

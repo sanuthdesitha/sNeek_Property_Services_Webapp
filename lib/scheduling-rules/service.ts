@@ -164,6 +164,7 @@ export async function publishRules(session: Session, input: PublishInput, now: D
         reason,
         restoredFromVersion: input.kind === "RESTORE" ? input.restoredFromVersion ?? null : null,
         createdById: actor.id,
+        createdAt: now,
       },
     });
     await tx.auditLog.create({

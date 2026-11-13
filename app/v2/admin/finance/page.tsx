@@ -170,7 +170,7 @@ export default async function AdminFinancePage({ searchParams }: { searchParams?
       <EPageHeader
         title="Invoices and pay"
         description="Money in and money out on one page: client invoices, cleaner invoices, pay runs and adjustments."
-        actions={<MoneyHeaderActions xero={xero} canBill={canBill} />}
+        actions={<MoneyHeaderActions xero={xero} canBill={canBill} newInvoiceDockedOnPhone={tab === "invoices"} />}
       />
       <FinanceTabNavV2
         active={tab ?? "invoices"}

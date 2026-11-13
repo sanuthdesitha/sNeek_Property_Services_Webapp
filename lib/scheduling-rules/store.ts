@@ -106,8 +106,9 @@ export function decodeVersionRow(row: StoredRow): RuleVersionRecord {
   };
 }
 
+/** A transaction client has no $transaction method (read through `get`, so proxies work too). */
 function isTransactionClient(client: Client): client is Prisma.TransactionClient {
-  return !("$transaction" in client);
+  return typeof (client as { $transaction?: unknown }).$transaction !== "function";
 }
 
 /** Run `work` in a transaction holding the scheduling-rules advisory lock. */

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { EButton, ECard } from "@/components/v2/ui/primitives";
+import { EToneNotice } from "@/components/v2/ui/tone-band";
 import {
   EField,
   EInput,
@@ -105,12 +106,17 @@ export function NotificationsAutomationSection({
         description="Worker-driven timed notification jobs and default delivery channels."
       />
 
+      <EToneNotice tone="info" title="Some of these are locked scheduling rules">
+        The 24-hour and 2-hour reminders, auto-approving laundry drafts and the laundry notice window are scheduling rules: change them in{" "}
+        <a className="font-medium underline" href="/v2/admin/settings/scheduling-rules">Settings › Scheduling rules</a>.
+      </EToneNotice>
+
       <div className="grid gap-6 lg:grid-cols-2">
         <ECard className="p-6">
           <EToggle
             checked={s.reminder24hEnabled}
             onChange={(v) => setSched("reminder24hEnabled", v)}
-            disabled={readOnly}
+            disabled
             label="24-hour reminder emails"
             description="Sends the scheduled email reminder flow based on the reminder hours."
           />
@@ -119,7 +125,7 @@ export function NotificationsAutomationSection({
           <EToggle
             checked={s.reminder2hEnabled}
             onChange={(v) => setSched("reminder2hEnabled", v)}
-            disabled={readOnly}
+            disabled
             label="2-hour reminder SMS"
             description="Sends the scheduled SMS reminder flow based on the reminder hours."
           />
@@ -190,7 +196,7 @@ export function NotificationsAutomationSection({
             <EToggle
               checked={s.autoApproveLaundrySyncDrafts}
               onChange={(v) => setSched("autoApproveLaundrySyncDrafts", v)}
-              disabled={readOnly}
+              disabled
               label="Auto-approve sync laundry drafts"
               description="When iCal sync changes future laundry schedules, approve and publish the draft automatically."
             />
@@ -209,7 +215,7 @@ export function NotificationsAutomationSection({
                     Number(e.target.value || s.laundrySyncNotificationHorizonDays)
                   )
                 }
-                disabled={readOnly}
+                disabled
               />
             </EField>
           </div>

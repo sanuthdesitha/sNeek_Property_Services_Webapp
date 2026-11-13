@@ -1,5 +1,6 @@
 import { getAppSettings } from "@/lib/settings";
 import { ECard, ECardBody, EEyebrow } from "@/components/v2/ui/primitives";
+import { LOCATION_PRIVACY_SECTION } from "@/lib/gps/privacy-text";
 
 export const metadata = { title: "Privacy Policy · sNeek Property Services" };
 
@@ -20,7 +21,7 @@ export default async function V2PrivacyPage() {
       </div>
 
       <div className="mt-10 grid gap-5">
-        {(content.sections ?? []).map((section: { title: string; body: string; bullets: string[] }) => (
+        {[...(content.sections ?? []), { title: LOCATION_PRIVACY_SECTION.title, body: LOCATION_PRIVACY_SECTION.body, bullets: [...LOCATION_PRIVACY_SECTION.bullets] }].map((section: { title: string; body: string; bullets: string[] }) => (
           <ECard key={section.title}>
             <ECardBody className="space-y-4 pt-6">
               <h2 className="e-display-sm">{section.title}</h2>
