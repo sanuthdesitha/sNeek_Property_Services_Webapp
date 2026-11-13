@@ -41,7 +41,7 @@ export type LineRowProps = {
   onRegroup: () => void;
 };
 
-function LineBadges({ line }: { line: EditorLine }) {
+export function LineBadges({ line }: { line: EditorLine }) {
   return (
     <>
       {line.shoppingLocked ? <EPill tone="gold">Shopping · locked</EPill> : null}
@@ -69,7 +69,8 @@ function JobLink({ line }: { line: EditorLine }) {
   );
 }
 
-function lineMenu(line: EditorLine, props: LineRowProps): ERowMenuItem[] {
+/** The line's menu (shared with the phone line cards, which add Move up / Move down). */
+export function lineMenu(line: EditorLine, props: Pick<LineRowProps, "editable" | "onRegroup" | "onRemove">): ERowMenuItem[] {
   const items: ERowMenuItem[] = [];
   if (line.job) items.push({ key: "job", label: "Open job", href: `/v2/admin/jobs/${encodeURIComponent(line.job.id)}` });
   if (props.editable && !line.job && !line.shoppingLocked && !line.discount) {

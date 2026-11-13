@@ -72,6 +72,7 @@ import { TrackingIssues, TrackingStageChips, type StageFilter } from "@/componen
 import { stageCounts, trackingDayOf, trackingStage } from "@/lib/laundry/tracking-stages";
 import { classifyRuns } from "@/lib/laundry/run-classification";
 import { PartnerRunEntries } from "@/components/v2/laundry/portal/partner-run-entries";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /* ── Types (mirror the /api/laundry/week payload) ──────────────────────── */
 export type LaundryStatus =
@@ -1384,7 +1385,7 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole, partnerEntri
                   </div>
 
                   {t.flagNotes ? (
-                    <p className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] px-3 py-2 text-[0.75rem] text-[hsl(var(--e-foreground))]">
+                    <p className={`rounded-[var(--e-radius)] ${toneNoticeClass("problem")} px-3 py-2 text-[0.75rem] text-[hsl(var(--e-foreground))]`}>
                       {t.flagNotes}
                     </p>
                   ) : null}

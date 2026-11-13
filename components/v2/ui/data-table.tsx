@@ -14,12 +14,16 @@
  *   640px (phones) it is one DOM laid out as stacked rows: the first column is
  *   the row title, the other columns sit two across under their header text,
  *   and a "Sort by" control replaces the hidden header buttons. Nothing has to
- *   be scrolled sideways.
+ *   be scrolled sideways. Row checkboxes stay hidden on a phone until "Select"
+ *   is turned on (or something is already selected), to keep the cards clean;
+ *   selection itself is unchanged. A column marked `phoneTitle` becomes the
+ *   card's title instead of the first column.
  */
 import * as React from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EButton } from "./primitives";
+import { PhoneTableBar, SortIcon, headerText } from "./data-table-phone";
 
 export type SortDirection = "asc" | "desc";
 export type TableSort<TSort extends string> = { key: TSort; dir: SortDirection };
@@ -35,6 +39,8 @@ export type EDataColumn<TRow, TSort extends string = string> = {
   align?: "left" | "right" | "center";
   className?: string;
   cell: (row: TRow) => React.ReactNode;
+  /** Phones: this column is the card's title (default: the first column). */
+  phoneTitle?: boolean;
 };
 
 export type EDataSelection<TRow> = {
@@ -85,21 +91,9 @@ const ALIGN: Record<NonNullable<EDataColumn<unknown>["align"]>, string> = {
   center: "text-center",
 };
 
-/** Header text used as the phone label of a cell; only plain text headers qualify. */
-function headerText(header: React.ReactNode): string | undefined {
-  if (typeof header === "string") return header.trim() || undefined;
-  if (typeof header === "number") return String(header);
-  return undefined;
-}
-
 function ariaSortFor(active: boolean, dir: SortDirection | undefined): "ascending" | "descending" | "none" {
   if (!active) return "none";
   return dir === "asc" ? "ascending" : "descending";
-}
-
-function SortIcon({ active, dir }: { active: boolean; dir?: SortDirection }) {
-  if (!active) return <ArrowUpDown aria-hidden className="h-3 w-3 opacity-40" />;
-  return dir === "asc" ? <ArrowUp aria-hidden className="h-3 w-3" /> : <ArrowDown aria-hidden className="h-3 w-3" />;
 }
 
 function PageCheckbox<TRow>({
@@ -192,7 +186,11 @@ export function EDataTable<TRow, TSort extends string = string>({
   activeRowKey = null,
   cellPadding = "px-3 py-2.5",
 }: EDataTableProps<TRow, TSort>) {
+  const [phoneSelecting, setPhoneSelecting] = React.useState(false);
   const hasRows = rows.length > 0;
+  // Phones show checkboxes only in Select mode, or while rows are selected.
+  const showPhoneChecks = Boolean(selection) && (phoneSelecting || (selection?.selected.size ?? 0) > 0);
+  const titleIndex = Math.max(0, columns.findIndex((column) => column.phoneTitle));
 
   if (!hasRows && loading) {
     return (
@@ -238,15 +236,15 @@ export function EDataTable<TRow, TSort extends string = string>({
           "max-sm:flex max-sm:flex-wrap max-sm:items-start max-sm:gap-x-3 max-sm:gap-y-2 max-sm:px-3 max-sm:py-3",
           "hover:bg-[hsl(var(--e-surface-raised)/0.6)]",
           onRowClick && "cursor-pointer",
+          // Selected and active rows take a soft primary tint; no inset left line.
           (checked || active) && "bg-[hsl(var(--e-primary-soft))] hover:bg-[hsl(var(--e-primary-soft))]",
-          active && "shadow-[inset_3px_0_0_hsl(var(--e-primary))]",
         )}
       >
         {selection ? (
-          <td className={cn("w-[34px] align-middle max-sm:w-auto max-sm:!p-0 max-sm:pt-0.5", cellPadding)}>
+          <td className={cn("w-[34px] align-middle max-sm:-order-1 max-sm:w-auto max-sm:!p-0 max-sm:pt-0.5", cellPadding, !showPhoneChecks && "max-sm:hidden")}>
             <input
               type="checkbox"
-              className="h-[15px] w-[15px] accent-[hsl(var(--e-primary))]"
+              className="h-[15px] w-[15px] accent-[hsl(var(--e-primary))] max-sm:h-6 max-sm:w-6"
               aria-label={selection.rowLabel(row)}
               checked={checked}
               disabled={selection.disabled}
@@ -260,7 +258,8 @@ export function EDataTable<TRow, TSort extends string = string>({
           </td>
         ) : null}
         {columns.map((column, index) => {
-          const phoneLabel = index === 0 ? undefined : headerText(column.header);
+          const isTitle = index === titleIndex;
+          const phoneLabel = isTitle ? undefined : headerText(column.header);
           return (
             <td
               key={column.key}
@@ -272,9 +271,9 @@ export function EDataTable<TRow, TSort extends string = string>({
                 column.className,
                 // Phone: no cell padding, left aligned; title first, then pairs.
                 "max-sm:!w-auto max-sm:min-w-0 max-sm:!p-0 max-sm:!text-left",
-                index === 0 && "max-sm:flex-1 max-sm:basis-[60%] max-sm:text-[0.9375rem]",
-                index > 0 && phoneLabel && "max-sm:basis-[calc(50%-0.375rem)] max-sm:before:block max-sm:before:text-[0.6875rem] max-sm:before:font-semibold max-sm:before:text-[hsl(var(--e-muted-foreground))] max-sm:before:content-[attr(data-label)]",
-                index > 0 && !phoneLabel && "max-sm:flex max-sm:basis-full max-sm:flex-wrap max-sm:items-center max-sm:gap-2",
+                isTitle && "max-sm:order-first max-sm:flex-1 max-sm:basis-[60%] max-sm:text-[0.9375rem]",
+                !isTitle && phoneLabel && "max-sm:basis-[calc(50%-0.375rem)] max-sm:before:block max-sm:before:text-[0.6875rem] max-sm:before:font-semibold max-sm:before:text-[hsl(var(--e-muted-foreground))] max-sm:before:content-[attr(data-label)]",
+                !isTitle && !phoneLabel && "max-sm:flex max-sm:basis-full max-sm:flex-wrap max-sm:items-center max-sm:gap-2",
               )}
             >
               {column.cell(row)}
@@ -287,7 +286,18 @@ export function EDataTable<TRow, TSort extends string = string>({
 
   return (
     <div className={cn("min-w-0", className)}>
-      <PhoneSortControl columns={columns} sort={sort ?? null} onSortChange={onSortChange} label={label} />
+      <PhoneTableBar
+        columns={columns}
+        sort={sort ?? null}
+        onSortChange={onSortChange}
+        label={label}
+        selecting={showPhoneChecks}
+        onSelectMode={selection ? (on) => {
+          setPhoneSelecting(on);
+          if (!on && selection.selected.size > 0) selection.onChange(new Set());
+        } : undefined}
+        selectionDisabled={selection?.disabled}
+      />
       {error ? (
         // Stale: the rows below are the last good read, not the current one.
         <div
@@ -305,10 +315,10 @@ export function EDataTable<TRow, TSort extends string = string>({
           aria-busy={loading || undefined}
         >
           <caption className="sr-only">{label}</caption>
-          <thead className={cn("max-sm:block", !selection && "max-sm:hidden")}>
+          <thead className={cn("max-sm:block", !showPhoneChecks && "max-sm:hidden")}>
             <tr className="border-b border-[hsl(var(--e-border))] max-sm:flex max-sm:items-center max-sm:gap-2 max-sm:bg-[hsl(var(--e-surface-raised))]">
               {selection ? (
-                <th scope="col" className="w-[34px] bg-[hsl(var(--e-surface-raised))] px-3 py-2 max-sm:flex max-sm:w-auto max-sm:items-center max-sm:gap-2 max-sm:after:text-[0.75rem] max-sm:after:font-normal max-sm:after:text-[hsl(var(--e-muted-foreground))] max-sm:after:content-['Select_all_on_this_page']">
+                <th scope="col" className="w-[34px] bg-[hsl(var(--e-surface-raised))] px-3 py-2 max-sm:flex max-sm:min-h-11 max-sm:w-auto max-sm:items-center max-sm:gap-2 max-sm:after:text-[0.75rem] max-sm:after:font-normal max-sm:after:text-[hsl(var(--e-muted-foreground))] max-sm:after:content-['Select_all_on_this_page']">
                   <PageCheckbox rows={rows} rowKey={rowKey} selection={selection} />
                 </th>
               ) : null}
@@ -369,65 +379,6 @@ export function EDataTable<TRow, TSort extends string = string>({
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-/**
- * Phones only: the header row is hidden there, so sorting is offered as one
- * labelled select plus a direction button. Controlled exactly like the header
- * buttons (the caller re-reads the server).
- */
-function PhoneSortControl<TRow, TSort extends string>({
-  columns,
-  sort,
-  onSortChange,
-  label,
-}: {
-  columns: Array<EDataColumn<TRow, TSort>>;
-  sort: TableSort<TSort> | null;
-  onSortChange?: (next: TableSort<TSort>) => void;
-  label: string;
-}) {
-  const id = React.useId();
-  const sortable = columns.filter((column) => column.sortKey && headerText(column.header));
-  if (!onSortChange || sortable.length === 0) return null;
-  const active = sortable.find((column) => column.sortKey === sort?.key);
-  const dir: SortDirection = sort?.dir ?? "asc";
-
-  return (
-    <div className="flex items-center gap-2 border-b border-[hsl(var(--e-border))] px-3 py-2 sm:hidden">
-      <label htmlFor={id} className="text-[0.75rem] font-semibold text-[hsl(var(--e-muted-foreground))]">
-        Sort by
-      </label>
-      <select
-        id={id}
-        aria-label={`Sort ${label} by`}
-        className="min-h-[2.25rem] min-w-0 flex-1 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-2 text-[0.8125rem]"
-        value={active?.sortKey ?? ""}
-        onChange={(event) => {
-          const column = sortable.find((candidate) => candidate.sortKey === event.target.value);
-          if (column?.sortKey) onSortChange({ key: column.sortKey, dir: column.firstDir ?? "asc" });
-        }}
-      >
-        {active ? null : <option value="">Default order</option>}
-        {sortable.map((column) => (
-          <option key={column.key} value={column.sortKey}>
-            {headerText(column.header)}
-          </option>
-        ))}
-      </select>
-      <button
-        type="button"
-        disabled={!active}
-        aria-label={dir === "asc" ? "Ascending. Switch to descending" : "Descending. Switch to ascending"}
-        onClick={() => {
-          if (active?.sortKey) onSortChange({ key: active.sortKey, dir: dir === "asc" ? "desc" : "asc" });
-        }}
-        className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]"
-      >
-        <SortIcon active={Boolean(active)} dir={dir} />
-      </button>
     </div>
   );
 }

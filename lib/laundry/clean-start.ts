@@ -10,9 +10,10 @@
  * then 10:00 — Airbnb checkouts are 10am unless told otherwise.
  */
 import { parseJobInternalNotes, resolveRuleTime } from "@/lib/jobs/meta";
+import { LAUNDRY_DEFAULT_CLEAN_START, LAUNDRY_KEY_LOST_LATE_CHECKOUT_TIME } from "@/lib/scheduling-rules/constants";
 
-const DEFAULT_CLEAN_START = "10:00";
-const KEY_LOST_LATE_CHECKOUT_TIME = "12:30";
+const DEFAULT_CLEAN_START = LAUNDRY_DEFAULT_CLEAN_START;
+const KEY_LOST_LATE_CHECKOUT_TIME = LAUNDRY_KEY_LOST_LATE_CHECKOUT_TIME;
 
 type CleanStartJob = {
   startTime?: string | null;
@@ -34,13 +35,17 @@ export function hasLateCheckout(job: CleanStartJob): boolean {
 }
 
 /** "HH:mm" the clean is expected to start (property-local). */
-export function resolveCleanStart(job: CleanStartJob, property?: CleanStartProperty | null): string {
+export function resolveCleanStart(
+  job: CleanStartJob,
+  property?: CleanStartProperty | null,
+  defaultCleanStart: string = DEFAULT_CLEAN_START,
+): string {
   const meta = parseJobInternalNotes(job.internalNotes);
   const late = meta.lateCheckout?.enabled ? resolveRuleTime(meta.lateCheckout) : undefined;
   if (isHHmm(late)) return late;
   if (isHHmm(job.startTime)) return job.startTime;
   if (isHHmm(property?.defaultCheckoutTime)) return property!.defaultCheckoutTime as string;
-  return DEFAULT_CLEAN_START;
+  return defaultCleanStart;
 }
 
 /**
@@ -48,8 +53,11 @@ export function resolveCleanStart(job: CleanStartJob, property?: CleanStartPrope
  * started — 12:30 when the job has a late checkout, else 10:00 (the user's
  * specified rule, deliberately NOT the raw clean-start time).
  */
-export function resolveKeyLostServiceTime(job: CleanStartJob): string {
-  return hasLateCheckout(job) ? KEY_LOST_LATE_CHECKOUT_TIME : DEFAULT_CLEAN_START;
+export function resolveKeyLostServiceTime(
+  job: CleanStartJob,
+  times: { serviceTime: string; lateCheckoutTime: string } = { serviceTime: DEFAULT_CLEAN_START, lateCheckoutTime: KEY_LOST_LATE_CHECKOUT_TIME },
+): string {
+  return hasLateCheckout(job) ? times.lateCheckoutTime : times.serviceTime;
 }
 
 /**

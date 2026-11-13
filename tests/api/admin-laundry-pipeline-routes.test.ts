@@ -10,6 +10,8 @@ vi.mock("@/lib/db", () => ({
   db: {
     laundryTask: { findUnique: m.findUnique, update: m.update, findMany: m.tasks },
     cleanerLocationPing: { findMany: m.pings },
+    // Drivers now come from ACTIVE routes (live location 2026-11).
+    laundryRoute: { findMany: m.pings },
   },
 }));
 

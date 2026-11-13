@@ -12,9 +12,11 @@
  * (`job-peek-panel`). State lives in the URL (`use-jobs-workspace-state`).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { toast } from "@/hooks/use-toast";
 import { ECard, EButton } from "@/components/v2/ui/primitives";
 import { EPagination } from "@/components/v2/ui/pagination";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
 import { pickJobsFilters } from "@/lib/jobs/view-presets";
 import { jobsScrollContentFingerprint } from "@/lib/jobs/scroll-restoration";
 import { BulkRemindDialog } from "./bulk-remind-dialog";
@@ -162,7 +164,8 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
           onSaveView={() => { setCreateRequest((value) => value + 1); }}
           canSave={canSaveView}
         />
-        <JobsFilterBar state={state} update={update} reference={reference} optionsOpen={optionsOpen} onToggleOptions={() => setOptionsOpen((open) => !open)} />
+        <JobsFilterBar state={state} update={update} reference={reference} optionsOpen={optionsOpen} onToggleOptions={() => setOptionsOpen((open) => !open)}
+          resultLabel={list.status === "success" ? `Show ${list.pagination.totalCount} job${list.pagination.totalCount === 1 ? "" : "s"}` : undefined} />
         <JobsViewOptions
           open={optionsOpen}
           onClose={() => setOptionsOpen(false)}
@@ -244,6 +247,11 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
           onCancelJobs={() => setCancelRequest({ jobIds: selectedIds })}
           onDone={(keep) => { setSelected(new Set(keep)); refreshAll(); }}
         />
+        {/* Phones: New job in thumb reach; the bulk bar takes its place while rows are selected. */}
+        {showPageHeader ? (
+          <EPhoneActionBar label="Jobs actions" hidden={selectedIds.length > 0}
+            primary={<EButton asChild><Link href="/v2/admin/jobs/new">New job</Link></EButton>} />
+        ) : null}
       </div>
 
       <JobPeekPanel jobId={openJobId} row={openRow} readOnly={viewsReadOnly} onClose={() => setOpenJobId(null)} onChanged={refreshAll} />

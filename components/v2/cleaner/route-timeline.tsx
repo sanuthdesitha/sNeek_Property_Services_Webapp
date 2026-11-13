@@ -1,5 +1,6 @@
 "use client";
 import { orderStorageKey, loadStoredOrder, saveStoredOrder, clearStoredOrder, applyStoredOrder } from "@/lib/cleaner/route-order";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 export { orderStorageKey, loadStoredOrder, saveStoredOrder, clearStoredOrder, applyStoredOrder } from "@/lib/cleaner/route-order";
 
 /**
@@ -689,7 +690,7 @@ export function RouteTimeline({
                     </div>
 
                     {s.status === "OFFERED" ? (
-                      <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-2.5">
+                      <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-2.5`}>
                         <p className="mb-2 text-[0.75rem] font-[550]">
                           Offered — accept to keep this stop on your route.
                         </p>

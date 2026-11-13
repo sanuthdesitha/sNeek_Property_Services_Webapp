@@ -46,11 +46,16 @@ const OPS_POLICY_SETTING_KEY = "ops_feature_permissions_v1";
  *   "read" (read from the live policy each time; a manager who also holds
  *   ADMIN has no pack restriction, as everywhere else).
  *
+ * - JOB_OFFICE (id = job id, live location 2026-11): the office people who may
+ *   see jobs: an active ADMIN, or an active OPS_MANAGER whose operations pack
+ *   gives the jobs feature at least "read" (re-read each time, like
+ *   URGENT_STOCK_OFFICE). Used for the automatic "left the site" clock-out.
+ *
  * In every scope the role recorded in the envelope must still be the
  * recipient's role: a role change between queueing and dispatch skips the
  * delivery instead of disclosing to a different kind of account.
  */
-export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "LAUNDRY_TASK_SUPPLIER_TEAM", "STAFF_MEMBER", "JOB_CLIENT_CONTACT", "LOST_ITEM_PROPERTY_CLIENT", "URGENT_STOCK_PURCHASE_ASK", "URGENT_STOCK_OFFICE"] as const;
+export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "LAUNDRY_TASK_SUPPLIER_TEAM", "STAFF_MEMBER", "JOB_CLIENT_CONTACT", "LOST_ITEM_PROPERTY_CLIENT", "URGENT_STOCK_PURCHASE_ASK", "URGENT_STOCK_OFFICE", "JOB_OFFICE"] as const;
 export type RecipientScopeType = (typeof RECIPIENT_SCOPE_TYPES)[number];
 
 export { STAFF_MESSAGE_ROLES };
@@ -94,6 +99,15 @@ async function lostItemClientId(reader: ScopeReader, itemId: string) {
  * manage). Fails closed when the policy cannot be read.
  */
 export async function urgentStockOfficeRecipientAllowed(reader: ScopeReader, user: { id: string; role: Role }): Promise<boolean> {
+  return officeFeatureRecipientAllowed(reader, user, "inventory");
+}
+
+/**
+ * May this ADMIN / OPS_MANAGER account receive office notices of one
+ * operations feature? ADMIN always; an operations manager by that feature of
+ * their pack (read or manage). Fails closed when the policy cannot be read.
+ */
+export async function officeFeatureRecipientAllowed(reader: ScopeReader, user: { id: string; role: Role }, feature: "inventory" | "jobs"): Promise<boolean> {
   if (user.role === "ADMIN") return true;
   if (user.role !== "OPS_MANAGER" || !reader.appSetting) return false;
   const account = await reader.user.findUnique({ where: { id: user.id }, select: { extraRoles: { select: { role: true } } } });
@@ -104,7 +118,7 @@ export async function urgentStockOfficeRecipientAllowed(reader: ScopeReader, use
   if (parsed && !parsed.success) return false;
   // Missing policy is the documented backwards-compatible default (every feature at manage).
   const levels = resolveOpsLevels(parsed ? parsed.data : EMPTY_OPS_POLICY, user.id);
-  return levels.inventory === "read" || levels.inventory === "manage";
+  return levels[feature] === "read" || levels[feature] === "manage";
 }
 
 /**
@@ -151,5 +165,10 @@ export async function authorizeEntityRecipient(reader: ScopeReader, recipient: R
     }
     case "URGENT_STOCK_OFFICE":
       return (await urgentStockOfficeRecipientAllowed(reader, user)) ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
+    case "JOB_OFFICE": {
+      const job = await reader.job.findUnique({ where: { id: scope.id }, select: { id: true } });
+      if (!job) return { ok: false, errorCode: "recipient_not_in_scope" };
+      return (await officeFeatureRecipientAllowed(reader, user, "jobs")) ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
+    }
   }
 }

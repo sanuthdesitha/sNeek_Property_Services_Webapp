@@ -18,6 +18,7 @@ import { ReadFirstBlock } from "@/components/v2/cleaner/read-first-block";
 import { ClockCard, BriefingCard } from "@/components/v2/cleaner/job-stages/parts";
 import { BookingCard } from "@/components/v2/cleaner/booking-card";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export function StageSetup({ api }: { api: WorkspaceApi }) {
   const {
@@ -157,7 +158,7 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
           ) : null}
 
           {restockNeeds.length > 0 ? (
-            <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+            <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-3`}>
               <p className="e-eyebrow flex items-center gap-1.5">
                 <Package className="h-3.5 w-3.5" /> Restock this property
               </p>
@@ -176,7 +177,7 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
           ) : null}
 
           {recurringIssues.length > 0 ? (
-            <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+            <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-3`}>
               <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
                 <AlertTriangle className="h-4 w-4" /> Watch-outs from previous cleans
               </p>

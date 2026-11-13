@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { Role } from "@prisma/client";
 import { clockOutCleaner } from "@/lib/jobs/clock";
 import { ActionReceiptError, withCleanerAction } from "@/lib/cleaner/action-receipt";
+import { sendCleanerSharingNotice } from "@/lib/notifications/location-sharing";
 
 export async function POST(
   _req: NextRequest,
@@ -29,6 +30,19 @@ export async function POST(
       const { stopped, durationM, clockOut } = await clockOutCleaner({ jobId: params.id, userId: session.user.id, tx });
       return { status: 200, body: { ok: true, durationM, clockOut: clockOut ?? null, alreadyStopped: !stopped } };
     });
+    // Clocking out ends live location for this job: tell the cleaner (inbox
+    // only). Never fails the stop; never sent while impersonated.
+    const closed = (result.body as { clockOut?: { timeLogId: string } | null }).clockOut;
+    if (result.status === 200 && closed?.timeLogId && !session.impersonation) {
+      void db.job
+        .findUnique({ where: { id: params.id }, select: { jobNumber: true, property: { select: { name: true } } } })
+        .then((job) => sendCleanerSharingNotice({
+          kind: "stopped", userId: session.user.id, jobId: params.id,
+          jobLabel: `${job?.jobNumber || params.id}: ${job?.property?.name ?? "the job"}`,
+          occurrenceId: closed.timeLogId,
+        }))
+        .catch(() => undefined);
+    }
     return NextResponse.json(result.body, { status: result.status });
   } catch (err: any) {
     const status = err instanceof ActionReceiptError ? err.status : err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

@@ -2,6 +2,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 const m = vi.hoisted(() => ({ role: vi.fn(), assignment: vi.fn(), job: vi.fn(), lock: vi.fn(), draft: vi.fn(), form: vi.fn(), revision: vi.fn(), tasks: vi.fn(), settings: vi.fn(), visionSettings: vi.fn(), image: vi.fn(), assign: vi.fn(), history: vi.fn(), model: vi.fn(), predict: vi.fn(), aiConfig: vi.fn() }));
+vi.mock("@/lib/ai/provider/store", async () => (await import("../helpers/ai-provider-store-mock")).aiStoreMock({ allowCloudImages: true }));
 vi.mock("@/lib/ai/historical-assignment-examples", () => ({ getHistoricalAssignmentExamples: m.history }));
 vi.mock("@/lib/ai/property-photo-model", () => ({ predictPropertyRecognition: m.predict }));
 vi.mock("@/lib/ai/config", () => ({ getVisionProviderConfiguration: m.aiConfig, getResolvedVisionProviderConfiguration: m.aiConfig }));

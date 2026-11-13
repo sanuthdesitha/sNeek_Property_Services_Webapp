@@ -65,12 +65,44 @@ describe("planPayApprovals", () => {
     expect(reason("gone")).toMatch(/no longer exists/);
   });
 
-  it("uses the client-approved amount when the client approved the charge", async () => {
+  // Changed on purpose (owner rule 2026-11-13): this used to approve at the
+  // client-approved $35. The cleaner is paid what they requested ($40 here);
+  // the client charge never becomes the cleaner's pay, higher or lower.
+  it("uses the cleaner's requested amount, not the client-approved charge", async () => {
+    for (const clientAmount of [60, 35]) {
+      m.listApprovals.mockResolvedValue([
+        { status: "APPROVED", amount: clientAmount, updatedAt: "2026-11-12T00:00:00Z", metadata: { source: "pay_adjustment", payAdjustmentId: "client" } },
+      ]);
+      const plan = await planPayApprovals(["client"], { client: 40 });
+      expect(plan.approve.get("client")).toBe(40);
+    }
+  });
+
+  it("compares the confirmed amount against the requested amount, so a confirm of the client charge is refused", async () => {
     m.listApprovals.mockResolvedValue([
-      { status: "APPROVED", amount: 35, updatedAt: "2026-11-12T00:00:00Z", metadata: { source: "pay_adjustment", payAdjustmentId: "client" } },
+      { status: "APPROVED", amount: 60, updatedAt: "2026-11-12T00:00:00Z", metadata: { source: "pay_adjustment", payAdjustmentId: "client" } },
     ]);
-    const plan = await planPayApprovals(["client"], { client: 35 });
-    expect(plan.approve.get("client")).toBe(35);
+    const plan = await planPayApprovals(["client"], { client: 60 });
+    expect(plan.approve.size).toBe(0);
+    expect(plan.refusals.get("client")?.message).toMatch(/now \$40\.00 \(you confirmed \$60\.00\)/);
+  });
+
+  it("uses the requested amount after a counter-offer was accepted at a different figure", async () => {
+    // Accepting a counter writes the counter into the client approval's amount.
+    m.listApprovals.mockResolvedValue([
+      { status: "APPROVED", amount: 50, counterAmount: null, updatedAt: "2026-11-12T00:00:00Z", metadata: { source: "pay_adjustment", payAdjustmentId: "client" } },
+    ]);
+    const plan = await planPayApprovals(["client"], { client: 40 });
+    expect(plan.approve.get("client")).toBe(40);
+  });
+
+  it("sends the requested amount to the single pay route in bulk", async () => {
+    m.listApprovals.mockResolvedValue([
+      { status: "APPROVED", amount: 60, updatedAt: "2026-11-12T00:00:00Z", metadata: { source: "pay_adjustment", payAdjustmentId: "client" } },
+    ]);
+    const invoke = vi.fn(async () => ({ status: 200, body: {} }));
+    await runBulkDecision({ queue: "payAdjustments", decision: "approve", ids: ["client"], expectedAmounts: { client: 40 }, actor: admin, invoke });
+    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ body: { status: "APPROVED", approvedAmount: 40 } }));
   });
 
   it("refuses a row whose amount was not confirmed", async () => {

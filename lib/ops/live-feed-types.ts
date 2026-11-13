@@ -18,6 +18,12 @@ export type LivePing = {
   pingAgeMinutes?: number | null;
   liveStatus?: LiveStatusCode;
   liveLabel?: string | null;
+  /** What the phone last reported (lib/gps/staleness TrackingState), when known. */
+  trackingState?: string | null;
+  trackingStateLabel?: string | null;
+  /** The running clock started without a location fix. */
+  startedWithoutFix?: boolean;
+  distanceM?: number | null;
   activeJob?: {
     id: string;
     jobNumber: string | number | null;

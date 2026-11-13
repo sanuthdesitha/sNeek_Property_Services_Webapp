@@ -9,6 +9,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
 import { cn } from "@/lib/utils";
 import { initialView, nextView, threadCounts, type ViewEvent } from "@/lib/messages/thread-model";
 import type { ComposeRecipient } from "@/lib/messages/compose-checks";
@@ -55,7 +56,7 @@ export function MessagesPage({ canSend, timezone, initialCompose, initialRecipie
         actions={
           <>
             <EButton size="sm" variant="outline" asChild><Link href="/v2/admin/forms?tab=messages">Templates</Link></EButton>
-            <EButton size="sm" onClick={openCompose}>New message</EButton>
+            <EButton size="sm" className="max-sm:hidden" onClick={openCompose}>New message</EButton>
           </>
         }
       />
@@ -105,6 +106,8 @@ export function MessagesPage({ canSend, timezone, initialCompose, initialRecipie
           </div>
         ) : null}
       </div>
+      {/* Phones (board M-QuotesMessages): "New message" in thumb reach on the conversation list. */}
+      <EPhoneActionBar label="Messages actions" hidden={view.view !== "list"} primary={<EButton onClick={openCompose}>New message</EButton>} />
     </div>
   );
 }

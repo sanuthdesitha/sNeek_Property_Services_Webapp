@@ -22,6 +22,7 @@ import { EBadge, ECard, ECardBody, EButton } from "@/components/v2/ui/primitives
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { cn } from "@/lib/utils";
 import { formatDuration, elapsedSecondsSince } from "@/lib/time/format-duration";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /* ── Live "time on site" chip (header) ───────────────────────────────────── */
 export function LiveTimerChip({ timeState }: { timeState: any }) {
@@ -272,10 +273,8 @@ export function BriefingCard({ briefing, showLaundry = true }: { briefing: any; 
         {briefing.priorQaWarning ? (
           <div
             className={cn(
-              "rounded-[var(--e-radius)] border-l-[3px] p-3",
-              briefing.priorQaWarning.band === "FAIL"
-                ? "border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))]"
-                : "border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))]"
+              "rounded-[var(--e-radius)] p-3",
+              toneNoticeClass(briefing.priorQaWarning.band === "FAIL" ? "problem" : "attention")
             )}
           >
             <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
@@ -291,7 +290,7 @@ export function BriefingCard({ briefing, showLaundry = true }: { briefing: any; 
         ) : null}
 
         {reworkNotes.length > 0 ? (
-          <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+          <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-3`}>
             <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
               <AlertTriangle className="h-4 w-4 shrink-0" /> QA had to redo work on this job
             </p>
@@ -314,7 +313,7 @@ export function BriefingCard({ briefing, showLaundry = true }: { briefing: any; 
         ) : null}
 
         {drop ? (
-          <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-info))] bg-[hsl(var(--e-info-soft))] p-3">
+          <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("info")} p-3`}>
             <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
               <Package className="h-4 w-4 shrink-0" /> Linen drop — where to find it
             </p>

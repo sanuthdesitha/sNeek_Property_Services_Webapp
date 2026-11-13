@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Role } from "@prisma/client";
 import { formatInTimeZone } from "date-fns-tz";
@@ -53,7 +54,13 @@ export default async function LaundryStopPage({ params, searchParams }: { params
   const stopLabel = [index >= 0 ? `Stop ${index + 1} of ${stops.length}` : "Not on today's route", planned ? `planned ${planned}` : "no planned time"].join(" · ");
 
   const serialized = JSON.parse(JSON.stringify(task)) as StopScreenTask;
+  // Office accounts viewing the portal can open the run's office page (2026-11-14).
+  const officeLink = session.user.role === Role.ADMIN || session.user.role === Role.OPS_MANAGER
+    ? <p className="mb-2 text-[0.8125rem]"><Link className="text-[hsl(var(--e-primary))] underline-offset-2 hover:underline" href={`/v2/admin/laundry/runs/${encodeURIComponent(task.id)}`}>Open the office run page</Link></p>
+    : null;
   return (
+    <>
+    {officeLink}
     <StopScreen
       task={serialized}
       kind={kind}
@@ -65,5 +72,6 @@ export default async function LaundryStopPage({ params, searchParams }: { params
       officePhone={settings?.companyPhone || null}
       partnerEntries={session.user.role === Role.LAUNDRY && !session.impersonation}
     />
+    </>
   );
 }

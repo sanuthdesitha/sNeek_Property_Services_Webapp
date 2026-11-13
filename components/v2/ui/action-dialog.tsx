@@ -11,10 +11,14 @@
  *   is never abandoned half way (the caller freezes its fields too).
  * - Rendered through EstatePortal so it keeps the Estate tokens (light and
  *   dark) even when opened from inside a side panel.
+ * - Below 640px it is a bottom sheet (board "Admin phone") with the same
+ *   semantics; from 640px up it is the centred card it always was.
  */
 import * as React from "react";
 import { X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { EstatePortal } from "./portal-root";
+import { PHONE_SHEET_CONTAINER_CLASS, PHONE_SHEET_GRAB_CLASS, PHONE_SHEET_PANEL_CLASS } from "./phone";
 
 export type EActionDialogProps = {
   open: boolean;
@@ -94,7 +98,7 @@ export function EActionDialog({ open, title, eyebrow, description, busy = false,
   if (!open) return null;
   return (
     <EstatePortal accent="admin">
-      <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto p-4 sm:items-center">
+      <div className={cn("fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto p-4 sm:items-center", PHONE_SHEET_CONTAINER_CLASS)}>
         <div aria-hidden className="fixed inset-0 bg-[hsl(160_18%_8%/0.45)]" onClick={() => (busy ? undefined : onClose())} />
         <div
           ref={panelRef}
@@ -105,8 +109,9 @@ export function EActionDialog({ open, title, eyebrow, description, busy = false,
           aria-busy={busy}
           tabIndex={-1}
           onKeyDown={onKeyDown}
-          className="relative z-10 my-8 w-full max-w-md rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-3)] focus:outline-none"
+          className={cn("relative z-10 my-8 w-full max-w-md rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-3)] focus:outline-none", PHONE_SHEET_PANEL_CLASS)}
         >
+          <span aria-hidden className={PHONE_SHEET_GRAB_CLASS} />
           <div className="flex items-start justify-between gap-3 border-b border-[hsl(var(--e-border))] px-5 py-3.5">
             <div className="min-w-0">
               {eyebrow ? <p className="e-eyebrow mb-1">{eyebrow}</p> : null}
@@ -117,16 +122,16 @@ export function EActionDialog({ open, title, eyebrow, description, busy = false,
               onClick={onClose}
               disabled={busy}
               aria-label="Close"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-muted))] disabled:opacity-50"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full max-sm:h-11 max-sm:w-11 border border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-muted))] disabled:opacity-50"
             >
               <X aria-hidden className="h-4 w-4" />
             </button>
           </div>
-          <div className="max-h-[70vh] space-y-3 overflow-y-auto px-5 py-4 text-[0.875rem]">
+          <div className="max-h-[70vh] space-y-3 overflow-y-auto px-5 py-4 text-[0.875rem] max-sm:max-h-none max-sm:overflow-visible">
             {description ? <div id={descriptionId} className="text-[hsl(var(--e-text-secondary))]">{description}</div> : null}
             {children}
           </div>
-          {footer ? <div className="flex flex-wrap justify-end gap-2 border-t border-[hsl(var(--e-border))] px-5 py-3">{footer}</div> : null}
+          {footer ? <div className="flex flex-wrap justify-end gap-2 border-t border-[hsl(var(--e-border))] px-5 py-3 max-sm:sticky max-sm:bottom-0 max-sm:bg-[hsl(var(--e-surface))] max-sm:[&>*]:flex-1">{footer}</div> : null}
         </div>
       </div>
     </EstatePortal>

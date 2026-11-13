@@ -25,6 +25,7 @@ import {
   type ShoppingGroupMode,
 } from "@/lib/inventory/shopping-grouping";
 import { toast } from "@/hooks/use-toast";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 type RunStatus = "DRAFT" | "IN_PROGRESS" | "COMPLETED";
 type PaymentMethod =
@@ -529,8 +530,7 @@ export function ShoppingRunWorkspaceEstate({
               />
             </EField>
           </div>
-          <div className="rounded-[var(--e-radius-lg)] border-l-[3px] p-3 text-[0.8125rem]"
-            style={{ backgroundColor: "hsl(var(--e-success-soft))", borderColor: "hsl(var(--e-success))", color: "hsl(var(--e-foreground))" }}>
+          <div className={`rounded-[var(--e-radius-lg)] p-3 text-[0.8125rem] ${toneNoticeClass("good")}`}>
             {paymentGuidance(run.payment?.method ?? (run.ownerScope === "CLIENT" ? "CLIENT_CARD" : "COMPANY_CARD"), run.ownerScope)}
           </div>
           <div className="flex flex-wrap items-center gap-3">

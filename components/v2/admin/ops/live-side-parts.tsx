@@ -12,10 +12,18 @@ import { buildGoogleMapsDirectionsUrl } from "@/lib/jobs/schedule-order";
 import type { LiveBoardPayload, LiveJobRow } from "@/lib/ops/live-board-types";
 import type { LivePing } from "@/lib/ops/live-feed-types";
 import { EPill } from "@/components/v2/ui/pill";
+import { EButton } from "@/components/v2/ui/primitives";
+import { jobTabHref } from "@/lib/dashboard/work-queue-links";
 
 export type AttentionLink = { label: string; count: number; href: string };
 
-export function PersonCard({ userId, pings, board, onClose }: { userId: string; pings: LivePing[]; board: LiveBoardPayload | null; onClose: () => void }) {
+/**
+ * `phoneActions` (phones only, board "Admin phone"): the card also carries
+ * Call, Message and Tell client as drawn, and states a start without a
+ * location fix. Message and Tell client open the job's Messages tab (the
+ * delay notice with its confirm stays on the late exception row).
+ */
+export function PersonCard({ userId, pings, board, onClose, phoneActions = false, canNotifyClient = false }: { userId: string; pings: LivePing[]; board: LiveBoardPayload | null; onClose: () => void; phoneActions?: boolean; canNotifyClient?: boolean }) {
   const ping = pings.find((p) => p.userId === userId) ?? null;
   const driver = board?.drivers.find((d) => d.userId === userId) ?? null;
   const job: LiveJobRow | null = board?.jobs.find((j) => j.cleaners.some((c) => c.id === userId) && ["late", "travelling", "on-site", "off-site"].includes(j.state)) ?? null;
@@ -40,6 +48,23 @@ export function PersonCard({ userId, pings, board, onClose }: { userId: string; 
         <dt className="text-[hsl(var(--e-muted-foreground))]">Phone</dt>
         <dd>{phone ? <a href={`tel:${phone.replace(/[^\d+]/g, "")}`}>{phone}</a> : "Not on the account"}</dd>
       </dl>
+      {phoneActions ? (
+        <>
+          {ping?.startedWithoutFix ? <p className="mt-2"><EPill>Started without a location fix</EPill></p> : null}
+          {ping?.trackingStateLabel ? <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Phone reports: {ping.trackingStateLabel}</p> : null}
+          <div className="mt-2.5 flex flex-wrap gap-2" aria-label="Person actions">
+            {phone ? (
+              <EButton asChild size="sm" variant="outline"><a href={`tel:${phone.replace(/[^\d+]/g, "")}`}>Call</a></EButton>
+            ) : <EButton size="sm" variant="outline" disabled title="No phone number on the account">Call</EButton>}
+            {job ? <EButton asChild size="sm" variant="outline"><Link href={jobTabHref(job.jobId, "messages")}>Message</Link></EButton> : null}
+            {job ? (
+              <EButton asChild size="sm" variant="outline">
+                <Link href={jobTabHref(job.jobId, "messages")} title={canNotifyClient ? "The delay notice is on the late exception in the list" : "Opens the job's client messages"}>Tell client</Link>
+              </EButton>
+            ) : null}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

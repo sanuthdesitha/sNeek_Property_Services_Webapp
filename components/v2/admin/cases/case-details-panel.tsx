@@ -102,6 +102,12 @@ type Props = {
   titleRef?: React.Ref<HTMLInputElement>;
   /** Opens "Raise QA issue for cleaner"; shown only when the linked job has an assigned cleaner. */
   onRaiseQaIssue?: () => void;
+  /**
+   * Phones (the case screen's Details / Next steps switcher): show only one
+   * part. The other part stays mounted but hidden, so an unsaved form draft
+   * survives switching. Omit to show everything (desktop and the sheet).
+   */
+  visiblePart?: "details" | "next";
 };
 
 function LinkedFacts({ linked, status }: { linked: CaseLinkedContext | null; status: CaseDetailStatus }) {
@@ -129,7 +135,9 @@ function LinkedFacts({ linked, status }: { linked: CaseLinkedContext | null; sta
   );
 }
 
-export function CaseDetailsPanel({ detail, linked, linkedStatus, assignees, viewer, saving, onSave, titleRef, onRaiseQaIssue }: Props) {
+export function CaseDetailsPanel({ detail, linked, linkedStatus, assignees, viewer, saving, onSave, titleRef, onRaiseQaIssue, visiblePart }: Props) {
+  const hideDetails = visiblePart === "next";
+  const hideNext = visiblePart === "details";
   const canRaiseQa = Boolean(onRaiseQaIssue && linked?.job && linked.cleaners.length > 0);
   const [draft, setDraft] = React.useState<FormDraft>(() => draftFrom(detail));
   const patch = changedFields(detail, draft);
@@ -138,7 +146,7 @@ export function CaseDetailsPanel({ detail, linked, linkedStatus, assignees, view
 
   return (
     <div className="flex flex-col gap-3">
-      <fieldset disabled={saving} className="flex min-w-0 flex-col gap-3">
+      <fieldset disabled={saving} className={hideDetails ? "hidden" : "flex min-w-0 flex-col gap-3"}>
         <EField label="Owner">
           <ESelect value={draft.assignedToUserId} onChange={(event) => set({ assignedToUserId: event.target.value })}>
             <option value="">Unowned</option>
@@ -189,12 +197,16 @@ export function CaseDetailsPanel({ detail, linked, linkedStatus, assignees, view
           {dirty ? <EButton size="sm" variant="ghost" onClick={() => setDraft(draftFrom(detail))}>Discard</EButton> : null}
         </div>
       </fieldset>
-      <div className="h-px bg-[hsl(var(--e-border))]" />
-      <p className="e-eyebrow">Linked, filled in automatically</p>
-      <LinkedFacts linked={linked} status={linkedStatus} />
-      <div className="h-px bg-[hsl(var(--e-border))]" />
-      <p className="e-eyebrow">Next steps</p>
-      <div className="flex flex-col items-start gap-1.5">
+      {hideDetails ? null : (
+        <>
+          <div className="h-px bg-[hsl(var(--e-border))]" />
+          <p className="e-eyebrow">Linked, filled in automatically</p>
+          <LinkedFacts linked={linked} status={linkedStatus} />
+        </>
+      )}
+      {visiblePart ? null : <div className="h-px bg-[hsl(var(--e-border))]" />}
+      <p className={hideNext ? "hidden" : "e-eyebrow"}>Next steps</p>
+      <div className={hideNext ? "hidden" : "flex flex-col items-start gap-1.5"}>
         {canRaiseQa ? <EButton size="sm" variant="outline" onClick={onRaiseQaIssue}>Raise QA issue for cleaner</EButton> : null}
         <EButton asChild size="sm" variant="outline"><Link href={linked?.nextSteps.repairQuoteHref ?? `/v2/admin/quotes/new?fromCase=${encodeURIComponent(detail.id)}`}>Create repair quote</Link></EButton>
         {linked?.quotes.length ? (

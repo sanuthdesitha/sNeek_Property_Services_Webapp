@@ -6,7 +6,7 @@ const key=(jobId:string)=>`turnover_cost_review_v1:${jobId}`;
 export async function readTurnoverProfit(user:{id:string;role:Role},jobId?:string){await admin(user);
  const jobs=await db.job.findMany({where:{jobType:"AIRBNB_TURNOVER",...(jobId?{id:jobId}:{})},select:{id:true,jobNumber:true,scheduledDate:true,status:true,fixedPrice:true,property:{select:{name:true}}},orderBy:{scheduledDate:"desc"},take:100});
  if(!jobId)return {jobs,detail:null};const job=jobs[0];if(!job)throw Error("NOT_FOUND");
- const [invoices,review,laundry]=await Promise.all([db.clientInvoice.findMany({where:{lines:{some:{jobId}}},include:{lines:true}}),db.appSetting.findUnique({where:{key:key(jobId)}}),db.laundryTask.findUnique({where:{jobId},select:{dropoffCostAud:true,receiptImageUrl:true,droppedAt:true}})]);
+ const [invoices,review,laundry]=await Promise.all([db.clientInvoice.findMany({where:{lines:{some:{jobId}}},include:{lines:true}}),db.appSetting.findUnique({where:{key:key(jobId)}}),db.laundryTask.findFirst({where:{jobId,voidedAt:null},select:{dropoffCostAud:true,receiptImageUrl:true,droppedAt:true}})]);
  const revenue=turnoverRevenue(jobId,invoices);const recorded=review?.value as any;
  return {jobs,detail:{job,revenue,costReview:recorded??null,...turnoverProfit(revenue.invoiced,recorded?.costs??null),agreedPriceEstimate:job.fixedPrice??null,laundryRecordedCharge:laundry?.dropoffCostAud??null,laundryReceiptPresent:!!laundry?.receiptImageUrl,note:"AUD. Revenue and reviewed costs exclude recoverable GST. Cash receipts include invoice tax and are not profit. Cost review is an administrator attestation; missing costs remain unknown."}};
 }

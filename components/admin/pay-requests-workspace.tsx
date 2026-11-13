@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
+import { cleanerPayFieldDefault, cleanerRequestedAmount, clientChargeView } from "@/lib/payroll/cleaner-pay-amount";
 import { HandCoins } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
@@ -69,14 +70,13 @@ function formatMoney(value: number | null | undefined) {
   return `$${Number(value ?? 0).toFixed(2)}`;
 }
 
+/**
+ * The cleaner's requested amount — the default for every cleaner pay field
+ * (owner rule 2026-11-13). The client charge is never used for the cleaner's
+ * pay; it is shown beside the field, read only.
+ */
 function getPrimaryAmount(row: PayAdjustmentRow) {
-  return Number(
-    row.primaryDisplayAmount ??
-      row.clientRequestedAmount ??
-      row.cleanerRequestedAmount ??
-      row.requestedAmount ??
-      0
-  );
+  return Number(cleanerRequestedAmount(row) ?? 0);
 }
 
 function formatDateSafe(value: string | null | undefined, fallback = "-") {
@@ -244,7 +244,7 @@ export function PayRequestsWorkspace() {
   function openApprove(row: PayAdjustmentRow) {
     setEditing(row);
     setActionType("APPROVED");
-    setApprovedAmount(String(Number(getPrimaryAmount(row)).toFixed(2)));
+    setApprovedAmount(cleanerPayFieldDefault(row));
     setAdminNote("");
   }
 
@@ -696,7 +696,7 @@ export function PayRequestsWorkspace() {
             ) : null}
             {actionType === "APPROVED" || actionType === "EDIT_AMOUNT" ? (
               <div className="space-y-1.5">
-                <Label>{actionType === "EDIT_AMOUNT" ? "New approved amount" : "Approved amount"}</Label>
+                <Label>{actionType === "EDIT_AMOUNT" ? "New cleaner pay" : "Pay the cleaner"}</Label>
                 <Input
                   type="number"
                   min={0}
@@ -704,6 +704,12 @@ export function PayRequestsWorkspace() {
                   value={approvedAmount}
                   onChange={(e) => setApprovedAmount(e.target.value)}
                 />
+                {editing ? (
+                  <p className="text-xs text-muted-foreground">
+                    Cleaner requested {formatMoney(cleanerRequestedAmount(editing))}. Only an administrator override can pay more.
+                    {clientChargeView(editing.clientApproval) ? ` ${clientChargeView(editing.clientApproval)!.label} (what the client is charged; not the cleaner's pay).` : ""}
+                  </p>
+                ) : null}
               </div>
             ) : null}
             <div className="space-y-1.5">
@@ -976,7 +982,7 @@ export function PayRequestsWorkspace() {
                   <p className="text-xs text-muted-foreground">Primary displayed amount</p>
                   <p className="text-sm font-medium">{formatMoney(getPrimaryAmount(detailRow))}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {detailRow.primaryDisplayAmountSource === "CLIENT_REQUESTED" ? "Client-facing amount" : "Cleaner-requested amount"}
+                    Cleaner-requested amount
                   </p>
                   {detailRow.type === "HOURLY" ? (
                     <p className="mt-1 text-xs text-muted-foreground">

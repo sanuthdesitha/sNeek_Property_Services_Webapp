@@ -1,72 +1,63 @@
 import { db } from "@/lib/db";
-import { JobStatus } from "@prisma/client";
-import { haversine, DEFAULT_GEOFENCE_RADIUS_M } from "./distance";
+import { isTrackedStatus } from "./tracked-statuses";
+import { judgeFix } from "./geofence-policy";
 
 export { haversine, DEFAULT_GEOFENCE_RADIUS_M } from "./distance";
 
 export interface GeofenceCheckInput {
   userId: string;
+  /**
+   * The job the ping was filed against (already checked by the tracking
+   * window). The geofence judges THIS job's property — it used to pick an
+   * arbitrary assignment of the cleaner (including later ASSIGNED jobs), so on
+   * a multi-job day departures were judged against the wrong address.
+   */
+  jobId: string;
   lat: number;
   lng: number;
+  /** Reported accuracy in metres; a fix coarser than 60 m judges nothing. */
+  accuracy?: number | null;
   pingAt: Date;
-  radiusM?: number;
 }
 
 export interface GeofenceCheckResult {
   arrived?: { jobId: string };
-  /** Latest ping is outside the fence on a job the cleaner had reached. */
+  /** Latest ping is confidently outside the fence on a job the cleaner had reached. */
   departed?: { jobId: string; distanceM: number };
   /** Fresh inside-fence ping on a job previously marked departed (re-entry). */
   reentered?: { jobId: string };
 }
 
 /**
- * Given a fresh ping, check if the cleaner has arrived at (or departed from)
- * their currently-active assigned job's property. Sets Job.arrivedAt the first
- * time a ping lands inside the geofence radius, and clears Job.departedAt on
- * re-entry. A single outside ping only SIGNALS a possible departure — the
- * caller runs the multi-ping confirmation in lib/gps/departure.ts before
- * persisting Job.departedAt / clocking anyone out.
+ * Given a fresh ping on a tracked job, stamp arrival the first time an
+ * ACCURATE fix lands inside the property's fence, clear `departedAt` on
+ * re-entry, and SIGNAL a possible departure when an accurate fix is beyond the
+ * fence plus hysteresis. The caller confirms a departure against recent ping
+ * history (lib/gps/departure.ts) before persisting anything.
  *
- * PAUSED is included so a paused job's cleaner walking off still gets a
- * truthful departedAt stamp (no clock-out — there's no open log to close).
+ * Radius, accuracy and hysteresis come from lib/gps/geofence-policy, shared
+ * with Live ops so the office and the clock-out agree on "inside".
  */
 export async function checkGeofenceForPing(input: GeofenceCheckInput): Promise<GeofenceCheckResult> {
-  const radius = input.radiusM ?? DEFAULT_GEOFENCE_RADIUS_M;
-
-  const activeAssignment = await db.jobAssignment.findFirst({
-    where: {
-      userId: input.userId,
-      removedAt: null,
+  const assignment = await db.jobAssignment.findFirst({
+    where: { userId: input.userId, jobId: input.jobId, removedAt: null },
+    select: {
       job: {
-        status: {
-          in: [JobStatus.IN_PROGRESS, JobStatus.EN_ROUTE, JobStatus.ASSIGNED, JobStatus.PAUSED],
-        },
-      },
-    },
-    include: {
-      job: {
-        include: {
-          property: {
-            select: { latitude: true, longitude: true },
-          },
+        select: {
+          id: true,
+          status: true,
+          arrivedAt: true,
+          departedAt: true,
+          property: { select: { latitude: true, longitude: true, geofenceRadiusM: true } },
         },
       },
     },
   });
+  const job = assignment?.job;
+  if (!job || !isTrackedStatus(job.status)) return {};
 
-  if (!activeAssignment?.job) return {};
-  const { job } = activeAssignment;
-  const lat = job.property?.latitude;
-  const lng = job.property?.longitude;
-  if (lat == null || lng == null) return {};
-
-  const distance = haversine(input.lat, input.lng, lat, lng);
-  const within = distance <= radius;
-
-  if (within) {
-    // Re-entry: a confirmed inside-fence ping on a job marked departed clears
-    // departedAt (resuming the job itself stays a manual action).
+  const judgement = judgeFix({ lat: input.lat, lng: input.lng, accuracy: input.accuracy ?? null }, job.property);
+  if (judgement.verdict === "INSIDE") {
     if (job.departedAt) {
       await db.job.update({
         where: { id: job.id },
@@ -75,21 +66,14 @@ export async function checkGeofenceForPing(input: GeofenceCheckInput): Promise<G
       return { reentered: { jobId: job.id }, ...(job.arrivedAt ? {} : { arrived: { jobId: job.id } }) };
     }
     if (!job.arrivedAt) {
-      await db.job.update({
-        where: { id: job.id },
-        data: { arrivedAt: input.pingAt },
-      });
+      await db.job.update({ where: { id: job.id }, data: { arrivedAt: input.pingAt } });
       return { arrived: { jobId: job.id } };
     }
     return {};
   }
 
-  // Outside the fence on a job the cleaner had reached — signal a POSSIBLE
-  // departure. The caller confirms it against the recent ping history
-  // (lib/gps/departure.ts) before persisting anything.
-  if (job.arrivedAt) {
-    return { departed: { jobId: job.id, distanceM: Math.round(distance) } };
+  if (judgement.verdict === "OUTSIDE" && job.arrivedAt && judgement.distanceM != null) {
+    return { departed: { jobId: job.id, distanceM: Math.round(judgement.distanceM) } };
   }
-
   return {};
 }

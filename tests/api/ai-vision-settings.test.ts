@@ -9,7 +9,7 @@ vi.mock("@/lib/ai/config", () => ({ getVisionProviderConfiguration: mocks.config
 vi.mock("@/lib/ai/property-photo-model", () => ({ getRecognitionConfiguration: mocks.recognition }));
 import { GET, PATCH } from "@/app/api/admin/ai/vision/route";
 import { POST } from "@/app/api/admin/ai/vision/check/route";
-beforeEach(() => { vi.clearAllMocks(); mocks.role.mockResolvedValue({}); mocks.get.mockResolvedValue(DEFAULT_VISION_SETTINGS); mocks.save.mockImplementation(async value => value); mocks.config.mockReturnValue({ configured: true }); mocks.recognition.mockReturnValue({ configured: false }); });
+beforeEach(() => { vi.clearAllMocks(); mocks.role.mockResolvedValue({ user: { id: "admin-1", role: "ADMIN" } }); mocks.get.mockResolvedValue(DEFAULT_VISION_SETTINGS); mocks.save.mockImplementation(async value => value); mocks.config.mockReturnValue({ configured: true }); mocks.recognition.mockReturnValue({ configured: false }); });
 const request = (data: unknown) => new Request("http://local/api/admin/ai/vision", { method: "PATCH", body: JSON.stringify(data) });
 it("ops can read public settings without checking provider", async () => {
   const response = await GET(); expect(response.status).toBe(200);
@@ -19,7 +19,7 @@ it("ops can read public settings without checking provider", async () => {
 });
 it("admin writes valid settings", async () => {
   expect((await PATCH(request(DEFAULT_VISION_SETTINGS))).status).toBe(200);
-  expect(mocks.role).toHaveBeenCalledWith([Role.ADMIN]); expect(mocks.save).toHaveBeenCalledWith(DEFAULT_VISION_SETTINGS);
+  expect(mocks.role).toHaveBeenCalledWith([Role.ADMIN]); expect(mocks.save).toHaveBeenCalledWith(DEFAULT_VISION_SETTINGS, "admin-1");
 });
 it.each([{ batchSize: 9 }, { minConfidence: -1 }, { maxScoreContribution: 21 }, { scoreMode: "automatic" }, { apiKey: "secret" }])("rejects invalid settings %o", async delta => {
   expect((await PATCH(request({ ...DEFAULT_VISION_SETTINGS, ...delta }))).status).toBe(400); expect(mocks.save).not.toHaveBeenCalled();
@@ -57,5 +57,5 @@ it("accepts tagged local models and requires a local endpoint to enable them", a
   expect(rejected.status).toBe(400); expect((await rejected.json()).error).toContain("Settings → Ollama");
   mocks.config.mockReturnValue({ configured: true });
   expect((await PATCH(request(settings))).status).toBe(200);
-  expect(mocks.save).toHaveBeenCalledWith(settings);
+  expect(mocks.save).toHaveBeenCalledWith(settings, "admin-1");
 });

@@ -14,6 +14,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { listSupplierCatalog } from "@/lib/inventory/suppliers";
 import { EPageHeader } from "@/components/v2/ui/primitives";
+import { CollapsibleFigures } from "@/components/v2/ui/collapsible-figures";
 import { getAppSettings } from "@/lib/settings";
 import { UrgentNeedsWorkspace } from "@/components/v2/admin/inventory/urgent/urgent-needs-workspace";
 import { readUrgentView } from "@/components/v2/admin/inventory/urgent/urgent-view";
@@ -262,6 +263,8 @@ export default async function EstateInventoryPage({
         }
       />
 
+      {/* Phones fold the seven figures behind one row (board "M-LaundryStock"); unchanged from 640px. */}
+      <CollapsibleFigures storageKey="stock:hub" count={7} label="Stock figures">
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
         <EKpiLink
           label="Active items"
@@ -312,6 +315,7 @@ export default async function EstateInventoryPage({
           href="/v2/admin/inventory?tab=suppliers"
         />
       </section>
+      </CollapsibleFigures>
 
       {tabBar}
 

@@ -18,6 +18,8 @@ import { useRestorableState } from "@/hooks/use-restorable-state";
  */
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
+import { cn } from "@/lib/utils";
 import { ExternalLink, HandCoins, Plus, Upload, X } from "lucide-react";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
@@ -323,7 +325,7 @@ export function PayRequestsPanel({
                     <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Note: {row.cleanerNote}</p>
                   ) : null}
                   {row.decisionMessage ? (
-                    <p className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] px-2.5 py-2 text-[0.75rem]">
+                    <p className={cn("rounded-[var(--e-radius)] px-2.5 py-2 text-[0.75rem]", toneNoticeClass("attention"))}>
                       <span className="font-[600]">From the office:</span> {row.decisionMessage}
                     </p>
                   ) : null}

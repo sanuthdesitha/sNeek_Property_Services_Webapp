@@ -260,3 +260,44 @@ These match the approved concept (`table.t`, `.chip`, `.bulk`, `.b`) using Estat
 - Autosave only with the stale-write token, serialised; a 409 stops autosave and offers explicit choices. Show saving / saved / failed / conflict truthfully in the header line.
 - Previews of cleaner forms use the real renderer (`FormRenderer mode="preview" | "sandbox"`), never a look-alike, and never upload or submit.
 - Badges on a row state behaviour the stored data really drives; a usage warning comes only from a real usage check.
+
+## Flagged cards, rows and notices: the tone band (2026-11, owner decision)
+
+No coloured line down the left edge of a card, row or notice, anywhere in v2. The owner chose design B, the tinted title band, in colour set 1 "Honey and wine". Use `components/v2/ui/tone-band.tsx` (a plain module, safe from server pages) and the `--e-band-<tone>-{bg,line,fg,muted,pill}` tokens in `app/v2/estate.css` (light and Obsidian dark); never hand-pick colours.
+
+- Tones: `attention` (honey) for something waiting on someone or about to go wrong (was warning/amber: late, needs acknowledgement, approval waiting, offer open); `problem` (wine) for something failed, blocked or refused (was danger/red: failed pickup, could not load, required items missing); `good` (sage) for a confirmed positive outcome (was success/green: delivered, valid, saved); `info` (sky) for neutral context worth noticing (was info/blue or primary used as information: guest in at 15:00, linen drop location). `toneFromLegacy` maps the old names.
+- Card: when flagged, the title row becomes the band (`EToneCard`, or `EToneBand` / `toneBandClass` first inside an `overflow-hidden` card): tint, hairline under it, rounded top following the card. The body stays on the plain surface. A card with nothing to flag keeps a plain top, so a band always means something.
+- Table or list row: tint behind the leading cell (`EToneRowCell` / `toneRowCellClass`), no left line. A selected or active `EDataTable` row is a soft primary tint, also without an inset line.
+- Notice / callout (`EAlert`, `EToneNotice`, `toneNoticeClass`): the whole box takes the tint with a hairline border.
+- The written reason stays: the pill or badge in the band sits on the surface colour (`tonePillClass`, or `E_BAND_BADGE_CLASS` on an existing `EBadge`/`EPill`). Colour is never the only signal. Secondary text in a band uses `toneMutedClass`.
+- Not status accents, and left alone: column dividers (`border-l` between panels), drawer edges, segmented-control separators, timeline connectors, nested-question guides, quote styling, focus rings and chart marks. `tests/lib/no-left-accent-lines.test.ts` fails if a left accent comes back outside its allowlist.
+
+## Phone layout (board "Admin phone", 2026-11-13)
+
+Phone means below 640px: Tailwind `max-sm:` for phone-only styles, `sm:` for everything else. From 640px up a page must look and behave exactly as before, so phone changes are `max-sm:` classes, phone-only components, or markup swapped only after `useIsPhone()` (from `components/v2/ui/use-phone.ts`; it starts false, so also hide the desktop variant with `max-sm:hidden`). Constants live in the plain module `components/v2/ui/phone.ts` (safe for server pages). Layout and composition only: never change requests, permissions, defaults or wording to fit a phone. Every desktop function stays reachable; it may move into a sheet, a "More", a tab or the header.
+
+**Shell.** Admin phones have five tabs: Command, Jobs, Calendar, Approvals, More (`lib/navigation/mobile-tabs.ts`, `PHONE_SHEET_PATHS`). More is a bottom sheet (`components/v2/portal/phone-more-sheet.tsx`) listing every other rail entry under the rail's groups, from the rail's own filtered list (role, permission packs, `adminOnly`), with the rail's badges and "Find a page". It replaces the drawer's menu button below 640px only; from 640px to the desktop rail the drawer and the five-tab bar (with Properties) are unchanged. The More tab shows a dot, never a sum. The Approvals badge is the existing `approvals` count, the sum of all fifteen queues. Other portals keep their own bars. A new admin destination only needs its rail entry; it appears in More automatically.
+
+**What every shared primitive already does on a phone (no page change needed).**
+- `EButton` (sm, md, icon), `ERowMenu` triggers, filter chips and bulk buttons are 44px tall.
+- `EActionDialog`, `EModal` (estate-kit, so `EConfirmModal` too) and the Jobs `JobDialog` are bottom sheets with the same labelled, focus-trapped semantics, a grab handle, a sticky footer and the PIN or confirm steps unchanged.
+- `ESidePanel` is a full-screen sheet: back arrow on the left (same accessible name as the close button), its own scroll, the page behind locked, and focus and scroll position restored on close. `?open=` is unchanged.
+- `EBulkBar` docks above the tab bar with the count, the first two actions (`phoneActions` to change), "More" for the rest and Clear. Put the most used actions first. Every action stays mounted, so an action that owns a dialog keeps working.
+- `EDataTable` stacked cards hide row checkboxes until "Select" (beside "Sort by"); "Cancel" hides them and clears the selection. Select-all and selection semantics are unchanged. Mark the column that names the record `phoneTitle: true` when it is not the first column.
+- `EPagination` is one compact row. `CollapsibleFigures` folds figure tiles behind "N figures · Show".
+
+**What a page opts into.**
+- Filters: wrap the existing controls in `EFilterBar` (`components/v2/ui/filter-bar.tsx`). From 640px up the children render inline as before; on a phone they sit behind one "Filter" button with the active count, in a bottom sheet holding the very same controls, and active filters render as removable chips. Pass `active` (one entry per filter that differs from its default, each with `onRemove`), `onClear`, `resultLabel` ("Show 128 jobs") and `tools` for display switches that are not filters (layout, columns). `EFilterPopover` turns into an open labelled section inside the sheet and `EFilterChips` wraps; wrap a page's own "Clear filters" in `EFilterBarInlineOnly` because the sheet has one beside its title.
+  ```tsx
+  <EFilterBar label="Filter jobs" active={active} onClear={clear} resultLabel={`Show ${total} jobs`} tools={<LayoutSwitch />}>
+    <SearchInput /><EFilterPopover label="Client" value={clientName}>…</EFilterPopover>
+    <EFilterBarInlineOnly><EButton variant="ghost" size="sm" onClick={clear}>Clear filters</EButton></EFilterBarInlineOnly>
+  </EFilterBar>
+  ```
+- A queue or stage switch above a list: `EFilterChips phoneLayout="carousel"` keeps the chips on one swipeable row.
+- The page's ONE primary action: keep the header button with `max-sm:hidden` and add `<EPhoneActionBar label="Jobs actions" primary={…} secondary={…} hidden={selection.size > 0} />` (`components/v2/ui/phone-bars.tsx`). It renders only on a phone, so the action is never in the document twice. Hide it while a bulk bar owns the bottom.
+- Long full pages: `<ESectionSwitcher label="Invoice sections" sections={[{ id, label }]} />` gives sticky section chips (phones only unless `everywhere`); each target is a `<section id>`.
+- A phone-only chooser: `EBottomSheet` (`components/v2/ui/bottom-sheet.tsx`).
+- A list row that becomes a card with a band on a phone only: `tonePhoneBandClass(tone)` from `tone-band.tsx` (never a left line).
+
+**Rules.** Nothing scrolls sideways except deliberate carousels (tab rows, chip rows, the section switcher). Inputs in sheets use 16px text. Keep one page h1; sheets use their own h2 title. Check 390px and 1280px in light and dark before delivery, including the docked bars over the last list item.

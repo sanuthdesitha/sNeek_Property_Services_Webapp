@@ -166,6 +166,7 @@ export function buildJobPageModel(input: {
       exists: job.laundryTask !== null,
       supplierName: job.laundryTask?.supplier?.name ?? null,
       finished: job.laundryTask ? job.laundryTask.noPickupRequired || job.laundryTask.droppedAt !== null : false,
+      notPlanned: related.laundryNotPlanned ?? null,
     },
     liveInvoice: liveInvoice ? { invoiceNumber: liveInvoice.invoiceNumber, status: String(liveInvoice.status) } : null,
     formName: latestSubmission?.template?.name ?? null,

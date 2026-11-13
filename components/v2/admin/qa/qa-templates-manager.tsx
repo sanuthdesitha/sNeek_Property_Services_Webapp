@@ -22,6 +22,7 @@ import { EConfirmModal, EField, EInput, EModal, ESelect, ESwitch, ETableShell } 
 import { QaTemplateEditor, type PropertyOption, type TemplateRow } from "./qa-template-editor";
 import { QaTemplatePreview } from "./qa-template-preview";
 import { filterAndSortQaTemplates, type QaSort } from "./qa-template-list";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 type Row = TemplateRow & { revisions?: number | null };
 
@@ -219,7 +220,7 @@ export function QaTemplatesManager({ canWrite = false }: { canWrite?: boolean })
       </div>
 
       {conflicts.length > 0 ? (
-        <div role="alert" className="space-y-1 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem]">
+        <div role="alert" className={`space-y-1 rounded-[var(--e-radius)] ${toneNoticeClass("attention")} px-3 py-2 text-[0.8125rem]`}>
           <p className="font-[600]">Two or more active templates share a job type and scope</p>
           {conflicts.map((conflict) => (
             <p key={`${conflict.serviceType}-${conflict.propertyId ?? "global"}`}>

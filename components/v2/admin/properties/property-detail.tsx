@@ -26,7 +26,7 @@ import { PropertyJobsHistory } from "./property-jobs-history";
 import { PropertyBillingRates } from "./property-billing-rates";
 import { PropertyChecklistProfile, PropertyFormOverrides } from "./property-checklist-profile";
 import { PropertyAccessGuideEditor } from "./property-access-guide-editor";
-import { PropertyHeader, PropertyKeyFacts } from "./detail/property-header";
+import { PropertyHeader, PropertyKeyFacts, PropertyPhoneActions } from "./detail/property-header";
 import { PropertyTabBar } from "./detail/property-tab-bar";
 import { OverviewTab } from "./detail/overview-tab";
 import { StockTab } from "./detail/stock-tab";
@@ -149,6 +149,7 @@ export function PropertyDetail({ propertyId, timeZone = "Australia/Sydney", init
         ) : null}
         {tab === "billing" ? <PropertyBillingRates propertyId={propertyId} /> : null}
       </div>
+      <PropertyPhoneActions property={property} syncing={syncing} onSync={syncNow} />
     </div>
   );
 }

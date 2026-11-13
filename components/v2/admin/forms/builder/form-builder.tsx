@@ -36,6 +36,10 @@ import { useBuilderEditing } from "./use-builder-editing";
 import { useBuilderLifecycle } from "./use-builder-lifecycle";
 import { useDraftAutosave } from "./use-draft-autosave";
 import { useInlineRename } from "./use-inline-rename";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
+import { moveSectionBy } from "@/lib/forms/builder-ops";
+import { BuilderPhone, type BuilderPhoneScreen } from "./builder-phone";
 
 export interface EstateFormBuilderProps {
   templateId: string;
@@ -65,14 +69,14 @@ const PANES: Array<{ key: Pane; label: string }> = [
 ];
 
 const BANNER_TONE = {
-  danger: "border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))]",
-  warning: "border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))]",
-  success: "border-[hsl(var(--e-success))] bg-[hsl(var(--e-success-soft))]",
+  danger: toneNoticeClass("problem"),
+  warning: toneNoticeClass("attention"),
+  success: toneNoticeClass("good"),
 } as const;
 
 function Banner({ tone, children }: { tone: keyof typeof BANNER_TONE; children: React.ReactNode }) {
   return (
-    <div role={tone === "success" ? "status" : "alert"} className={cn("rounded-[var(--e-radius)] border-l-[3px] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-foreground))]", BANNER_TONE[tone])}>
+    <div role={tone === "success" ? "status" : "alert"} className={cn("rounded-[var(--e-radius)] px-3 py-2 text-[0.8125rem]", BANNER_TONE[tone])}>
       {children}
     </div>
   );
@@ -101,6 +105,9 @@ export function EstateFormBuilder(props: EstateFormBuilderProps) {
   const rename = useInlineRename({ templateId, document, autosave, initialTemplateToken: props.initialTemplateToken, hasDraft: status.hasDraft });
   const [overlay, setOverlay] = React.useState<Overlay>({ kind: "none" });
   const [pane, setPane] = React.useState<Pane>("questions");
+  // Phones (below 640px): stacked screens instead of panes (./builder-phone).
+  const phone = useIsPhone();
+  const [phoneScreen, setPhoneScreen] = React.useState<BuilderPhoneScreen>("outline");
   const close = React.useCallback(() => setOverlay({ kind: "none" }), []);
 
   const schema = document.doc.schema;
@@ -124,7 +131,7 @@ export function EstateFormBuilder(props: EstateFormBuilderProps) {
   const leave = () => !unsaved || window.confirm("Some edits are not saved yet. Leave anyway?");
 
   const rowAction = (fieldId: string, action: RowAction) => {
-    if (action === "edit") return (editing.focus(fieldId), setPane("settings"));
+    if (action === "edit") return (editing.focus(fieldId), setPane("settings"), setPhoneScreen("editor"));
     if (action === "up" || action === "down") return editing.moveBy(fieldId, action === "up" ? -1 : 1);
     if (action === "duplicate") return editing.duplicate([fieldId]);
     if (action === "move") return setOverlay({ kind: "move", ids: [fieldId] });
@@ -141,12 +148,47 @@ export function EstateFormBuilder(props: EstateFormBuilderProps) {
     setOverlay({ kind: "delete", ids });
   };
   const target = publishTarget(shownStatus);
+  /** The existing section reorder for any section (the phone outline's Move up / Move down). */
+  const moveSectionAt = (sectionId: string, direction: -1 | 1) => document.editSchema((current) => moveSectionBy(current, sectionId, direction));
   const focusedSectionRepeat = editing.focused?.section.repeatBy;
   const resetSnapshot = React.useRef<{ key: string; fields: ReturnType<typeof fieldsFor> } | null>(null);
   const selectionKey = editing.selectedIds.join(",");
   if (editing.selectedIds.length > 1 && resetSnapshot.current?.key !== selectionKey) {
     resetSnapshot.current = { key: selectionKey, fields: fieldsFor(editing.selectedIds) };
   }
+
+  // The settings editor for the selection: the desktop right pane, and the phone's question screen.
+  const editor = (
+    <>
+      {editing.selectedIds.length > 1 ? (
+        <MultiEditPanel
+          fields={editing.selectedFields}
+          conditionFields={conditionFields}
+          onApply={editing.applyPatch}
+          onReset={() => {
+            const snapshot = resetSnapshot.current?.fields ?? [];
+            document.editSchema((current) => ({ ...current, sections: current.sections.map((section) => ({ ...section, fields: section.fields.map((field) => snapshot.find((s) => s.id === field.id) ?? field) })) }));
+          }}
+        />
+      ) : editing.focused ? (
+        <div className="max-h-[70vh] overflow-hidden rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] lg:max-h-[calc(100vh-14rem)]">
+          <PropertiesPanel
+            key={editing.focused.field.id}
+            field={editing.focused.field}
+            onUpdate={(next) => editing.updateField(editing.focused!.field.id, next)}
+            onRemove={() => setOverlay({ kind: "delete", ids: [editing.focused!.field.id] })}
+            onDuplicate={() => editing.duplicate([editing.focused!.field.id])}
+            availableFields={conditionFields.filter((f) => f.id !== editing.focused!.field.id)}
+            repeatNote={focusedSectionRepeat ? `Asked once per ${focusedSectionRepeat === "bathrooms" ? "bathroom" : "bedroom"}, with its section.` : undefined}
+          />
+        </div>
+      ) : (
+        <div className="rounded-[12px] border border-dashed border-[hsl(var(--e-border-strong))] p-4 text-center text-[0.8125rem] text-[hsl(var(--e-text-faint))]">
+          Select a question to edit it, or tick several to edit them together.
+        </div>
+      )}
+    </>
+  );
 
   return (
     <div className="flex flex-col gap-3.5" onKeyDown={document.onKeyDown}>
@@ -168,6 +210,7 @@ export function EstateFormBuilder(props: EstateFormBuilderProps) {
         }}
         onLeave={leave}
         onRename={rename}
+        bulkActive={editing.selectedIds.length > 0}
         menuItems={[
           { key: "settings", label: "Form settings (name, service type, theme)", onSelect: () => setOverlay({ kind: "settings" }) },
           { key: "checks", label: `Checks (${checks.errors} problems, ${checks.warnings} warnings)`, onSelect: () => setOverlay({ kind: "checks" }) },
@@ -198,16 +241,40 @@ export function EstateFormBuilder(props: EstateFormBuilderProps) {
       {lifecycle.error && overlay.kind !== "publish" ? <Banner tone="danger">{lifecycle.error}</Banner> : null}
       {lifecycle.notice ?? editing.notice ? <Banner tone="success">{lifecycle.notice ?? editing.notice}</Banner> : null}
 
-      <nav aria-label="Builder panes" className="flex gap-1 border-b border-[hsl(var(--e-border))] lg:hidden">
+      {phone ? null : (
+      <nav aria-label="Builder panes" className="flex gap-1 border-b border-[hsl(var(--e-border))] max-sm:hidden lg:hidden">
         {PANES.map((entry) => (
           <button key={entry.key} type="button" onClick={() => setPane(entry.key)} aria-current={pane === entry.key ? "page" : undefined} className={cn("min-h-11 border-b-2 px-3 text-[0.8125rem] font-[500]", pane === entry.key ? "border-[hsl(var(--e-primary))] font-[600] text-[hsl(var(--e-primary))]" : "border-transparent text-[hsl(var(--e-muted-foreground))]")}>
             {entry.label}
           </button>
         ))}
       </nav>
+      )}
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <div className="flex min-w-0 flex-col gap-3.5 lg:flex-row lg:items-start">
+        {phone ? (
+          <BuilderPhone
+            screen={phoneScreen}
+            onScreen={setPhoneScreen}
+            schema={schema}
+            editing={editing}
+            checks={checks}
+            badgeContext={badgeContext}
+            conditionFields={conditionFields}
+            busy={lifecycle.busy}
+            onRowAction={rowAction}
+            onBulk={bulk}
+            onMoveSection={moveSectionAt}
+            onAddSection={editing.addSection}
+            onAddQuestion={(type) => { editing.addQuestion(type); setPhoneScreen("editor"); }}
+            onAddBlock={editing.addBlock}
+            onInsertBlock={() => setOverlay({ kind: "insert-block" })}
+            onSectionRemove={() => editing.activeSection && setOverlay({ kind: "delete-section", sectionId: editing.activeSection.id })}
+            onShowChecks={() => setOverlay({ kind: "checks" })}
+            editor={editor}
+          />
+        ) : (
+        <div className="flex min-w-0 flex-col gap-3.5 max-sm:hidden lg:flex-row lg:items-start">
           <div className={cn("lg:block lg:w-[220px] lg:flex-none", pane === "outline" ? "block" : "hidden")}>
             <OutlinePane
               schema={schema}
@@ -243,36 +310,11 @@ export function EstateFormBuilder(props: EstateFormBuilderProps) {
             />
           </div>
           <aside aria-label="Settings for selection" className={cn("flex-col gap-3.5 lg:flex lg:w-[330px] lg:flex-none", pane === "settings" ? "flex" : "hidden")}>
-            {editing.selectedIds.length > 1 ? (
-              <MultiEditPanel
-                fields={editing.selectedFields}
-                conditionFields={conditionFields}
-                onApply={editing.applyPatch}
-                onReset={() => {
-                  const snapshot = resetSnapshot.current?.fields ?? [];
-                  document.editSchema((current) => ({ ...current, sections: current.sections.map((section) => ({ ...section, fields: section.fields.map((field) => snapshot.find((s) => s.id === field.id) ?? field) })) }));
-                }}
-              />
-            ) : editing.focused ? (
-              <div className="max-h-[70vh] overflow-hidden rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] lg:max-h-[calc(100vh-14rem)]">
-                <PropertiesPanel
-                  key={editing.focused.field.id}
-                  field={editing.focused.field}
-                  onUpdate={(next) => editing.updateField(editing.focused!.field.id, next)}
-                  onRemove={() => setOverlay({ kind: "delete", ids: [editing.focused!.field.id] })}
-                  onDuplicate={() => editing.duplicate([editing.focused!.field.id])}
-                  availableFields={conditionFields.filter((f) => f.id !== editing.focused!.field.id)}
-                  repeatNote={focusedSectionRepeat ? `Asked once per ${focusedSectionRepeat === "bathrooms" ? "bathroom" : "bedroom"}, with its section.` : undefined}
-                />
-              </div>
-            ) : (
-              <div className="rounded-[12px] border border-dashed border-[hsl(var(--e-border-strong))] p-4 text-center text-[0.8125rem] text-[hsl(var(--e-text-faint))]">
-                Select a question to edit it, or tick several to edit them together.
-              </div>
-            )}
+            {editor}
             <CleanerPreview section={editing.activeSection} theme={schema.theme} checks={checks} onShowChecks={() => setOverlay({ kind: "checks" })} />
           </aside>
         </div>
+        )}
       </DndContext>
 
       <BuilderOverlays

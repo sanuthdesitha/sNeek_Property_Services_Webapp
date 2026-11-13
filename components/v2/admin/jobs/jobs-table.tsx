@@ -82,7 +82,7 @@ export function JobsTable(props: JobsTableProps) {
       list.push({ key: "when", header: "When", sortKey: "when", className: "e-tnum whitespace-nowrap", cell: (job) => timeWindowLabel(job) });
     }
     list.push({
-      key: "property", header: "Property", sortKey: "property", className: "min-w-[12rem]",
+      key: "property", header: "Property", sortKey: "property", className: "min-w-[12rem]", phoneTitle: true,
       cell: (job) => (
         <div className="min-w-0">
           <button

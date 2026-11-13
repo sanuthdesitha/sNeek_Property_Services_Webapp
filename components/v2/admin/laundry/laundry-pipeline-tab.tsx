@@ -23,10 +23,29 @@ import { LaundryMoveDialog, requestMove, summarizeMove, type MoveReport, type Mo
 import { shortDay } from "./laundry-lane-card";
 import { useOpenRun } from "./use-open-run";
 import type { LaundryTaskDTO } from "./laundry-shared";
+import type { ERowMenuItem } from "@/components/v2/ui/row-menu";
+import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
+import type { RunDoneByOption } from "@/lib/laundry/run-page-types";
+import { RunChangeStateDialog, type ChangeStateRun } from "./run/run-change-state-dialog";
+import { RunOutcomeList, RunVoidDialog, type VoidRun } from "./run/run-void-dialogs";
+import type { RunOutcome } from "./run/run-requests";
 import type { LaundryFeed } from "./use-laundry-feed";
 import type { PipelineCardDTO, PipelineQuery, PipelineState } from "./use-laundry-pipeline";
 
+/** Change state and Void on the Pipeline (2026-11-14), decided by the server page. */
+export type RunTools = { canChangeState: boolean; canVoid: boolean; voidBlockedReason: string | null; timeZone?: string };
+export const NO_RUN_TOOLS: RunTools = { canChangeState: false, canVoid: false, voidBlockedReason: "Voiding is for administrators." };
+
+const VOIDABLE_STATUSES = new Set(["SKIPPED_PICKUP", "FLAGGED"]);
+
+/** What the card can tell: Skipped or Flagged, or a failed pickup still waiting (the server decides again). */
+function looksVoidable(card: PipelineCardDTO): boolean {
+  if (VOIDABLE_STATUSES.has(card.status)) return true;
+  return (card.status === "PENDING" || card.status === "CONFIRMED") && (card.confirmations ?? []).some((row) => /FAILED_PICKUP_(RESCHEDULE|REQUEST)/.test(row.notes ?? ""));
+}
+
 type Props = {
+  runTools: RunTools;
   pipeline: PipelineState;
   query: PipelineQuery;
   onQuery: (patch: Partial<PipelineQuery>) => void;
@@ -54,6 +73,11 @@ export function LaundryPipelineTab(props: Props) {
   const [moveTargets, setMoveTargets] = React.useState<MoveTarget[] | null>(null);
   const [report, setReport] = React.useState<MoveReport | null>(null);
   const [panelNonce, setPanelNonce] = React.useState(0);
+  const [changeRuns, setChangeRuns] = React.useState<ChangeStateRun[] | null>(null);
+  const [doneBy, setDoneBy] = React.useState<RunDoneByOption[]>([]);
+  const [voidRuns, setVoidRuns] = React.useState<VoidRun[] | null>(null);
+  const [outcomes, setOutcomes] = React.useState<{ title: string; okLabel: string; rows: RunOutcome[]; names: Record<string, string> } | null>(null);
+  const { runTools } = props;
 
   const cards: PipelineCardDTO[] = pipeline.data ? PIPELINE_LANES.flatMap((lane) => pipeline.data?.lanes[lane] ?? []) : [];
   const onScreen: RunPanelTask[] = view === "completed" ? [...feed.tasks, ...cards] : [...cards, ...feed.tasks];
@@ -114,12 +138,65 @@ export function LaundryPipelineTab(props: Props) {
   }, [refreshAll, setOpenId, setSaving]);
   const { requestDelete, modal: deleteModal } = useLaundryDeleteDialog(removeTask);
 
+  const toChangeRun = (card: PipelineCardDTO): ChangeStateRun => ({ taskId: card.id, expectedUpdatedAt: card.updatedAt, name: card.property?.name ?? "Run", status: card.status, pickedUpAt: card.pickedUpAt ?? null, droppedAt: card.droppedAt ?? null, onEmailedReport: false });
+  const toVoidRun = (card: PipelineCardDTO): VoidRun => ({ taskId: card.id, expectedUpdatedAt: card.updatedAt, name: card.property?.name ?? "Run", status: card.status });
+
+  // "Done by" choices for the runs being corrected; a late answer for other runs is ignored.
+  React.useEffect(() => {
+    if (!changeRuns?.length) return;
+    const controller = new AbortController();
+    setDoneBy([]);
+    void (async () => {
+      try {
+        const response = await fetch(`/api/admin/laundry/runs/done-by?taskIds=${encodeURIComponent(changeRuns.map((run) => run.taskId).join(","))}`, { cache: "no-store", signal: controller.signal });
+        const body = (await response.json().catch(() => ({}))) as { options?: RunDoneByOption[] };
+        if (controller.signal.aborted) return;
+        if (response.ok && Array.isArray(body.options)) setDoneBy(body.options);
+      } catch {
+        /* the dialog shows no choices; a later state then cannot be saved */
+      }
+    })();
+    return () => controller.abort();
+  }, [changeRuns]);
+
+  function openChangeState(selected: PipelineCardDTO[]) {
+    if (selected.length) setChangeRuns(selected.map(toChangeRun));
+  }
+  function openVoid(selected: PipelineCardDTO[]) {
+    if (selected.length) setVoidRuns(selected.map(toVoidRun));
+  }
+  function finishBulk(title: string, okLabel: string, rows: RunOutcome[], runs: Array<{ taskId: string; name: string }>) {
+    setOutcomes({ title, okLabel, rows, names: Object.fromEntries(runs.map((run) => [run.taskId, run.name])) });
+    refreshAll();
+  }
+
+  function menuFor(card: PipelineCardDTO): ERowMenuItem[] {
+    const voidable = looksVoidable(card);
+    const items: ERowMenuItem[] = [
+      { key: "open", label: "Open run", href: `/v2/admin/laundry/runs/${encodeURIComponent(card.id)}` },
+      { key: "panel", label: "Open side panel", onSelect: () => setOpenId(card.id) },
+      { key: "edit", label: "Edit…", onSelect: () => setEditTask(card) },
+      { key: "move", label: "Move to another day…", onSelect: () => { const target = moveTarget(card); if (target) setMoveTargets([target]); } },
+      { key: "change", label: "Change state…", disabled: !runTools.canChangeState, hint: runTools.canChangeState ? undefined : "Your access does not include correcting a run", onSelect: () => openChangeState([card]) },
+      { key: "skip", label: "Skip or delete…", danger: true, onSelect: () => requestDelete(card) },
+    ];
+    // Void: listed only on runs it applies to, and only for those who may void.
+    if (voidable && runTools.canVoid) items.push({ key: "void", label: "Void run…", danger: true, separated: true, badge: "Admin · PIN", onSelect: () => openVoid([card]) });
+    return items;
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Pipeline view">
         <button type="button" aria-pressed={view === "board"} onClick={() => props.onView("board")} className={cn(E_CHIP_CLASS, view === "board" && E_CHIP_ON_CLASS)}>Lanes for the day</button>
         <button type="button" aria-pressed={view === "completed"} onClick={() => props.onView("completed")} className={cn(E_CHIP_CLASS, view === "completed" && E_CHIP_ON_CLASS)}>Completed history</button>
+        {pipeline.data && pipeline.data.voidedRecent ? (
+          <button type="button" aria-pressed={view === "completed" && props.history.show === "voided"} onClick={() => { props.onHistory({ show: "voided" }); props.onView("completed"); }} className={cn(E_CHIP_CLASS, view === "completed" && props.history.show === "voided" && E_CHIP_ON_CLASS)} title="Runs voided in the last 30 days">
+            Voided {pipeline.data.voidedRecent}
+          </button>
+        ) : null}
       </div>
+      {outcomes ? <RunOutcomeList title={outcomes.title} outcomes={outcomes.rows} names={outcomes.names} okLabel={outcomes.okLabel} onClose={() => setOutcomes(null)} /> : null}
       {report ? (
         <div role="status" className="text-[0.8125rem]">
           <p>{report.moved} moved{report.refused.length ? `, ${report.refused.length} not moved:` : "."}</p>
@@ -144,6 +221,9 @@ export function LaundryPipelineTab(props: Props) {
             onMove={(selected) => setMoveTargets(selected.map(moveTarget).filter((t): t is MoveTarget => Boolean(t)))}
             onMoveNextDay={(card) => void moveOne(card)}
             onRetry={pipeline.reload}
+            menuFor={menuFor}
+            onChangeState={runTools.canChangeState ? openChangeState : undefined}
+            onVoid={runTools.canVoid ? openVoid : undefined}
           />
         ) : (
           <LaundryHistory feed={feed} filters={props.history} onFilters={props.onHistory} openId={openId} onOpen={(task) => setOpenId(task.id)} />
@@ -172,6 +252,11 @@ export function LaundryPipelineTab(props: Props) {
       <LaundryRequestRouting />
       <LaundryMoveDialog targets={moveTargets} defaultDate={nextDay} onClose={() => setMoveTargets(null)} onMoved={finishMove} />
       <LaundryEditDialog task={editTask} onClose={() => setEditTask(null)} onSaved={refreshAll} />
+      <RunChangeStateDialog runs={changeRuns} doneByOptions={doneBy} skipReasons={LAUNDRY_SKIP_REASONS.map((reason) => ({ value: reason.value, label: reason.label }))} timeZone={runTools.timeZone ?? "Australia/Sydney"}
+        onClose={() => setChangeRuns(null)}
+        onSaved={(rows) => { const runs = changeRuns ?? []; setChangeRuns(null); finishBulk(`Change state · ${runs.length} run${runs.length === 1 ? "" : "s"}`, "changed", rows, runs); }} />
+      <RunVoidDialog runs={voidRuns} onClose={() => setVoidRuns(null)}
+        onDone={(rows) => { const runs = voidRuns ?? []; setVoidRuns(null); finishBulk(`Void · ${runs.length} run${runs.length === 1 ? "" : "s"}`, "voided", rows, runs); }} />
       {deleteModal}
     </div>
   );

@@ -60,6 +60,11 @@ import {
 } from "@/components/v2/cleaner/route-timeline";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { getTrackerStatus, requestTrackerRestart } from "@/lib/gps/live-fix-store";
+import { isGateNoFix, useLocationGate } from "@/components/v2/location/location-gate";
+
+/** A tracker fix younger than this is good enough for an ETA recompute. */
+const ETA_FIX_MAX_AGE_MS = 30_000;
 
 const PING_INTERVAL_MS = 12_000;
 /** The location-ping API rejects manual ETAs outside 1..480 (route.ts zod schema). */
@@ -123,6 +128,7 @@ export function DrivingMode({
    * position; 0,0 fallback matches v1's handler exactly).
    */
   const lastFixRef = React.useRef<{ lat: number; lng: number } | null>(null);
+  const locationGate = useLocationGate("CLEANER");
 
   // Consume the cleaner's saved order for today so Drive mode and the Timeline
   // walk the SAME sequence. Applied after mount (localStorage is client-only).
@@ -236,14 +242,22 @@ export function DrivingMode({
   // Pausing tears the interval down (and stops asking for GPS) — previously the
   // loop kept pinging through a pause, so the cleaner's location kept flowing
   // and the ETA machinery stayed warm even though the drive was "paused".
+  // One capture loop per device: the cleaner layout's tracker owns the GPS
+  // watch and stores every fix. This loop only recomputes the ETA from the
+  // tracker's latest fix (record:false — nothing is stored twice); it used to
+  // ask the GPS itself every 12 s alongside the tracker.
   React.useEffect(() => {
     if (!activeStop || arrived || paused) return;
     let alive = true;
     const send = async () => {
-      const loc = await gps();
-      if (!loc || !alive) return;
+      const fix = getTrackerStatus().lastFix;
+      if (!fix || Date.now() - fix.measuredAt > ETA_FIX_MAX_AGE_MS || !alive) return;
+      lastFixRef.current = { lat: fix.lat, lng: fix.lng };
       try {
-        await post(`/api/cleaner/jobs/${activeStop.jobId}/location-ping`, loc);
+        await post(`/api/cleaner/jobs/${activeStop.jobId}/location-ping`, {
+          lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, heading: fix.heading, speed: fix.speed,
+          timestamp: new Date(fix.measuredAt).toISOString(), record: false,
+        });
         setLastPingAt(Date.now());
       } catch {
         /* transient */
@@ -270,9 +284,25 @@ export function DrivingMode({
     }
   }
 
+  /**
+   * Going "on the way" turns live location on: the notice must be accepted
+   * and the phone must give a fix (the server refuses otherwise).
+   */
   async function startDriving(stop: RouteStop) {
-    const loc = await gps();
-    await post(`/api/cleaner/jobs/${stop.jobId}/start-driving`, loc ? { lat: loc.lat, lng: loc.lng } : {});
+    const ready = await locationGate.ensureReady();
+    if (!ready) throw new Error("Location is needed to start the drive.");
+    const body = ready === "NOT_REQUIRED" ? {} : isGateNoFix(ready) ? { noFix: ready.noFix } : { lat: ready.lat, lng: ready.lng, accuracy: ready.accuracy };
+    try {
+      await post(`/api/cleaner/jobs/${stop.jobId}/start-driving`, body);
+    } catch (error) {
+      if (error instanceof Error && error.message === "LOCATION_NOTICE_REQUIRED") {
+        locationGate.forgetAcknowledgement();
+        throw new Error("The live location notice has changed. Read it again, then start the drive.");
+      }
+      if (error instanceof Error && error.message === "LOCATION_REQUIRED") throw new Error("Location is needed to start the drive.");
+      throw error;
+    }
+    window.dispatchEvent(new Event("sneek:notification"));
   }
 
   /**
@@ -300,6 +330,8 @@ export function DrivingMode({
         lat: fix?.lat ?? 0,
         lng: fix?.lng ?? 0,
         manualEtaMinutes: mins,
+        // An ETA, not a position: never stored as a location.
+        record: false,
       });
       setManualEta("");
       toast({ title: "ETA set", description: `The client now sees you about ${mins} min away.` });
@@ -318,12 +350,14 @@ export function DrivingMode({
     setBusy("retry-gps");
     // Optimistic clear — a fresh denial re-raises the banner from gps().
     setGpsError(null);
+    // Restart the layout tracker's watch too (it stores the fixes).
+    requestTrackerRestart();
     try {
       const loc = await gps();
       if (!loc) return; // gps() already set the error message if it was a hard block
       if (activeStop && !arrived && !paused) {
         try {
-          await post(`/api/cleaner/jobs/${activeStop.jobId}/location-ping`, loc);
+          await post(`/api/cleaner/jobs/${activeStop.jobId}/location-ping`, { ...loc, record: false });
           setLastPingAt(Date.now());
           await refresh();
         } catch {
@@ -346,11 +380,18 @@ export function DrivingMode({
     );
   }
 
-  const errorBanner = error ? (
-    <ECard className="border-[hsl(var(--e-danger))]">
-      <ECardBody className="pt-5 text-[0.8125rem] text-[hsl(var(--e-danger))]">{error}</ECardBody>
-    </ECard>
-  ) : null;
+  // The live-location notice / permission dialogs ride with the error banner,
+  // which both the inline card and the full-screen overlay render.
+  const errorBanner = (
+    <>
+      {locationGate.element}
+      {error ? (
+        <ECard className="border-[hsl(var(--e-danger))]">
+          <ECardBody className="pt-5 text-[0.8125rem] text-[hsl(var(--e-danger))]">{error}</ECardBody>
+        </ECard>
+      ) : null}
+    </>
+  );
 
   const statusBadge = activeStop ? (
     <EBadge tone={arrived ? "success" : paused ? "warning" : "info"} soft>
@@ -461,8 +502,9 @@ export function DrivingMode({
         <div className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
           {paused ? (
             <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-              Drive paused — location updates are stopped
-              {activeStop.drivingPauseReason ? ` · ${activeStop.drivingPauseReason}` : ""}. Tap
+              Drive paused — ETA updates are paused
+              {activeStop.drivingPauseReason ? ` · ${activeStop.drivingPauseReason}` : ""}. Your
+              location is still shared with the office while this job is on the way. Tap
               “Resume drive” when you’re moving again.
             </p>
           ) : null}

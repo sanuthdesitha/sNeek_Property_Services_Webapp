@@ -13,7 +13,15 @@ import type { EDataColumn } from "@/components/v2/ui/data-table";
 import { PORTFOLIO_FLAG_LABEL, sizeLabel, type PortfolioRow, type PortfolioSort } from "@/lib/properties/portfolio-options";
 import { calendarLabel, FLAG_TONE, nextCleanLabel, qaBasis, qaLabel } from "@/lib/properties/portfolio-format";
 import { propertyHref } from "@/lib/properties/links";
+import { tonePhoneBandClass, type ETone } from "@/components/v2/ui/tone-band";
+import { cn } from "@/lib/utils";
 import { PropertyMoreMenu } from "../property-more-menu";
+
+/** Phones (board M-Properties): a flagged property's card gets a title band; "problem" wins over "attention". */
+export function portfolioPhoneTone(row: PortfolioRow): ETone | null {
+  if (row.flags.length === 0) return null;
+  return row.flags.some((flag) => FLAG_TONE[flag] === "bad") ? "problem" : "attention";
+}
 
 export function CalendarCell({ row, now }: { row: PortfolioRow; now: Date }) {
   const label = calendarLabel(row.calendar, now);
@@ -43,15 +51,18 @@ export function portfolioColumns(options: {
       key: "property",
       header: "Property",
       sortKey: "name",
-      cell: (row) => (
-        <div className="min-w-0">
+      cell: (row) => {
+        const tone = portfolioPhoneTone(row);
+        return (
+        <div className={cn("min-w-0", tone && cn(tonePhoneBandClass(tone), "max-sm:-mx-3 max-sm:-mt-3 max-sm:rounded-t-[11px] max-sm:px-3 max-sm:py-2"))}>
           <b className="font-[600]">{row.name}</b>
           {row.oneOff ? <EPill className="ml-1.5">One-off site</EPill> : null}
           <div className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
             {row.suburb} · {row.clientName}
           </div>
         </div>
-      ),
+        );
+      },
     },
     { key: "size", header: "Size", sortKey: "size", className: "whitespace-nowrap", cell: (row) => sizeLabel(row.bedrooms, row.bathrooms) },
     { key: "calendar", header: "Calendar", sortKey: "calendar", cell: (row) => <CalendarCell row={row} now={now} /> },

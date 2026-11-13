@@ -55,6 +55,7 @@ export function OnSiteRows({ jobs, drivers, onSelect }: { jobs: LiveJobRow[]; dr
             </div>
             {job.progress ? <Bar percent={job.progress.percent} label={`${job.propertyName}: ${progress}`} /> : null}
             {job.status === "PAUSED" ? <EPill tone="gold">Paused</EPill> : null}
+            {job.cleanerStates?.some((cleaner) => cleaner.startedWithoutFix) ? <EPill tone="neutral">Started without a location fix</EPill> : null}
           </li>
         );
       })}

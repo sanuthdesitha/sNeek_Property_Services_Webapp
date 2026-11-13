@@ -37,6 +37,7 @@ import {
   type MyDayRow,
   type TodayJobView,
 } from "@/components/v2/cleaner/today/today-cards";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export const metadata = { title: "Today · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -199,7 +200,7 @@ export default async function CleanerTodayPage() {
       </header>
 
       {!loaded || attentionResult === null ? (
-        <div role="alert" className="rounded-[var(--e-radius)] border-l-4 border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] p-3 text-sm">
+        <div role="alert" className={`rounded-[var(--e-radius)] ${toneNoticeClass("problem")} p-3 text-sm`}>
           {!loaded ? "Jobs and route are unavailable. " : ""}
           {attentionResult === null ? "Attention items are unavailable. " : ""}
           Refresh this page to try again.

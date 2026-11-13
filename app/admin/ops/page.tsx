@@ -123,6 +123,7 @@ export default async function OpsPage() {
     db.laundryTask.findMany({
       where: {
         status: { in: ["FLAGGED", "SKIPPED_PICKUP"] },
+        voidedAt: null,
         OR: [
           { pickupDate: { gte: todayStart, lt: dayAfterTomorrowStart } },
           { dropoffDate: { gte: todayStart, lt: dayAfterTomorrowStart } },

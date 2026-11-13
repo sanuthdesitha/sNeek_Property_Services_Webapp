@@ -3,6 +3,7 @@
  * GET /api/laundry/week, reused by the route builder API and the plan brief so
  * every surface sees the same task shape and the same per-driver scoping.
  */
+import { NOT_VOIDED } from "./void-scope";
 import { accessAudienceMatches } from "@/lib/properties/access-guide";
 import { LaundryStatus, Prisma, Role } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -54,13 +55,15 @@ export async function withHandoffActorNames<T extends { confirmations: Array<{ c
 }
 
 /** Apply LAUNDRY-role team scoping; ADMIN/OPS see everything. */
-export function filterTasksVisibleToUser<T extends { property: { accessInfo: unknown; laundryEnabled: boolean | null } | null }>(
+export function filterTasksVisibleToUser<T extends { property: { accessInfo: unknown; laundryEnabled: boolean | null } | null; voidedAt?: Date | null }>(
   tasks: T[],
   role: Role,
   userId: string,
 ): T[] {
   if (isLaundryOfficeRole(role)) return tasks;
   return tasks
+    // A run the office voided is gone from the laundry portal (2026-11-14).
+    .filter((task) => !task.voidedAt)
     .filter((task) => propertyIsVisibleToLaundry(task.property, userId))
     .map((task) => redactPropertyForLaundry(task));
 }
@@ -114,10 +117,14 @@ export async function fetchLaundryWeekTasks(
   viewer: { role: Role; userId: string },
   /** The page's own viewer scope (`laundryTaskScope`), applied as well; the API passes none. */
   scope: Prisma.LaundryTaskWhereInput = {},
+  /** Voided runs (2026-11-14): left out unless an office viewer asks for them (Completed history, Voided filter). */
+  options: { includeVoided?: boolean } = {},
 ): Promise<LaundryWeekTask[]> {
+  const includeVoided = options.includeVoided === true && isLaundryOfficeRole(viewer.role);
   const tasks = await db.laundryTask.findMany({
     where: {
       ...scope,
+      ...(includeVoided ? {} : NOT_VOIDED),
       OR: [
         { pickupDate: { gte: start, lt: end } },
         { dropoffDate: { gte: start, lt: end } },
@@ -152,6 +159,7 @@ export async function fetchLaundryRouteCandidates(
   const [current, overdueRaw] = await Promise.all([
     db.laundryTask.findMany({
       where: {
+        ...NOT_VOIDED,
         OR: [
           { pickupDate: { gte: todayStart, lt: dayAfterTomorrow } },
           { dropoffDate: { gte: todayStart, lt: dayAfterTomorrow } },

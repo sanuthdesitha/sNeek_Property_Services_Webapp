@@ -10,12 +10,17 @@ export const visionSettingsSchema = z.object({
   batchSize: z.number().int().min(1).max(8),
   minConfidence: z.number().min(0).max(1),
   maxScoreContribution: z.number().min(0).max(20),
+  /** Points an approved minor / major photo finding deducts (defaults keep the original 2 and 5). */
+  minorPoints: z.number().int().min(0).max(10).default(2),
+  majorPoints: z.number().int().min(0).max(20).default(5),
   scoreMode: z.literal("review"),
   model: z.string().trim().min(1).max(100).regex(/^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/).refine(value => !value.includes("://"), "Enter a model name, not a URL"),
+  /** Queued reviews only: the photo_compare route (Settings, AI) when the review was queued. Never saved as a setting. */
+  snapshotRoute: z.object({ provider: z.enum(["anthropic", "openai", "openai_compatible", "ollama"]), model: z.string().trim().min(1).max(100) }).strict().optional(),
 }).strict();
 export type VisionSettings = z.infer<typeof visionSettingsSchema>;
 export const DEFAULT_VISION_SETTINGS: VisionSettings = {
   provider: "openai",
   comparisonEnabled: false, assignmentEnabled: false, historicalAssignmentExamplesEnabled: true, dedicatedRecognitionEnabled: false, batchSize: 4,
-  minConfidence: 0.8, maxScoreContribution: 10, scoreMode: "review", model: "gpt-4.1",
+  minConfidence: 0.8, maxScoreContribution: 10, minorPoints: 2, majorPoints: 5, scoreMode: "review", model: "gpt-4.1",
 };

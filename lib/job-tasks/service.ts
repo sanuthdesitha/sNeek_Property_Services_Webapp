@@ -32,6 +32,7 @@ import { resolveAppUrl } from "@/lib/app-url";
 import { applyReschedule } from "@/lib/phase4/analytics";
 import { assertVaMayAct } from "@/lib/va/permissions";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
+import { CLIENT_TASK_AUTO_APPROVE_LEAD_MINUTES } from "@/lib/scheduling-rules/constants";
 
 type RequestLike =
   | { url?: string; headers?: Headers | { get?: (name: string) => string | null } }
@@ -77,7 +78,7 @@ function createAutoApproveAt(job: {
 }) {
   const timezone = "Australia/Sydney";
   const scheduledAt = resolveScheduledAt(job, timezone);
-  return new Date(scheduledAt.getTime() - 60 * 60 * 1000);
+  return new Date(scheduledAt.getTime() - CLIENT_TASK_AUTO_APPROVE_LEAD_MINUTES * 60 * 1000);
 }
 
 async function getAdminRecipients() {

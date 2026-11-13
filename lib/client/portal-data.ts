@@ -243,7 +243,8 @@ export async function getClientPropertyDetailForUser(
     }),
     visibility.showLaundryUpdates
       ? db.laundryTask.findMany({
-          where: { propertyId },
+          // Voided runs never reach the client (2026-11-14).
+          where: { propertyId, voidedAt: null },
           select: {
             id: true,
             status: true,
@@ -499,6 +500,7 @@ export async function listClientJobsForUser(userId: string) {
         laundryTask: {
           select: {
             id: true,
+            voidedAt: true,
             status: true,
             pickupDate: true,
             dropoffDate: true,
@@ -537,7 +539,7 @@ export async function listClientJobsForUser(userId: string) {
     .then((rows) =>
       rows.map((row) => ({
         ...row,
-        laundryTask: row.laundryTask
+        laundryTask: row.laundryTask && !row.laundryTask.voidedAt
           ? {
               ...row.laundryTask,
               confirmations: row.laundryTask.confirmations.map((confirmation) => ({
@@ -571,6 +573,8 @@ export async function listClientLaundryForUser(userId: string, options?: ClientL
 
   return db.laundryTask.findMany({
     where: {
+      // Voided runs never reach the client (2026-11-14).
+      voidedAt: null,
       property: scopedNestedPropertyFilter(scope),
       // A requested property is an additional constraint; it never replaces
       // the VA/client property scope above.

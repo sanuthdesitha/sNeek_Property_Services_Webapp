@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { StockCountRun } from "@/components/v2/cleaner/stock-count-run";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /**
  * The scanned stock count for one property.
@@ -78,7 +79,7 @@ export default async function StockCountPage({
   return (
     <div className="mx-auto w-full max-w-lg px-4 py-4">
       {task ? (
-        <div className="mb-4 rounded-[var(--e-radius-lg)] border-l-[3px] border-[hsl(var(--e-info))] bg-[hsl(var(--e-info-soft))] p-4">
+        <div className={`mb-4 rounded-[var(--e-radius-lg)] ${toneNoticeClass("info")} p-4`}>
           <p className="text-[0.875rem] font-semibold text-[hsl(var(--e-foreground))]">
             {task.requestedBy?.name?.trim() || "The office"} asked you to count this property
           </p>

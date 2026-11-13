@@ -55,6 +55,19 @@ import { dispatchLaundryDriverNudges } from "@/lib/laundry/reminders";
 import { runMissedClockInSweep } from "@/lib/ops/missed-clock-in-sweep";
 
 const TZ = "Australia/Sydney";
+
+/**
+ * The live scheduling-rule thresholds for a sweep (lib/scheduling-rules). Fails
+ * closed: when the rules are unavailable the sweep does not run and the
+ * handler records the reason (getRecentWorkerFailures / the job-run history).
+ */
+async function liveRunTimeRules() {
+  const [{ loadSchedulingRuleBook }, { runTimeRulesFrom }] = await Promise.all([
+    import("@/lib/scheduling-rules/store"),
+    import("@/lib/scheduling-rules/values"),
+  ]);
+  return runTimeRulesFrom((await loadSchedulingRuleBook()).live.values);
+}
 const DATABASE_URL = process.env.DATABASE_URL!;
 
 const DEFAULT_HANDLER_TIMEOUT_MS = 10 * 60_000;
@@ -558,6 +571,12 @@ async function main() {
       if (result.count > 0) {
         logger.info({ deleted: result.count }, "Old location pings cleaned up");
       }
+      // Maintenance visit breadcrumbs follow the same 7-day retention (they
+      // had none and were kept forever; live location 2026-11).
+      const maintenance = await db.maintenanceLocationPing.deleteMany({ where: { createdAt: { lt: cutoff } } });
+      if (maintenance.count > 0) {
+        logger.info({ deleted: maintenance.count }, "Old maintenance location pings cleaned up");
+      }
     }));
   }
 
@@ -583,7 +602,7 @@ async function main() {
     await boss.work("cleaner-day-reminder", safeHandler("cleaner-day-reminder", async () => {
       // The dispatcher gates on 6AM / within-2h and de-dupes internally, so
       // running every half hour fires once per cleaner per job per day.
-      await dispatchCleanerDayReminders(new Date());
+      await dispatchCleanerDayReminders(new Date(), await liveRunTimeRules());
     }));
   }
 
@@ -599,14 +618,14 @@ async function main() {
   if (jobEnabled("stale-en-route-sweep")) {
     await boss.schedule("stale-en-route-sweep", "*/30 * * * *", {}, { tz: TZ });
     await boss.work("stale-en-route-sweep", safeHandler("stale-en-route-sweep", async () => {
-      await sweepStaleEnRouteJobs(new Date());
+      await sweepStaleEnRouteJobs(new Date(), await liveRunTimeRules());
     }));
   }
 
   if (jobEnabled("auto-pause-stale-jobs")) {
     await boss.schedule("auto-pause-stale-jobs", "*/30 * * * *", {}, { tz: TZ });
     await boss.work("auto-pause-stale-jobs", safeHandler("auto-pause-stale-jobs", async () => {
-      await autoPauseStaleJobs(new Date());
+      await autoPauseStaleJobs(new Date(), await liveRunTimeRules());
     }));
   }
 
@@ -637,7 +656,7 @@ async function main() {
   if (jobEnabled("laundry-driver-nudge")) {
     await boss.schedule("laundry-driver-nudge", "0 15 * * *", {}, { tz: TZ });
     await boss.work("laundry-driver-nudge", safeHandler("laundry-driver-nudge", async () => {
-      await dispatchLaundryDriverNudges(new Date());
+      await dispatchLaundryDriverNudges(new Date(), await liveRunTimeRules());
     }));
   }
 
@@ -668,6 +687,18 @@ async function main() {
 
   // Closes out submitted jobs nobody inspected. Without it a clean sits in
   // QA_REVIEW indefinitely, which also holds up the cleaner being paid for it.
+  // Queued AI work (Settings, AI connection tests): every minute, leased, polled by the screen.
+  if (jobEnabled("ai-tasks")) {
+    await boss.schedule("ai-tasks", "* * * * *", {}, { tz: TZ });
+    await boss.work("ai-tasks", safeHandler("ai-tasks", async () => { const { processAiTaskQueue } = await import("@/lib/ai/provider/tasks"); await processAiTaskQueue(); }));
+  }
+
+  // Photo integrity facts (hashes, camera time) from stored photo bytes; deterministic, no AI.
+  if (jobEnabled("media-integrity")) {
+    await boss.schedule("media-integrity", "*/5 * * * *", {}, { tz: TZ });
+    await boss.work("media-integrity", safeHandler("media-integrity", async () => { const { processPhotoIntegrityQueue } = await import("@/lib/media/photo-integrity-queue"); await processPhotoIntegrityQueue(); }));
+  }
+
   if (jobEnabled("ai-photo-review")) {
     await boss.schedule("ai-photo-review", "*/5 * * * *", {}, { tz: TZ });
     await boss.work("ai-photo-review", safeHandler("ai-photo-review", async () => { const { processPhotoReviewQueue } = await import("@/lib/ai/photo-review"); await processPhotoReviewQueue(); }));
@@ -683,6 +714,31 @@ async function main() {
     await boss.work("qa-auto-score", safeHandler("qa-auto-score", async () => {
       const { runQaAutoScoreSweep } = await import("@/lib/qa/auto-score");
       await runQaAutoScoreSweep({ now: new Date() });
+    }));
+  }
+
+  // Scheduling rules (2026-11-14): make a version whose effective day has come
+  // live in the settings row its existing readers use. Readers that load the
+  // rule book activate it themselves; this keeps the rest current within the hour.
+  if (jobEnabled("scheduling-rules-activate")) {
+    await boss.schedule("scheduling-rules-activate", "2 * * * *", {}, { tz: TZ });
+    await boss.work("scheduling-rules-activate", safeHandler("scheduling-rules-activate", async () => {
+      const { activateDueSchedulingRules } = await import("@/lib/scheduling-rules/store");
+      await activateDueSchedulingRules(new Date());
+      // Plan the laundry runs whose cleaner outcome was saved while the rules
+      // could not be read (the outcome is replayed onto the new run).
+      const { retryUnplannedLaundryRuns } = await import("@/lib/scheduling-rules/unplanned-laundry-retry");
+      const retried = await retryUnplannedLaundryRuns();
+      if (retried.pending > 0) logger.info(retried, "Unplanned laundry runs retried");
+    }));
+  }
+
+  // Weekly backup of the scheduling rules (restorable as a new version).
+  if (jobEnabled("scheduling-rules-weekly-snapshot")) {
+    await boss.schedule("scheduling-rules-weekly-snapshot", "40 2 * * 1", {}, { tz: TZ });
+    await boss.work("scheduling-rules-weekly-snapshot", safeHandler("scheduling-rules-weekly-snapshot", async () => {
+      const { takeSchedulingRuleSnapshot } = await import("@/lib/scheduling-rules/backup");
+      await takeSchedulingRuleSnapshot({ source: "WEEKLY" });
     }));
   }
 

@@ -11,7 +11,16 @@ const signedIn = (id = "one", role = "CLEANER", impersonation?: object) => ({
   status: "authenticated", data: { user: { id, role }, impersonation },
 });
 const job = (status = "IN_PROGRESS", id = "job-1", name = "Harbour House") => ({ id, status, property: { name } });
-const response = (value: unknown = job()) => Response.json({ job: value });
+// Live location 2026-11: the probe also answers whether the GPS may run (the
+// server's tracking window); the strip and the tracker follow it separately.
+type Tracking = { active: true; jobId: string; clientSees: boolean } | { active: false; reason?: string };
+const trackingFor = (value: unknown): Tracking => {
+  const candidate = value as { id?: unknown; status?: unknown } | null;
+  return candidate && typeof candidate.id === "string" && (candidate.status === "EN_ROUTE" || candidate.status === "IN_PROGRESS")
+    ? { active: true, jobId: candidate.id, clientSees: false }
+    : { active: false, reason: "CLOCK_STOPPED" };
+};
+const response = (value: unknown = job(), tracking: Tracking = trackingFor(value)) => Response.json({ job: value, tracking });
 const fetcher = vi.fn();
 const gps = () => mocks.gps.mock.calls.at(-1)?.[0];
 const refresh = async () => { await act(async () => { window.dispatchEvent(new Event("focus")); }); };
@@ -30,13 +39,14 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("cleaner active job strip", () => {
-  it.each([["EN_ROUTE", "On the way"], ["IN_PROGRESS", "In progress"], ["PAUSED", "Paused"]])(
-    "tracks %s and displays its status", async (status, label) => {
+  it.each([["EN_ROUTE", "On the way", true], ["IN_PROGRESS", "In progress", true], ["PAUSED", "Paused", false]])(
+    "shows %s and tracks only when the server's window is open", async (status, label, tracked) => {
       fetcher.mockResolvedValueOnce(response(job(status)));
       render(<LocationTracker />);
-      expect(gps()).toEqual({ jobId: "", enabled: false });
+      expect(gps()).toMatchObject({ jobId: "", enabled: false });
       expect(await screen.findByText(label)).toBeVisible();
-      expect(gps()).toEqual({ jobId: "job-1", enabled: true });
+      // A paused job with no running clock is shown (to resume) but not tracked.
+      expect(gps()).toMatchObject(tracked ? { jobId: "job-1", enabled: true } : { jobId: "", enabled: false });
       expect(screen.getByRole("link", { name: "Resume job" })).toHaveAttribute("href", "/v2/cleaner/jobs/job-1");
     },
   );
@@ -51,7 +61,7 @@ describe("cleaner active job strip", () => {
     fetcher.mockResolvedValueOnce(response(null));
     await refresh();
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
-    expect(gps()).toEqual({ jobId: "", enabled: false });
+    expect(gps()).toMatchObject({ jobId: "", enabled: false });
   });
 
   it.each(["loading", "unauthenticated", "wrong-role", "missing-id"])("does not probe or track %s", state => {
@@ -59,7 +69,7 @@ describe("cleaner active job strip", () => {
       : state === "missing-id" ? signedIn("") : { status: state, data: null });
     render(<LocationTracker />);
     expect(fetcher).not.toHaveBeenCalled();
-    expect(gps()).toEqual({ jobId: "", enabled: false });
+    expect(gps()).toMatchObject({ jobId: "", enabled: false });
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
   });
 
@@ -72,7 +82,7 @@ describe("cleaner active job strip", () => {
     await refresh();
     expect(screen.getByRole("status")).toHaveTextContent("Active job unavailable");
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
-    expect(gps()).toEqual({ jobId: "", enabled: false });
+    expect(gps()).toMatchObject({ jobId: "", enabled: false });
     const user = userEvent.setup();
     await user.tab();
     expect(screen.getByRole("button", { name: "Retry" })).toHaveFocus();
@@ -133,9 +143,15 @@ describe("cleaner active job strip", () => {
     await act(async () => pending.resolve(response(job("PAUSED", "old-job"))));
     expect(gps().enabled).toBe(false);
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
-    if (change === "account" || change === "impersonation") {
+    if (change === "account") {
       await act(async () => next.resolve(response(job("IN_PROGRESS", "new-job"))));
-      expect(gps()).toEqual({ jobId: "new-job", enabled: true });
+      expect(gps()).toMatchObject({ jobId: "new-job", enabled: true });
+    }
+    if (change === "impersonation") {
+      // The server never opens the window while the office views as the cleaner.
+      await act(async () => next.resolve(response(job("IN_PROGRESS", "new-job"), { active: false, reason: "IMPERSONATING" })));
+      expect(gps()).toMatchObject({ jobId: "", enabled: false });
+      expect(await screen.findByRole("link", { name: "Resume job" })).toHaveAttribute("href", "/v2/cleaner/jobs/new-job");
     }
   });
 

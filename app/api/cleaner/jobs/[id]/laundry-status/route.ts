@@ -182,6 +182,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       duplicated: result.duplicated,
       status: result.laundryTask?.status ?? null,
       updatedAt: result.laundryTask?.updatedAt ?? null,
+      // Saved, but the run could not be planned yet (scheduling rules unreadable); retried hourly.
+      ...("laundryRunNotPlanned" in result && result.laundryRunNotPlanned ? { laundryRunNotPlanned: result.laundryRunNotPlanned } : {}),
     });
     };
     const response = await run();

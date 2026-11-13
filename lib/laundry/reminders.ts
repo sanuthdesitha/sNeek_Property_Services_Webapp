@@ -24,10 +24,11 @@ import { getAppSettings } from "@/lib/settings";
 import { isChannelAllowed } from "@/lib/notifications/audience-controls";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import { isAtLaundryStatus } from "./status-groups";
+import { LAUNDRY_ADMIN_ATTENTION_STALE_HOURS, LAUNDRY_PICKED_UP_STALE_HOURS } from "@/lib/scheduling-rules/constants";
 
 const TZ = "Australia/Sydney";
-const PICKED_UP_STALE_MS = 24 * 60 * 60 * 1000;
-const ADMIN_STALE_MS = 48 * 60 * 60 * 1000;
+const PICKED_UP_STALE_MS = LAUNDRY_PICKED_UP_STALE_HOURS * 60 * 60 * 1000;
+const ADMIN_STALE_MS = LAUNDRY_ADMIN_ATTENTION_STALE_HOURS * 60 * 60 * 1000;
 
 export type ReminderTask = {
   id: string;
@@ -55,7 +56,7 @@ function isSameSydneyDay(value: Date | string, now: Date): boolean {
  * Sydney context): due today and still PENDING/CONFIRMED, or sitting PICKED_UP
  * with pickedUpAt more than 24h ago.
  */
-export function selectStaleDriverTasks<T extends ReminderTask>(tasks: T[], now: Date): T[] {
+export function selectStaleDriverTasks<T extends ReminderTask>(tasks: T[], now: Date, pickedUpStaleMs: number = PICKED_UP_STALE_MS): T[] {
   return tasks.filter((task) => {
     if (["PENDING", "CONFIRMED"].includes(task.status)) {
       const pickupDueToday = !task.noPickupRequired && isSameSydneyDay(task.pickupDate, now);
@@ -64,7 +65,7 @@ export function selectStaleDriverTasks<T extends ReminderTask>(tasks: T[], now: 
     }
     // "Ready to return" sets are still out of the property, like PICKED_UP.
     if (isAtLaundryStatus(task.status) && task.pickedUpAt) {
-      return now.getTime() - new Date(task.pickedUpAt).getTime() > PICKED_UP_STALE_MS;
+      return now.getTime() - new Date(task.pickedUpAt).getTime() > pickedUpStaleMs;
     }
     return false;
   });
@@ -94,7 +95,12 @@ export function sydneyTodayUtcKey(now = new Date()): Date {
   return new Date(Date.UTC(zoned.getFullYear(), zoned.getMonth(), zoned.getDate()));
 }
 
-export async function dispatchLaundryDriverNudges(now = new Date()) {
+/**
+ * `rules` comes from the published scheduling rules (the worker passes the
+ * live version); without it the original 24-hour threshold applies.
+ */
+export async function dispatchLaundryDriverNudges(now = new Date(), rules?: { laundryPickedUpStaleHours: number }) {
+  const pickedUpStaleMs = rules ? rules.laundryPickedUpStaleHours * 60 * 60 * 1000 : PICKED_UP_STALE_MS;
   const todayKey = sydneyTodayUtcKey(now);
 
   // Sweep: ACTIVE routes from previous days can never complete — ABANDON them.
@@ -137,7 +143,7 @@ export async function dispatchLaundryDriverNudges(now = new Date()) {
   let nudged = 0;
   for (const driver of drivers) {
     const visible = tasks.filter((t) => propertyIsVisibleToLaundry(t.property, driver.id));
-    const stale = selectStaleDriverTasks(visible, now);
+    const stale = selectStaleDriverTasks(visible, now, pickedUpStaleMs);
     if (stale.length === 0) continue;
     if (!isChannelAllowed(settings.notificationAudienceControls, "LAUNDRY", "push") ||
       !await canDeliverNotification({ userId: driver.id, category: "laundry", channel: "WEB" })) continue;

@@ -17,6 +17,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { EButton } from "@/components/v2/ui/primitives";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
 import { EPill } from "@/components/v2/ui/pill";
 import type { ERowMenuItem } from "@/components/v2/ui/row-menu";
 import type { PersonCapabilities, PersonProfile } from "@/lib/accounts/person-types";
@@ -147,18 +148,19 @@ export function PersonFullPage({ profile, caps }: { profile: PersonProfile; caps
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {caps.isAdmin && profile.testable ? <EButton asChild size="sm" variant="outline"><Link href={`/v2/admin/system/test-as?user=${encodeURIComponent(profile.id)}`}>Test as</Link></EButton> : null}
-          {caps.canMessageStaff ? <EButton size="sm" variant={urgent ? "outline" : "primary"} onClick={() => setMessageOpen(true)}>Message</EButton> : null}
-          {urgent ? <EButton size="sm" variant="primary" onClick={() => choose("documents")}>{urgent.action}</EButton> : null}
+          {caps.canMessageStaff ? <EButton size="sm" variant={urgent ? "outline" : "primary"} className="max-sm:hidden" onClick={() => setMessageOpen(true)}>Message</EButton> : null}
+          {urgent ? <EButton size="sm" variant="primary" className="max-sm:hidden" onClick={() => choose("documents")}>{urgent.action}</EButton> : null}
           <PersonActions profile={profile} caps={caps} personItems={personItems} hideTestAs onChanged={refresh} onDeleted={() => router.push(`/v2/admin/accounts?tab=${backTab}`)} />
         </div>
       </header>
 
-      <FactStrip label="Person facts" facts={personFacts(profile)} />
+      <FactStrip label="Person facts" facts={personFacts(profile)} collapsible={{ storageKey: "person:facts" }} />
 
-      <div role="tablist" aria-label="Person sections" className="-mx-1 flex gap-1 overflow-x-auto border-b border-[hsl(var(--e-border))] px-1 [scrollbar-width:none]">
+      {/* Phones (board M-People2): the section tabs stay in reach under the app bar. */}
+      <div role="tablist" aria-label="Person sections" className="-mx-1 flex gap-1 overflow-x-auto border-b border-[hsl(var(--e-border))] px-1 [scrollbar-width:none] max-sm:sticky max-sm:top-16 max-sm:z-20 max-sm:-mx-4 max-sm:bg-[hsl(var(--e-background)/0.95)] max-sm:px-4 max-sm:backdrop-blur">
         {PAGE_TABS.map((key) => (
           <button key={key} id={`page-tab-${key}`} type="button" role="tab" aria-selected={tab === key} aria-controls={`page-panel-${key}`} onClick={() => choose(key)}
-            className={cn("-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-[0.8125rem] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]", tab === key ? "border-[hsl(var(--e-primary))] font-[600] text-[hsl(var(--e-primary))]" : "border-transparent font-[500] text-[hsl(var(--e-muted-foreground))]")}>
+            className={cn("-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-[0.8125rem] max-sm:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]", tab === key ? "border-[hsl(var(--e-primary))] font-[600] text-[hsl(var(--e-primary))]" : "border-transparent font-[500] text-[hsl(var(--e-muted-foreground))]")}>
             {TAB_LABEL[key]}{key === "documents" ? <span className="e-tnum ml-1">{profile.documents.length}</span> : null}
           </button>
         ))}
@@ -180,6 +182,14 @@ export function PersonFullPage({ profile, caps }: { profile: PersonProfile; caps
         <Rail profile={profile} caps={caps} onChanged={refresh} />
       </div>
 
+      {/* Phones (board M-People2): the urgent step (or Message) docked in thumb reach. */}
+      {urgent || caps.canMessageStaff ? (
+        <EPhoneActionBar
+          label="Person actions"
+          secondary={urgent && caps.canMessageStaff ? <EButton variant="outline" onClick={() => setMessageOpen(true)}>Message</EButton> : undefined}
+          primary={urgent ? <EButton onClick={() => choose("documents")}>{urgent.action}</EButton> : <EButton onClick={() => setMessageOpen(true)}>Message</EButton>}
+        />
+      ) : null}
       {caps.isAdmin && profile.isFieldRole ? <AddPaymentDialog open={paymentOpen} cleanerId={profile.id} name={who} onClose={() => setPaymentOpen(false)} onSaved={refresh} /> : null}
       {caps.canMessageStaff ? <AccountsMessageDialog open={messageOpen} rows={messageRow} onClose={() => setMessageOpen(false)} onRunningChange={() => undefined} /> : null}
     </div>

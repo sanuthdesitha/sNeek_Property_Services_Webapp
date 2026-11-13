@@ -31,17 +31,17 @@ export function JobsStatusFilter({ value, onChange }: { value: string; onChange:
   return (
     <div className="space-y-2 text-[0.8125rem]">
       <div className="flex flex-wrap gap-3">
-        <label className="flex min-h-8 items-center gap-2">
+        <label className="flex min-h-8 items-center gap-2 max-sm:min-h-11">
           <input type="radio" name="jobs-status-group" checked={value === "all"} onChange={() => onChange("all")} /> Any status
         </label>
-        <label className="flex min-h-8 items-center gap-2">
+        <label className="flex min-h-8 items-center gap-2 max-sm:min-h-11">
           <input type="radio" name="jobs-status-group" checked={value === "active"} onChange={() => onChange("active")} /> Active
         </label>
       </div>
       <fieldset className="grid grid-cols-1 gap-0.5">
         <legend className="mb-1 text-[0.6875rem] font-[600] text-[hsl(var(--e-text-secondary))]">Or choose statuses</legend>
         {ALL_JOB_STATUSES.map((status) => (
-          <label key={status} className="flex min-h-8 items-center gap-2">
+          <label key={status} className="flex min-h-8 items-center gap-2 max-sm:min-h-11">
             <input type="checkbox" checked={chosen.has(status)} onChange={() => onChange(toggleStatus(value, status))} />
             {statusLabel(status)}
           </label>

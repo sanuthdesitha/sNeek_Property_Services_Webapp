@@ -12,7 +12,10 @@ export interface QueuedPing {
   id: string;
   /** Local identity boundary; never sent to the server. Legacy rows lack it. */
   scope?: string;
+  /** The cleaner's job; empty for a laundry driver (the server anchors the route). */
   jobId: string;
+  /** The driver's route (local only, never sent). */
+  routeId?: string;
   lat: number;
   lng: number;
   accuracy?: number;

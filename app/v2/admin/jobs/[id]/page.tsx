@@ -18,7 +18,8 @@ import { ETabs, type ETabItem } from "@/components/v2/ui/primitives";
 import { JobArrival } from "@/components/v2/admin/jobs/detail/job-arrival";
 import { JobHeavyTab } from "@/components/v2/admin/jobs/detail/job-heavy-tabs";
 import type { JobPageData } from "@/components/v2/admin/jobs/detail/job-page-data";
-import { JobPageHeader } from "@/components/v2/admin/jobs/detail/job-page-header";
+import { JobPageHeader, JobPhoneTitle } from "@/components/v2/admin/jobs/detail/job-page-header";
+import { ESectionSwitcher } from "@/components/v2/ui/phone-bars";
 import { JobRail } from "@/components/v2/admin/jobs/detail/job-rail";
 import { JobRestoreProvider } from "@/components/v2/admin/jobs/detail/job-restore";
 import { JobTimeline } from "@/components/v2/admin/jobs/detail/job-timeline";
@@ -127,11 +128,19 @@ export default async function AdminJobDetailPage({
     { key: "history", label: `History${count(related.auditCount)}` },
   ];
 
+  // Phones only (board M-JobDetail): sticky chips to each stage and the rail cards.
+  const jobSections = [
+    ...model.timeline.map((stage) => ({ id: stage.anchor, label: stage.label })),
+    { id: "job-details", label: "Details" },
+  ];
+
   return (
     <JobRestoreProvider jobId={job.id}>
       <div className="space-y-4">
         <JobArrival jobId={job.id} view={target.view} anchor={target.anchor} />
+        <JobPhoneTitle data={data} />
         <JobPageHeader data={data} now={now} initialOpen={target.open} />
+        {target.view === "timeline" ? <ESectionSwitcher label="Job sections" sections={jobSections} className="max-sm:top-[6.75rem]" /> : null}
         <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
           <section aria-label="Job timeline" className="flex min-w-0 flex-1 flex-col gap-3">
             <ETabs items={tabs} active={target.view} hrefFor={(key) => jobPageViewHref(job.id, key as JobPageView)} ariaLabel="Job views" />
@@ -139,6 +148,8 @@ export default async function AdminJobDetailPage({
           </section>
           <JobRail data={data} />
         </div>
+        {/* Phones: keeps the end of the page clear of the docked job actions bar. */}
+        <div aria-hidden className="h-16 sm:hidden" />
       </div>
     </JobRestoreProvider>
   );

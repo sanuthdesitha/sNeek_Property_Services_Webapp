@@ -24,6 +24,8 @@ type BulkDecisionBarProps = {
   /** Opens the dialog for one row (the row menu's Decline). */
   request: { decision: BulkDecision; ids: string[] } | null;
   onRequestHandled: () => void;
+  /** Phones: show the selected pay requests' asked total in the docked bar ("2 selected · $60.60"). */
+  showPhoneTotal?: boolean;
 };
 
 const PAY_QUEUE_KEYS: ApprovalsQueueKey[] = ["payAdjustments", "rectificationAdjustments", "bonusProposals"];
@@ -41,7 +43,7 @@ const CONSEQUENCE: Partial<Record<ApprovalsQueueKey, string>> = {
   rescheduleRequests: "Approving moves each job to its requested date.",
 };
 
-export function BulkDecisionBar({ queue, selectedRows, onClear, onFinished, request, onRequestHandled }: BulkDecisionBarProps) {
+export function BulkDecisionBar({ queue, selectedRows, onClear, onFinished, request, onRequestHandled, showPhoneTotal = false }: BulkDecisionBarProps) {
   const definition = APPROVAL_QUEUES[queue];
   const [pending, setPending] = React.useState<{ decision: BulkDecision; ids: string[] } | null>(null);
   const [note, setNote] = React.useState("");
@@ -107,6 +109,11 @@ export function BulkDecisionBar({ queue, selectedRows, onClear, onFinished, requ
   const rule = pending ? definition.bulk[pending.decision] : null;
   const actionLabel = rule && rule.allowed ? rule.label : "";
   const selectedIds = selectedRows.map((row) => row.id);
+  // The same asked amounts the confirm dialog totals; shown only on a phone.
+  const selectedAsked = selectedRows.filter((row) => row.askedAmount != null && Number.isFinite(row.askedAmount) && row.askedAmount > 0);
+  const phoneTotal = showPhoneTotal && queue === "payAdjustments" && selectedAsked.length > 0
+    ? `${money(selectedAsked.reduce((sum, row) => sum + (row.askedAmount ?? 0), 0)) ?? ""} asked`
+    : undefined;
 
   return (
     <>
@@ -115,7 +122,7 @@ export function BulkDecisionBar({ queue, selectedRows, onClear, onFinished, requ
           <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Select requests to decide several at once.</p>
         )
       ) : (
-        <EBulkBar count={selectedRows.length} noun={{ one: definition.noun, many: `${definition.noun}s` }} onClear={onClear} busy={running}>
+        <EBulkBar count={selectedRows.length} noun={{ one: definition.noun, many: `${definition.noun}s` }} onClear={onClear} busy={running} summary={phoneTotal}>
           {(["approve", "decline"] as const).map((decision) => {
             const option = definition.bulk[decision];
             return option.allowed ? (

@@ -19,10 +19,12 @@ export async function GET(req: NextRequest) {
 
     // Query + include + team scoping live in lib/laundry/week-feed.ts (shared
     // with the route-builder API and the plan brief).
+    // `includeVoided=1`: the office's Completed history, Voided filter
+    // (2026-11-14). Ignored for laundry accounts.
     const visibleTasks = await fetchLaundryWeekTasks(weekStart, weekEnd, {
       role: session.user.role,
       userId: session.user.id,
-    });
+    }, {}, { includeVoided: searchParams.get("includeVoided") === "1" });
 
     return NextResponse.json(visibleTasks);
   } catch (err: any) {

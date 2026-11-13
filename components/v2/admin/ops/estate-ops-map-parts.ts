@@ -3,6 +3,7 @@
  * the Google Maps info windows (escaped). Moved unchanged from estate-ops-map.
  */
 import { formatRelativeAgo } from "@/lib/ops/live-status";
+import { FRESHNESS_TIERS, freshnessTier, trackingStateLabel } from "@/lib/gps/staleness";
 import type { LivePing } from "@/lib/ops/live-feed-types";
 
 export type OpsMapProperty = {
@@ -17,19 +18,44 @@ export type OpsMapProperty = {
 
 type RawPing = LivePing;
 
-// ── Staleness (seconds since last ping → colour tier) ────────────────────
-export const STALE_TIERS = [
-  { maxSeconds: 120, color: "#3f9b6d", label: "Fresh (< 2 min)" },
-  { maxSeconds: 600, color: "#c99a2e", label: "Aging (< 10 min)" },
-  { maxSeconds: Infinity, color: "#b4472e", label: "Stale (10 min +)" },
-] as const;
+// ── Staleness: the one policy in lib/gps/staleness (measured time of the fix) ──
+export const STALE_TIERS = FRESHNESS_TIERS;
 
 export function staleTier(timestamp: string | null | undefined) {
-  if (!timestamp) return STALE_TIERS[STALE_TIERS.length - 1];
-  const ms = new Date(timestamp).getTime();
-  if (!Number.isFinite(ms)) return STALE_TIERS[STALE_TIERS.length - 1];
-  const s = (Date.now() - ms) / 1000;
-  return STALE_TIERS.find((t) => s < t.maxSeconds) ?? STALE_TIERS[STALE_TIERS.length - 1];
+  return freshnessTier(timestamp ?? null);
+}
+
+/**
+ * Markers that would sit on top of each other (a team at one property, a
+ * driver at a cleaner's job) are spread on a small circle around their shared
+ * point so each stays clickable. Groups by ~11 m cells; returns the display
+ * position and how many share the spot. Pure; unit-tested.
+ */
+export function spreadOverlapping<T extends { key: string; lat: number; lng: number }>(
+  points: T[],
+  spreadMetres = 18,
+): Array<T & { displayLat: number; displayLng: number; groupSize: number }> {
+  const cell = (value: number) => Math.round(value * 10_000);
+  const groups = new Map<string, T[]>();
+  for (const point of points) {
+    const id = `${cell(point.lat)}:${cell(point.lng)}`;
+    groups.set(id, [...(groups.get(id) ?? []), point]);
+  }
+  const out: Array<T & { displayLat: number; displayLng: number; groupSize: number }> = [];
+  groups.forEach((members) => {
+    const sorted = [...members].sort((a, b) => a.key.localeCompare(b.key));
+    sorted.forEach((point, index) => {
+      if (sorted.length === 1) {
+        out.push({ ...point, displayLat: point.lat, displayLng: point.lng, groupSize: 1 });
+        return;
+      }
+      const angle = (2 * Math.PI * index) / sorted.length;
+      const dLat = (spreadMetres * Math.cos(angle)) / 111_320;
+      const dLng = (spreadMetres * Math.sin(angle)) / (111_320 * Math.cos((point.lat * Math.PI) / 180));
+      out.push({ ...point, displayLat: point.lat + dLat, displayLng: point.lng + dLng, groupSize: sorted.length });
+    });
+  });
+  return out;
 }
 
 export function hasPosition(ping: RawPing): boolean {
@@ -49,6 +75,7 @@ const STATUS_FALLBACK_LABEL: Record<string, string> = {
   ON_SITE: "On site",
   EN_ROUTE: "En route",
   OFF_SITE: "Clocked in · off site",
+  UNCERTAIN: "Clocked in · location approximate",
   NO_SIGNAL: "Clocked in · no signal",
   PAUSED: "Paused",
   LEFT_SITE: "Left site",
@@ -66,6 +93,7 @@ export function liveStatusTone(ping: RawPing): "info" | "success" | "neutral" | 
     case "ON_SITE":
       return "success";
     case "OFF_SITE":
+    case "UNCERTAIN":
       return "warning";
     case "NO_SIGNAL":
     case "LEFT_SITE":
@@ -128,8 +156,10 @@ export function cleanerTooltip(ping: RawPing): string {
   if (ping.positionSource === "property") {
     parts.push("No GPS yet — shown at job address");
   } else {
-    parts.push(`Last ping ${relativePing(ping.timestamp)}`);
+    parts.push(`Last fix ${relativePing(ping.timestamp)}${ping.accuracy != null ? ` · ±${Math.round(ping.accuracy)}m` : ""}`);
   }
+  const reason = trackingStateLabel(ping.trackingState);
+  if (reason) parts.push(`Phone reports: ${reason}`);
   return parts.join("\n");
 }
 
@@ -165,8 +195,12 @@ export function cleanerInfoHtml(ping: RawPing): string {
     );
   } else {
     rows.push(
-      `<div style="font:400 11px system-ui;color:#a39a8a;margin-top:4px">Last ping ${escapeHtml(relativePing(ping.timestamp))}${ping.accuracy != null ? ` · ±${Math.round(ping.accuracy)}m` : ""}${ping.stale ? " · stale" : ""}</div>`,
+      `<div style="font:400 11px system-ui;color:#a39a8a;margin-top:4px">Last fix ${escapeHtml(relativePing(ping.timestamp))}${ping.accuracy != null ? ` · ±${Math.round(ping.accuracy)}m` : ""}${ping.stale ? " · stale" : ""}</div>`,
     );
+  }
+  const reason = trackingStateLabel(ping.trackingState);
+  if (reason) {
+    rows.push(`<div style="font:500 11px system-ui;color:#b4472e;margin-top:2px">Phone reports: ${escapeHtml(reason)}</div>`);
   }
   return `<div style="max-width:240px">${rows.join("")}</div>`;
 }

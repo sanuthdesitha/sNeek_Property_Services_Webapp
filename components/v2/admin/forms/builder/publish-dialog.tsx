@@ -11,6 +11,7 @@ import { EButton } from "@/components/v2/ui/primitives";
 import { EField, EModal, ETextarea } from "@/components/v2/admin/estate-kit";
 import type { TemplateCheckResult } from "@/lib/forms/template-checks";
 import { TemplateImpactPanel } from "./template-impact";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /** What really happens to jobs when a new version goes live (see resolve-effective-job-form + the submit route's revision check). */
 export const IN_FLIGHT_RULE =
@@ -45,7 +46,7 @@ export function PublishDialog({
     <EModal open={open} onClose={onClose} title={`Publish v${version}`} eyebrow="Make the draft live" wide>
       <fieldset disabled={busy} className="space-y-4">
         {blocked ? (
-          <div role="alert" className="rounded-[8px] border-l-[3px] border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] px-3 py-2">
+          <div role="alert" className={`rounded-[8px] ${toneNoticeClass("problem")} px-3 py-2`}>
             <p className="text-[0.8125rem] font-[600]">Fix {errors.length} problem{errors.length === 1 ? "" : "s"} before publishing</p>
             <ul className="mt-1 space-y-0.5 text-[0.75rem]">
               {errors.slice(0, 8).map((issue, index) => (

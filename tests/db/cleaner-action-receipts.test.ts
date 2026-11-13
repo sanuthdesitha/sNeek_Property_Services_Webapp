@@ -12,6 +12,8 @@ vi.mock("@/lib/notifications/client-job-notifications", () => ({ sendClientJobNo
 vi.mock("@/lib/notifications/admin-alerts", () => ({ notifyAdminsByPush: vi.fn(async () => {}) }));
 vi.mock("@/lib/notifications/delivery", () => ({ deliverNotificationToRecipients: vi.fn(async () => {}) }));
 vi.mock("@/lib/jobs/continuation-requests", () => ({ listContinuationRequests: async () => [] }));
+// Live location 2026-11: start/stop notices go through the pipeline; not sent from tests.
+vi.mock("@/lib/notifications/location-sharing", () => ({ sendCleanerSharingNotice: vi.fn(async () => []) }));
 import { withCleanerAction, recoverCleanerAction } from "@/lib/cleaner/action-receipt";
 import { cleanerDraftIdentity } from "@/lib/cleaner/draft-identity";
 import { withSharedCleanerJobDraftLock } from "@/lib/cleaner/shared-job-draft";
@@ -23,7 +25,9 @@ import { POST as assignmentResponse } from "@/app/api/cleaner/jobs/[id]/assignme
 const url = process.env.SNEEK_TEST_DATABASE_URL;
 let id = "";
 function context(requestId = randomUUID()) { return { session: { user: { id } }, jobId: id, action: "stop" as const, requestId, body: {}, draftIdentity: cleanerDraftIdentity({ user: { id } }, id) }; }
-function request(requestId: string) { return new NextRequest("http://localhost/action", { method: "POST", headers: { "X-Cleaner-Action-Id": requestId, "X-Cleaner-Draft-Identity": cleanerDraftIdentity({ user: { id } }, id) } }); }
+// Every start carries the cleaner's fix since live location 2026-11 (other actions ignore it).
+const AT_PROPERTY = JSON.stringify({ startLocation: { lat: -33.86, lng: 151.2, accuracy: 5 } });
+function request(requestId: string) { return new NextRequest("http://localhost/action", { method: "POST", body: AT_PROPERTY, headers: { "X-Cleaner-Action-Id": requestId, "X-Cleaner-Draft-Identity": cleanerDraftIdentity({ user: { id } }, id) } }); }
 function gate() { let resolve!: () => void; return { promise: new Promise<void>(done => { resolve = done; }), resolve: () => resolve() }; }
 describe.skipIf(!url)("cleaner action receipts and cancellation fences (loopback PostgreSQL)", () => {
   beforeAll(async () => {
@@ -35,6 +39,7 @@ describe.skipIf(!url)("cleaner action receipts and cancellation fences (loopback
     id = `qa-action-${randomUUID()}`; m.actor = id; m.earlyAllowed = true;
     await m.client.client.create({ data: { id, name: "Action verification" } });
     await m.client.user.create({ data: { id, email: `${id}@example.invalid`, role: "CLEANER" } });
+    await m.client.locationTrackingNotice.create({ data: { userId: id, version: 1, portal: "CLEANER" } });
     await m.client.property.create({ data: { id, clientId: id, name: "Action verification", address: "1 Fixture Street", suburb: "Sydney" } });
     await m.client.job.create({ data: { id, jobNumber: id, propertyId: id, jobType: "GENERAL_CLEAN", status: "IN_PROGRESS", scheduledDate: new Date() } });
     await m.client.jobAssignment.create({ data: { jobId: id, userId: id } });
@@ -74,7 +79,7 @@ describe.skipIf(!url)("cleaner action receipts and cancellation fences (loopback
     await m.client.jobAssignment.create({ data: { jobId: other, userId: id } });
     try {
       const otherIdentity = cleanerDraftIdentity({ user: { id } }, other);
-      const otherRequest = new NextRequest("http://localhost/start", { method: "POST", headers: { "X-Cleaner-Action-Id": randomUUID(), "X-Cleaner-Draft-Identity": otherIdentity } });
+      const otherRequest = new NextRequest("http://localhost/start", { method: "POST", body: AT_PROPERTY, headers: { "X-Cleaner-Action-Id": randomUUID(), "X-Cleaner-Draft-Identity": otherIdentity } });
       const results = await Promise.all([start(request(randomUUID()), { params: { id } }), start(otherRequest, { params: { id: other } })]);
       expect(results.map(result => result.status).sort(), JSON.stringify(await Promise.all(results.map(result => result.json())))).toEqual([200, 409]);
       expect(await m.client.timeLog.count({ where: { userId: id, stoppedAt: null } })).toBe(1);

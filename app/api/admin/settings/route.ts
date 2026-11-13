@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import { getAppSettings, saveAppSettings } from "@/lib/settings";
+import { getAppSettings, saveAppSettings, schedulingRuleFieldsChanged } from "@/lib/settings";
 import { invalidateDefaultPortalVersion } from "@/lib/portal-version-store";
 import { db } from "@/lib/db";
 import { z } from "zod";
@@ -314,6 +314,10 @@ export async function PATCH(req: NextRequest) {
     const session = await requireRole([Role.ADMIN]);
     const body = updateSchema.parse(await req.json());
     const before = await getAppSettings();
+    // Scheduling rules that were settings are owned by the versioned rule
+    // service (Settings › Scheduling rules); saveAppSettings keeps their stored
+    // values, and the response says which requested changes were not applied.
+    const schedulingRulesIgnored = schedulingRuleFieldsChanged(body as any, before);
     const settings = await saveAppSettings(body as any);
 
     // The default look is cached for a few seconds (middleware asks for it on
@@ -374,6 +378,9 @@ export async function PATCH(req: NextRequest) {
       },
     });
 
+    if (schedulingRulesIgnored.length > 0) {
+      return NextResponse.json({ ...settings, schedulingRulesIgnored }, { headers: { "X-Scheduling-Rules-Ignored": schedulingRulesIgnored.join(",") } });
+    }
     return NextResponse.json(settings);
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

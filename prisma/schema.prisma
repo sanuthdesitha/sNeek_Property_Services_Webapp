@@ -920,6 +920,8 @@ model User {
   socialPosts                  SocialPost[]                @relation("SocialPostCreatedBy")
   laundryRoutes                LaundryRoute[]
   cleanerLocationPings         CleanerLocationPing[]
+  lastLocation                 UserLastLocation?
+  locationTrackingNotices      LocationTrackingNotice[]
   nfcScanEvents                NfcScanEvent[]
   submittedOnboardingSurveys   PropertyOnboardingSurvey[]  @relation("OnboardingSubmittedBy")
   reviewedOnboardingSurveys    PropertyOnboardingSurvey[]  @relation("OnboardingReviewedBy")
@@ -1014,6 +1016,9 @@ model Client {
   address                   String?
   notes                     String?   @db.Text
   portalVisibilityOverrides Json?
+  /// The client sees the assigned cleaner's live position while the cleaner
+  /// is on the way (EN_ROUTE). Off by default (live location 2026-11).
+  showCleanerLiveLocation   Boolean   @default(false)
   isActive                  Boolean   @default(true)
   xeroContactId             String?
   xeroSyncedAt              DateTime?
@@ -1754,6 +1759,26 @@ model TimeLog {
   durationM Int? // minutes (computed on stop)
   notes     String?
 
+  /// Where THIS cleaner was when THIS segment started (live location 2026-11).
+  /// Null on segments recorded before the change or started without a fix.
+  startLat            Float?
+  startLng            Float?
+  startAccuracyM      Float?
+  startDistanceM      Float?
+  /// "ON_SITE" | "OFF_SITE" | "UNRELIABLE" | "NO_GEOFENCE"
+  startVerdict        String?
+  startReasonCode     String?
+  startNote           String?
+  /// "GPS" | "NFC" | "NO_FIX" (started without a fix) | "GPS_LATE" (first fix after a no-fix start)
+  startLocationSource String?
+  /// When the start location was measured; for GPS_LATE, the late fix's time.
+  startLocationAt     DateTime?
+  stopLat             Float?
+  stopLng             Float?
+  stopAccuracyM       Float?
+  stopDistanceM       Float?
+  stopLocationAt      DateTime?
+
   job                Job                        @relation(fields: [jobId], references: [id])
   user               User                       @relation(fields: [userId], references: [id])
   adjustmentRequests TimeLogAdjustmentRequest[]
@@ -1919,8 +1944,24 @@ model SubmissionMedia {
   mimeType       String?
   label          String?
   createdAt      DateTime  @default(now())
+  /// Photo integrity (2026-11-14), computed by the media-integrity worker from
+  /// the stored bytes. Null = not checked yet / not recorded; never a pass.
+  contentSha256      String?
+  /// 64-bit difference hash (hex) of the photo with the evidence stamp areas cropped.
+  perceptualHash     String?
+  /// Camera capture time from EXIF in the stored file, when present.
+  capturedAt         DateTime?
+  /// "exif-offset" (EXIF with its time zone) or "exif-local" (no zone; read in the business time zone).
+  capturedAtSource   String?
+  integrityCheckedAt DateTime?
+  /// Why the check could not run (fixed text, no provider or storage detail).
+  integrityError     String?
 
   submission FormSubmission @relation(fields: [submissionId], references: [id])
+
+  @@index([contentSha256])
+  @@index([perceptualHash])
+  @@index([integrityCheckedAt, mediaType])
 }
 
 model QAReview {
@@ -2725,6 +2766,14 @@ model LaundryTask {
   /// organisation time). Null = no time planned; never guessed.
   pickupTime         String?       @db.VarChar(5)
   dropoffTime        String?       @db.VarChar(5)
+  /// Void (2026-11-14): the office said this run should never have counted.
+  /// A voided run is stored as SKIPPED_PICKUP (so every list that already
+  /// leaves skipped runs out leaves it out) and is marked here; `voidPreviousStatus`
+  /// is what Undo void restores. The record, photos and history are kept.
+  voidedAt           DateTime?
+  voidedById         String?
+  voidReason         String?       @db.Text
+  voidPreviousStatus LaundryStatus?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -2737,6 +2786,7 @@ model LaundryTask {
 
   @@index([droppedAt])
   @@index([status])
+  @@index([voidedAt])
 }
 
 /// A laundry partner team member's answer to an "Ask laundry team" request,
@@ -4554,6 +4604,52 @@ model AppSetting {
   updatedAt DateTime @updatedAt
 }
 
+/// Scheduling rules (owner decision 2026-11-14): every published version of
+/// the laundry and job auto-scheduling rule values. Rows are never edited or
+/// deleted; an undo or a restore is a NEW version. Version 1 is "Original
+/// (current behaviour)", seeded from the live stored settings and the original
+/// code values the first time the rules are read. See lib/scheduling-rules.
+model SchedulingRuleVersion {
+  id                  String    @id @default(cuid())
+  version             Int       @unique
+  /// "ORIGINAL" | "EDIT" | "RESTORE" | "IMPORT"
+  kind                String
+  /// Every editable rule value (lib/scheduling-rules/values.ts), validated on write.
+  values              Json
+  schemaVersion       Int
+  /// sha256 of the canonical values JSON; checked on every read.
+  checksum            String
+  /// Sydney calendar day (yyyy-MM-dd) the version becomes live, from midnight.
+  effectiveFrom       String
+  /// false: runs and jobs created before effectiveFrom keep the rules they were
+  /// planned with. true: the publisher chose "re-plan existing" in the preview.
+  appliesToExisting   Boolean   @default(false)
+  reason              String    @db.Text
+  restoredFromVersion Int?
+  createdById         String?
+  createdAt           DateTime  @default(now())
+  /// When the settings-backed values were mirrored into AppSettings (null until live).
+  activatedAt         DateTime?
+
+  @@index([effectiveFrom])
+}
+
+/// Point-in-time backups of the scheduling rules: before every publish, weekly,
+/// and on request. Restorable as a new version; never edited.
+model SchedulingRuleSnapshot {
+  id          String   @id @default(cuid())
+  /// "PRE_PUBLISH" | "WEEKLY" | "MANUAL"
+  source      String
+  liveVersion Int
+  /// The same backup document a download produces (lib/scheduling-rules/backup.ts).
+  payload     Json
+  checksum    String
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 // ─────────────────────────────────────────────
 // Real-Time Location Tracking
 // ─────────────────────────────────────────────
@@ -4567,13 +4663,71 @@ model CleanerLocationPing {
   accuracy  Float?
   heading   Float?
   speed     Float?
+  /// When the fix was measured, corrected for the phone's clock offset.
   timestamp DateTime @default(now())
+  /// When the server stored it (the stream cursor; live location 2026-11).
+  receivedAt     DateTime           @default(now())
+  source         LocationPingSource @default(CLEANER_JOB)
+  /// Client-generated id; a retried batch is stored once.
+  clientId       String?
+  /// The driver's ACTIVE route when source = LAUNDRY_ROUTE.
+  laundryRouteId String?
 
   job  Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, clientId])
   @@index([jobId, timestamp])
   @@index([userId, timestamp])
+  @@index([receivedAt])
+  @@index([timestamp])
+}
+
+enum LocationPingSource {
+  CLEANER_JOB
+  CLEANER_DRIVING
+  LAUNDRY_ROUTE
+}
+
+/// Latest position and tracking state per person, written on ingest so the
+/// office never scans the ping table for "where is everyone".
+model UserLastLocation {
+  userId         String              @id
+  lat            Float?
+  lng            Float?
+  accuracy       Float?
+  heading        Float?
+  speed          Float?
+  /// Measured time of the fix (clock-corrected). Null until a fix arrives.
+  measuredAt     DateTime?
+  receivedAt     DateTime?
+  source         LocationPingSource?
+  jobId          String?
+  laundryRouteId String?
+  /// What the phone reported: "SHARING" | "BACKGROUND" | "PERMISSION_OFF" | "OFFLINE" | "UNAVAILABLE"
+  trackingState  String?
+  trackingStateAt DateTime?
+  updatedAt      DateTime            @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([measuredAt])
+}
+
+/// A person acknowledged the live-location notice (which version, from which portal).
+model LocationTrackingNotice {
+  id             String   @id @default(cuid())
+  userId         String
+  version        Int
+  /// "CLEANER" | "LAUNDRY"
+  portal         String
+  acknowledgedAt DateTime @default(now())
+  userAgent      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, version, portal])
+  @@index([userId, acknowledgedAt])
 }
 
 // ─────────────────────────────────────────────
@@ -5383,6 +5537,64 @@ model AiPhotoReview {
   updatedAt DateTime @updatedAt
   submission FormSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   @@index([status, leaseUntil, createdAt])
+}
+
+/// One row per AI request through lib/ai/provider (append-only: a database
+/// trigger refuses UPDATE and DELETE). Never stores prompts, answers, image
+/// bytes or personal data. costMicroUsd is null when no price is known.
+model AiCall {
+  id           String   @id @default(cuid())
+  feature      String
+  provider     String
+  model        String
+  actorUserId  String?
+  agentId      String?
+  entityType   String?
+  entityId     String?
+  inputTokens  Int?
+  outputTokens Int?
+  imageCount   Int      @default(0)
+  attempts     Int      @default(0)
+  latencyMs    Int
+  outcome      String
+  errorCode    String?
+  costMicroUsd Int?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([feature, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+/// Fixed-window request counters shared by every app replica (AI features, agent tokens).
+model RateLimitWindow {
+  key         String
+  windowStart DateTime
+  count       Int      @default(0)
+
+  @@id([key, windowStart])
+  @@index([windowStart])
+}
+
+/// Slow AI work processed by the pg-boss worker (ai-tasks), polled by the screen that queued it.
+model AiTask {
+  id            String    @id @default(cuid())
+  kind          String
+  feature       String
+  status        String    @default("PENDING")
+  requestedById String?
+  result        Json?
+  errorCode     String?
+  error         String?
+  leaseToken    String?
+  leaseUntil    DateTime?
+  attempts      Int       @default(0)
+  finishedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, leaseUntil, createdAt])
+  @@index([requestedById, createdAt])
 }
 
 model ShoppingClientCharge {

@@ -4,6 +4,9 @@ import { Role } from "@prisma/client";
 import AiConfigurationPage from "@/app/v2/admin/ai/page";
 import { DEFAULT_VISION_SETTINGS } from "@/lib/ai/vision-settings-schema";
 const mocks = vi.hoisted(() => ({ role: vi.fn(), config: vi.fn() }));
+vi.mock("@/lib/ai/photo-review-evaluation", () => ({ getPhotoReviewAgreement: async () => ({ since: "2026-08-16T00:00:00.000Z", rows: [], skipped: 0 }) }));
+vi.mock("@/components/v2/admin/photo-review-opt-out", () => ({ PhotoReviewOptOutPanel: () => null }));
+vi.mock("@/lib/ai/provider/store", async () => (await import("../helpers/ai-provider-store-mock")).aiStoreMock({ routing: null }));
 vi.mock("@/components/v2/admin/property-photo-memory", () => ({ PropertyPhotoMemoryPanel: () => null }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.role }));
 vi.mock("@/lib/ai/config", () => ({ getAiConfiguration: mocks.config, getResolvedAiConfiguration: mocks.config, getVisionProviderConfiguration: mocks.config, getResolvedVisionProviderConfiguration: mocks.config }));
@@ -12,7 +15,7 @@ vi.mock("@/lib/ai/vision-settings", () => ({ getVisionSettings: async () => DEFA
 beforeEach(() => { vi.resetAllMocks(); mocks.role.mockResolvedValue({ user: { role: Role.ADMIN } }); });
 describe("AI configuration page", () => {
   it.each([false, true])("does not claim connectivity from credential presence=%s", async configured => {
-    mocks.config.mockReturnValue({ provider: "Anthropic", model: "configured-model", configured });
+    mocks.config.mockReturnValue({ provider: "anthropic", model: "configured-model", configured });
     render(await AiConfigurationPage());
     expect(mocks.role).toHaveBeenCalledWith([Role.ADMIN, Role.OPS_MANAGER]);
     expect(screen.getAllByText("Not tested")).toHaveLength(2);

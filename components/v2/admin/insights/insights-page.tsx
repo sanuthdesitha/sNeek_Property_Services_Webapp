@@ -11,7 +11,9 @@
  */
 import * as React from "react";
 import Link from "next/link";
-import { Download, Mail } from "lucide-react";
+import { Download, Mail, MoreHorizontal } from "lucide-react";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
+import { PhoneActionSheet } from "@/components/v2/admin/phone-action-sheet";
 import { cn } from "@/lib/utils";
 import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
 import { ReportsManager } from "@/components/v2/admin/reports/reports-manager";
@@ -94,8 +96,40 @@ export function MonthlyEmailButton({ state }: { state: InsightsContext["monthlyE
   );
 }
 
+/**
+ * Phones (board "M-InsightsForms"): Export and the monthly email setting in
+ * the header's "⋯" sheet, the very same link and button as on desktop.
+ */
+function InsightsPhoneMenu({ exportHref, monthlyEmail }: { exportHref: string; monthlyEmail: InsightsContext["monthlyEmail"] }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <>
+      <EButton size="icon" variant="outline" aria-label="More Insights actions" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
+        <MoreHorizontal aria-hidden className="h-4 w-4" />
+      </EButton>
+      <PhoneActionSheet
+        open={open}
+        onOpenChange={setOpen}
+        title="Insights"
+        items={[]}
+        lead={
+          <div className="flex flex-col gap-2 [&>*]:w-full [&>*]:justify-start">
+            <EButton asChild variant="outline">
+              <a href={exportHref} download title="Download this tab's table for this period and client as CSV" onClick={() => setOpen(false)}>
+                <Download aria-hidden className="h-3.5 w-3.5" /> Export
+              </a>
+            </EButton>
+            <MonthlyEmailButton state={monthlyEmail ?? null} />
+          </div>
+        }
+      />
+    </>
+  );
+}
+
 export function InsightsPage({ context }: { context: InsightsContext }) {
   const { state, update, hrefForTab } = useInsightsState();
+  const phone = useIsPhone();
   const apiQuery = insightsApiQuery(state);
   const previousLabel = state.period.previous ? rangeLabel(state.period.previous) : null;
   const comparedWith = state.period.previous ? comparisonLabel(state.period, state.period.previous) : null;
@@ -136,12 +170,18 @@ export function InsightsPage({ context }: { context: InsightsContext }) {
             <>
               <PeriodChips period={state.period} onChange={(period) => update({ period })} />
               <ClientFilter value={state.clientId} onChange={(clientId) => update({ clientId })} />
-              <EButton asChild size="sm" variant="outline">
-                <a href={`/api/admin/insights/export?${exportParams.toString()}`} download title="Download this tab's table for this period and client as CSV">
-                  <Download aria-hidden className="h-3.5 w-3.5" /> Export
-                </a>
-              </EButton>
-              <MonthlyEmailButton state={context.monthlyEmail ?? null} />
+              {phone ? (
+                <InsightsPhoneMenu exportHref={`/api/admin/insights/export?${exportParams.toString()}`} monthlyEmail={context.monthlyEmail ?? null} />
+              ) : (
+                <>
+                  <EButton asChild size="sm" variant="outline">
+                    <a href={`/api/admin/insights/export?${exportParams.toString()}`} download title="Download this tab's table for this period and client as CSV">
+                      <Download aria-hidden className="h-3.5 w-3.5" /> Export
+                    </a>
+                  </EButton>
+                  <MonthlyEmailButton state={context.monthlyEmail ?? null} />
+                </>
+              )}
             </>
           )
         }

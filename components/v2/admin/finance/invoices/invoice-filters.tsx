@@ -3,8 +3,13 @@
 /**
  * Status chips (with real counts) on the left; search and the Client, Period
  * and Xero state filters on the right. Every value lives in the URL.
+ *
+ * Phones (below 640px): the status chips are one swipeable row, and search,
+ * Client, Period and Xero state sit behind one "Filter" button (EFilterBar)
+ * with the active ones as removable chips. From 640px up nothing changes.
  */
 import { useEffect, useId, useState } from "react";
+import { EFilterBar, type EActiveFilter } from "@/components/v2/ui/filter-bar";
 import { EFilterChips, type EFilterChip } from "@/components/v2/ui/filter-chips";
 import { EFilterPopover } from "@/components/v2/ui/filter-popover";
 import { EButton } from "@/components/v2/ui/primitives";
@@ -51,9 +56,12 @@ export function InvoiceFilters({
   counts,
   clients,
   disabled,
+  total = null,
   onChange,
 }: {
   state: InvoiceListState;
+  /** Rows matching the filters, for the phone sheet's "Show N invoices". */
+  total?: number | null;
   counts: ClientInvoiceCounts | null;
   clients: InvoiceClient[];
   disabled: boolean;
@@ -74,6 +82,11 @@ export function InvoiceFilters({
 
   const clientName = clients.find((client) => client.id === state.client)?.name ?? (state.client ? "Selected client" : null);
   const periodValue = state.from || state.to ? `${state.from ? fmtDay(state.from) : "…"} – ${state.to ? fmtDay(state.to) : "…"}` : null;
+  const active: EActiveFilter[] = [];
+  if (state.q) active.push({ key: "q", label: `Search: ${state.q}`, onRemove: () => onChange({ q: "" }) });
+  if (clientName) active.push({ key: "client", label: `Client: ${clientName}`, onRemove: () => onChange({ client: "" }) });
+  if (periodValue) active.push({ key: "period", label: `Period: ${periodValue}`, onRemove: () => onChange({ from: "", to: "" }) });
+  if (state.xero !== "any") active.push({ key: "xero", label: `Xero: ${XERO_FILTER_LABEL[state.xero]}`, onRemove: () => onChange({ xero: "any" }) });
 
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -83,9 +96,17 @@ export function InvoiceFilters({
         active={state.status}
         onChange={(status) => onChange({ status })}
         disabled={disabled}
+        phoneLayout="carousel"
+        className="max-sm:w-full"
       />
       <span className="hidden min-w-0 flex-1 lg:block" />
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <EFilterBar
+        label="Filter client invoices"
+        className="min-w-0"
+        active={active}
+        onClear={() => onChange({ q: "", client: "", from: "", to: "", xero: "any" })}
+        resultLabel={typeof total === "number" ? `Show ${total} invoice${total === 1 ? "" : "s"}` : undefined}
+      >
         <label htmlFor={`${id}-search`} className="sr-only">
           Search invoices
         </label>
@@ -143,7 +164,7 @@ export function InvoiceFilters({
             the hourly check against Xero.
           </p>
         </EFilterPopover>
-      </div>
+      </EFilterBar>
     </div>
   );
 }

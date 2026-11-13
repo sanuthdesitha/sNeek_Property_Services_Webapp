@@ -83,15 +83,15 @@ describe("Suppliers directory", () => {
     expect(screen.getByText("Eastside Plumbing")).toBeInTheDocument();
     expect(nav.replace).toHaveBeenCalledWith("/v2/admin/inventory?tab=suppliers&type=trades", { scroll: false });
     fireEvent.click(screen.getByRole("tab", { name: "All 4" }));
-    fireEvent.click(screen.getByRole("button", { name: /Needs attention/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Needs attention/ }));
     // CleanCo has a late run; Bubbles has no portal logins.
     expect(screen.getByText("CleanCo")).toBeInTheDocument();
     expect(screen.getByText("Bubbles")).toBeInTheDocument();
     expect(screen.queryByText("Harbour Hygiene")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Needs attention/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Has portal logins/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Needs attention/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Has portal logins/ }));
     expect(screen.queryByText("Bubbles")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Has portal logins/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Has portal logins/ }));
     fireEvent.change(screen.getByLabelText("Category"), { target: { value: "Chemicals" } });
     expect(screen.getByText("Harbour Hygiene")).toBeInTheDocument();
     expect(screen.queryByText("CleanCo")).toBeNull();

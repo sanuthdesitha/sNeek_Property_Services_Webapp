@@ -20,6 +20,7 @@ import {
 import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
 import { isAdministrator } from "@/lib/rbac/access-evaluator";
+import { decideCleanerPayAmount } from "@/lib/payroll/cleaner-pay-amount";
 
 /**
  * POST /api/admin/approvals/history/[id]
@@ -42,6 +43,11 @@ const bodySchema = z.object({
   /** New amount for `edit` (money queues). */
   amount: z.number().positive().optional(),
   note: z.string().trim().max(4000).optional(),
+  /**
+   * `edit` on a cleaner pay request above what the cleaner requested (owner
+   * rule 2026-11-13): administrator only, real session, `note` is the reason.
+   */
+  overrideAboveRequest: z.boolean().optional(),
   /** The administrator's own PIN for `delete`, checked here (not only in the browser). */
   security: z.object({ pin: z.string().optional(), password: z.string().optional(), newPin: z.string().max(32).optional() }).optional(),
 });
@@ -170,6 +176,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if (body.action === "edit" && (nextAmount == null || !Number.isFinite(nextAmount))) {
         return NextResponse.json({ error: "A valid amount is required." }, { status: 400 });
       }
+      // The same cleaner pay rule as the decision route: a re-priced pay request
+      // may not pay more than the cleaner requested unless an administrator
+      // overrides it with a reason (the required note), audited below.
+      let aboveRequestOverride: { requestedAmount: number; paidAmount: number; reason: string | null } | null = null;
+      if (body.action === "edit" && queue === "payAdjustments") {
+        const decision = decideCleanerPayAmount({
+          requestedAmount: existing.requestedAmount,
+          proposedAmount: nextAmount,
+          callerIsAdministrator:
+            !session.impersonation &&
+            isAdministrator({ id: session.user.id, role: String(session.user.role), heldRoles: (session.user.heldRoles ?? []).map(String) }),
+          overrideAboveRequest: body.overrideAboveRequest,
+          overrideReason: body.note,
+        });
+        if (!decision.ok) {
+          return NextResponse.json({ error: decision.error, code: decision.code, requestedAmount: existing.requestedAmount }, { status: decision.status });
+        }
+        if (decision.aboveRequest) {
+          aboveRequestOverride = { requestedAmount: existing.requestedAmount, paidAmount: decision.amount, reason: decision.overrideReason };
+        }
+      }
 
       const updated = await db.cleanerPayAdjustment.update({
         where: { id: entityId },
@@ -224,6 +251,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         toStatus: updated.status,
         before: { status: existing.status, approvedAmount: previousAmount } as any,
       });
+
+      if (aboveRequestOverride) {
+        await db.auditLog.create({
+          data: {
+            userId: session.user.id,
+            jobId: updated.jobId ?? undefined,
+            action: "PAY_ADJUSTMENT_PAID_ABOVE_REQUEST",
+            entity: "CleanerPayAdjustment",
+            entityId,
+            before: { requestedAmount: existing.requestedAmount, approvedAmount: previousAmount } as any,
+            after: { ...aboveRequestOverride, actorRole: String(session.user.role) } as any,
+          },
+        });
+      }
 
       return NextResponse.json({ ok: true, action: body.action, item: updated });
     }

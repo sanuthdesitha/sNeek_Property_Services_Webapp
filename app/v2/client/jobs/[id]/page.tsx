@@ -48,6 +48,7 @@ import {
   CLIENT_TIMELINE_STEPS,
   resolveClientTimelinePosition,
 } from "@/lib/jobs/client-timeline";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export const metadata = { title: "Job · Estate client" };
 export const dynamic = "force-dynamic";
@@ -140,6 +141,7 @@ async function getScopedJob(id: string, scope: Pick<ClientPortalContext, "client
         laundryTask: {
           select: {
             id: true,
+            voidedAt: true,
             status: true,
             pickupDate: true,
             dropoffDate: true,
@@ -292,8 +294,10 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
     permissions: portalCtx.permissions,
     visibility: { showFinanceDetails: portal?.visibility?.showFinanceDetails === true },
   });
-  const job = await getScopedJob(params.id, { clientId, propertyIds: portalCtx.propertyIds }, showCosts);
-  if (!job) notFound();
+  const scopedJob = await getScopedJob(params.id, { clientId, propertyIds: portalCtx.propertyIds }, showCosts);
+  if (!scopedJob) notFound();
+  // A voided laundry run never reaches the client (2026-11-14).
+  const job = scopedJob.laundryTask?.voidedAt ? { ...scopedJob, laundryTask: null } : scopedJob;
 
   // Open client requests on this job — drives the action hub's pending states.
   const clientTasks = await db.jobTask
@@ -383,7 +387,7 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
       </ECard>
 
       {onSite ? (
-        <p role="status" className="flex items-center gap-2 rounded-[var(--e-radius)] border-l-4 border-[hsl(var(--e-info))] bg-[hsl(var(--e-surface))] px-3 py-2 text-[0.875rem]">
+        <p role="status" className={`flex items-center gap-2 rounded-[var(--e-radius)] ${toneNoticeClass("info")} px-3 py-2 text-[0.875rem]`}>
           <span aria-hidden className="h-2 w-2 rounded-full bg-[hsl(var(--e-info))]" />
           <span><span className="font-semibold">Cleaner has arrived</span>{arrivalTime ? ` ${arrivalTime}` : ""} · checked in on site</span>
         </p>

@@ -7,6 +7,7 @@
  * unchanged; only the fields read here are typed.
  */
 import { APPROVAL_QUEUE_ORDER, type ApprovalsQueueKey } from "./queues";
+import { cleanerRequestedAmount, clientChargeView, type ClientChargeView } from "@/lib/payroll/cleaner-pay-amount";
 
 type Person = { id?: string; name?: string | null; email?: string | null; role?: string | null } | null | undefined;
 type PropertyRef = { id?: string; name?: string | null; suburb?: string | null } | null | undefined;
@@ -82,7 +83,7 @@ export type ApprovalRecord = {
   metadata?: Record<string, unknown> | null;
   attachmentUrls?: EvidenceRef[];
   paidClaimedProofUrls?: EvidenceRef[];
-  clientApproval?: { status?: string | null } | null;
+  clientApproval?: { status?: string | null; amount?: number | null; counterAmount?: number | null } | null;
   [key: string]: unknown;
 };
 
@@ -130,8 +131,19 @@ export function minutesText(mins: number | null | undefined): string | null {
   return h <= 0 ? `${m} min` : `${h} h ${m} min`;
 }
 
-export function payAskedAmount(record: ApprovalRecord): number {
-  return Number(record.primaryDisplayAmount ?? record.clientRequestedAmount ?? record.cleanerRequestedAmount ?? record.requestedAmount ?? 0);
+/**
+ * What the cleaner asked for: the pay request's requested amount. Never the
+ * client charge (owner rule 2026-11-13: once the client approves a charge at a
+ * different amount, the cleaner is still paid what they requested). Null when
+ * the requested amount is missing, so nothing shows or approves $0.00.
+ */
+export function payAskedAmount(record: ApprovalRecord): number | null {
+  return cleanerRequestedAmount(record);
+}
+
+/** The linked client charge of a pay request, read only, or null when never sent to the client. */
+export function payClientCharge(record: ApprovalRecord): ClientChargeView | null {
+  return clientChargeView(record.clientApproval ?? null);
 }
 
 function payType(record: ApprovalRecord): ApprovalTypeChip {

@@ -6,6 +6,7 @@ import { getAppSettings } from "@/lib/settings";
 import { derivePreStartJobStatus } from "@/lib/jobs/assignment-workflow";
 import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
+import { DISPATCH_AVAILABLE_BONUS, DISPATCH_DEFAULT_QA_SCORE, DISPATCH_OTHER_SUBURB_TRAVEL_MIN, DISPATCH_SAME_SUBURB_TRAVEL_MIN, DISPATCH_UNAVAILABLE_PENALTY } from "@/lib/scheduling-rules/constants";
 
 function dateKey(value: Date) {
   return value.toISOString().slice(0, 10);
@@ -179,7 +180,7 @@ export async function suggestAutoAssignment(jobId: string) {
 
   const scored: CleanerScoreRow[] = cleaners.map((cleaner) => {
     const currentLoad = loadByCleaner.get(cleaner.id) ?? 0;
-    const qaScore = qaAverages.get(cleaner.id) ?? 70;
+    const qaScore = qaAverages.get(cleaner.id) ?? DISPATCH_DEFAULT_QA_SCORE;
     const historyCount = suburbHistoryByCleaner.get(cleaner.id) ?? 0;
     const historyScore = Math.min(100, (historyCount / maxHistory) * 100);
     const loadScore = Math.max(0, 100 - (currentLoad / maxDaily) * 100);
@@ -193,7 +194,7 @@ export async function suggestAutoAssignment(jobId: string) {
       historyScore * (settings.autoAssign.weightSuburbHistory / 100) +
       qaScore * (settings.autoAssign.weightQaScore / 100) +
       loadScore * (settings.autoAssign.weightCurrentLoad / 100) +
-      (available ? 12 : -25);
+      (available ? DISPATCH_AVAILABLE_BONUS : DISPATCH_UNAVAILABLE_PENALTY);
 
     return {
       cleanerId: cleaner.id,
@@ -387,7 +388,7 @@ export async function buildDailyRoutePlan(
       if (index === 0) continue;
       const prev = sortedStops[index - 1];
       const curr = sortedStops[index];
-      const estimated = prev.suburb === curr.suburb ? 8 : 22;
+      const estimated = prev.suburb === curr.suburb ? DISPATCH_SAME_SUBURB_TRAVEL_MIN : DISPATCH_OTHER_SUBURB_TRAVEL_MIN;
       curr.estimatedTravelMinsFromPrev = estimated;
       totalTravel += estimated;
     }

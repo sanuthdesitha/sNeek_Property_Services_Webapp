@@ -13,6 +13,7 @@ import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import { EInput } from "@/components/v2/admin/estate-kit";
 import { offSiteReasonLabel, reasonClaimsOnSite } from "@/lib/gps/off-site-reasons";
 import { toast } from "@/hooks/use-toast";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export type ClockLogRow = {
   id: string;
@@ -370,7 +371,7 @@ export function GpsRecordEditor({ jobId, gps }: { jobId: string; gps: GpsRecordP
       {/* An off-site start is an attributable act, not a number nobody reads —
           show the reason the cleaner had to give. */}
       {gps.reasonCode ? (
-        <p className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-surface-2))] px-2.5 py-2">
+        <p className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} px-2.5 py-2`}>
           <span className="font-[600]">
             {reasonClaimsOnSite(gps.reasonCode)
               ? "Started away from the pin (says they were on site)"

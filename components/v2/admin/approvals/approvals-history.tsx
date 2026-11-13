@@ -3,7 +3,9 @@
 /**
  * Approvals → Decided tab: every decision taken here, newest first, read from
  * GET /api/admin/approvals/history. Filters: queue, decided by, from / to date,
- * search. Each row's "more" menu offers Change amount, Reverse and Delete only
+ * search, and the "Paid above request" chip (pay requests approved above what
+ * the cleaner requested and not yet paid, for the owner to review; read only).
+ * Each row's "more" menu offers Change amount, Reverse and Delete only
  * as the server's capability map allows, with the server's reason when not.
  * Delete (administrators only, as the server decides) asks for a typed DELETE
  * and the administrator's own PIN, verified by the server.
@@ -13,10 +15,13 @@ import { toast } from "@/hooks/use-toast";
 import { useRestorableState } from "@/hooks/use-restorable-state";
 import { EDataTable, type EDataColumn } from "@/components/v2/ui/data-table";
 import { EFilterPopover } from "@/components/v2/ui/filter-popover";
+import { EFilterBar, type EActiveFilter } from "@/components/v2/ui/filter-bar";
 import { ERowMenu } from "@/components/v2/ui/row-menu";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EConfirmModal } from "@/components/v2/admin/estate-kit";
+import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
+import { cn } from "@/lib/utils";
 import { APPROVAL_QUEUES, isApprovalsQueueKey } from "@/lib/admin/approvals/queues";
 import { money } from "@/lib/admin/approvals/rows";
 import { formatInstant } from "./panel/panel-kit";
@@ -39,10 +44,13 @@ export type HistoryRow = {
   href: string | null;
   currentAmount: number | null;
   settled: boolean;
+  /** Approved above the cleaner's request and not yet paid (pay requests only). */
+  paidAboveRequest?: boolean;
+  requestedAmount?: number | null;
   capabilities: { canEdit: boolean; canUndo: boolean; canDelete: boolean; reasons: Partial<Record<Verb, string>> };
 };
 
-type Filters = { queue: string; deciderId: string; from: string; to: string };
+type Filters = { queue: string; deciderId: string; from: string; to: string; paidAboveRequest: boolean };
 
 const DECISION: Record<HistoryRow["decision"], { label: string; tone: EPillTone }> = {
   APPROVED: { label: "Approved", tone: "ok" },
@@ -65,7 +73,7 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [acting, setActing] = React.useState<string | null>(null);
-  const [filters, setFilters] = React.useState<Filters>({ queue: "", deciderId: "", from: "", to: "" });
+  const [filters, setFilters] = React.useState<Filters>({ queue: "", deciderId: "", from: "", to: "", paidAboveRequest: false });
   const [search, setSearch] = useRestorableState("approvals-history:search", "");
   const [editRow, setEditRow] = React.useState<HistoryRow | null>(null);
   const [deleteRow, setDeleteRow] = React.useState<HistoryRow | null>(null);
@@ -84,6 +92,7 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
       if (filters.deciderId) qs.set("deciderId", filters.deciderId);
       if (filters.from) qs.set("from", filters.from);
       if (filters.to) qs.set("to", filters.to);
+      if (filters.paidAboveRequest) qs.set("paidAboveRequest", "1");
       if (search.trim()) qs.set("q", search.trim());
       if (after) qs.set("cursor", after);
       try {
@@ -144,6 +153,7 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
     {
       key: "request",
       header: "Request",
+      phoneTitle: true,
       cell: (row) => (
         <div className="min-w-0">
           {[queueLabel(row.queue), row.subjectName, row.label].filter(Boolean).join(" · ")}
@@ -161,6 +171,9 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
             {row.amount != null ? ` ${money(row.amount)}` : row.value != null ? ` ${row.value}` : ""}
           </EPill>
           {row.settled ? <EPill tone="gold">Settled</EPill> : null}
+          {row.paidAboveRequest ? (
+            <EPill tone="warn">Paid above request{row.requestedAmount != null ? ` (asked ${money(row.requestedAmount)})` : ""}</EPill>
+          ) : null}
           {row.currentAmount != null && row.amount != null && Math.abs(row.currentAmount) !== Math.abs(row.amount) ? (
             <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">now {money(row.currentAmount)}</span>
           ) : null}
@@ -190,10 +203,24 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
   ];
 
   const deciderName = deciders.find((item) => item.id === filters.deciderId)?.name ?? (filters.deciderId ? "selected" : null);
+  // Phones: the filters sit behind one Filter button; active ones show as chips.
+  const activeFilters: EActiveFilter[] = [
+    ...(filters.queue ? [{ key: "queue", label: `Queue: ${queueLabel(filters.queue)}`, onRemove: () => setFilters((f) => ({ ...f, queue: "" })) }] : []),
+    ...(filters.deciderId ? [{ key: "decider", label: `Decided by: ${deciderName}`, onRemove: () => setFilters((f) => ({ ...f, deciderId: "" })) }] : []),
+    ...(filters.from || filters.to ? [{ key: "dates", label: `Dates: ${filters.from || "…"} to ${filters.to || "…"}`, onRemove: () => setFilters((f) => ({ ...f, from: "", to: "" })) }] : []),
+    ...(filters.paidAboveRequest ? [{ key: "above", label: "Paid above request", onRemove: () => setFilters((f) => ({ ...f, paidAboveRequest: false })) }] : []),
+    ...(search.trim() ? [{ key: "search", label: `Search: ${search.trim()}`, onRemove: () => setSearch("") }] : []),
+  ];
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-1.5">
+      <EFilterBar
+        label="Filter decisions"
+        className="gap-1.5"
+        active={activeFilters}
+        onClear={() => { setFilters({ queue: "", deciderId: "", from: "", to: "", paidAboveRequest: false }); setSearch(""); }}
+        resultLabel="Done"
+      >
         <EFilterPopover label="Queue" value={filters.queue ? queueLabel(filters.queue) : null} emptyValue="all">
           <label className="block text-[0.75rem] font-[550]" htmlFor="history-queue">Queue</label>
           <select id="history-queue" className={INPUT} value={filters.queue} onChange={(e) => setFilters((f) => ({ ...f, queue: e.target.value }))}>
@@ -216,9 +243,17 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
           <label className="block text-[0.75rem] font-[550]" htmlFor="history-to">To date</label>
           <input id="history-to" type="date" className={INPUT} value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} />
         </EFilterPopover>
+        <button
+          type="button"
+          aria-pressed={filters.paidAboveRequest}
+          className={cn(E_CHIP_CLASS, filters.paidAboveRequest && E_CHIP_ON_CLASS)}
+          onClick={() => setFilters((f) => ({ ...f, paidAboveRequest: !f.paidAboveRequest }))}
+        >
+          Paid above request
+        </button>
         <label className="sr-only" htmlFor="history-search">Search decisions</label>
         <input id="history-search" className={INPUT + " h-9 sm:w-[220px]"} placeholder="Search property, note, person" value={search} onChange={(e) => setSearch(e.target.value)} />
-      </div>
+      </EFilterBar>
       <div className="overflow-hidden rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
         <EDataTable
           label="Decided requests"

@@ -65,9 +65,16 @@ function FormList({ outcome }: { outcome: ImportOutcome }) {
   );
 }
 
-export function ImportFormsButton() {
+/**
+ * `openRequest` / `hideTrigger` (phones, board "M-InsightsForms"): the page
+ * header's "⋯" menu opens the same dialog; each new request number opens it.
+ */
+export function ImportFormsButton({ openRequest = 0, hideTrigger = false }: { openRequest?: number; hideTrigger?: boolean } = {}) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (openRequest > 0) setOpen(true);
+  }, [openRequest]);
   const [file, setFile] = React.useState<{ name: string; text: string } | null>(null);
   const [phase, setPhase] = React.useState<Phase>({ busy: false, error: null, preview: null, result: null });
   const inputId = React.useId();
@@ -114,9 +121,11 @@ export function ImportFormsButton() {
 
   return (
     <>
-      <EButton variant="outline" size="sm" className="h-[34px]" onClick={() => setOpen(true)}>
-        Import
-      </EButton>
+      {hideTrigger ? null : (
+        <EButton variant="outline" size="sm" className="h-[34px]" onClick={() => setOpen(true)}>
+          Import
+        </EButton>
+      )}
       <EModal open={open} onClose={close} title="Import forms" eyebrow="From an exported file">
         <div className="space-y-4">
           <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">

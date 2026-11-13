@@ -5,12 +5,22 @@
  * left, the state chips (real counts) and exceptions first with their actions,
  * then on-site progress; right, the map with the selected person's card. One
  * feed (LiveFeedProvider) drives every part.
+ *
+ * Phone (below 640px, board "Admin phone: Calendar and Live ops"): a List /
+ * Map switch shows one screen at a time (the map is its own screen; choosing a
+ * person anywhere opens it with their card); the state chips are one
+ * swipeable row; layer chips scroll sideways; exception rows keep their main
+ * fix on the card and put the rest under "More". From 640px up nothing
+ * changes: phone parts render only after useIsPhone, and the screen split is
+ * max-sm: classes only.
  */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
-import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
+import { E_CHIP_CLASS, E_CHIP_ON_CLASS, EFilterChips } from "@/components/v2/ui/filter-chips";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
+import { isPhoneNow } from "@/components/v2/admin/phone-action-sheet";
 import { JobPeekPanel } from "@/components/v2/admin/jobs/job-peek-panel";
 import { cn } from "@/lib/utils";
 import { freshestPositionAgeSeconds, streamIndicator } from "@/lib/ops/live-feed-types";
@@ -39,6 +49,30 @@ function Toggle({ pressed, onClick, children }: { pressed: boolean; onClick: () 
   return <button type="button" aria-pressed={pressed} onClick={onClick} className={cn(E_CHIP_CLASS, pressed && E_CHIP_ON_CLASS)}>{children}</button>;
 }
 
+type PhoneScreen = "list" | "map";
+
+/** Phone only: which of the two screens is showing. */
+function ScreenSwitch({ screen, onChange }: { screen: PhoneScreen; onChange: (screen: PhoneScreen) => void }) {
+  return (
+    <div role="group" aria-label="Show list or map" className="flex rounded-[var(--e-radius-pill)] border border-[hsl(var(--e-border))] p-0.5">
+      {(["list", "map"] as const).map((key) => (
+        <button
+          key={key}
+          type="button"
+          aria-pressed={screen === key}
+          onClick={() => onChange(key)}
+          className={cn(
+            "min-h-11 flex-1 rounded-[var(--e-radius-pill)] px-4 text-[0.875rem] font-[550] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]",
+            screen === key ? "bg-[hsl(var(--e-foreground))] text-[hsl(var(--e-background))]" : "text-[hsl(var(--e-muted-foreground))]",
+          )}
+        >
+          {key === "list" ? "List" : "Map"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function useNow(intervalMs: number): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -58,7 +92,13 @@ export function LiveOpsWorkspace({ properties, attention, initialView, todayKey,
   const board = feed.board.data;
   const indicator = streamIndicator({ mode: feed.stream.mode, lastMessageAt: feed.stream.lastMessageAt, lastSnapshotAt: feed.pings.updatedAt, now, timeZone });
   const age = freshestPositionAgeSeconds(feed.pings.data, now);
-  const select = useCallback((userId: string) => setSelected(userId), []);
+  const phone = useIsPhone();
+  const [screen, setScreen] = useState<PhoneScreen>("list");
+  // Choosing a person opens their card; on a phone the card lives on the map screen.
+  const select = useCallback((userId: string) => {
+    setSelected(userId);
+    if (isPhoneNow()) setScreen("map");
+  }, []);
 
   const chips: Array<{ key: LiveView; label: string; count: number | null }> = [
     { key: "exceptions", label: "Exceptions", count: board?.counts.exceptions ?? null },
@@ -66,8 +106,13 @@ export function LiveOpsWorkspace({ properties, attention, initialView, todayKey,
     { key: "travelling", label: "Travelling", count: board?.counts.travelling ?? null },
     { key: "notstarted", label: "Not started", count: board?.counts.notStarted ?? null },
   ];
+  // Drivers are withheld without the Laundry pack: say nothing about them
+  // rather than "0 drivers".
+  const showsDrivers = board?.visibility?.drivers !== false;
+  const cleanersText = board ? `${board.counts.cleanersOnShift} cleaner${board.counts.cleanersOnShift === 1 ? "" : "s"}` : "";
+  const driversText = board && showsDrivers ? ` and ${board.counts.driversOnShift} driver${board.counts.driversOnShift === 1 ? "" : "s"}` : "";
   const summary = board
-    ? `${board.counts.cleanersOnShift} cleaner${board.counts.cleanersOnShift === 1 ? "" : "s"} and ${board.counts.driversOnShift} driver${board.counts.driversOnShift === 1 ? "" : "s"} on shift · ${age === null ? "no GPS positions yet" : `positions ${age < 120 ? `${age} seconds` : `${Math.round(age / 60)} minutes`} old`}`
+    ? `${cleanersText}${driversText} on shift · ${age === null ? "no GPS positions yet" : `positions ${age < 120 ? `${age} seconds` : `${Math.round(age / 60)} minutes`} old`}`
     : feed.board.status === "error" ? "Today's board could not be read." : "Loading today's board…";
 
   return (
@@ -78,10 +123,11 @@ export function LiveOpsWorkspace({ properties, attention, initialView, todayKey,
           <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{summary}</p>
         </div>
         <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+          {phone ? <div className="basis-full"><ScreenSwitch screen={screen} onChange={setScreen} /></div> : null}
           <span role="status" aria-live="polite"><EPill tone={indicator.tone}>{indicator.label}</EPill></span>
-          <div role="group" aria-label="Map layers" className="flex flex-wrap gap-1.5">
+          <div role="group" aria-label="Map layers" className="flex flex-wrap gap-1.5 max-sm:-mx-1 max-sm:max-w-full max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:px-1 max-sm:pb-0.5 max-sm:[scrollbar-width:none]">
             <Toggle pressed={layers.cleaners} onClick={() => setLayers((l) => ({ ...l, cleaners: !l.cleaners }))}>Cleaners</Toggle>
-            <Toggle pressed={layers.drivers} onClick={() => setLayers((l) => ({ ...l, drivers: !l.drivers }))}>Laundry drivers</Toggle>
+            {showsDrivers ? <Toggle pressed={layers.drivers} onClick={() => setLayers((l) => ({ ...l, drivers: !l.drivers }))}>Laundry drivers</Toggle> : null}
             <Toggle pressed={layers.properties} onClick={() => setLayers((l) => ({ ...l, properties: !l.properties }))}>Properties</Toggle>
           </div>
           <EButton asChild size="sm" variant="outline"><Link href={`/v2/admin/jobs/route-map?date=${todayKey}`}>Plan routes</Link></EButton>
@@ -89,14 +135,20 @@ export function LiveOpsWorkspace({ properties, attention, initialView, todayKey,
       </header>
 
       <div className="grid min-w-0 grid-cols-1 items-start gap-[14px] xl:grid-cols-[400px_minmax(0,1fr)]">
-        <section aria-label="On shift" className="order-2 min-w-0 overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] xl:order-1">
-          <div role="group" aria-label="Show" className="flex flex-wrap gap-1.5 border-b border-[hsl(var(--e-border))] px-4 py-3.5">
-            {chips.map((chip) => (
-              <Toggle key={chip.key} pressed={view === chip.key} onClick={() => setView(chip.key)}>
-                {chip.label}{chip.count !== null ? <span className="e-tnum">{chip.count}</span> : null}
-              </Toggle>
-            ))}
-          </div>
+        <section aria-label="On shift" className={cn("order-2 min-w-0 overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] xl:order-1", screen === "map" && "max-sm:hidden")}>
+          {phone ? (
+            <div className="border-b border-[hsl(var(--e-border))] px-4 py-3.5">
+              <EFilterChips label="Show" phoneLayout="carousel" chips={chips} active={view} onChange={setView} />
+            </div>
+          ) : (
+            <div role="group" aria-label="Show" className="flex flex-wrap gap-1.5 border-b border-[hsl(var(--e-border))] px-4 py-3.5 max-sm:hidden">
+              {chips.map((chip) => (
+                <Toggle key={chip.key} pressed={view === chip.key} onClick={() => setView(chip.key)}>
+                  {chip.label}{chip.count !== null ? <span className="e-tnum">{chip.count}</span> : null}
+                </Toggle>
+              ))}
+            </div>
+          )}
           {feed.board.status === "error" && board ? (
             <p role="status" className="flex flex-wrap gap-2 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-warning-soft))] px-4 py-2 text-[0.75rem] text-[hsl(var(--e-warning))]">
               Could not refresh. Showing the board from {new Date(feed.board.updatedAt ?? Date.parse(board.generatedAt)).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone })}.
@@ -127,7 +179,7 @@ export function LiveOpsWorkspace({ properties, attention, initialView, todayKey,
           )}
         </section>
 
-        <section aria-label="Map" className="order-1 min-w-0 overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] xl:order-2">
+        <section aria-label="Map" className={cn("order-1 min-w-0 overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] xl:order-2", screen === "list" && "max-sm:hidden")}>
           {feed.pings.status === "error" ? <p role="status" className="border-b border-[hsl(var(--e-border))] px-4 py-2 text-[0.75rem] text-[hsl(var(--e-warning))]">Location refresh failed. Showing the last received positions; retrying automatically.</p> : null}
           <EstateOpsMap
             properties={properties}
@@ -136,7 +188,8 @@ export function LiveOpsWorkspace({ properties, attention, initialView, todayKey,
             layers={layers}
             selectedUserId={selected}
             onSelect={select}
-            overlay={selected ? <PersonCard userId={selected} pings={feed.pings.data} board={board} onClose={() => setSelected(null)} /> : null}
+            refitKey={phone ? (screen === "map" ? `map:${selected ?? ""}` : "hidden") : undefined}
+            overlay={selected ? <PersonCard userId={selected} pings={feed.pings.data} board={board} onClose={() => setSelected(null)} phoneActions={phone} canNotifyClient={canNotifyClient && !readOnly} /> : null}
           />
         </section>
       </div>

@@ -64,6 +64,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
           latitude: true,
           longitude: true,
           showCleanerContactToClient: true,
+          client: { select: { showCleanerLiveLocation: true } },
         },
       },
       assignments: {
@@ -76,6 +77,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       laundryTask: {
         select: {
           id: true,
+          voidedAt: true,
           status: true,
           pickupDate: true,
           dropoffDate: true,
@@ -159,7 +161,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     ? await computeJobProgressPercent(job, portal.settings, job.property as any)
     : null;
 
-  return NextResponse.json(projectClientJob(job, portal, progressPercent), { headers: privateHeaders });
+  // A voided laundry run never reaches the client (2026-11-14).
+  const visibleJob = job.laundryTask?.voidedAt ? { ...job, laundryTask: null } : job;
+  return NextResponse.json(projectClientJob(visibleJob, portal, progressPercent), { headers: privateHeaders });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     const status = message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 500;

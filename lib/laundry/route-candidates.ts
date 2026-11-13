@@ -11,10 +11,11 @@ import {
   type LaundryWeekTask,
 } from "@/lib/laundry/week-feed";
 import type { RouteStopKind } from "@/lib/laundry/route-plan";
+import { LAUNDRY_ROUTE_OVERDUE_CAP } from "@/lib/scheduling-rules/constants";
 
 const TZ = "Australia/Sydney";
 const DAY_MS = 86_400_000;
-export const ROUTE_OVERDUE_CAP = 20;
+export const ROUTE_OVERDUE_CAP = LAUNDRY_ROUTE_OVERDUE_CAP;
 
 /** UTC-midnight key for the Sydney calendar day containing `value`. */
 export function sydneyDayKey(value: Date = new Date()): Date {

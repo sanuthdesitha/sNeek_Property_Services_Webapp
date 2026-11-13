@@ -3,13 +3,49 @@ import { logger } from "@/lib/logger";
 import { addDays, differenceInCalendarDays, startOfDay } from "date-fns";
 import { LaundryFlag, LaundryStatus, Prisma } from "@prisma/client";
 import { toZonedTime } from "date-fns-tz";
-import { getAppSettings, getTransactionAppSettings, type LaundryOperationsSettings } from "@/lib/settings";
+import type { LaundryOperationsSettings } from "@/lib/settings";
 import {
   replacePendingLaundrySyncDraftForProperty,
   type LaundrySyncDraftItem,
 } from "@/lib/laundry/sync-draft";
 import { computeKeyLostDraftItem } from "@/lib/laundry/key-lost";
 import { partnerTimesForNewRun, partnerTimesForNewRuns } from "@/lib/laundry/partner-schedule-server";
+import { LAUNDRY_DROP_DAYS_BEFORE_NEXT_CLEAN } from "@/lib/scheduling-rules/constants";
+import {
+  laundryOperationsFrom,
+  laundryPlanningFrom,
+  ORIGINAL_LAUNDRY_PLANNING,
+  type LaundryPlanningRules,
+  type SchedulingRuleValues,
+} from "@/lib/scheduling-rules/values";
+import { loadSchedulingRuleBook } from "@/lib/scheduling-rules/store";
+import type { RuleBook } from "@/lib/scheduling-rules/book";
+
+/**
+ * Which rule values plan a run (lib/scheduling-rules/book.ts): a NEW run uses
+ * the live version; an EXISTING run keeps the version it was planned under
+ * unless a later version was published with "re-plan existing". A preview
+ * passes its own resolver with the candidate values (nothing is saved).
+ */
+export type LaundryRuleResolver = {
+  forNewRun(): SchedulingRuleValues;
+  forExistingRun(task: { createdAt: Date }): SchedulingRuleValues;
+};
+
+export function laundryResolverFromBook(book: RuleBook): LaundryRuleResolver {
+  return {
+    forNewRun: () => book.live.values,
+    forExistingRun: (task) => book.forItem(task.createdAt).values,
+  };
+}
+
+async function liveLaundryResolver(database: Prisma.TransactionClient | typeof db = db): Promise<LaundryRuleResolver> {
+  return laundryResolverFromBook(await loadSchedulingRuleBook(database));
+}
+
+function planWith(job: PlannerJob, values: SchedulingRuleValues, database: Prisma.TransactionClient = db) {
+  return computeDraftItem(job, laundryOperationsFrom(values), database, laundryPlanningFrom(values));
+}
 
 type PlannerJob = Prisma.JobGetPayload<{
   include: {
@@ -106,38 +142,44 @@ export function canPlannerOverrideStatus(task: { status: LaundryStatus }) {
 }
 
 // Exported for tests (tests/lib/key-lost.test.ts pins both branches).
+//
+// `planning` carries the published scheduling rules (lib/scheduling-rules).
+// Production callers always pass the version that applies to this run; the
+// default is the original rule set, so a caller that passes nothing gets
+// exactly the behaviour this function always had.
 export async function computeDraftItem(
   job: PlannerJob,
   operations: LaundryOperationsSettings,
   database: Prisma.TransactionClient = db,
+  planning: LaundryPlanningRules = ORIGINAL_LAUNDRY_PLANNING,
 ): Promise<LaundryPlanDraftItem> {
   // Key-lost mode: the spare key is gone, so the driver can only enter while
   // the cleaner is inside — pickup AND drop-off happen on the clean day, after
   // the clean starts. This is the ONLY branch point; the normal path below is
   // untouched.
   if (job.property.keyLostMode) {
-    return computeKeyLostDraftItem(job);
+    return computeKeyLostDraftItem(job, planning);
   }
 
   const cleanDate = normalizeDate(job.scheduledDate);
   const nextCleanDate = await getNextTurnoverCleanDate(job, database);
   const fallbackQuickReturnDays = Math.max(1, operations.fastReturnDaysWhenNoNextClean);
 
-  let pickupDate = addDays(cleanDate, 1);
-  let dropoffDate = addDays(pickupDate, 1);
+  let pickupDate = addDays(cleanDate, planning.pickupOffsetDays);
+  let dropoffDate = addDays(pickupDate, planning.minTurnaroundDays);
   let status: LaundryStatus = LaundryStatus.PENDING;
   let flagReason: LaundryFlag | null = null;
   let flagNotes: string | null = null;
   let scenario: LaundryScenario = "FALLBACK";
-  const minDropoffDate = addDays(pickupDate, 1);
+  const minDropoffDate = addDays(pickupDate, planning.minTurnaroundDays);
 
   if (nextCleanDate) {
     const gapToNextClean = differenceInCalendarDays(nextCleanDate, cleanDate);
-    const preferredDropoffDate = addDays(nextCleanDate, -1);
+    const preferredDropoffDate = addDays(nextCleanDate, -LAUNDRY_DROP_DAYS_BEFORE_NEXT_CLEAN);
 
-    if (gapToNextClean <= 1) {
+    if (gapToNextClean <= planning.backToBackMaxGapDays) {
       scenario = "BACK_TO_BACK";
-    } else if (gapToNextClean <= 3) {
+    } else if (gapToNextClean <= planning.microCycleMaxGapDays) {
       scenario = "MICRO_CYCLE";
     } else {
       scenario = "COMPRESSED";
@@ -151,7 +193,7 @@ export async function computeDraftItem(
       flagNotes = "Tight gap detected; returning on the earliest valid date after 24h.";
     }
 
-    if (scenario === "BACK_TO_BACK" && job.property.linenBufferSets <= 0) {
+    if (scenario === "BACK_TO_BACK" && job.property.linenBufferSets <= planning.bufferFlagAtOrBelowSets) {
       status = LaundryStatus.FLAGGED;
       flagReason = LaundryFlag.EXPRESS_OR_EXTRA_LINEN_REQUIRED;
       flagNotes = "Back-to-back clean dates with no buffer linen set configured.";
@@ -173,7 +215,7 @@ export async function computeDraftItem(
     }
   }
 
-  if (differenceInCalendarDays(dropoffDate, pickupDate) < 1) {
+  if (differenceInCalendarDays(dropoffDate, pickupDate) < planning.minTurnaroundDays) {
     status = LaundryStatus.FLAGGED;
     flagReason = flagReason ?? LaundryFlag.NO_WINDOW;
     flagNotes = flagNotes ? `${flagNotes} 24h turnaround is not available.` : "24h turnaround is not available.";
@@ -244,10 +286,11 @@ async function getSyncPlannerJobs(options: { propertyId: string; fromDate: Date 
 }
 
 export async function buildLaundryPlanDraft(weekStart?: Date): Promise<LaundryPlanDraftItem[]> {
-  const settings = await getAppSettings();
+  // Only jobs with no run yet: every item is a NEW run on the live rules.
+  const resolver = await liveLaundryResolver();
   const jobs = await getPlannerJobs(weekStart);
   const draft = await Promise.all(
-    jobs.map((job) => computeDraftItem(job, settings.laundryOperations))
+    jobs.map((job) => planWith(job, resolver.forNewRun()))
   );
   return draft.sort((a, b) => {
     const byPickup = new Date(a.pickupDate).getTime() - new Date(b.pickupDate).getTime();
@@ -258,11 +301,14 @@ export async function buildLaundryPlanDraft(weekStart?: Date): Promise<LaundryPl
   });
 }
 
-export async function buildLaundrySyncDraft(options: {
-  propertyId: string;
-  fromDate?: Date;
-}): Promise<LaundrySyncDraftItem[]> {
-  const settings = await getAppSettings();
+export async function buildLaundrySyncDraft(
+  options: {
+    propertyId: string;
+    fromDate?: Date;
+  },
+  resolverInput?: LaundryRuleResolver,
+): Promise<LaundrySyncDraftItem[]> {
+  const resolver = resolverInput ?? (await liveLaundryResolver());
   const jobs = await getSyncPlannerJobs({
     propertyId: options.propertyId,
     fromDate: options.fromDate ?? todaySydneyDateOnlyForLaundryPlanner(),
@@ -270,8 +316,8 @@ export async function buildLaundrySyncDraft(options: {
 
   const items: LaundrySyncDraftItem[] = [];
   for (const job of jobs) {
-    const desired = await computeDraftItem(job, settings.laundryOperations);
     const currentTask = job.laundryTask;
+    const desired = await planWith(job, currentTask ? resolver.forExistingRun(currentTask) : resolver.forNewRun());
 
     if (!currentTask) {
       items.push({
@@ -289,7 +335,8 @@ export async function buildLaundrySyncDraft(options: {
       continue;
     }
 
-    if (isLaundryTaskCompleted(currentTask)) {
+    // Completed runs and runs the office voided (2026-11-14) are never planned again.
+    if (isLaundryTaskCompleted(currentTask) || currentTask.voidedAt) {
       continue;
     }
 
@@ -380,7 +427,8 @@ export async function applyLaundryPlanDraft(items: LaundryPlanDraftItem[]) {
       await tx.$queryRaw`SELECT "id" FROM "LaundryTask" WHERE "jobId" = ${item.jobId} FOR UPDATE`;
       const current = await tx.laundryTask.findUnique({ where: { jobId: item.jobId }, include: { confirmations: { select: { id: true } } } });
       // Completed/suppressed evidence and dates are not planner-owned.
-      if (current && (isLaundryTaskCompleted(current) || current.status === LaundryStatus.SKIPPED_PICKUP || (current.status === LaundryStatus.FLAGGED && current.confirmations.length > 0))) {
+      // A voided run (voidedAt) is stored as SKIPPED_PICKUP, so it is never touched here either.
+      if (current && (isLaundryTaskCompleted(current) || current.voidedAt || current.status === LaundryStatus.SKIPPED_PICKUP || (current.status === LaundryStatus.FLAGGED && current.confirmations.length > 0))) {
         continue;
       }
       const keepHumanStatus = current != null && !canPlannerOverrideStatus(current);
@@ -455,8 +503,11 @@ export async function ensureLaundryTaskForJob(jobId: string, transaction?: Prism
   if (job.isRework) return null;
   if (!job.property.laundryEnabled) return null;
 
-  const settings = transaction ? await getTransactionAppSettings(transaction) : await getAppSettings();
-  const draftItem = await computeDraftItem(job, settings.laundryOperations, database);
+  // A new run: the live scheduling rules (fails closed when they are
+  // unavailable). Read on the main client, never the caller's transaction, so
+  // a failed read cannot abort the caller's own save (the cleaner's outcome).
+  const resolver = await liveLaundryResolver();
+  const draftItem = await planWith(job, resolver.forNewRun(), database);
   if (transaction) {
     // Partner schedule defaults: planned times only, never the dates above.
     // Read outside the caller's transaction and best-effort: a failed lookup

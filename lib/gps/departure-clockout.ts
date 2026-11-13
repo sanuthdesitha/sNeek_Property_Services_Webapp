@@ -16,13 +16,12 @@
  * always wrapped in try/catch there — this must never fail a ping.
  */
 
-import { JobStatus, Role } from "@prisma/client";
+import { JobStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
-import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
+import { sendLeftSiteClockOutNotices } from "@/lib/notifications/location-sharing";
 import { evaluateDeparture } from "./departure";
-import { DEFAULT_GEOFENCE_RADIUS_M } from "./distance";
-import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { passiveGeofenceRadius } from "./geofence-policy";
 
 const RECENT_PINGS_TO_EVALUATE = 10;
 
@@ -58,7 +57,7 @@ export async function handleGeofenceDeparture(
       jobNumber: true,
       status: true,
       departedAt: true,
-      property: { select: { name: true, latitude: true, longitude: true } },
+      property: { select: { name: true, latitude: true, longitude: true, geofenceRadiusM: true } },
     },
   });
   if (!job) return NOOP;
@@ -77,7 +76,9 @@ export async function handleGeofenceDeparture(
 
   const verdict = evaluateDeparture({
     pings: recentPings,
-    radiusM: DEFAULT_GEOFENCE_RADIUS_M,
+    // The property's own fence (large complexes) — the same radius the ping
+    // pipeline and Live ops judge with (lib/gps/geofence-policy).
+    radiusM: passiveGeofenceRadius(job.property?.geofenceRadiusM),
     propertyLat,
     propertyLng,
     now,
@@ -156,38 +157,19 @@ export async function handleGeofenceDeparture(
     },
   });
 
-  // Notify — best-effort: never let notification plumbing undo the clock-out.
+  // Notify through the pipeline — the cleaner and the office (ADMIN, and
+  // OPS_MANAGER with the Jobs pack). Best-effort: notification plumbing never
+  // undoes the clock-out.
   try {
-    const jobLabel = `${job.jobNumber || job.id}: ${job.property?.name ?? "job site"}`;
-    const wording = await loadNotificationWording("job.clock_changes");
-    const leftSite = wording.render("left-site", "INBOX", {});
-
-    const cleaner = await db.user.findUnique({
-      where: { id: input.userId },
-      select: { id: true, role: true, email: true, phone: true, name: true },
+    const cleaner = await db.user.findUnique({ where: { id: input.userId }, select: { name: true } });
+    await sendLeftSiteClockOutNotices({
+      jobId: job.id,
+      jobLabel: `${job.jobNumber || job.id}: ${job.property?.name ?? "job site"}`,
+      cleanerId: input.userId,
+      cleanerName: cleaner?.name ?? null,
+      distanceM: input.distanceM,
+      timeLogId: openLog.id,
     });
-    if (cleaner) {
-      await deliverNotificationToRecipients({
-        recipients: [cleaner],
-        category: "jobs",
-        jobId: job.id,
-        web: { subject: leftSite.title, body: leftSite.body },
-      });
-    }
-
-    const admins = await db.user.findMany({
-      where: { role: Role.ADMIN, isActive: true },
-      select: { id: true, role: true, email: true, phone: true, name: true },
-    });
-    const leftSiteOffice = wording.render("left-site-office", "INBOX", { cleanerName: cleaner?.name ?? "A cleaner", jobLabel, distance: input.distanceM });
-    if (admins.length > 0) {
-      await deliverNotificationToRecipients({
-        recipients: admins,
-        category: "jobs",
-        jobId: job.id,
-        web: { subject: leftSiteOffice.title, body: leftSiteOffice.body },
-      });
-    }
   } catch {
     // Notification failures are non-fatal.
   }

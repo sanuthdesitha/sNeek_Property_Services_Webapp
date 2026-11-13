@@ -60,6 +60,7 @@ import {
 import { ensureGoogleMaps, resolveBrowserMapsKey } from "@/lib/maps/loader";
 import { ReportMaintenanceSheet } from "@/components/maintenance/report-maintenance-sheet";
 import { DrivingPanel } from "@/components/cleaner/driving-panel";
+import { ensureClassicLocationReady, pickClassicOffSiteReason } from "@/lib/gps/classic-location-gate";
 import { ProcessNudge, ProcessConfirm } from "@/components/shared/process-nudge";
 
 type Step = "briefing" | "checklist" | "uploads" | "laundry" | "submit";
@@ -540,7 +541,7 @@ export default function CleanerJobPage() {
   const hydratedRef = useRef(false);
   const carryoverNoticeShownRef = useRef(false);
   const watchIdRef = useRef<number | null>(null);
-  const pendingPingsRef = useRef<Array<Record<string, number | null>>>([]);
+  const pendingPingsRef = useRef<Array<Record<string, number | string | null>>>([]);
   const flushingPingsRef = useRef(false);
   const lastUploadRef = useRef<{ at: number; lat: number; lng: number } | null>(null);
   const lastFixRef = useRef<GpsFix | null>(null);
@@ -1402,20 +1403,22 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     document.addEventListener("visibilitychange", onVisibilityChange);
     const clockId = window.setInterval(() => setPingClock(Date.now()), 5000);
 
-    // Heartbeat: re-send the last known fix every 60s. watchPosition can go quiet
-    // when the cleaner is stationary on-site, so this guarantees a fresh ping lands
-    // inside the ops map's 10-minute live window for the whole clean.
+    // Heartbeat: ask for a FRESH fix every 60s (watchPosition goes quiet when
+    // the cleaner stands still). It used to re-send the last fix as "now",
+    // which made a lost signal look live (live location 2026-11).
     const heartbeatId = window.setInterval(() => {
-      const fix = lastFixRef.current;
-      if (!fix) return;
-      pendingPingsRef.current.push({
-        lat: fix.lat,
-        lng: fix.lng,
-        accuracy: fix.accuracy,
-        heading: fix.heading,
-        speed: fix.speed,
-      });
-      void flushQueuedPings();
+      if (!lastFixRef.current || !navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition((pos) => {
+        pendingPingsRef.current.push({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null,
+          heading: pos.coords.heading ?? null,
+          speed: pos.coords.speed ?? null,
+          timestamp: new Date(Number.isFinite(pos.timestamp) ? pos.timestamp : Date.now()).toISOString(),
+        });
+        void flushQueuedPings();
+      }, () => {}, { enableHighAccuracy: true, maximumAge: 0, timeout: 20_000 });
     }, 60_000);
 
     return () => {
@@ -2170,7 +2173,8 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         const res = await fetch(`/api/cleaner/jobs/${jobId}/location-ping`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-progress-toast": "off" },
-          body: JSON.stringify(next),
+          // sentAt lets the server correct the phone's clock offset.
+          body: JSON.stringify({ ...next, sentAt: new Date().toISOString() }),
         });
         if (!res.ok) {
           // 400 = job no longer en route — drop the queue; anything else
@@ -2233,7 +2237,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           accuracy: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null,
           heading: pos.coords.heading != null && Number.isFinite(pos.coords.heading) ? pos.coords.heading : null,
           speed: pos.coords.speed != null && Number.isFinite(pos.coords.speed) ? pos.coords.speed : null,
-          timestamp: Date.now(),
+          timestamp: Number.isFinite(pos.timestamp) ? pos.timestamp : Date.now(),
         };
         lastFixRef.current = fix;
         // Throttle uploads: one ping per ~20s, or sooner after >=50m movement.
@@ -2250,6 +2254,8 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           accuracy: fix.accuracy,
           heading: fix.heading,
           speed: fix.speed,
+          // When it was measured, so a queued fix is never re-dated as "now".
+          timestamp: new Date(fix.timestamp).toISOString(),
         });
         if (pendingPingsRef.current.length > PING_QUEUE_LIMIT) {
           pendingPingsRef.current.splice(0, pendingPingsRef.current.length - PING_QUEUE_LIMIT);
@@ -2281,13 +2287,18 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   async function handleStartDriving() {
     setStartingDriving(true);
     try {
-      // Get an accurate current position first for the initial ETA.
-      const position = await getAccuratePosition().catch(() => null);
+      // Live location is required to go "on the way" (notice + a fix).
+      const ready = await ensureClassicLocationReady();
+      if (!ready.ok) {
+        showPopupNotification("Location needed", ready.message, "destructive");
+        return;
+      }
+      const position = ready.fix;
 
       const res = await fetch(`/api/cleaner/jobs/${jobId}/start-driving`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(position ? { lat: position.lat, lng: position.lng } : {}),
+        body: JSON.stringify(position ? { lat: position.lat, lng: position.lng, accuracy: position.accuracy } : ready.noFix ? { noFix: ready.noFix } : {}),
       });
 
       if (!res.ok) {
@@ -2445,7 +2456,16 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       return;
     }
 
+    // Live location is required for every start and resume (notice + a fix).
+    const ready = await ensureClassicLocationReady();
+    if (!ready.ok) {
+      showPopupNotification("Location needed", ready.message, "destructive");
+      return;
+    }
+    let offSiteReason: { reasonCode: string; note: string } | null = null;
+
     async function submitStart(allowFutureStart: boolean) {
+      const fix = ready.ok ? ready.fix : null;
       const res = await fetch(`/api/cleaner/jobs/${params.id}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2453,13 +2473,19 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           allowFutureStart,
           propertyCodeConfirmed,
           laundryBagConfirmed,
+          ...(fix ? { startLocation: { lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, ...(offSiteReason ?? {}) } } : ready.ok && ready.noFix ? { startLocation: { noFix: ready.noFix } } : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));
       return { res, body };
     }
 
-    const firstAttempt = await submitStart(false);
+    let firstAttempt = await submitStart(false);
+    if (firstAttempt.res.status === 409 && firstAttempt.body?.error === "OFF_SITE_REASON_REQUIRED") {
+      offSiteReason = pickClassicOffSiteReason(firstAttempt.body?.message ?? "You're away from the property.");
+      if (!offSiteReason) return;
+      firstAttempt = await submitStart(false);
+    }
     if (firstAttempt.res.status === 409 && firstAttempt.body?.code === "FUTURE_START_CONFIRMATION_REQUIRED") {
       const confirmMessage =
         `${firstAttempt.body.error ?? "This job is scheduled for a future date."}\n\n` +

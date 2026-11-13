@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { EButton, ECard } from "@/components/v2/ui/primitives";
 import { EConfirmButton } from "@/components/v2/admin/estate-kit";
+import { EToneNotice } from "@/components/v2/ui/tone-band";
 import {
   EField,
   EInput,
@@ -233,13 +234,17 @@ export function LaundrySection({ initial, readOnly }: { initial: LaundrySettings
 
       <ECard className="p-6">
         <p className="mb-4 text-[0.8125rem] font-medium text-[hsl(var(--e-foreground))]">Operational defaults</p>
+        <EToneNotice tone="info" title="Locked: these are scheduling rules" className="mb-4">
+          They are shown here for reference. Change, compare or restore them in{" "}
+          <a className="font-medium underline" href="/v2/admin/settings/scheduling-rules">Settings › Scheduling rules</a>.
+        </EToneNotice>
         <div className="grid gap-5 sm:grid-cols-2">
           <EField label="Pickup cutoff time">
             <EInput
               type="time"
               value={ops.pickupCutoffTime}
               onChange={(e) => setOps("pickupCutoffTime", e.target.value || "10:00")}
-              disabled={readOnly}
+              disabled
             />
           </EField>
           <EField label="Default pickup time">
@@ -247,7 +252,7 @@ export function LaundrySection({ initial, readOnly }: { initial: LaundrySettings
               type="time"
               value={ops.defaultPickupTime}
               onChange={(e) => setOps("defaultPickupTime", e.target.value || "09:00")}
-              disabled={readOnly}
+              disabled
             />
           </EField>
           <EField label="Default drop-off time">
@@ -255,7 +260,7 @@ export function LaundrySection({ initial, readOnly }: { initial: LaundrySettings
               type="time"
               value={ops.defaultDropoffTime}
               onChange={(e) => setOps("defaultDropoffTime", e.target.value || "16:00")}
-              disabled={readOnly}
+              disabled
             />
           </EField>
           <EField
@@ -268,7 +273,7 @@ export function LaundrySection({ initial, readOnly }: { initial: LaundrySettings
               max={14}
               value={ops.maxOutdoorDays}
               onChange={(e) => setOps("maxOutdoorDays", Number(e.target.value || ops.maxOutdoorDays))}
-              disabled={readOnly}
+              disabled
             />
           </EField>
         </div>
@@ -276,7 +281,7 @@ export function LaundrySection({ initial, readOnly }: { initial: LaundrySettings
           <EToggle
             checked={ops.fastReturnWhenNoNextClean}
             onChange={(v) => setOps("fastReturnWhenNoNextClean", v)}
-            disabled={readOnly}
+            disabled
             label="Fast return when no next clean is known"
             description="If enabled, planner returns linen quickly so you can handle last-minute bookings."
           />
@@ -289,7 +294,7 @@ export function LaundrySection({ initial, readOnly }: { initial: LaundrySettings
               onChange={(e) =>
                 setOps("fastReturnDaysWhenNoNextClean", Number(e.target.value || ops.fastReturnDaysWhenNoNextClean))
               }
-              disabled={readOnly || !ops.fastReturnWhenNoNextClean}
+              disabled
             />
           </EField>
         </div>

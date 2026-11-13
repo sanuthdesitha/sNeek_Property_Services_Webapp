@@ -21,6 +21,7 @@ import { formatIssueDate } from "../issues/issue-format";
 import type { InspectionQueueRow, InspectionsPayload } from "./hub-types";
 import { isInspections } from "./hub-types";
 import { useQualityRead, useReloadOn } from "./use-quality-read";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 
 export const INSPECTION_PAGE_SIZE = 20;
 
@@ -60,11 +61,25 @@ function columns(timeZone: string): Array<EDataColumn<InspectionQueueRow, Inspec
 }
 
 function QueueCounters({ counters }: { counters: NonNullable<InspectionsPayload["counters"]> }) {
+  const phone = useIsPhone();
   const items = [
     { label: "Awaiting QA", value: counters.awaiting, note: "not picked up" },
     { label: "In progress", value: counters.inProgress, note: "being inspected" },
     { label: "Completed today", value: counters.completedToday, note: "inspections closed" },
   ];
+  if (phone) {
+    // Phones: the three counts on one line (board "M-PeopleQuality").
+    return (
+      <dl aria-label="Inspection queue counts" className="flex flex-wrap gap-x-3 gap-y-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-baseline gap-1">
+            <dt>{item.label}</dt>
+            <dd className="e-tnum font-[650] text-[hsl(var(--e-foreground))]">{item.value}</dd>
+          </div>
+        ))}
+      </dl>
+    );
+  }
   return (
     <dl aria-label="Inspection queue counts" className="grid grid-cols-1 gap-2 min-[480px]:grid-cols-3">
       {items.map((item) => (

@@ -5,7 +5,13 @@ export const STALE_CLIENT_LOCATION_MS = 2 * 60 * 1000;
 type ClientJobProjection = {
   status: string;
   cleanerLocationPings: Array<{ lat: number; lng: number; accuracy: number | null; heading: number | null; speed: number | null; timestamp: Date }>;
-  property: { latitude: number | null; longitude: number | null; showCleanerContactToClient: boolean };
+  property: {
+    latitude: number | null;
+    longitude: number | null;
+    showCleanerContactToClient: boolean;
+    /** The client's live-location switch (Client.showCleanerLiveLocation; off by default). */
+    client?: { showCleanerLiveLocation: boolean } | null;
+  };
   assignments: Array<{ isPrimary: boolean; user: { id: string; name: string | null; image: string | null; phone: string | null } }>;
   report: { clientVisible: boolean; pdfUrl: string | null } | null;
   invoiceLines: unknown[];
@@ -27,6 +33,11 @@ export function clientMaySeeJobCosts(portal: {
   return portal.visibility.showFinanceDetails === true && (portal.actor === "CLIENT" || portal.permissions.invoicesView === true);
 }
 
+/** The per-client live-location switch; anything but an explicit true is off. */
+export function clientSeesCleanerLocation(job: { property: { client?: { showCleanerLiveLocation: boolean } | null } }): boolean {
+  return job.property.client?.showCleanerLiveLocation === true;
+}
+
 /** Apply portal visibility and actor grants before serializing either client UI's job response. */
 export function projectClientJob<T extends ClientJobProjection>(
   job: T,
@@ -44,7 +55,11 @@ export function projectClientJob<T extends ClientJobProjection>(
   return {
     ...publicJob,
     progressPercent,
-    liveTrip: job.status === "EN_ROUTE" ? {
+    // The cleaner's position reaches the client only while they are on the
+    // way AND the office switched live location on for this client (off by
+    // default; the cleaner's screen says so when it is on). ETA and status
+    // fields are unaffected.
+    liveTrip: job.status === "EN_ROUTE" && clientSeesCleanerLocation(job) ? {
       cleanerLat: ping?.lat ?? null,
       cleanerLng: ping?.lng ?? null,
       accuracy: ping?.accuracy ?? null,

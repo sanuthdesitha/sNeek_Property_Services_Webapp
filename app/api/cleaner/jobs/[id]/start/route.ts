@@ -18,6 +18,11 @@ import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { LOCATION_NOTICE_REQUIRED, hasAcknowledgedLocationNotice } from "@/lib/gps/notice-server";
+import { evaluateStartLocation, startLocationSchema, type StartLocationRecord } from "@/lib/gps/start-location";
+import { sendCleanerSharingNotice, sendStartWithoutFixNotice } from "@/lib/notifications/location-sharing";
+import { NO_FIX_LABEL, noFixErrorLabel } from "@/lib/gps/start-location";
+import { ingestCleanerBatch } from "@/lib/gps/ingest-service";
 import {
   buildStartBriefingAck,
   resolveStartBriefingItems,
@@ -41,6 +46,12 @@ const schema = z.object({
     .array(z.object({ itemId: z.string().trim().min(1), at: z.string().optional() }))
     .max(60)
     .optional(),
+  /**
+   * Where THIS cleaner is as THIS clock segment starts (live location
+   * 2026-11). Required for every start and resume — teammates included —
+   * unless this cleaner tapped the property's tag on this job today.
+   */
+  startLocation: startLocationSchema.optional(),
 });
 
 export async function POST(
@@ -82,12 +93,17 @@ export async function POST(
         isRework: true,
         reworkOfJobId: true,
         internalNotes: true,
+        jobNumber: true,
         property: {
           select: {
             name: true,
             laundryEnabled: true,
             laundryBagLabel: true,
             requireNfcCheckIn: true,
+            latitude: true,
+            longitude: true,
+            geofenceRadiusM: true,
+            client: { select: { showCleanerLiveLocation: true } },
           },
         },
       },
@@ -189,6 +205,34 @@ export async function POST(
           { status: 409 }
         );
       }
+    }
+
+    // ── Live location at the start of every clock segment (2026-11) ────────────
+    // Mandatory (default pending owner confirmation): the current location
+    // notice must be accepted and the phone must give a fix — or this cleaner
+    // tapped the tag on this job today. The off-site gate is evaluated per
+    // cleaner and per segment: a teammate's start and a resume after a pause
+    // are judged on THEIR fix (the job-level check-in only ever judged the
+    // first arrival). Nothing is recorded until a valid reason is given. An
+    // administrator viewing as the cleaner records no location.
+    let startLocation: StartLocationRecord | null = null;
+    if (!session.impersonation) {
+      if (!(await hasAcknowledgedLocationNotice(session.user.id, "CLEANER", db))) {
+        return NextResponse.json(LOCATION_NOTICE_REQUIRED, { status: 409 });
+      }
+      const tagToday = await db.nfcScanEvent
+        .findFirst({
+          where: { jobId: job.id, userId: session.user.id, outcome: "ACCEPTED", createdAt: { gte: new Date(Date.now() - 16 * 60 * 60_000) } },
+          select: { id: true },
+        })
+        .catch(() => null);
+      const evaluated = evaluateStartLocation({
+        location: body.startLocation ?? null,
+        property: job.property ?? null,
+        tagTapped: Boolean(tagToday),
+      });
+      if (!evaluated.ok) return NextResponse.json(evaluated.body, { status: 409 });
+      startLocation = evaluated.record;
     }
 
     // ── Job-start accountability gate (Phase 2b) ──────────────────────────────
@@ -396,7 +440,49 @@ export async function POST(
       // Request/actor/job locks serialize normal retries. A conflicting legacy
       // writer must roll this transaction back rather than swallow P2002 in an
       // already-aborted PostgreSQL transaction.
-      await db.timeLog.create({ data: { jobId: params.id, userId: session.user.id, startedAt: new Date() } });
+      const created = await db.timeLog.create({ data: { jobId: params.id, userId: session.user.id, startedAt: new Date(), ...(startLocation?.columns ?? {}) } });
+      if (startLocation?.noFix) {
+        await db.auditLog.create({
+          data: {
+            userId: session.user.id, jobId: params.id, action: "CLOCK_START_NO_FIX", entity: "TimeLog", entityId: created.id,
+            after: { label: NO_FIX_LABEL, reason: startLocation.noFix.reason, deviceError: startLocation.noFix.error, firstStart: isFirstStartForCleaner } as any,
+          },
+        });
+      }
+      if (startLocation?.columns.startVerdict === "OFF_SITE") {
+        await db.auditLog.create({
+          data: {
+            userId: session.user.id, jobId: params.id, action: "CLOCK_START_OFF_SITE", entity: "TimeLog", entityId: created.id,
+            after: { distanceM: startLocation.columns.startDistanceM, accuracyM: startLocation.columns.startAccuracyM, reasonCode: startLocation.columns.startReasonCode, note: startLocation.columns.startNote, firstStart: isFirstStartForCleaner } as any,
+          },
+        });
+      }
+      if (!session.impersonation) {
+        const fix = startLocation?.fix ?? null;
+        // Tracking begins here unless the cleaner was already on the way.
+        const startsTracking = job.status !== JobStatus.EN_ROUTE;
+        const noFix = startLocation?.noFix ?? null;
+        afterCommit.push(async () => {
+          if (noFix) {
+            await sendStartWithoutFixNotice({
+              kind: "clock", scopeJobId: params.id,
+              placeLabel: `${job.jobNumber || job.id}: ${job.property?.name ?? "the job"}`,
+              personName: session.user.name ?? null, reason: noFix.reason, errorLabel: noFixErrorLabel(noFix.error),
+              occurrenceId: created.id,
+            });
+          }
+          if (fix) {
+            await ingestCleanerBatch({ userId: session.user.id, impersonating: false, jobIdFromUrl: params.id, body: { pings: [{ lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy }] } });
+          }
+          if (startsTracking) {
+            await sendCleanerSharingNotice({
+              kind: "started", userId: session.user.id, jobId: params.id,
+              jobLabel: `${job.jobNumber || job.id}: ${job.property?.name ?? "the job"}`,
+              clientSees: false, occurrenceId: created.id,
+            });
+          }
+        });
+      }
     }
 
     {

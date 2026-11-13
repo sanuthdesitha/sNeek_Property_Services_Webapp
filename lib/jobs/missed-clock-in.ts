@@ -25,6 +25,7 @@
  *
  * PURE — no DB, no I/O.
  */
+import { MISSED_CLOCK_IN_GRACE_MINUTES, MISSED_CLOCK_IN_MAX_BACKDATE_HOURS } from "@/lib/scheduling-rules/constants";
 
 /** Where a proposed start time came from. Ranked strongest first. */
 export type ArrivalEvidence = "NFC_TAG" | "GEOFENCE" | "FIRST_PING" | "NONE";
@@ -35,14 +36,14 @@ export type ArrivalEvidence = "NFC_TAG" | "GEOFENCE" | "FIRST_PING" | "NONE";
  * enough that arriving, finding the key and putting bags down does not fire a
  * notification every single time.
  */
-export const MISSED_CLOCK_IN_GRACE_MS = 12 * 60 * 1000;
+export const MISSED_CLOCK_IN_GRACE_MS = MISSED_CLOCK_IN_GRACE_MINUTES * 60 * 1000;
 
 /**
  * Never backdate further than this. A stale `arrivedAt` from a cleaner who
  * drove past yesterday, or a geofence hit from the flat next door, would
  * otherwise open a shift in the middle of the night.
  */
-export const MAX_BACKDATE_MS = 10 * 60 * 60 * 1000;
+export const MAX_BACKDATE_MS = MISSED_CLOCK_IN_MAX_BACKDATE_HOURS * 60 * 60 * 1000;
 
 export interface ClockInEvidence {
   /** An accepted NFC tap on this job by this cleaner. The strongest signal. */

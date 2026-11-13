@@ -125,6 +125,8 @@ export function EditorHeader(props: EditorHeaderProps) {
                 type="button"
                 size="sm"
                 variant="primary"
+                // Phones: the stage's action lives in the total bar (editor-phone.tsx).
+                className="max-sm:hidden"
                 disabled={busy || primaryWaits || Boolean(primaryRefused)}
                 title={primaryRefused ?? (primaryWaits ? UNSAVED_ACTION_HINT : undefined)}
                 onClick={() => props.onAction(primary)}

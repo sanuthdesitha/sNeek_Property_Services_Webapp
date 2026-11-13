@@ -24,6 +24,13 @@ import { EAlert, EButton } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
 import { ERowMenu } from "@/components/v2/ui/row-menu";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
+import { EFilterBar, type EActiveFilter } from "@/components/v2/ui/filter-bar";
+
+/* Phones (board M-People2): the assistants table becomes stacked cards below 640px; unchanged from 640px up. */
+const PHONE_TABLE = "max-sm:block max-sm:min-w-0";
+const PHONE_ROW = "max-sm:flex max-sm:flex-wrap max-sm:items-center max-sm:gap-x-3 max-sm:gap-y-1.5 max-sm:px-3 max-sm:py-3";
+const PHONE_PAIR =
+  "max-sm:basis-[calc(50%-0.375rem)] max-sm:p-0 max-sm:before:block max-sm:before:text-[0.6875rem] max-sm:before:font-semibold max-sm:before:text-[hsl(var(--e-muted-foreground))] max-sm:before:content-[attr(data-label)]";
 import { AccountActionsMenu } from "@/components/v2/admin/accounts/account-actions-menu";
 import { EstateVaManager, type EstateVaClientOption } from "@/components/v2/admin/accounts/va-manager";
 import { Avatar, formatLastSeen } from "@/components/v2/admin/accounts/hub/account-display";
@@ -147,11 +154,22 @@ export function AssistantsTab({ canManage, canResend, clients, initialSearch }: 
 
   const rows = grouped ? visibleTeams : [{ team: null, members: visibleTeams.flatMap((entry) => entry.members) }];
 
+  const chipLabel: Record<StatusChip, string> = { all: "All", active: "Active", invited: "Invite pending", suspended: "Suspended" };
+  const assistantFilters: EActiveFilter[] = [];
+  if (q.trim()) assistantFilters.push({ key: "q", label: `Search: ${q.trim()}`, onRemove: () => setQ("") });
+  if (chip !== "all") assistantFilters.push({ key: "chip", label: chipLabel[chip], onRemove: () => setChip("all") });
+  if (clientId) assistantFilters.push({ key: "client", label: `Client: ${clients.find((client) => client.id === clientId)?.name ?? "Selected"}`, onRemove: () => setClientId("") });
+
   return (
     <div className="flex min-w-0 gap-4">
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Client assistants: people a client lets act for them in the client portal. They always belong to a client team. Office assistants who work for sNeek are office staff.</p>
-        <div className="flex flex-wrap items-center gap-2">
+        <EFilterBar
+          label="Filter assistants"
+          active={assistantFilters}
+          onClear={() => { setQ(""); setChip("all"); setClientId(""); }}
+          tools={<button type="button" aria-pressed={grouped} onClick={() => setGrouped((value) => !value)} className={cn(E_CHIP_CLASS, grouped && E_CHIP_ON_CLASS)}>Group by team</button>}
+        >
           <input type="search" value={q} onChange={(event) => setQ(event.target.value)} aria-label="Search assistants" placeholder="Search name, email, client, team" className="h-8 w-full min-w-0 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2.5 text-[0.8125rem] sm:w-[240px]" />
           <div role="group" aria-label="Status" className="flex flex-wrap gap-1.5">
             {(["all", "active", "invited", "suspended"] as StatusChip[]).map((key) => (
@@ -165,23 +183,22 @@ export function AssistantsTab({ canManage, canResend, clients, initialSearch }: 
             {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
           </select>
           <span className="hidden flex-1 sm:block" />
-          <button type="button" aria-pressed={grouped} onClick={() => setGrouped((value) => !value)} className={cn(E_CHIP_CLASS, grouped && E_CHIP_ON_CLASS)}>Group by team</button>
-        </div>
+        </EFilterBar>
         {notice ? <EAlert tone={notice.ok ? "success" : "danger"}>{notice.message}</EAlert> : null}
         {read.error ? <EAlert tone="danger">{read.error} <button type="button" className="underline" onClick={read.reload}>Try again</button></EAlert> : null}
         {read.loading && !read.data ? <p role="status" className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Loading assistants…</p> : null}
         {read.data && teams.length === 0 ? <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No assistant teams yet. Open a client team to invite assistants, or ask the client to create one in their portal.</p> : null}
         {teams.length > 0 ? (
           <div className="overflow-x-auto rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
-            <table className="w-full min-w-[52rem] text-[0.8125rem]">
+            <table className={cn("w-full min-w-[52rem] text-[0.8125rem]", PHONE_TABLE)}>
               <caption className="sr-only">Client assistants{grouped ? ", grouped by team" : ""}</caption>
-              <thead>
+              <thead className="max-sm:hidden">
                 <tr className="bg-[hsl(var(--e-surface-raised))] text-left text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                   <th className="w-9 px-3 py-2"><span className="sr-only">Select</span></th>
                   <th className="px-3 py-2">Assistant</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">May do</th><th className="px-3 py-2">Properties</th><th className="px-3 py-2">Last seen</th><th className="px-3 py-2"><span className="sr-only">Next step</span></th><th className="px-3 py-2"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="max-sm:block max-sm:divide-y max-sm:divide-[hsl(var(--e-border))]">
                 {rows.map((entry) => (
                   <GroupRows key={entry.team?.id ?? "all"} entry={entry} memberTeam={(id) => memberById.get(id)?.team ?? null} selected={selected} setSelected={setSelected} busy={busy} onOpenTeam={setOpenTeam} primaryButton={primaryButton} rowMenu={rowMenu} canManage={canManage} onChanged={read.reload} />
                 ))}
@@ -252,9 +269,9 @@ function GroupRows({
   return (
     <>
       {head ? (
-        <tr className="border-t border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised)/0.6)]">
-          <td />
-          <td colSpan={7} className="px-3 py-2">
+        <tr className="border-t border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised)/0.6)] max-sm:block">
+          <td className="max-sm:hidden" />
+          <td colSpan={7} className="px-3 py-2 max-sm:block">
             <button type="button" onClick={() => onOpenTeam(head.id)} className="text-left font-[600] hover:underline">{head.client.name} · {head.name}</button>{" "}
             <EPill tone={head.isActive ? "ok" : "neutral"}>{head.isActive ? "Team on" : "Team off"}</EPill>{" "}
             <span className="text-[hsl(var(--e-muted-foreground))]">{head.members.length} assistant{head.members.length === 1 ? "" : "s"} · {head.grantedCount} of {VA_PERMISSION_KEYS.length} permissions · {head.propertyIds === null ? `all ${head.client.propertyCount} properties` : `${head.propertyIds.length} of ${head.client.propertyCount} properties`}</span>{" "}
@@ -267,22 +284,22 @@ function GroupRows({
         if (!owner) return null;
         const checked = selected.has(member.id);
         return (
-          <tr key={member.id} className={cn("border-t border-[hsl(var(--e-border)/0.7)]", checked && "bg-[hsl(var(--e-primary-soft)/0.4)]")}>
-            <td className="px-3 py-2">
-              <input type="checkbox" aria-label={`Select ${member.name ?? member.email}`} checked={checked} disabled={busy} onChange={(event) => { const next = new Set(selected); if (event.target.checked) next.add(member.id); else next.delete(member.id); setSelected(next); }} />
+          <tr key={member.id} className={cn("border-t border-[hsl(var(--e-border)/0.7)]", PHONE_ROW, checked && "bg-[hsl(var(--e-primary-soft)/0.4)]")}>
+            <td className="px-3 py-2 max-sm:p-0">
+              <input type="checkbox" className="max-sm:h-6 max-sm:w-6" aria-label={`Select ${member.name ?? member.email}`} checked={checked} disabled={busy} onChange={(event) => { const next = new Set(selected); if (event.target.checked) next.add(member.id); else next.delete(member.id); setSelected(next); }} />
             </td>
-            <td className="px-3 py-2">
+            <td className="px-3 py-2 max-sm:min-w-0 max-sm:flex-1 max-sm:p-0">
               <div className="flex items-center gap-2">
                 <Avatar name={member.name} email={member.email} />
                 <div className="min-w-0"><b className="block truncate">{member.name ?? "Unnamed"}</b><span className="block truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{member.email}{head ? "" : ` · ${owner.client.name}`}</span></div>
               </div>
             </td>
-            <td className="px-3 py-2"><EPill tone={MEMBER_STATUS_TONE[member.status]}>{MEMBER_STATUS_LABEL[member.status]}</EPill></td>
-            <td className="px-3 py-2">{mayAct(member.status) ? `${owner.grantedCount} of ${VA_PERMISSION_KEYS.length}` : <span className="text-[hsl(var(--e-muted-foreground))]">Nothing</span>}</td>
-            <td className="px-3 py-2">{scopeText(owner)}</td>
-            <td className="px-3 py-2 text-[hsl(var(--e-muted-foreground))]">{invitationPending(member.status) || member.status === "INVITE_REVOKED" ? "Never" : formatLastSeen(member.lastSeenAt)}</td>
-            <td className="px-3 py-2">{primaryButton(member, owner)}</td>
-            <td className="px-3 py-2">
+            <td data-label="Status" className={cn("px-3 py-2", PHONE_PAIR)}><EPill tone={MEMBER_STATUS_TONE[member.status]}>{MEMBER_STATUS_LABEL[member.status]}</EPill></td>
+            <td data-label="May do" className={cn("px-3 py-2", PHONE_PAIR)}>{mayAct(member.status) ? `${owner.grantedCount} of ${VA_PERMISSION_KEYS.length}` : <span className="text-[hsl(var(--e-muted-foreground))]">Nothing</span>}</td>
+            <td data-label="Properties" className={cn("px-3 py-2", PHONE_PAIR)}>{scopeText(owner)}</td>
+            <td data-label="Last seen" className={cn("px-3 py-2 text-[hsl(var(--e-muted-foreground))]", PHONE_PAIR)}>{invitationPending(member.status) || member.status === "INVITE_REVOKED" ? "Never" : formatLastSeen(member.lastSeenAt)}</td>
+            <td className="px-3 py-2 max-sm:flex-1 max-sm:p-0">{primaryButton(member, owner)}</td>
+            <td className="px-3 py-2 max-sm:p-0">
               <div className="flex items-center gap-1">
                 {rowMenu(member, owner)}
                 {canManage ? <AccountActionsMenu account={{ id: member.id, name: member.name, email: member.email }} onChanged={onChanged} /> : null}

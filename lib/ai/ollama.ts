@@ -84,7 +84,7 @@ async function show(model: string, requireVision: boolean, runtime?: Runtime) {
 export async function checkOllamaModel(model: string, requireVision = true): Promise<string> { await show(model, requireVision); return model; }
 
 /** Callers validate this parsed JSON against their own domain result schema. */
-export async function requestOllamaJson(input: { model: string; prompt: string; instructions: string; images: VisionImage[]; schema: Record<string, unknown> }): Promise<unknown> {
+export async function requestOllamaJson(input: { model: string; prompt: string; instructions: string; images: VisionImage[]; schema: Record<string, unknown>; onUsage?: (usage: { inputTokens: number | null; outputTokens: number | null }) => void }): Promise<unknown> {
   localModel(input.model);
   if (input.images.length > 20 || input.prompt.length > 100_000 || input.instructions.length > 20_000 || JSON.stringify(input.schema).length > 50_000) throw new Error("Ollama request exceeds the supported size.");
   let bytes = 0; const ids = new Set<string>();
@@ -106,6 +106,7 @@ export async function requestOllamaJson(input: { model: string; prompt: string; 
   const message = response.message as { role?: unknown; content?: unknown; tool_calls?: unknown } | undefined;
   if (response.done !== true || response.done_reason !== "stop" || typeof response.model !== "string" || !message || message.role !== "assistant" || typeof message.content !== "string" || (Array.isArray(message.tool_calls) && message.tool_calls.length)) throw new Error("Local Ollama returned an incomplete result. No result was applied.");
   localModel(response.model);
+  input.onUsage?.({ inputTokens: typeof response.prompt_eval_count === "number" ? response.prompt_eval_count : null, outputTokens: typeof response.eval_count === "number" ? response.eval_count : null });
   try { const result: unknown = JSON.parse(message.content); if (!result || typeof result !== "object") throw new Error(); return result; }
   catch { throw new Error("Local Ollama returned invalid JSON. No result was applied."); }
 }

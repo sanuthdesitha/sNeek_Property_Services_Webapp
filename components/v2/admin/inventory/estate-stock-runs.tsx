@@ -21,6 +21,7 @@ import {
   ESelect,
   ETableShell,
 } from "@/components/v2/admin/estate-kit";
+import { PhoneStackedTable } from "@/components/v2/admin/phone-stacked-table";
 
 const API_BASE = "/api/admin/stock-runs";
 
@@ -285,6 +286,7 @@ export function EstateStockRuns() {
             No stock counts yet.
           </p>
         ) : (
+          <PhoneStackedTable>
           <ETableShell
             headers={[
               { label: "Count" },
@@ -348,6 +350,7 @@ export function EstateStockRuns() {
               );
             })}
           </ETableShell>
+          </PhoneStackedTable>
         )}
       </ECard>
 
@@ -406,6 +409,7 @@ export function EstateStockRuns() {
                 {listing.canEditThresholds ? " Par & reorder thresholds are editable." : ""} Saving keeps
                 the count open; submitting readies it to apply.
               </p>
+              <PhoneStackedTable>
               <ETableShell
                 headers={[
                   { label: "Item" },
@@ -484,6 +488,7 @@ export function EstateStockRuns() {
                   );
                 })}
               </ETableShell>
+              </PhoneStackedTable>
               <div className="flex items-center justify-end gap-2">
                 <EButton variant="outline" size="sm" onClick={() => setSheet(null)}>
                   {readOnly ? "Close" : "Cancel"}

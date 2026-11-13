@@ -43,5 +43,8 @@ it("refuses the money section without finance or payroll, and unknown sections",
 
 it("belongs to the dashboard pack, like the Command page", () => {
   expect(opsRequestFeature("/api/admin/command/queue")).toBe("dashboard");
-  expect(opsRequestFeature("/api/admin/ops/live-board")).toBe("system");
+  // Live ops moved from the System pack to the Dashboard pack (live location
+  // 2026-11, default pending owner confirmation); other /admin/ops tools stay System.
+  expect(opsRequestFeature("/api/admin/ops/live-board")).toBe("dashboard");
+  expect(opsRequestFeature("/api/admin/ops/sla/run")).toBe("system");
 });

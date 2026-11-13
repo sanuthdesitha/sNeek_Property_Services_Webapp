@@ -21,7 +21,7 @@ import type { ClientSummary } from "@/lib/people/clients/summary-types";
 import { formatMoney } from "@/components/v2/admin/accounts/hub/account-display";
 import { FactStrip } from "@/components/v2/admin/people/fact-strip";
 import { termsLabel } from "@/components/v2/admin/people/format";
-import { ClientHeaderActions } from "@/components/v2/admin/people/client-page/client-header-actions";
+import { ClientHeaderActions, ClientPhoneActions } from "@/components/v2/admin/people/client-page/client-header-actions";
 import { ClientRail, type VisibilityItem } from "@/components/v2/admin/people/client-page/client-rail";
 import { Card, CasesLeadsCard, NeedsAttention, OutstandingCard, PropertiesTable, QuotesCard, RecentJobsCard } from "@/components/v2/admin/people/client-page/client-sections";
 
@@ -70,6 +70,7 @@ export default async function AdminClientDetailPage({ params, searchParams }: { 
   const actionsClient = {
     id: client.id, name: client.name, email: client.email, phone: client.phone, address: client.address, suburb: client.suburb,
     state: client.state, postcode: client.postcode, notes: client.notes, isActive: client.isActive, portalVisibilityOverrides: overrides,
+    showCleanerLiveLocation: client.showCleanerLiveLocation === true,
   };
   const base = `/v2/admin/clients/${client.id}`;
 
@@ -86,6 +87,7 @@ export default async function AdminClientDetailPage({ params, searchParams }: { 
 
       <FactStrip
         label="Client facts"
+        collapsible={{ storageKey: "client:facts" }}
         facts={[
           { key: "since", label: "Client since", value: format(new Date(client.createdAt), "MMM yyyy") },
           { key: "properties", label: "Properties", value: client.properties.length, extra: <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">active</span> },
@@ -96,12 +98,13 @@ export default async function AdminClientDetailPage({ params, searchParams }: { 
         ]}
       />
 
-      <nav aria-label="Client sections" className="-mx-1 overflow-x-auto px-1 [scrollbar-width:none]">
+      {/* Phones (board M-People2): the section tabs stay in reach under the app bar. */}
+      <nav aria-label="Client sections" className="-mx-1 overflow-x-auto px-1 [scrollbar-width:none] max-sm:sticky max-sm:top-16 max-sm:z-20 max-sm:-mx-4 max-sm:bg-[hsl(var(--e-background)/0.95)] max-sm:px-4 max-sm:backdrop-blur">
         <div className="flex min-w-max items-center gap-1 border-b border-[hsl(var(--e-border))]">
           {CLIENT_TABS.map((key) => {
             const count = key === "properties" ? summary.properties.length : key === "invoices" ? summary.money?.invoices.length : undefined;
             return (
-              <Link key={key} href={key === "overview" ? base : `${base}?tab=${key}`} aria-current={tab === key ? "page" : undefined} className={`-mb-px inline-flex min-h-[2.5rem] items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[0.8125rem] ${tab === key ? "border-[hsl(var(--e-primary))] font-[600] text-[hsl(var(--e-primary))]" : "border-transparent text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"}`}>
+              <Link key={key} href={key === "overview" ? base : `${base}?tab=${key}`} aria-current={tab === key ? "page" : undefined} className={`-mb-px inline-flex min-h-[2.5rem] max-sm:min-h-11 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[0.8125rem] ${tab === key ? "border-[hsl(var(--e-primary))] font-[600] text-[hsl(var(--e-primary))]" : "border-transparent text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"}`}>
                 {TAB_LABEL[key]}{typeof count === "number" ? <span className="e-tnum">{count}</span> : null}
               </Link>
             );
@@ -156,6 +159,7 @@ export default async function AdminClientDetailPage({ params, searchParams }: { 
         </section>
         <ClientRail summary={summary} visibility={visibility} />
       </div>
+      <ClientPhoneActions clientId={client.id} overdueInvoice={firstOverdue ? { id: firstOverdue.id, invoiceNumber: firstOverdue.invoiceNumber } : null} />
     </div>
   );
 }

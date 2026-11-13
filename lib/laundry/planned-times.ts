@@ -22,8 +22,9 @@ export async function setLaundryPlannedTimes(actorId: string, taskId: string, ra
   const input = plannedTimesInput.parse(raw);
   return db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "LaundryTask" WHERE "id" = ${taskId} FOR UPDATE`;
-    const task = await tx.laundryTask.findUnique({ where: { id: taskId }, select: { pickupTime: true, dropoffTime: true, updatedAt: true } });
+    const task = await tx.laundryTask.findUnique({ where: { id: taskId }, select: { pickupTime: true, dropoffTime: true, updatedAt: true, voidedAt: true } });
     if (!task) throw new Error("NOT_FOUND");
+    if (task.voidedAt) throw new Error("CONFLICT: This run is voided. Undo the void before planning times.");
     if (input.expectedUpdatedAt && task.updatedAt.getTime() !== new Date(input.expectedUpdatedAt).getTime()) {
       throw new Error("CONFLICT: This run changed since you opened it. Refresh and review it before saving again.");
     }

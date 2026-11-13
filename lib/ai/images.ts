@@ -16,5 +16,6 @@ export async function loadVisionImage(storageKey: string, id: string): Promise<V
   const metadata = await sharp(bytes, { limitInputPixels: 40_000_000, failOn: "error" }).metadata();
   if (!["jpeg", "png", "webp", "gif"].includes(metadata.format ?? "")) throw new Error("Stored object is not a supported image.");
   const resized = await sharp(bytes, { limitInputPixels: 40_000_000, failOn: "error" }).rotate().resize({ width: 1280, height: 1280, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
-  return { id, mediaType: "image/jpeg", data: resized.toString("base64") };
+  // Cleaner evidence (forms/, jobs/) may carry the burned-in time/address stamp; admin references do not.
+  return { id, mediaType: "image/jpeg", data: resized.toString("base64"), ...(storageKey.startsWith("form-references/") ? {} : { evidenceStamp: true }) };
 }

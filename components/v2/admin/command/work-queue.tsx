@@ -86,6 +86,7 @@ export function WorkQueue({ initial, timeZone, readOnly }: QueueProps) {
             chips={state.data.chips}
             active={state.data.chips.some((entry) => entry.key === chip) ? chip : "all"}
             onChange={setChip}
+            phoneLayout="carousel"
           />
         ) : null}
       </div>
@@ -106,7 +107,7 @@ export function WorkQueue({ initial, timeZone, readOnly }: QueueProps) {
                   {data.unavailable.length > 0 ? "Nothing to show from the sources that could be read." : "Nothing needs a decision right now."}
                 </p>
               ) : (
-                <ul aria-label="Work queue items" className="min-w-0">
+                <ul aria-label="Work queue items" className="min-w-0 max-sm:py-1">
                   {items.map((item) => (
                     <WorkQueueRow
                       key={item.id}

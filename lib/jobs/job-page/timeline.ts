@@ -71,7 +71,7 @@ export type TimelineFacts = {
   qaInspectorName: string | null;
   reportExists: boolean;
   reportSent: boolean;
-  laundry: { exists: boolean; supplierName: string | null; finished: boolean };
+  laundry: { exists: boolean; supplierName: string | null; finished: boolean; notPlanned?: string | null };
   liveInvoice: { invoiceNumber: string | null; status: string } | null;
   formName: string | null;
   bookingSource: string | null;
@@ -158,6 +158,7 @@ export function stageHeadline(key: TimelineStageKey, facts: TimelineFacts): stri
       if (facts.reportExists) return "Report ready, not shared yet";
       return "Cleaning report not generated yet";
     case "laundry":
+      if (!facts.laundry.exists && facts.laundry.notPlanned) return facts.laundry.notPlanned;
       if (!facts.laundry.exists) return "No laundry task for this job";
       return facts.laundry.supplierName ?? "Laundry task, no supplier recorded";
     case "invoice":

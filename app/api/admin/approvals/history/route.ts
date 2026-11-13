@@ -11,6 +11,8 @@ import {
   parseApprovalDecisionPayload,
   type ApprovalItemState,
 } from "@/lib/admin/approval-history";
+import { isPaidAboveRequest } from "@/lib/payroll/cleaner-pay-amount";
+import { listPaidAboveRequest } from "@/lib/payroll/paid-above-request";
 
 /**
  * GET /api/admin/approvals/history
@@ -21,6 +23,9 @@ import {
  * lib/admin/approval-history-write.ts.
  *
  * Filters: ?queue= &deciderId= &from=YYYY-MM-DD &to=YYYY-MM-DD &q= &limit= &cursor=
+ *          &paidAboveRequest=1 — only decisions on pay requests approved above
+ *          what the cleaner requested and not yet paid (read-only review,
+ *          owner rule 2026-11-13; lib/payroll/paid-above-request.ts).
  *
  * Each row carries the capability set for the underlying item, so the UI only
  * offers verbs the server will actually honour. Live state (settled stamps,
@@ -41,6 +46,8 @@ export async function GET(req: NextRequest) {
     const search = (searchParams.get("q") ?? "").trim().toLowerCase();
     const limit = Math.min(200, Math.max(1, Number(searchParams.get("limit") ?? 100) || 100));
     const cursor = searchParams.get("cursor");
+    const paidAboveOnly = searchParams.get("paidAboveRequest") === "1";
+    const paidAboveIds = paidAboveOnly ? (await listPaidAboveRequest(2000)).map((row) => row.id) : null;
 
     const createdAt: Record<string, Date> = {};
     if (from) {
@@ -56,6 +63,7 @@ export async function GET(req: NextRequest) {
       where: {
         action: APPROVAL_DECISION_ACTION,
         ...(deciderId ? { userId: deciderId } : {}),
+        ...(paidAboveIds ? { entity: "CleanerPayAdjustment", entityId: { in: paidAboveIds } } : {}),
         ...(Object.keys(createdAt).length ? { createdAt: createdAt as any } : {}),
       },
       include: { user: { select: { id: true, name: true, email: true, role: true } } },
@@ -162,6 +170,10 @@ export async function GET(req: NextRequest) {
         currentStatus: live?.status ?? payload.toStatus ?? null,
         currentAmount: live ? Number(live.approvedAmount ?? live.requestedAmount ?? 0) : null,
         settled: Boolean(live?.includedInPayrollRunId || live?.includedInCleanerInvoiceId),
+        /** Approved above the cleaner's request and not yet paid: for the owner to review. */
+        paidAboveRequest: payload.approvalQueue === "payAdjustments" && live ? isPaidAboveRequest(live) : false,
+        /** What the cleaner requested (money queues only). */
+        requestedAmount: live ? live.requestedAmount : null,
         capabilities: approvalCapabilities(payload.approvalQueue, state),
       };
     });

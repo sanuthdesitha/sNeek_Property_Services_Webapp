@@ -89,6 +89,9 @@ function updateMatrix<T extends Record<string, ChannelPref>>(current: T, key: ke
   return { ...current, [key]: { ...current[key], [channel]: value } };
 }
 
+/** Scheduling rules (Settings › Scheduling rules) shown here read-only. */
+const SCHEDULING_RULE_TOGGLES = new Set<keyof Scheduled>(["reminder24hEnabled", "reminder2hEnabled", "autoApproveLaundrySyncDrafts"]);
+
 const SCHEDULED_TOGGLES: Array<[string, keyof Scheduled]> = [
   ["24-hour reminders", "reminder24hEnabled"],
   ["2-hour reminders", "reminder2hEnabled"],
@@ -329,8 +332,8 @@ export function CommsControlCenter({ onToast }: { onToast: (t: EstateToast) => v
               <div className="grid gap-3 xl:grid-cols-2">
                 {SCHEDULED_TOGGLES.map(([label, key]) => (
                   <div key={key} className="flex items-center justify-between rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
-                    <span className="text-[0.8125rem] text-[hsl(var(--e-foreground))]">{label}</span>
-                    <ESwitch checked={Boolean((scheduled as any)[key])} onCheckedChange={(v) => setScheduled((p) => (p ? { ...p, [key]: v } : p))} />
+                    <span className="text-[0.8125rem] text-[hsl(var(--e-foreground))]">{label}{SCHEDULING_RULE_TOGGLES.has(key) ? <a className="ml-1 text-[0.75rem] underline" href="/v2/admin/settings/scheduling-rules">(locked: Scheduling rules)</a> : null}</span>
+                    <ESwitch checked={Boolean((scheduled as any)[key])} disabled={SCHEDULING_RULE_TOGGLES.has(key)} onCheckedChange={(v) => setScheduled((p) => (p ? { ...p, [key]: v } : p))} />
                   </div>
                 ))}
               </div>
@@ -338,7 +341,7 @@ export function CommsControlCenter({ onToast }: { onToast: (t: EstateToast) => v
                 <EField label="Tomorrow prep time"><EInput type="time" value={scheduled.tomorrowPrepTime} onChange={(e) => setScheduled((p) => (p ? { ...p, tomorrowPrepTime: e.target.value || p.tomorrowPrepTime } : p))} /></EField>
                 <EField label="Stock alert time"><EInput type="time" value={scheduled.stockAlertsTime} onChange={(e) => setScheduled((p) => (p ? { ...p, stockAlertsTime: e.target.value || p.stockAlertsTime } : p))} /></EField>
                 <EField label="Admin summary time"><EInput type="time" value={scheduled.adminAttentionSummaryTime} onChange={(e) => setScheduled((p) => (p ? { ...p, adminAttentionSummaryTime: e.target.value || p.adminAttentionSummaryTime } : p))} /></EField>
-                <EField label="Laundry horizon (days)"><EInput type="number" min={1} max={120} value={scheduled.laundrySyncNotificationHorizonDays} onChange={(e) => setScheduled((p) => (p ? { ...p, laundrySyncNotificationHorizonDays: Number(e.target.value || p.laundrySyncNotificationHorizonDays) } : p))} /></EField>
+                <EField label="Laundry horizon (days)" hint="Locked: change it in Settings › Scheduling rules."><EInput type="number" disabled min={1} max={120} value={scheduled.laundrySyncNotificationHorizonDays} onChange={(e) => setScheduled((p) => (p ? { ...p, laundrySyncNotificationHorizonDays: Number(e.target.value || p.laundrySyncNotificationHorizonDays) } : p))} /></EField>
               </div>
               <div className="grid gap-3">
                 {CATEGORIES.map((category) => (

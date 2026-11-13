@@ -2,6 +2,8 @@
 
 import { EActionDialog } from "@/components/v2/ui/action-dialog";
 import { EButton } from "@/components/v2/ui/primitives";
+import { PHONE_DOCK_CLASS } from "@/components/v2/ui/phone";
+import { cn } from "@/lib/utils";
 import { policyChanges, type AccessChange } from "@/lib/rbac/access-diff";
 import type { OpsPolicy } from "@/lib/rbac/ops-policy";
 import type { SensitiveCredentialsInput } from "@/lib/security/pin-rules";
@@ -33,12 +35,21 @@ export function AccessUnsavedBar({
   const changes = policyChanges(saved, draft);
   if (changes.length === 0) return null;
   return (
-    <div role="region" aria-label="Unsaved changes" className="sticky bottom-3 z-10 flex flex-wrap items-center gap-3 rounded-[var(--e-radius-lg)] bg-[hsl(160_20%_14%)] px-4 py-2.5 text-[0.8125rem] text-[hsl(42_25%_94%)] shadow-[var(--e-elevation-2)]">
+    <div
+      role="region"
+      aria-label="Unsaved changes"
+      className={cn(
+        "sticky bottom-3 z-10 flex flex-wrap items-center gap-3 rounded-[var(--e-radius-lg)] bg-[hsl(160_20%_14%)] px-4 py-2.5 text-[0.8125rem] text-[hsl(42_25%_94%)] shadow-[var(--e-elevation-2)]",
+        // Phones: docked above the tab bar (board "M-Permissions").
+        PHONE_DOCK_CLASS,
+        "max-sm:gap-2 max-sm:rounded-[14px] max-sm:p-2.5 max-sm:shadow-[var(--e-elevation-3)]",
+      )}
+    >
       <b>{changes.length} unsaved {changes.length === 1 ? "change" : "changes"}</b>
-      <span className="min-w-0 truncate text-[hsl(42_25%_80%)]">{changeLabel(changes[0], names)}{changes.length > 1 ? ` and ${changes.length - 1} more` : ""}</span>
-      <span className="flex-1" />
+      <span className="min-w-0 truncate text-[hsl(42_25%_80%)] max-sm:flex-1">{changeLabel(changes[0], names)}{changes.length > 1 ? ` and ${changes.length - 1} more` : ""}</span>
+      <span className="flex-1 max-sm:hidden" />
       <EButton size="sm" variant="outline" disabled={busy} onClick={onDiscard} className="bg-transparent text-inherit">Discard</EButton>
-      <EButton size="sm" disabled={busy} onClick={onReview} className="border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold))] text-[hsl(var(--e-gold-foreground))]">Review and save</EButton>
+      <EButton size="sm" disabled={busy} onClick={onReview} className="border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold))] text-[hsl(var(--e-gold-foreground))] max-sm:flex-1">Review and save</EButton>
     </div>
   );
 }

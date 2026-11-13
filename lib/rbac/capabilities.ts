@@ -55,6 +55,7 @@ export const CAPABILITIES = [
   { key: "jobs.reset", area: "jobs", label: "Reset jobs and remove work records", tier: "full", sensitiveAction: "jobs.reset", canText: "Reset jobs (asked for their own PIN)", cannotText: "Reset jobs", enforcedAt: "lib/security/admin-verification.ts (jobs.reset)" },
   // Laundry
   { key: "laundry.supplier_chase", area: "laundry", label: "Chase laundry suppliers", tier: "manage", canText: "Chase laundry suppliers from the app", cannotText: "Chase laundry suppliers from the app", enforcedAt: "lib/notifications/office-send-permission.ts (supplier_chase)" },
+  { key: "laundry.change_state", area: "laundry", label: "Correct a laundry run's state", tier: "manage", canText: "Correct what happened on a laundry run (Change state, with the real time and a reason)", cannotText: "Correct a laundry run's state", enforcedAt: "POST /api/admin/laundry/runs/state" },
   { key: "laundry.delete", area: "laundry", label: "Delete or override completed laundry", tier: "full", sensitiveAction: "laundry.delete", canText: "Delete or override completed laundry (asked for their own PIN)", cannotText: "Delete or override completed laundry", enforcedAt: "lib/security/admin-verification.ts (laundry.delete)" },
   // Lost and found
   { key: "lostfound.guest_message", area: "lost-found", label: "Message guests", tier: "manage", canText: "Message guests about lost property", cannotText: "Message guests from the app", enforcedAt: "lib/notifications/office-send-permission.ts (guest_message)", note: "By inbox, email or SMS, as the item allows." },
@@ -88,6 +89,9 @@ export const CAPABILITIES = [
   { key: "accounts.reset_two_step", area: null, label: "Reset two-step verification", tier: "grant", canText: "Reset two-step verification for someone with no more access than them (asked for their own PIN)", cannotText: "Reset two-step verification", enforcedAt: "POST /api/admin/users/[id]/disable-2fa (requireDelegatedAction)" },
   { key: "access.test_as", area: null, label: "Test as another person", tier: "grant", canText: "Test as someone with no more access than them (asked for their own PIN)", cannotText: "Use Test as", enforcedAt: "POST /api/admin/test-as/unlock, POST /api/admin/impersonate, lib/auth/impersonation-server.ts (every request)" },
   { key: "access.edit_permissions", area: null, label: "Edit access and permissions", tier: "grant", canText: "Change the access of people below them, up to their own access (asked for their own PIN)", cannotText: "Change anyone's access", enforcedAt: "GET/PUT /api/admin/ops-permissions (delegatedPolicyRefusal)" },
+  // Owner decision 2026-11-14: scheduling rules are ADMIN-only until an ADMIN grants this.
+  { key: "laundry.void", area: null, label: "Void laundry runs", tier: "grant", canText: "Void skipped, flagged or failed laundry runs and undo voids (asked for their own PIN)", cannotText: "Void laundry runs", enforcedAt: "POST /api/admin/laundry/runs/void and /void/undo (verifySensitiveAction laundry.void)", note: "Administrators only by default (owner default pending confirmation)." },
+  { key: "scheduling.rules_edit", area: null, label: "Change the scheduling rules", tier: "grant", canText: "Change, restore or import the laundry and job scheduling rules (asked for their own PIN)", cannotText: "Change the scheduling rules", enforcedAt: "/api/admin/settings/scheduling-rules/* (requireDelegatedAction + verifySensitiveAction scheduling.rules_edit)" },
 ] as const satisfies readonly CapabilityDefinition[];
 
 export type CapabilityKey = (typeof CAPABILITIES)[number]["key"];
@@ -123,6 +127,8 @@ export const SENSITIVE_ACTION_CAPABILITY: Readonly<Record<SensitiveAction, Capab
   "laundry.delete": "laundry.delete",
   "invoices.correct": "invoices.correct",
   "invoices.void_credit": "invoices.void_credit",
+  "scheduling.rules_edit": "scheduling.rules_edit",
+  "laundry.void": "laundry.void",
 };
 
 /**

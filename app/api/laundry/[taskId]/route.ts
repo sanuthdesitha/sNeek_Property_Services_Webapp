@@ -76,6 +76,10 @@ export async function DELETE(req: NextRequest, { params }: { params: { taskId: s
     if (!existing) {
       return NextResponse.json({ error: "Laundry task not found." }, { status: 404 });
     }
+    // A voided run keeps its record and history (2026-11-14).
+    if (existing.voidedAt) {
+      return NextResponse.json({ error: "This run is voided and its record is kept. Undo the void first if it must be removed.", code: "VOIDED" }, { status: 409 });
+    }
 
     const protectedRemoval = mode === "PERMANENT" || force === true;
     if (protectedRemoval) await verifySensitiveAction(session.user.id, security, "laundry.delete");

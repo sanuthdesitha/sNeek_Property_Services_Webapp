@@ -36,6 +36,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const adjusted = body.adjusted === true;
     const note = typeof body.note === "string" ? body.note.trim().slice(0, 2000) : null;
     const reasonCode = typeof body.reasonCode === "string" ? body.reasonCode : null;
+    // An administrator viewing as the cleaner must not record THEIR position
+    // as the cleaner's arrival evidence.
+    if (session.impersonation) {
+      return NextResponse.json({ ok: true, recorded: false, reason: "IMPERSONATING" });
+    }
     if (lat == null || lng == null) {
       return NextResponse.json({ error: "GPS coordinates are required." }, { status: 400 });
     }

@@ -27,7 +27,8 @@ export function PropertyTabBar({ active, counts, onSelect }: { active: PropertyT
   }
 
   return (
-    <div className="-mx-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    // Phones (board M-Properties): the section tabs stay in reach under the app bar while scrolling.
+    <div className="-mx-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-sm:sticky max-sm:top-16 max-sm:z-20 max-sm:-mx-4 max-sm:bg-[hsl(var(--e-background)/0.95)] max-sm:px-4 max-sm:backdrop-blur">
       <div role="tablist" aria-label="Property sections" className="flex min-w-max items-center gap-1 border-b border-[hsl(var(--e-border))]">
         {PROPERTY_TABS.map((tab, index) => {
           const selected = tab === active;

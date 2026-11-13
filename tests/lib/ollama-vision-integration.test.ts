@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_VISION_SETTINGS } from "@/lib/ai/vision-settings-schema";
 const mocks = vi.hoisted(() => ({ local: vi.fn(), check: vi.fn(), openai: vi.fn(), openaiCheck: vi.fn(), anthropic: vi.fn(), settings: vi.fn(), config: vi.fn() }));
+vi.mock("@/lib/ai/provider/store", async () => (await import("../helpers/ai-provider-store-mock")).aiStoreMock({ allowCloudImages: false }));
 vi.mock("@/lib/ai/ollama", () => ({ requestOllamaJson: mocks.local, checkOllamaModel: mocks.check }));
 vi.mock("@/lib/ai/openai-vision", () => ({ requestOpenAiVision: mocks.openai, checkOpenAiModelAccess: mocks.openaiCheck }));
 vi.mock("@anthropic-ai/sdk", () => ({ default: class { constructor() { mocks.anthropic(); } } }));

@@ -14,6 +14,7 @@ import { EFilterPopover } from "@/components/v2/ui/filter-popover";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelect } from "@/components/v2/admin/estate-kit";
 import { CASE_STATUSES, CASE_STATUS_LABELS } from "@/lib/cases/status";
+import { CASE_TYPES } from "@/lib/cases/queues";
 import { CASE_PAGE_SIZE_CLIENT } from "./case-url-state";
 import {
   CASE_TYPE_LABELS,
@@ -24,6 +25,7 @@ import {
   type CaseListFilters,
   type CaseSort,
   type CaseSummary,
+  type CaseTypeCounts,
   type CaseViewer,
 } from "./case-types";
 import type { CaseListStatus } from "./use-case-list";
@@ -52,6 +54,8 @@ type Props = {
   /** Manual Refresh (restored from the old screen): list, counts and the open case. */
   onRefresh?: () => void;
   className?: string;
+  /** Phones: the Type filter (the rail's Type chips) inside Filters. */
+  typeFilter?: { caseType: string; typeCounts: CaseTypeCounts | null; onType: (caseType: string) => void };
 };
 
 function referenceLine(row: CaseSummary): string {
@@ -87,10 +91,20 @@ function CaseCard({ row, active, checked, viewerId, nowMs, onOpen, onToggle }: {
   );
 }
 
-function ListFilters({ filters, assignees, onFilters }: Pick<Props, "filters" | "assignees" | "onFilters">) {
-  const active = [filters.status, filters.assigneeUserId, filters.jobId, filters.reportId].filter(Boolean).length;
+function ListFilters({ filters, assignees, onFilters, typeFilter }: Pick<Props, "filters" | "assignees" | "onFilters" | "typeFilter">) {
+  const active = [filters.status, filters.assigneeUserId, filters.jobId, filters.reportId, typeFilter?.caseType].filter(Boolean).length;
   return (
     <EFilterPopover label="Filters" value={active ? `${active} on` : null}>
+      {typeFilter ? (
+        <EField label="Type">
+          <ESelect value={typeFilter.caseType} onChange={(event) => typeFilter.onType(event.target.value)}>
+            <option value="">All types</option>
+            {CASE_TYPES.map((type) => (
+              <option key={type} value={type}>{CASE_TYPE_LABELS[type]}{typeFilter.typeCounts ? ` (${typeFilter.typeCounts[type]})` : ""}</option>
+            ))}
+          </ESelect>
+        </EField>
+      ) : null}
       <EField label="Status">
         <ESelect value={filters.status} onChange={(event) => onFilters({ status: event.target.value })}>
           <option value="">All statuses</option>
@@ -142,7 +156,7 @@ export function CaseList(props: Props) {
               {status === "loading" ? "Refreshing…" : "Refresh"}
             </button>
           ) : null}
-          <ListFilters filters={props.filters} assignees={props.assignees} onFilters={props.onFilters} />
+          <ListFilters filters={props.filters} assignees={props.assignees} onFilters={props.onFilters} typeFilter={props.typeFilter} />
           <label htmlFor={sortId} className="sr-only">Sort cases</label>
           <select
             id={sortId}

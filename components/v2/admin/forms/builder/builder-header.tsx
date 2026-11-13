@@ -9,7 +9,9 @@
  */
 import * as React from "react";
 import Link from "next/link";
-import { Redo2, Undo2 } from "lucide-react";
+import { ChevronLeft, Redo2, Undo2 } from "lucide-react";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
 import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
@@ -95,8 +97,11 @@ export function BuilderHeader({
   menuItems,
   onLeave,
   onRename,
+  bulkActive = false,
 }: {
   name: string;
+  /** Phones: a bulk bar owns the bottom of the screen, so the Test / Publish bar steps aside. */
+  bulkActive?: boolean;
   /** Rename in place (metadata PATCH with the stale-write guard). */
   onRename: (next: string) => Promise<RenameOutcome>;
   status: BuilderStatus;
@@ -117,8 +122,40 @@ export function BuilderHeader({
   const now = useNow(15_000);
   const pill = statePill(status);
   const target = publishTarget(status);
+  const phone = useIsPhone();
+  const publishTitle = target === null ? (status.archived ? "Unarchive the form before publishing." : "Nothing new to publish.") : undefined;
+  const publishLabel = target === null ? (status.archived ? "Archived" : "Published") : `Publish v${target}`;
+  if (phone) {
+    return (
+      <BuilderPhoneHeader
+        name={name}
+        status={status}
+        usage={usage}
+        saveState={saveState}
+        now={now}
+        pill={pill}
+        busy={busy}
+        onRename={onRename}
+        onLeave={onLeave}
+        menuItems={[
+          { key: "undo", label: "Undo", disabled: !canUndo || busy, onSelect: onUndo },
+          { key: "redo", label: "Redo", disabled: !canRedo || busy, onSelect: onRedo },
+          { key: "versions", label: "Versions", onSelect: onVersions },
+          ...menuItems.map((item, index) => (index === 0 ? { ...item, separated: true } : item)),
+        ]}
+        actionBar={
+          <EPhoneActionBar
+            label="Test and publish"
+            hidden={bulkActive}
+            secondary={<EButton variant="outline" onClick={onTest}>Test as cleaner</EButton>}
+            primary={<EButton onClick={onPublish} disabled={busy || target === null} title={publishTitle}>{publishLabel}</EButton>}
+          />
+        }
+      />
+    );
+  }
   return (
-    <header className="flex flex-wrap items-end justify-between gap-4">
+    <header className="flex flex-wrap items-end justify-between gap-4 max-sm:hidden">
       <div className="min-w-0">
         <Link
           href="/v2/admin/forms"
@@ -163,5 +200,70 @@ export function BuilderHeader({
         </EButton>
       </div>
     </header>
+  );
+}
+
+/**
+ * Phones (board "M-InsightsForms", template builder): "‹" back to Forms, the
+ * form name (still the page's one h1, renamable in place) with its state pill
+ * and save state, and one "⋯" menu holding Undo, Redo, Versions and every
+ * item of the desktop "More" menu. Test as cleaner and Publish dock at the
+ * bottom. Same callbacks as the desktop header.
+ */
+function BuilderPhoneHeader({
+  name,
+  status,
+  usage,
+  saveState,
+  now,
+  pill,
+  busy,
+  onRename,
+  onLeave,
+  menuItems,
+  actionBar,
+}: {
+  name: string;
+  status: BuilderStatus;
+  usage: FormUsage | null | undefined;
+  saveState: SaveState;
+  now: number;
+  pill: ReturnType<typeof statePill>;
+  busy: boolean;
+  onRename: (next: string) => Promise<RenameOutcome>;
+  onLeave: () => boolean;
+  menuItems: ERowMenuItem[];
+  actionBar: React.ReactNode;
+}) {
+  return (
+    <>
+      <header className="space-y-1.5" data-builder-phone-header="">
+        <div className="flex items-start gap-2">
+          <Link
+            href="/v2/admin/forms"
+            aria-label="Back to Forms"
+            onClick={(event) => {
+              if (!onLeave()) event.preventDefault();
+            }}
+            className="mt-1 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-text-secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]"
+          >
+            <ChevronLeft aria-hidden className="h-5 w-5" />
+          </Link>
+          <div className="min-w-0 flex-1">
+            <InlineFormName name={name} disabled={busy || status.archived} onRename={onRename}>
+              <EPill tone={pill.tone} className="align-middle">{pill.label}</EPill>
+            </InlineFormName>
+            <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]" aria-live="polite">
+              <span className={saveState.status === "failed" || saveState.status === "conflict" ? "font-[600] text-[hsl(var(--e-danger))]" : undefined}>
+                {savedSentence(saveState, now)}
+              </span>
+            </p>
+          </div>
+          <ERowMenu label="More form actions" items={menuItems} triggerVariant="outline" className="mt-1" />
+        </div>
+        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{usageSentence(status.liveVersion, status.isActive && !status.archived, usage)}</p>
+      </header>
+      {actionBar}
+    </>
   );
 }

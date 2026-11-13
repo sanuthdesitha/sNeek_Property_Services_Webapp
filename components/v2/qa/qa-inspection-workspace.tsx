@@ -109,6 +109,7 @@ import {
   type VerdictState,
 } from "@/components/v2/qa/accountability";
 import { normalizeVerdictScale } from "@/lib/qa/verdict-scale";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /* ── helpers ──────────────────────────────────────────────────────────── */
 function dataUrlToBlob(dataUrl: string): Blob {
@@ -2578,21 +2579,9 @@ export function QaInspectionWorkspace({
                 {brief.map((item) => (
                   <div
                     key={item.id}
-                    className="rounded-[var(--e-radius-lg)] border-l-[3px] p-3"
-                    style={{
-                      borderLeftColor:
-                        item.tone === "danger"
-                          ? "hsl(var(--e-danger))"
-                          : item.tone === "warning"
-                            ? "hsl(var(--e-warning))"
-                            : "hsl(var(--e-accent-portal))",
-                      backgroundColor:
-                        item.tone === "danger"
-                          ? "hsl(var(--e-danger-soft))"
-                          : item.tone === "warning"
-                            ? "hsl(var(--e-warning-soft))"
-                            : "hsl(var(--e-surface-raised))",
-                    }}
+                    className={`rounded-[var(--e-radius-lg)] p-3 ${toneNoticeClass(
+                      item.tone === "danger" ? "problem" : item.tone === "warning" ? "attention" : "info"
+                    )}`}
                   >
                     <p className="text-[0.8125rem] font-[600]">{item.title}</p>
                     <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{item.detail}</p>
@@ -2624,7 +2613,7 @@ export function QaInspectionWorkspace({
       <div className={step === 1 ? "space-y-6" : "hidden"}>
         {/* Recurring-issue watch-outs (Phase 7a) — where to look this clean. */}
         {hasWatchOuts ? (
-          <div className="rounded-[var(--e-radius-lg)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+          <div className={`rounded-[var(--e-radius-lg)] ${toneNoticeClass("attention")} p-3`}>
             <p className="flex items-center gap-1.5 text-[0.8125rem] font-[600]">
               <AlertTriangle className="h-4 w-4" /> Recurring — check these closely
             </p>

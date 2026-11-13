@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { sendWebPushToUser } from "@/lib/notifications/web-push";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { UNFINISHED_PUSH_DEDUP_HOURS } from "@/lib/scheduling-rules/constants";
 
 /**
  * Daily push-only nudge for genuinely stale unfinished jobs: PAUSED or
@@ -14,7 +15,7 @@ import { loadNotificationWording } from "@/lib/notifications/wording/render";
  * JOB_UNFINISHED_PUSH_REMINDER audit-row lookback.
  */
 const TZ = "Australia/Sydney";
-const DEDUP_LOOKBACK_HOURS = 20;
+const DEDUP_LOOKBACK_HOURS = UNFINISHED_PUSH_DEDUP_HOURS;
 const MAX_JOBS_PER_RUN = 50;
 
 export async function dispatchUnfinishedJobPushReminders(now = new Date()) {

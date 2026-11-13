@@ -24,6 +24,7 @@ export function QuoteHeader({
   primary,
   save,
   moreItems,
+  phoneMovedKey,
 }: {
   reference: string | null;
   title: string;
@@ -34,17 +35,12 @@ export function QuoteHeader({
   primary: HeaderButton | null;
   save: HeaderButton | null;
   moreItems: ERowMenuItem[];
+  /** Phones: the button the page docks in its sticky total bar, hidden here below 640px. */
+  phoneMovedKey?: string | null;
 }) {
-  const renderButton = (button: HeaderButton, variant: "outline" | "primary") =>
-    button.href ? (
-      <EButton key={button.key} size="sm" variant={variant} asChild>
-        <Link href={button.href}>{button.label}</Link>
-      </EButton>
-    ) : (
-      <EButton key={button.key} size="sm" variant={variant} onClick={button.onClick} disabled={button.disabled} title={button.title}>
-        {button.label}
-      </EButton>
-    );
+  const renderButton = (button: HeaderButton, variant: "outline" | "primary") => (
+    <QuoteHeaderButton key={button.key} button={button} variant={variant} size="sm" className={button.key === phoneMovedKey ? "max-sm:hidden" : undefined} />
+  );
   return (
     <EPageHeader
       eyebrow={
@@ -69,6 +65,19 @@ export function QuoteHeader({
         </>
       }
     />
+  );
+}
+
+/** One header action as a button or link; also drawn in the phone total bar. */
+export function QuoteHeaderButton({ button, variant, size, className }: { button: HeaderButton; variant: "outline" | "primary"; size?: "sm"; className?: string }) {
+  return button.href ? (
+    <EButton size={size} variant={variant} asChild className={className}>
+      <Link href={button.href}>{button.label}</Link>
+    </EButton>
+  ) : (
+    <EButton size={size} variant={variant} onClick={button.onClick} disabled={button.disabled} title={button.title} className={className}>
+      {button.label}
+    </EButton>
   );
 }
 

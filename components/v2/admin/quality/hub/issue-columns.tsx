@@ -18,6 +18,10 @@ import {
 } from "../issues/issue-format";
 import type { QualityIssueRow } from "./hub-types";
 import { severityLabel } from "@/lib/quality/severity";
+import { EButton } from "@/components/v2/ui/primitives";
+import { ERowMenu } from "@/components/v2/ui/row-menu";
+import { OPEN_RECTIFICATION_STATUSES, type RectificationStatusKey } from "@/lib/quality/types";
+import type { IssueActionKey } from "../issues/issue-actions";
 
 export function issueColumns({
   labelFor,
@@ -108,4 +112,50 @@ export function issueColumns({
         ),
     },
   ];
+}
+
+/**
+ * Phones only (board "M-PeopleQuality", issue cards): the card's actions. A
+ * suspected false confirmation opens the issue for its Reject / Confirm
+ * decision; an open fix offers Mark fixed; "⋯" holds Propose deduction,
+ * Escalate and Open. Each one only opens the existing issue detail on that
+ * form, where the same fields, rules and requests apply.
+ */
+export function issuePhoneActionsColumn({
+  labelFor,
+  onOpen,
+  onAction,
+}: {
+  labelFor: (key: string) => string;
+  onOpen: (issue: QualityIssueRow) => void;
+  onAction: (issue: QualityIssueRow, action: IssueActionKey) => void;
+}): EDataColumn<QualityIssueRow, IssueSort> {
+  return {
+    key: "phoneActions",
+    header: <span className="sr-only">Actions</span>,
+    cell: (issue) => {
+      const name = labelFor(issue.category);
+      const openFix = OPEN_RECTIFICATION_STATUSES.includes(issue.rectificationStatus as RectificationStatusKey);
+      const suspected = issue.falseConfirmation === "SUSPECTED";
+      return (
+        <span className="flex w-full flex-wrap items-center justify-end gap-2">
+          {suspected ? (
+            <EButton size="sm" variant="outline" onClick={() => onOpen(issue)}>Review false confirmation</EButton>
+          ) : openFix ? (
+            <EButton size="sm" variant="outline" onClick={() => onAction(issue, "rectify")}>Mark fixed</EButton>
+          ) : null}
+          <ERowMenu
+            label={`More actions for ${name}`}
+            triggerVariant="outline"
+            items={[
+              { key: "deduction", label: "Propose deduction", onSelect: () => onAction(issue, "deduction") },
+              { key: "escalate", label: "Escalate", onSelect: () => onAction(issue, "escalate") },
+              ...(!suspected && !openFix ? [{ key: "rectify", label: "Mark fixed", onSelect: () => onAction(issue, "rectify") }] : []),
+              { key: "open", label: "Open issue", onSelect: () => onOpen(issue), separated: true },
+            ]}
+          />
+        </span>
+      );
+    },
+  };
 }

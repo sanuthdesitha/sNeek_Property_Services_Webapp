@@ -81,7 +81,7 @@ function humanAction(action: string): string {
 async function loadRecent(propertyId: string): Promise<RecentEvent[]> {
   const [review, delivery, change] = await Promise.all([
     db.qAReview.findFirst({ where: { job: { propertyId } }, orderBy: { createdAt: "desc" }, select: { createdAt: true, score: true } }),
-    db.laundryTask.findFirst({ where: { propertyId, droppedAt: { not: null } }, orderBy: { droppedAt: "desc" }, select: { droppedAt: true } }),
+    db.laundryTask.findFirst({ where: { propertyId, voidedAt: null, droppedAt: { not: null } }, orderBy: { droppedAt: "desc" }, select: { droppedAt: true } }),
     db.auditLog.findFirst({ where: { entity: "Property", entityId: propertyId }, orderBy: { createdAt: "desc" }, select: { createdAt: true, action: true } }),
   ]);
   const events: RecentEvent[] = [];

@@ -14,6 +14,8 @@ import { EDataTable, type EDataColumn } from "@/components/v2/ui/data-table";
 import { EFilterChips, E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
 import { cn } from "@/lib/utils";
 import { EFilterPopover } from "@/components/v2/ui/filter-popover";
+import { EFilterBar, type EActiveFilter } from "@/components/v2/ui/filter-bar";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
 import { EPagination } from "@/components/v2/ui/pagination";
 import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
 import { EBulkBar, EBulkButton } from "@/components/v2/ui/bulk-bar";
@@ -64,6 +66,11 @@ export function PipelineList({ timezone, services, onExportHrefChange }: Pipelin
   const rows = data?.rows ?? [];
   const openRow = state.open ? rows.find((row) => rowKey(row) === state.open) ?? null : null;
   const serviceLabel = services.find((item) => item.value === state.service)?.label ?? null;
+  // Phones (board M-QuotesMessages): search, service and "Recurring only" behind one Filter button.
+  const activeFilters: EActiveFilter[] = [];
+  if (state.q.trim()) activeFilters.push({ key: "q", label: `Search: ${state.q.trim()}`, onRemove: () => { setSearch(""); update({ q: "", page: 1 }); } });
+  if (state.service) activeFilters.push({ key: "service", label: `Service: ${serviceLabel ?? state.service}`, onRemove: () => update({ service: "", page: 1 }) });
+  if (state.recurring) activeFilters.push({ key: "recurring", label: "Recurring only", onRemove: () => update({ recurring: false, page: 1 }) });
 
   async function patchLead(row: PipelineRow, status: string, message: string) {
     setBusy(true);
@@ -175,7 +182,16 @@ export function PipelineList({ timezone, services, onExportHrefChange }: Pipelin
             active={state.stage}
             onChange={(stage) => update({ stage, page: 1, open: null })}
             chips={PIPELINE_STAGES.map((stage) => ({ key: stage, label: PIPELINE_STAGE_LABELS[stage], count: data?.counts[stage] ?? null }))}
+            phoneLayout="carousel"
+            className="max-sm:w-full"
           />
+          <EFilterBar
+            label="Filter leads and quotes"
+            className="contents"
+            active={activeFilters}
+            onClear={() => { setSearch(""); update({ q: "", service: "", recurring: false, page: 1 }); }}
+            resultLabel={data ? `Show ${data.total} ${data.total === 1 ? "enquiry" : "enquiries"}` : undefined}
+          >
           <span className="hidden flex-1 sm:block" />
           <label className="sr-only" htmlFor="quotes-search">Search quotes</label>
           <input
@@ -198,6 +214,7 @@ export function PipelineList({ timezone, services, onExportHrefChange }: Pipelin
           <button type="button" aria-pressed={state.recurring} className={cn(E_CHIP_CLASS, state.recurring && E_CHIP_ON_CLASS)} onClick={() => update({ recurring: !state.recurring, page: 1 })}>
             Recurring only
           </button>
+          </EFilterBar>
         </div>
         <div className="overflow-hidden rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
           <EDataTable
@@ -225,6 +242,13 @@ export function PipelineList({ timezone, services, onExportHrefChange }: Pipelin
           <EBulkButton onClick={() => void runBulk("send")}>Send</EBulkButton>
           <EBulkButton onClick={() => void runBulk("mark-lost")}>Mark lost</EBulkButton>
         </EBulkBar>
+        {/* Phones: "New quote" docked in thumb reach while no bulk bar owns the bottom. */}
+        <EPhoneActionBar
+          label="Quotes actions"
+          hidden={selected.size > 0}
+          secondary={<EButton asChild variant="outline"><Link href="/v2/admin/cases">Repair quote from a case</Link></EButton>}
+          primary={<EButton asChild><Link href="/v2/admin/quotes/new">New quote</Link></EButton>}
+        />
         {bulkResults ? (
           <section aria-label="Bulk results" className="space-y-1 rounded-[10px] border border-[hsl(var(--e-border))] p-3 text-[0.8125rem]">
             <div className="flex items-center justify-between"><p className="font-[600]">Results</p><EButton size="sm" variant="ghost" onClick={() => setBulkResults(null)}>Dismiss</EButton></div>

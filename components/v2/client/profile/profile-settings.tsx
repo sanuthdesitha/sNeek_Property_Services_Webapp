@@ -20,6 +20,7 @@ import { EInput, ESelect, EField, ESwitch } from "@/components/v2/admin/estate-k
 import { EInlineNotice } from "@/components/v2/client/fields";
 import { EAddressInput } from "@/components/v2/client/address-input";
 import { useTheme, type ThemePreference } from "@/lib/theme/context";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
 export interface ProfileUser {
@@ -612,8 +613,7 @@ function TwoFactorCard() {
 
             {backupCodes ? (
               <div
-                className="rounded-[var(--e-radius-lg)] border-l-[3px] p-3"
-                style={{ backgroundColor: "hsl(var(--e-warning-soft))", borderColor: "hsl(var(--e-warning))" }}
+                className={`rounded-[var(--e-radius-lg)] p-3 ${toneNoticeClass("attention")}`}
               >
                 <p className="text-[0.875rem] font-[550]">Save your backup codes</p>
                 <p className="mb-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">

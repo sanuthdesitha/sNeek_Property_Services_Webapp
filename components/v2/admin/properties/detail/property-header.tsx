@@ -12,6 +12,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
+import { CollapsibleFigures } from "@/components/v2/ui/collapsible-figures";
 import { formatCurrency } from "@/lib/utils";
 import { sydneyRelativeDayLabel } from "@/lib/jobs/date-grouping";
 import { jobHref, newJobHref } from "@/lib/properties/links";
@@ -50,9 +52,9 @@ export function PropertyHeader({
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {linked ? (
-          <EButton variant="outline" size="sm" onClick={onSync} disabled={syncing}>{syncing ? "Syncing…" : "Sync calendar now"}</EButton>
+          <EButton variant="outline" size="sm" className="max-sm:hidden" onClick={onSync} disabled={syncing}>{syncing ? "Syncing…" : "Sync calendar now"}</EButton>
         ) : null}
-        <EButton asChild size="sm">
+        <EButton asChild size="sm" className="max-sm:hidden">
           <Link href={newJobHref(property.id)}>New job here</Link>
         </EButton>
         <PropertyMoreMenu
@@ -70,6 +72,26 @@ export function PropertyHeader({
   );
 }
 
+/**
+ * Phones (board M-Properties): the page's one action ("New job here") in thumb
+ * reach with "Sync calendar" beside it. Rendered at the end of the page so its
+ * spacer keeps the last card clear of the docked bar; nothing from 640px up.
+ */
+export function PropertyPhoneActions({ property, syncing, onSync }: { property: PropertyRecord; syncing: boolean; onSync: () => void }) {
+  const linked = Boolean(property.integration?.isEnabled && property.integration.icalUrl);
+  return (
+    <EPhoneActionBar
+      label="Property actions"
+      secondary={linked ? <EButton variant="outline" onClick={onSync} disabled={syncing}>{syncing ? "Syncing…" : "Sync calendar"}</EButton> : undefined}
+      primary={
+        <EButton asChild>
+          <Link href={newJobHref(property.id)}>New job here</Link>
+        </EButton>
+      }
+    />
+  );
+}
+
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-[7.5rem] flex-1 rounded-[10px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-2.5 py-2">
@@ -83,6 +105,8 @@ export function PropertyKeyFacts({ property, overview, stats }: { property: Prop
   const last = overview.data?.lastClean ?? null;
   const rating = stats.data?.averageJobRating ?? null;
   return (
+    // Phones (board M-Properties): the eight facts fold behind one row.
+    <CollapsibleFigures storageKey="property:key-facts" count={8} label="Key facts">
     <section aria-label="Key facts" className="flex flex-wrap items-stretch gap-2">
       <Fact label="Bedrooms">{property.bedrooms}</Fact>
       <Fact label="Bathrooms">{property.bathrooms}</Fact>
@@ -101,5 +125,6 @@ export function PropertyKeyFacts({ property, overview, stats }: { property: Prop
         {stats.data ? <span title="Paid invoice lines only">{formatCurrency(stats.data.lifetimeValue)}</span> : "–"}
       </Fact>
     </section>
+    </CollapsibleFigures>
   );
 }

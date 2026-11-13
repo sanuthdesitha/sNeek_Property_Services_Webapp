@@ -10,6 +10,7 @@ import * as React from "react";
 import { MediaGallery, type MediaGalleryItem } from "@/components/shared/media-gallery";
 import { resolveRuleTime } from "@/lib/jobs/meta";
 import { renderJobNotices } from "@/lib/jobs/notices";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /**
  * TIMING and NOTICE lead the list. A late-checkout rule and a one-off notice
@@ -223,7 +224,7 @@ export function ReadFirstBlock({
   const hidden = items.length - visible.length;
 
   return (
-    <section className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] border-l-[3px] border-l-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-4">
+    <section className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-4`}>
       <p className="mb-3 inline-flex items-center gap-2 text-[0.6875rem] font-[600] uppercase tracking-[0.14em] text-[hsl(var(--e-foreground))]">
         {heading}
       </p>

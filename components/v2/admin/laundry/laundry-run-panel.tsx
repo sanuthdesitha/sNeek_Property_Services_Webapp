@@ -140,6 +140,7 @@ export function LaundryRunPanel({ task, busy, onClose, onEdit, onReschedule, onD
       ) : null}
       <div className="h-px bg-[hsl(var(--e-border))]" />
       <div className="flex flex-wrap gap-1.5">
+        <EButton asChild size="sm" variant="outline"><Link href={`/v2/admin/laundry/runs/${encodeURIComponent(task.id)}`}>Open full page</Link></EButton>
         <LaundryNudgeActions task={task} todayKey={todayKey} />
         <LaundrySupplierChase task={task} todayKey={todayKey} />
         <EButton size="sm" variant="outline" onClick={() => onEdit(task)}>Edit</EButton>

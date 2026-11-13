@@ -1,5 +1,6 @@
 import { EBadge } from "@/components/v2/ui/primitives";
 import { summarizeTiming, type TimingInput } from "@/lib/jobs/timing-summary";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export function CleanerTimingSummary({ showPlanned = true, showConstraints = true, ...input }: TimingInput & { showPlanned?: boolean; showConstraints?: boolean }) {
   const timing = summarizeTiming(input);
@@ -12,7 +13,7 @@ export function CleanerTimingSummary({ showPlanned = true, showConstraints = tru
       {timing.earliestAccess ? <EBadge tone="danger" soft>Late checkout: Start after {timing.earliestAccess}</EBadge> : null}
       {timing.arrival ? <EBadge tone="warning" soft>{timing.arrival.early ? "Early check-in" : "Same-day check-in"}: {timing.guestDeadline ? `Ready by ${timing.guestDeadline}` : "Arrival time not confirmed"}</EBadge> : null}
     </div> : null}
-    {timing.warnings.length ? <div role="note" className="border-l-2 border-[hsl(var(--e-danger))] pl-2 text-[hsl(var(--e-danger))]">
+    {timing.warnings.length ? <div role="note" className={`rounded-[var(--e-radius)] px-2 py-1.5 ${toneNoticeClass("problem")}`}>
       {timing.warnings.map(warning => <p key={warning}>{warning}</p>)}
       <p>Confirm timing with the admin team before proceeding.</p>
     </div> : null}

@@ -11,15 +11,16 @@ import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { computeChecklistProgressPercent } from "@/lib/jobs/progress";
 import { parseRouteStops } from "@/lib/laundry/route-plan";
 import { getAppSettings } from "@/lib/settings";
-import { haversine, DEFAULT_GEOFENCE_RADIUS_M } from "@/lib/gps/distance";
+import { insideFromVerdict, judgeFix } from "@/lib/gps/geofence-policy";
 import { deriveLiveStatus } from "./live-status";
 import { addDaysToKey, sydneyDayEndInclusive, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { classifyLiveJob, clockLabel, isException, isNotStarted } from "./live-board-rules";
 import { latestClientDelayRequests, type ClientDelayRequestRecord } from "@/lib/notifications/client-delay-preview";
-import type { LiveBoardPayload, LiveCleanerNext, LiveContinuationRow, LiveDriverRow, LiveJobRow, LiveProgress } from "./live-board-types";
+import type { LiveBoardPayload, LiveCleanerNext, LiveCleanerState, LiveContinuationRow, LiveDriverRow, LiveJobRow, LiveJobState, LiveProgress } from "./live-board-types";
 
 type TodayJob = Awaited<ReturnType<typeof loadTodayJobs>>[number];
-type Ping = { userId: string; lat: number; lng: number; timestamp: Date };
+/** A person's latest position (UserLastLocation), clock-corrected. */
+type Ping = { userId: string; lat: number | null; lng: number | null; accuracy: number | null; measuredAt: Date | null; trackingState: string | null };
 
 async function loadTodayJobs(todayKey: string) {
   const jobs = await db.job.findMany({
@@ -31,29 +32,41 @@ async function loadTodayJobs(todayKey: string) {
       estimatedHours: true, sameDayCheckinTime: true, arrivedAt: true, departedAt: true, enRouteEtaMinutes: true,
       enRouteEtaUpdatedAt: true, internalNotes: true, cleanSkipStatus: true,
       requiresSafetyCheckin: true, safetyCheckinAt: true, gpsDistanceMeters: true, gpsCheckInAt: true,
-      property: { select: { name: true, suburb: true, address: true, latitude: true, longitude: true } },
+      property: { select: { name: true, suburb: true, address: true, latitude: true, longitude: true, geofenceRadiusM: true } },
       assignments: { where: { removedAt: null }, select: { user: { select: { id: true, name: true, email: true, phone: true } } } },
-      timeLogs: { where: { stoppedAt: null }, select: { id: true, userId: true, startedAt: true } },
+      timeLogs: { where: { stoppedAt: null }, select: { id: true, userId: true, startedAt: true, startVerdict: true, startLat: true } },
     },
   });
   return jobs.filter((job) => !parseJobInternalNotes(job.internalNotes).isDraft && job.cleanSkipStatus !== "SKIPPED");
 }
 
-function liveStatusFor(job: TodayJob, ping: Ping | null, now: Date): { status: string; distance: number | null } {
-  const lat = job.property.latitude;
-  const lng = job.property.longitude;
-  const hasGeofence = lat != null && lng != null;
-  const distance = ping && hasGeofence ? haversine(ping.lat, ping.lng, lat as number, lng as number) : null;
+/**
+ * One cleaner's live status on this job: THEIR clock, THEIR latest fix, judged
+ * with the shared geofence policy (property radius, accuracy, hysteresis).
+ */
+function liveStatusFor(job: TodayJob, cleanerId: string, ping: Ping | null, now: Date): { status: string; distance: number | null } {
+  const hasGeofence = job.property.latitude != null && job.property.longitude != null;
+  const fix = ping && ping.lat != null && ping.lng != null && ping.measuredAt ? { lat: ping.lat, lng: ping.lng, accuracy: ping.accuracy } : null;
+  const judgement = judgeFix(fix, job.property);
   const result = deriveLiveStatus({
-    hasOpenTimer: job.timeLogs.length > 0,
+    hasOpenTimer: job.timeLogs.some((log) => log.userId === cleanerId),
     jobStatus: job.status,
-    lastPingAt: ping?.timestamp ?? null,
-    insideGeofence: distance == null ? null : distance <= DEFAULT_GEOFENCE_RADIUS_M,
+    lastPingAt: fix ? ping!.measuredAt : null,
+    insideGeofence: insideFromVerdict(judgement.verdict),
     departedAt: job.departedAt,
     now,
     hasGeofence,
+    trackingState: ping?.trackingState ?? null,
   });
-  return { status: result.status, distance };
+  return { status: result.status, distance: judgement.distanceM };
+}
+
+/** The most actionable state wins when cleaners on one job differ. */
+const STATE_PRIORITY: LiveJobState[] = ["off-site", "late", "not-started", "on-site", "travelling", "planned", "done"];
+
+export function mostActionableState(states: LiveJobState[]): LiveJobState | null {
+  for (const state of STATE_PRIORITY) if (states.includes(state)) return state;
+  return null;
 }
 
 async function progressFor(job: TodayJob, elapsed: number | null, allocated: number | null, settings: Awaited<ReturnType<typeof getAppSettings>> | null): Promise<LiveProgress | null> {
@@ -90,13 +103,38 @@ async function buildJobRow(
   cleanerNames: Map<string, string>,
 ): Promise<LiveJobRow> {
   const cleaners = job.assignments.map((a) => ({ id: a.user.id, name: a.user.name ?? a.user.email, phone: a.user.phone ?? null }));
-  const ping = cleaners.map((c) => pings.get(c.id)).find(Boolean) ?? null;
-  const live = liveStatusFor(job, ping, now);
   const timer = job.timeLogs[0] ?? null;
-  const classification = classifyLiveJob({
+  const baseFacts = {
     status: job.status, dateKey: todayKey, startTime: job.startTime, arrivedAt: job.arrivedAt, departedAt: job.departedAt,
-    enRouteEtaMinutes: job.enRouteEtaMinutes, enRouteEtaUpdatedAt: job.enRouteEtaUpdatedAt, hasOpenTimer: Boolean(timer), liveStatus: live.status,
-  }, now, timeZone);
+    enRouteEtaMinutes: job.enRouteEtaMinutes, enRouteEtaUpdatedAt: job.enRouteEtaUpdatedAt,
+  };
+  // Classify each cleaner on their own clock and position. One teammate's
+  // stale ping used to speak for the whole team (the first cleaner with ANY
+  // ping, of any age, decided the job's state).
+  const perCleaner = cleaners.map((cleaner) => {
+    const ping = pings.get(cleaner.id) ?? null;
+    const live = liveStatusFor(job, cleaner.id, ping, now);
+    const ownTimer = job.timeLogs.some((log) => log.userId === cleaner.id);
+    const result = classifyLiveJob({ ...baseFacts, hasOpenTimer: ownTimer, liveStatus: live.status }, now, timeZone);
+    const state: LiveCleanerState = {
+      userId: cleaner.id,
+      state: result.state,
+      liveStatus: live.status,
+      distanceMeters: result.state === "off-site" && live.distance != null ? Math.round(live.distance) : null,
+      minutes: result.minutes,
+      trackingState: ping?.trackingState ?? null,
+      lastFixAt: ping?.measuredAt?.toISOString() ?? null,
+      // No fix at the start and no late fix since (the late fix fills startLat).
+      startedWithoutFix: job.timeLogs.some((log) => log.userId === cleaner.id && log.startVerdict === "NO_FIX" && log.startLat == null),
+    };
+    return { state, result };
+  });
+  const cleanerStates = perCleaner.map((entry) => entry.state);
+  const chosenState = mostActionableState(cleanerStates.map((c) => c.state));
+  const chosen = perCleaner.find((entry) => entry.state.state === chosenState) ?? null;
+  const classification = chosen
+    ? chosen.result
+    : classifyLiveJob({ ...baseFacts, hasOpenTimer: Boolean(timer), liveStatus: null }, now, timeZone);
   const startedAt = job.arrivedAt ?? timer?.startedAt ?? null;
   const elapsed = classification.state === "on-site" && startedAt ? Math.max(0, Math.round((now.getTime() - startedAt.getTime()) / 60_000)) : null;
   const allocated = job.estimatedHours ? Math.round(job.estimatedHours * 60) : null;
@@ -105,7 +143,8 @@ async function buildJobRow(
     state: classification.state, startTime: job.startTime, dueTime: job.dueTime, sameDayCheckinTime: job.sameDayCheckinTime, cleaners,
     minutes: classification.minutes,
     etaClock: classification.projectedArrival ? clockLabel(classification.projectedArrival, timeZone) : null,
-    distanceMeters: classification.state === "off-site" && live.distance != null ? Math.round(live.distance) : null,
+    distanceMeters: classification.state === "off-site" ? chosen?.state.distanceMeters ?? null : null,
+    cleanerStates,
     elapsedMinutes: elapsed, allocatedMinutes: allocated,
     progress: withProgress && classification.state === "on-site" ? await progressFor(job, elapsed, allocated, settings) : null,
     openTimeLogId: timer?.id ?? null,
@@ -141,18 +180,19 @@ async function loadDrivers(todayKey: string): Promise<LiveDriverRow[]> {
     select: { id: true, userId: true, stops: true, user: { select: { name: true, email: true, phone: true } } },
   });
   if (routes.length === 0) return [];
-  const pings = await db.cleanerLocationPing.findMany({
-    where: { userId: { in: routes.map((r) => r.userId) } }, orderBy: { timestamp: "desc" }, distinct: ["userId"],
-    select: { userId: true, lat: true, lng: true, timestamp: true },
+  const locations = await db.userLastLocation.findMany({
+    where: { userId: { in: routes.map((r) => r.userId) } },
+    select: { userId: true, lat: true, lng: true, accuracy: true, measuredAt: true, trackingState: true },
   });
-  const pingBy = new Map(pings.map((p) => [p.userId, p]));
+  const locationBy = new Map(locations.map((row) => [row.userId, row]));
   return routes.map((route) => {
     const stops = parseRouteStops(route.stops);
-    const ping = pingBy.get(route.userId);
+    const location = locationBy.get(route.userId);
     return {
       routeId: route.id, userId: route.userId, name: route.user.name ?? route.user.email, phone: route.user.phone ?? null,
       stopsDone: stops.filter((s) => s.completedAt).length, stopsTotal: stops.length,
-      lat: ping?.lat ?? null, lng: ping?.lng ?? null, lastPingAt: ping?.timestamp.toISOString() ?? null,
+      lat: location?.lat ?? null, lng: location?.lng ?? null, accuracy: location?.accuracy ?? null,
+      lastPingAt: location?.measuredAt?.toISOString() ?? null, trackingState: location?.trackingState ?? null,
     };
   });
 }
@@ -180,7 +220,7 @@ export async function loadLiveBoard(options: { now?: Date; timeZone?: string; wi
   const cleanerIds = Array.from(new Set(jobs.flatMap((job) => job.assignments.map((a) => a.user.id))));
   const [pings, continuations, drivers] = await Promise.all([
     cleanerIds.length
-      ? db.cleanerLocationPing.findMany({ where: { userId: { in: cleanerIds } }, orderBy: { timestamp: "desc" }, distinct: ["userId"], select: { userId: true, lat: true, lng: true, timestamp: true } })
+      ? db.userLastLocation.findMany({ where: { userId: { in: cleanerIds } }, select: { userId: true, lat: true, lng: true, accuracy: true, measuredAt: true, trackingState: true } })
       : Promise.resolve([] as Ping[]),
     loadContinuations(),
     loadDrivers(todayKey),
@@ -198,5 +238,47 @@ export async function loadLiveBoard(options: { now?: Date; timeZone?: string; wi
       driversOnShift: drivers.length,
     },
     generatedAt: now.toISOString(),
+  };
+}
+
+// ── Short per-process cache ──────────────────────────────────────────────
+// Every Live ops viewer polls the board every 30 s; several viewers used to
+// rebuild it (today's jobs, every checklist draft, latest positions) once
+// each. Ten seconds is well under the poll interval, so nobody sees an older
+// board than before. A failed build is never cached.
+const BOARD_CACHE_MS = 10_000;
+const boardCacheRef = globalThis as unknown as { __sneekLiveBoardCache?: Map<string, { at: number; value: Promise<LiveBoardPayload> }> };
+if (!boardCacheRef.__sneekLiveBoardCache) boardCacheRef.__sneekLiveBoardCache = new Map();
+const boardCache = boardCacheRef.__sneekLiveBoardCache;
+
+export function loadLiveBoardCached(options: { timeZone?: string; withProgress?: boolean } = {}, now = Date.now()): Promise<LiveBoardPayload> {
+  const key = `${options.timeZone ?? "Australia/Sydney"}|${options.withProgress !== false}`;
+  const cached = boardCache.get(key);
+  if (cached && now - cached.at < BOARD_CACHE_MS) return cached.value;
+  const value = loadLiveBoard({ ...options, now: new Date(now) });
+  boardCache.set(key, { at: now, value });
+  value.catch(() => {
+    if (boardCache.get(key)?.value === value) boardCache.delete(key);
+  });
+  return value;
+}
+
+/**
+ * Remove what this viewer's pack does not cover (lib/ops/live-access):
+ * laundry drivers without the Laundry pack, continuation requests without the
+ * Approvals pack. The counts follow, and `visibility` says what was withheld
+ * so the page does not present a hidden list as an empty one.
+ */
+export function filterBoardForViewer(board: LiveBoardPayload, access: { drivers: boolean; continuations: boolean }): LiveBoardPayload {
+  return {
+    ...board,
+    drivers: access.drivers ? board.drivers : [],
+    continuations: access.continuations ? board.continuations : [],
+    counts: {
+      ...board.counts,
+      exceptions: board.counts.exceptions - (access.continuations ? 0 : board.continuations.length),
+      driversOnShift: access.drivers ? board.counts.driversOnShift : 0,
+    },
+    visibility: { drivers: access.drivers, continuations: access.continuations },
   };
 }

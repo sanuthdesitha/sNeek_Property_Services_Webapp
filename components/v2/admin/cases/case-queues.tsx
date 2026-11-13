@@ -7,7 +7,7 @@
  */
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
+import { EFilterChips, E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
 import { CASE_QUEUES, CASE_QUEUE_LABELS, CASE_TYPES } from "@/lib/cases/queues";
 import { E_INPUT_CLASS } from "@/components/v2/admin/estate-kit";
 import { CASE_TYPE_LABELS, type CaseQueue, type CaseQueueCounts, type CaseTypeCounts } from "./case-types";
@@ -80,5 +80,26 @@ export function CaseQueueSelectors({ queue, caseType, counts, typeCounts, onQueu
         </select>
       </div>
     </div>
+  );
+}
+
+/**
+ * Phones (below 640px, board "Admin phone: Cases"): the queues as one
+ * swipeable chip row with the server's counts. Type moves into the list's
+ * Filter (see CaseList `typeFilter`).
+ */
+export function CaseQueueChips({ queue, counts, onQueue }: Pick<Props, "queue" | "counts" | "onQueue">) {
+  return (
+    <EFilterChips
+      label="Queue"
+      phoneLayout="carousel"
+      active={queue}
+      onChange={onQueue}
+      chips={RAIL_ORDER.filter((key) => (CASE_QUEUES as readonly string[]).includes(key)).map((key) => ({
+        key,
+        label: CASE_QUEUE_LABELS[key],
+        count: counts ? counts[key] : null,
+      }))}
+    />
   );
 }

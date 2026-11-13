@@ -11,6 +11,8 @@ import * as React from "react";
 import Link from "next/link";
 import { EButton } from "@/components/v2/ui/primitives";
 import { ESidePanel } from "@/components/v2/ui/side-panel";
+import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 import { EStageBar, type EStage } from "@/components/v2/ui/stage-bar";
 import { StayPreparationPanel } from "@/components/inventory/stay-preparation-panel";
 import type { UrgentNeedListRow, UrgentNeedListResponse } from "@/lib/inventory/urgent-stock-list";
@@ -138,6 +140,7 @@ export function NeedPanel({ needId, row, timeZone, canResolve, onClose, onChange
     setRevision((count) => count + 1);
     onChanged();
   };
+  const phone = useIsPhone();
 
   return (
     <ESidePanel open title={value?.itemName ?? (need.status === "error" ? "Need unavailable" : "Loading…")} label="Need detail" onClose={onClose} subtitle={value ? `${value.propertyName} · ${panelNeededBy(value, needed?.text ?? "–", timeZone)}` : undefined}>
@@ -177,8 +180,11 @@ export function NeedPanel({ needId, row, timeZone, canResolve, onClose, onChange
             )}
           </section>
           <hr className="border-[hsl(var(--e-border))]" />
-          {!closed ? (
-            <div className="flex flex-wrap gap-2">
+          {phone ? (
+            // Phones: the stage actions dock at the foot of the need screen (below).
+            liveAsk?.state === "ASKED" && !closed ? <WithdrawAskButton askId={liveAsk.id} cleanerName={liveAsk.cleanerName} onDone={changed} /> : null
+          ) : !closed ? (
+            <div className="flex flex-wrap gap-2 max-sm:hidden">
               {next?.kind === "transition" ? <EButton size="sm" onClick={() => setAction("next")}>{next.label}</EButton> : <span className={dt}>{next?.label}</span>}
               {canBuy ? <EButton size="sm" variant="outline" onClick={() => setDialog("run")}>Add to shopping run</EButton> : null}
               {canBuy ? <EButton size="sm" variant="outline" onClick={() => setDialog("ask")}>Ask cleaner to buy</EButton> : null}
@@ -201,6 +207,21 @@ export function NeedPanel({ needId, row, timeZone, canResolve, onClose, onChange
               )
             ) : null}
           </section>
+          {phone ? (
+            <NeedPhoneActions
+              itemName={value.itemName}
+              closed={closed}
+              next={next}
+              stage={value.stage}
+              canBuy={canBuy}
+              canResolve={canResolve}
+              onNext={() => setAction("next")}
+              onConfirm={() => setAction("confirm")}
+              onResolve={() => setAction("resolve")}
+              onAddToRun={() => setDialog("run")}
+              onAskCleaner={() => setDialog("ask")}
+            />
+          ) : null}
           {dialog === "run" ? <AddToRunDialog needs={[value]} onClose={() => setDialog(null)} onDone={changed} /> : null}
           {dialog === "ask" ? <AskCleanerDialog need={value} onClose={() => setDialog(null)} onDone={changed} /> : null}
           {action ? (
@@ -218,5 +239,48 @@ export function NeedPanel({ needId, row, timeZone, canResolve, onClose, onChange
         </>
       ) : null}
     </ESidePanel>
+  );
+}
+
+type NeedPhoneActionsProps = {
+  itemName: string;
+  closed: boolean;
+  next: ReturnType<typeof urgentNextAction> | null;
+  stage: UrgentStockStage;
+  canBuy: boolean;
+  canResolve: boolean;
+  onNext: () => void;
+  onConfirm: () => void;
+  onResolve: () => void;
+  onAddToRun: () => void;
+  onAskCleaner: () => void;
+};
+
+/**
+ * Phones (board "M-LaundryStock", need screen): Ask cleaner, Add to run and
+ * the stage's one transition at the foot of the screen; Confirm at property
+ * and Resolve in the "⋯" menu. The same actions and dialogs as the desktop
+ * panel; the visible text is shortened as drawn and the accessible name keeps
+ * the desktop label.
+ */
+function NeedPhoneActions({ itemName, closed, next, stage, canBuy, canResolve, onNext, onConfirm, onResolve, onAddToRun, onAskCleaner }: NeedPhoneActionsProps) {
+  if (closed) return null;
+  const menu: ERowMenuItem[] = [
+    { key: "confirm", label: "Confirm at property", onSelect: onConfirm },
+    ...(canResolve ? [{ key: "resolve", label: "Resolve", onSelect: onResolve }] : []),
+  ];
+  return (
+    <div data-need-phone-actions="" className="sticky bottom-0 z-10 -mx-4 mt-2 space-y-2 border-t border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.97)] px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2.5 backdrop-blur">
+      {stage === "REPORTED" && next?.kind === "transition" ? (
+        <p className={dt}>Acknowledging records that the office has seen it. Nothing is bought until a shopping run or a cleaner does it.</p>
+      ) : null}
+      {next && next.kind !== "transition" ? <p className={dt}>{next.label}</p> : null}
+      <div className="flex items-center gap-2">
+        {canBuy ? <EButton variant="outline" className="flex-1 px-2" aria-label="Ask cleaner to buy" onClick={onAskCleaner}>Ask cleaner</EButton> : null}
+        {canBuy ? <EButton variant="outline" className="flex-1 px-2" aria-label="Add to shopping run" onClick={onAddToRun}>Add to run</EButton> : null}
+        {next?.kind === "transition" ? <EButton className="flex-1 px-2" onClick={onNext}>{next.label}</EButton> : null}
+        <ERowMenu label={`More actions for ${itemName}`} items={menu} triggerVariant="outline" />
+      </div>
+    </div>
   );
 }

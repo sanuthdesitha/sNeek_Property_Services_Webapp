@@ -11,6 +11,7 @@ import { format, parseISO } from "date-fns";
 import { GraduationCap } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, ECardBody, EEyebrow } from "@/components/v2/ui/primitives";
+import { E_BAND_BADGE_CLASS, toneBandClass, toneMutedClass } from "@/components/v2/ui/tone-band";
 
 type Record_ = {
   id: string;
@@ -91,15 +92,24 @@ export function CleanerCoachingCard() {
       <span className="e-eyebrow flex items-center gap-1.5">
         <GraduationCap className="h-3.5 w-3.5" /> COACHING &amp; FEEDBACK
       </span>
-      {visible.map((r) => (
-        <ECard key={r.id} className="border-l-[3px] border-l-[hsl(var(--e-warning))]">
-          <ECardBody className="space-y-2 pt-6">
-            <div className="flex flex-wrap items-center gap-2">
-              <EBadge tone={typeTone(r.type)} soft>
+      {visible.map((r) => {
+        // An open record (needs acknowledgement) flags its card with the attention band.
+        const flagged = r.status === "OPEN";
+        const badgeClass = flagged ? E_BAND_BADGE_CLASS : undefined;
+        return (
+          <ECard key={r.id} className="overflow-hidden">
+            <div
+              className={
+                flagged
+                  ? `flex flex-wrap items-center gap-2 px-6 py-3 ${toneBandClass("attention")}`
+                  : "flex flex-wrap items-center gap-2 px-6 pt-6"
+              }
+            >
+              <EBadge tone={typeTone(r.type)} soft className={badgeClass}>
                 {titleCase(r.type)}
               </EBadge>
               {r.status === "OPEN" ? (
-                <EBadge tone="warning" soft>
+                <EBadge tone="warning" soft className={badgeClass}>
                   Needs acknowledgement
                 </EBadge>
               ) : (
@@ -107,24 +117,28 @@ export function CleanerCoachingCard() {
                   {titleCase(r.status)}
                 </EBadge>
               )}
-              {r.retrainingRequired ? <EBadge tone="warning" soft>Retraining</EBadge> : null}
-              <span className="ml-auto text-[0.75rem] text-[hsl(var(--e-text-faint))]">{fmt(r.createdAt)}</span>
+              {r.retrainingRequired ? <EBadge tone="warning" soft className={badgeClass}>Retraining</EBadge> : null}
+              <span className={`ml-auto text-[0.75rem] ${flagged ? toneMutedClass("attention") : "text-[hsl(var(--e-text-faint))]"}`}>
+                {fmt(r.createdAt)}
+              </span>
             </div>
-            <p className="whitespace-pre-wrap text-[0.875rem] text-[hsl(var(--e-text-secondary))]">{r.reason}</p>
-            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-              From {r.createdByName}
-              {r.reviewDate ? ` · Review ${fmt(r.reviewDate)}` : ""}
-            </p>
-            {r.status === "OPEN" ? (
-              <div>
-                <EButton variant="gold" size="sm" onClick={() => acknowledge(r.id)} disabled={busyId === r.id}>
-                  {busyId === r.id ? "Saving…" : "Acknowledge"}
-                </EButton>
-              </div>
-            ) : null}
-          </ECardBody>
-        </ECard>
-      ))}
+            <ECardBody className={flagged ? "space-y-2 pt-4" : "space-y-2 pt-2"}>
+              <p className="whitespace-pre-wrap text-[0.875rem] text-[hsl(var(--e-text-secondary))]">{r.reason}</p>
+              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                From {r.createdByName}
+                {r.reviewDate ? ` · Review ${fmt(r.reviewDate)}` : ""}
+              </p>
+              {r.status === "OPEN" ? (
+                <div>
+                  <EButton variant="gold" size="sm" onClick={() => acknowledge(r.id)} disabled={busyId === r.id}>
+                    {busyId === r.id ? "Saving…" : "Acknowledge"}
+                  </EButton>
+                </div>
+              ) : null}
+            </ECardBody>
+          </ECard>
+        );
+      })}
     </section>
   );
 }

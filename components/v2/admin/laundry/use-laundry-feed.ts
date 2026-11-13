@@ -41,7 +41,7 @@ export function useLaundryFeed(range: { start: string; end: string }, enabled: b
     setError("");
     void (async () => {
       try {
-        const response = await fetch(`/api/laundry/week?start=${sydneyDayStart(range.start).toISOString()}&days=${days}`, {
+        const response = await fetch(`/api/laundry/week?start=${sydneyDayStart(range.start).toISOString()}&days=${days}&includeVoided=1`, {
           cache: "no-store",
           signal: controller.signal,
           headers: { "x-progress-toast": "off" },

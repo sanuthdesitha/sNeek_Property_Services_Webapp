@@ -12,9 +12,9 @@ import type { GrowthSummary } from "@/lib/growth/summary-types";
 
 function Figure({ label, value, note }: { label: string; value: string; note: string }) {
   return (
-    <div className="rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4">
+    <div className="min-w-0 rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4 max-sm:p-3">
       <p className="e-eyebrow">{label}</p>
-      <p className="e-numeral mt-1 text-[1.75rem] leading-none">{value}</p>
+      <p className="e-numeral mt-1 text-[1.75rem] leading-none max-sm:text-[1.5rem]">{value}</p>
       <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{note}</p>
     </div>
   );
@@ -50,7 +50,7 @@ export function GrowthHub({ summary, timezone }: { summary: GrowthSummary; timez
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 max-sm:grid-cols-2 max-sm:gap-2">
         {leads ? (
           <Figure label="New leads" value={String(leads.newThisMonth)} note={delta == null ? "Not enough data to compare with last month" : `${delta >= 0 ? "+" : "−"}${Math.abs(delta)} on last month`} />
         ) : null}

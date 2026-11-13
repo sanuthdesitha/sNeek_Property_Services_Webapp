@@ -14,6 +14,7 @@
  */
 import * as React from "react";
 import { AlertTriangle, CheckCircle2, Info, RefreshCw } from "lucide-react";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export interface TemplateImpact {
   status: "draft" | "published" | "archived";
@@ -126,9 +127,9 @@ export function buildImpactNotes(impact: TemplateImpact): Note[] {
 }
 
 const TONE_CLASS: Record<Tone, string> = {
-  info: "border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface-sunken))]",
-  warning: "border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))]",
-  success: "border-[hsl(var(--e-success))] bg-[hsl(var(--e-success-soft))]",
+  info: "border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface-sunken))] text-[hsl(var(--e-foreground))]",
+  warning: toneNoticeClass("attention"),
+  success: toneNoticeClass("good"),
 };
 
 function ToneIcon({ tone }: { tone: Tone }) {
@@ -193,7 +194,7 @@ export function TemplateImpactPanel({ templateId, refreshKey }: { templateId: st
       {notes.map((note, i) => (
         <div
           key={`${note.tone}-${i}`}
-          className={`flex items-start gap-2 rounded-[var(--e-radius)] border-l-[3px] px-3 py-1.5 text-[0.75rem] text-[hsl(var(--e-foreground))] ${TONE_CLASS[note.tone]}`}
+          className={`flex items-start gap-2 rounded-[var(--e-radius)] px-3 py-1.5 text-[0.75rem] ${TONE_CLASS[note.tone]}`}
         >
           <ToneIcon tone={note.tone} />
           <span>{note.text}</span>

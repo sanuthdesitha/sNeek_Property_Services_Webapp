@@ -8,6 +8,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { EInput } from "@/components/v2/admin/estate-kit";
 import { EFilterPopover } from "@/components/v2/ui/filter-popover";
+import { EFilterBar, type EActiveFilter } from "@/components/v2/ui/filter-bar";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
 import type { FormLibraryStatusFilter, FormLibraryUsedByFilter } from "@/lib/forms/library-types";
 import type { FormsListState } from "./use-forms-library";
@@ -79,8 +80,30 @@ export function FormsToolbar({
   const statusLabel = STATUS_OPTIONS.find((o) => o.key === state.status && o.key !== "any")?.label ?? null;
   const usedByLabel = USED_BY_OPTIONS.find((o) => o.key === state.usedBy && o.key !== "any")?.label ?? null;
 
+  const active: EActiveFilter[] = [];
+  if (state.q.trim()) active.push({ key: "q", label: `Search: ${state.q.trim()}`, onRemove: () => clearSearch() });
+  if (statusLabel) active.push({ key: "status", label: `Status: ${statusLabel}`, onRemove: () => update({ status: "any" }) });
+  if (usedByLabel) active.push({ key: "usedBy", label: `Used by: ${usedByLabel}`, onRemove: () => update({ usedBy: "any" }) });
+  if (state.problems) active.push({ key: "problems", label: "Has problems", onRemove: () => update({ problems: false }) });
+
+  /** A cleared search also clears the box, so the typing delay cannot bring it back. */
+  function clearSearch() {
+    pushedRef.current = "";
+    setSearch("");
+    update({ q: "" });
+  }
+
+  // Phones: search and filters sit behind one Filter button with removable chips; unchanged from 640px.
   return (
-    <div className="flex flex-wrap items-center gap-2.5">
+    <EFilterBar
+      label="Filter forms"
+      className="gap-2.5"
+      active={active}
+      onClear={() => {
+        clearSearch();
+        update({ status: "any", usedBy: "any", problems: false });
+      }}
+    >
       <label htmlFor={searchId} className="sr-only">Search forms</label>
       <EInput
         id={searchId}
@@ -110,6 +133,6 @@ export function FormsToolbar({
         Has problems: {usageCovered ? "errors or warnings" : "check errors or warnings"}
         {typeof problemCount === "number" ? <span className="e-tnum">{problemCount}</span> : null}
       </button>
-    </div>
+    </EFilterBar>
   );
 }

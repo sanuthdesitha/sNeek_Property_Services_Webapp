@@ -3,7 +3,8 @@ import { photoAssignmentLimits } from "@/lib/ai/runtime-limits";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { loadVisionImage } from "@/lib/ai/images";
-import { getResolvedVisionProviderConfiguration } from "@/lib/ai/config";
+import { resolveFeatureRoute } from "@/lib/ai/provider/routing";
+import { AiUnavailableError, isAiUnavailable } from "@/lib/ai/provider/types";
 import { predictPropertyRecognition } from "@/lib/ai/property-photo-model";
 import { getHistoricalAssignmentExamples } from "@/lib/ai/historical-assignment-examples";
 import { deriveVisionFields } from "@/lib/ai/form-fields";
@@ -96,7 +97,10 @@ export async function proposePhotoAssignments(jobId: string, session: Session, r
   const dedicatedEnabled = config.dedicatedRecognitionEnabled === true;
   const initial = await snapshot(jobId, session, input, identity, historicalEnabled, dedicatedEnabled);
   if (!config.assignmentEnabled) fail(409, "AI photo assignment is not enabled. Assign photos manually.");
-  const limits = photoAssignmentLimits(config.provider, config.batchSize);
+  const route = await resolveFeatureRoute("photo_assign");
+  // Refuse before any photo is loaded when photos may not leave the server for this provider.
+  if (!route.allowImages && !dedicatedEnabled) fail(409, new AiUnavailableError("IMAGES_NOT_ALLOWED").message);
+  const limits = photoAssignmentLimits(route.provider, config.batchSize);
   if (input.photos.length > limits.batchSize) throw new PhotoAssignmentError(400, `Choose no more than ${limits.batchSize} photos for one analysis.`, limits.batchSize);
   if (!initial.fields.length) fail(409, "No available image fields in this form. Assign photos manually.");
   let bytes = 0, images = 0;
@@ -142,9 +146,11 @@ export async function proposePhotoAssignments(jobId: string, session: Session, r
   const remainingPhotos = photos.filter(photo => !accepted.some(item => item.photoId === photo.id));
   let fallback;
   try {
-    fallback = remainingPhotos.length && (await getResolvedVisionProviderConfiguration(config.provider)).configured ? await assignPhotosToFields({ photos: remainingPhotos, fields }) : { assignments: remainingPhotos.map(photo => ({ photoId: photo.id, fieldId: null, confidence: 0, reason: "No confident model match and vision fallback is unavailable. Assign this photo manually." })) };
-  } catch {
-    throw new PhotoAssignmentError(503, config.provider === "ollama"
+    fallback = remainingPhotos.length && route.configured && route.allowImages ? await assignPhotosToFields({ photos: remainingPhotos, fields }, { actor: { kind: "user", userId: session.user.id }, entity: { type: "Job", id: jobId } }) : { assignments: remainingPhotos.map(photo => ({ photoId: photo.id, fieldId: null, confidence: 0, reason: "No confident model match and vision fallback is unavailable. Assign this photo manually." })) };
+  } catch (error) {
+    // Images not allowed, hourly limit, switched off: the safe reason, so the cleaner knows to assign manually.
+    if (isAiUnavailable(error)) throw new PhotoAssignmentError(409, `${error.message.replace(/ Continue manually.*$/, "")} Your uploads are saved. Assign photo sections manually.`);
+    throw new PhotoAssignmentError(503, route.provider === "ollama"
       ? "The local image model could not finish analysing this photo. Your uploads are saved. Retry once, or ask the office to check the Ollama model and server memory. You can still choose photo sections manually."
       : "The image analysis service could not finish. Your uploads are saved. Retry, or ask the office to check the AI connection. You can still choose photo sections manually.");
   }

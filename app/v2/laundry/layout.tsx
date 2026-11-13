@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { Mail } from "lucide-react";
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
+import { DriverLocationTracker } from "@/components/v2/laundry/driver-location-tracker";
 import { useAttentionCounts, withAttentionBadges } from "@/components/v2/portal/use-attention-counts";
 import { LAUNDRY_NAV, LAUNDRY_REQUESTS_PATH, LAUNDRY_TAB_PREFIXES } from "@/components/v2/laundry/portal/laundry-nav";
 
@@ -38,6 +39,7 @@ export default function V2LaundryLayout({ children }: { children: React.ReactNod
   return (
     <div data-skin="estate" data-portal-accent="laundry" className="max-sm:[&_main_button:not([data-calendar-day])]:min-h-11">
       <PortalShell accent="laundry" wordmark="sNeek" nav={nav} roleLabel="Laundry" hideMobileMenuButton headerActions={<OfficeInboxLink count={counts[LAUNDRY_REQUESTS_PATH] ?? 0} />}>
+        <DriverLocationTracker />
         {children}
       </PortalShell>
     </div>

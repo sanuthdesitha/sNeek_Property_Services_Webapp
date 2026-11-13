@@ -20,6 +20,7 @@ import { EstateLoader } from "@/components/v2/ui/estate-loader";
 import { EPasskeySection } from "@/components/v2/shared/passkey-section";
 import { OnboardingFields, EMPTY_ONBOARDING_FORM, type OnboardingForm } from "@/components/v2/onboarding/onboarding-fields";
 import { firstStepWithMissing, onboardingSteps, roleNeedsBank, roleNeedsBusiness } from "@/lib/onboarding/steps";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 type OnboardingResponse = {
   user: { name: string | null; phone: string | null; role: string };
@@ -201,7 +202,7 @@ export default function V2OnboardingPage() {
               </fieldset>
 
               {error ? (
-                <p role="alert" className="rounded-[var(--e-radius)] border-l-2 border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger)/0.06)] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-danger))]">
+                <p role="alert" className={`rounded-[var(--e-radius)] ${toneNoticeClass("problem")} px-3 py-2 text-[0.8125rem]`}>
                   {error}
                 </p>
               ) : null}

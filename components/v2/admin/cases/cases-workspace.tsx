@@ -6,6 +6,12 @@
  * queues become selectors, the list and the case are separate steps, and the
  * details open in a sheet.
  *
+ * Phones (below 640px, board "Admin phone: Cases"): the queues are a swipeable
+ * chip row (Type moves into Filters), "New case" docks at the bottom, and an
+ * open case is a full screen with a switcher: Conversation / Details / Next
+ * steps. The details form stays mounted while another part is shown, so its
+ * draft survives switching; a different case resets the switcher.
+ *
  * Endpoints (existing unless marked):
  *   GET    /api/admin/cases?shape=summary&queue&…   summaries + real counts (new shape; old shape unchanged)
  *   GET    /api/admin/cases/:id                     the full case
@@ -23,9 +29,13 @@ import * as React from "react";
 import { Plus, Search } from "lucide-react";
 import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
 import { ESidePanel } from "@/components/v2/ui/side-panel";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
+import { cn } from "@/lib/utils";
+import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
 import { EConfirmModal } from "@/components/v2/admin/estate-kit";
 import { usePeekParam } from "@/components/v2/admin/jobs/use-peek-param";
-import { CaseQueueSelectors, CaseQueuesRail } from "./case-queues";
+import { CaseQueueChips, CaseQueueSelectors, CaseQueuesRail } from "./case-queues";
 import { CaseList } from "./case-list";
 import { CaseConversation } from "./case-conversation";
 import { CaseDetailsPanel } from "./case-details-panel";
@@ -41,6 +51,13 @@ import { useCaseMutations } from "./use-case-mutations";
 import { useIsDesktop } from "./use-is-desktop";
 import type { CasePatch } from "./case-api";
 import type { CaseStatus } from "./case-types";
+
+type PhoneCasePart = "conversation" | "details" | "next";
+const PHONE_CASE_PARTS: Array<{ key: PhoneCasePart; label: string }> = [
+  { key: "conversation", label: "Conversation" },
+  { key: "details", label: "Details" },
+  { key: "next", label: "Next steps" },
+];
 
 type PendingStatus = { caseId: string; patch: CasePatch; request: StatusDialogRequest };
 
@@ -62,6 +79,8 @@ export function CasesWorkspace() {
   const detail = useCaseDetail(openId);
   const mutations = useCaseMutations({ rows: list.rows, accept: detail.accept, replaceRow: list.replaceRow, removeRow: list.removeRow, refreshCounts: list.refreshCounts });
   const isDesktop = useIsDesktop();
+  const phone = useIsPhone();
+  const [phonePart, setPhonePart] = React.useState<PhoneCasePart>("conversation");
 
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [drafts, setDrafts] = React.useState<Record<string, ComposerDraft>>({});
@@ -87,6 +106,7 @@ export function CasesWorkspace() {
   React.useEffect(() => {
     setDetailsSheet(false);
     setRaiseQaOpen(false);
+    setPhonePart("conversation");
   }, [openId]);
 
   /** Manual Refresh: re-read the list and counts (aborting an older read) and the open case. */
@@ -133,7 +153,8 @@ export function CasesWorkspace() {
       onStatus={(next) => requestStatus(open.id, open.title, { status: next }, next)}
       onAssignToMe={() => list.viewer && void mutations.save(open.id, { assignedToUserId: list.viewer.id })}
       onEditDetails={() => {
-        if (!isDesktop) setDetailsSheet(true);
+        if (phone) setPhonePart("details");
+        else if (!isDesktop) setDetailsSheet(true);
         window.setTimeout(() => titleRef.current?.focus(), 0);
       }}
       onDelete={() => setDeleteOpen(true)}
@@ -153,6 +174,7 @@ export function CasesWorkspace() {
       onSave={saveFromDetails}
       titleRef={titleRef}
       onRaiseQaIssue={() => setRaiseQaOpen(true)}
+      visiblePart={phone && phonePart !== "conversation" ? phonePart : undefined}
     />
   ) : null;
 
@@ -190,13 +212,16 @@ export function CasesWorkspace() {
                 className="h-9 w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] pl-9 pr-3 text-[16px] sm:text-[0.8125rem]"
               />
             </div>
-            <EButton onClick={() => setNewOpen(true)}>
+            <EButton onClick={() => setNewOpen(true)} className="max-sm:hidden">
               <Plus aria-hidden className="h-4 w-4" /> New case
             </EButton>
           </>
         }
       />
 
+      {phone ? (
+        openId ? null : <CaseQueueChips queue={state.queue} counts={list.counts} onQueue={(queue) => update({ queue })} />
+      ) : (
       <CaseQueueSelectors
         queue={state.queue}
         caseType={state.filters.caseType}
@@ -205,6 +230,7 @@ export function CasesWorkspace() {
         onQueue={(queue) => update({ queue })}
         onType={(caseType) => update({ filters: { ...state.filters, caseType } })}
       />
+      )}
 
       <CaseBulk
         selectedIds={Array.from(selected)}
@@ -256,14 +282,36 @@ export function CasesWorkspace() {
           onPage={(page) => update({ page })}
           onRetry={list.reload}
           onRefresh={refreshAll}
+          typeFilter={phone ? { caseType: state.filters.caseType, typeCounts: list.typeCounts, onType: (caseType) => update({ filters: { ...state.filters, caseType } }) } : undefined}
         />
         <div className={openId ? "flex min-w-0 flex-1 flex-col" : "hidden min-w-0 flex-1 flex-col lg:flex"}>
-          {conversation ?? (
+          {phone && open ? (
+            <div role="tablist" aria-label="Case sections" className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 [scrollbar-width:none]">
+              {PHONE_CASE_PARTS.map((part) => (
+                <button
+                  key={part.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={phonePart === part.key}
+                  onClick={() => setPhonePart(part.key)}
+                  className={cn(E_CHIP_CLASS, "shrink-0", phonePart === part.key && E_CHIP_ON_CLASS)}
+                >
+                  {part.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {phone && open ? (
+            <div className={phonePart === "conversation" ? "hidden" : "rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-4 py-3.5"}>
+              {detailsPanel}
+            </div>
+          ) : null}
+          {phone && open && phonePart !== "conversation" ? null : conversation ?? (
             <section aria-label="Conversation" className="flex-1 rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] lg:rounded-none lg:border-l-0">
               {caseStatusArea}
             </section>
           )}
-          {open && !isDesktop ? (
+          {open && !isDesktop && !phone ? (
             <EButton variant="outline" className="mt-3 self-start" onClick={() => setDetailsSheet(true)}>Case details</EButton>
           ) : null}
         </div>
@@ -275,11 +323,17 @@ export function CasesWorkspace() {
         ) : null}
       </div>
 
-      {open && !isDesktop ? (
+      {open && !isDesktop && !phone ? (
         <ESidePanel open={detailsSheet} title="Case details" label="Case details" subtitle={open.title} onClose={() => setDetailsSheet(false)}>
           {detailsPanel}
         </ESidePanel>
       ) : null}
+
+      <EPhoneActionBar
+        label="Cases actions"
+        hidden={selected.size > 0 || Boolean(openId)}
+        primary={<EButton onClick={() => setNewOpen(true)}><Plus aria-hidden className="h-4 w-4" /> New case</EButton>}
+      />
 
       <CaseStatusDialog
         request={pendingStatus?.request ?? null}

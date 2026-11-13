@@ -42,6 +42,8 @@ export type PipelineData = {
   drivers: Array<{ id: string; name: string }>;
   suppliers: Array<{ id: string; name: string }>;
   approvalsFlagged: number;
+  /** Runs voided in the last 30 days (the "Voided N" chip); absent from older payloads. */
+  voidedRecent?: number;
   settings: PipelineSettings;
   truncated: boolean;
   generatedAt: string;

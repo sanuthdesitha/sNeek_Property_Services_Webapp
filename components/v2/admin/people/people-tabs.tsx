@@ -6,7 +6,9 @@
  * Everyone / Needs attention / Client logins are chips inside the tabs, so
  * no drawn tab is marked current on those views.
  */
+import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 import type { PeopleCounts } from "@/lib/people/counts";
 import { allowedPeopleTabs, PEOPLE_TABS, PEOPLE_TAB_LABEL, type PeopleAccess, type PeopleMainTab, type PeopleTab } from "@/lib/people/tabs";
 
@@ -32,8 +34,17 @@ export function PeopleTabs({
 }) {
   const allowed = allowedPeopleTabs(access);
   const tabs = PEOPLE_TABS.filter((tab) => allowed.includes(tab));
+  // Phones (board M-People2): the group row is a carousel that keeps the current group in view.
+  const phone = useIsPhone();
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!phone) return;
+    const nav = navRef.current;
+    const current = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (nav && current) nav.scrollLeft = Math.max(0, current.offsetLeft - 16);
+  }, [phone, active]);
   return (
-    <nav aria-label="People groups" className="-mx-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <nav ref={navRef} aria-label="People groups" className="-mx-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-sm:-mx-4 max-sm:px-4">
       <div className="flex min-w-max items-center gap-1 border-b border-[hsl(var(--e-border))]">
         {tabs.map((tab) => {
           const isActive = tab === active;
@@ -49,7 +60,7 @@ export function PeopleTabs({
                 onSelect(tab);
               }}
               className={cn(
-                "-mb-px inline-flex min-h-[2.5rem] items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[0.8125rem] transition-colors",
+                "-mb-px inline-flex min-h-[2.5rem] max-sm:min-h-11 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[0.8125rem] transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]",
                 isActive
                   ? "border-[hsl(var(--e-primary))] font-[600] text-[hsl(var(--e-primary))]"

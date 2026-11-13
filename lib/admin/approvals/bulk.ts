@@ -2,7 +2,7 @@ import "server-only";
 import { PayAdjustmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getClientApprovalById, listClientApprovals } from "@/lib/commercial/client-approvals";
-import { normalizePayAdjustmentAmounts } from "@/lib/pay-adjustments/display";
+import { cleanerRequestedAmount } from "@/lib/payroll/cleaner-pay-amount";
 import { roundCents } from "@/lib/finance/job-money";
 import { canUseOpsPath } from "@/lib/rbac/ops-catalog";
 import { getOpsAccess, getOpsGrants } from "@/lib/rbac/ops-access";
@@ -161,7 +161,8 @@ function linkedApprovalFor(approvals: LinkedApproval[], id: string): LinkedAppro
 /**
  * Pay requests approved in bulk "as asked" (owner decision 2026-11-13: "bulk
  * approve supports if each is ok to approve"). Each row is approved at ITS OWN
- * asked amount, only when it passes every check approving it on its own needs:
+ * asked amount — the cleaner's requested amount, never the client charge —
+ * only when it passes every check approving it on its own needs:
  * still a waiting pay request, a valid asked amount, a receipt attached (the
  * same rule as the list's one-click Approve), a linked client approval already
  * approved (the single route refuses otherwise), and the amount the person
@@ -204,8 +205,11 @@ export async function planPayApprovals(ids: string[], expectedAmounts: Record<st
       refuse(id, linked.status === "DECLINED" ? "The client declined this charge; review it on its own." : "Waiting for the client's approval.");
       continue;
     }
-    const asked = normalizePayAdjustmentAmounts({ requestedAmount: row.requestedAmount }, linked).primaryDisplayAmount;
-    if (!Number.isFinite(asked) || asked <= 0) {
+    // The cleaner's REQUESTED amount, never the client charge (owner rule
+    // 2026-11-13): a client approval at a different amount decides what the
+    // client pays, not what the cleaner is paid.
+    const asked = cleanerRequestedAmount({ requestedAmount: row.requestedAmount });
+    if (asked === null || asked <= 0) {
       refuse(id, "No valid amount was asked; review it on its own.");
       continue;
     }

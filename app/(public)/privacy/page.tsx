@@ -2,6 +2,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { getAppSettings } from "@/lib/settings";
 import { PUBLIC_PAGE_CONTAINER } from "@/components/public/constants";
 import { requireWebsitePageEnabled } from "@/lib/public-site/routing";
+import { LOCATION_PRIVACY_SECTION } from "@/lib/gps/privacy-text";
 
 export default async function PrivacyPage() {
   const settings = await getAppSettings();
@@ -18,7 +19,7 @@ export default async function PrivacyPage() {
         </div>
 
         <div className="mt-10 grid gap-5">
-          {content.sections.map((section) => (
+          {[...content.sections, { title: LOCATION_PRIVACY_SECTION.title, body: LOCATION_PRIVACY_SECTION.body, bullets: [...LOCATION_PRIVACY_SECTION.bullets] }].map((section) => (
             <Card key={section.title} className="rounded-[2rem] border-white/70 bg-white/80 shadow-[0_18px_50px_-28px_rgba(25,67,74,0.34)]">
               <CardContent className="space-y-4 p-6">
                 <h2 className="text-2xl font-semibold">{section.title}</h2>

@@ -10,5 +10,12 @@ it("rejects out-of-order and invalid measurements", () => {
   for (const timestamp of ["2026-10-09T09:59:00Z", "invalid", null]) expect(mergeTrackedPosition(rows, { ...current, timestamp })).toBe(rows);
 });
 it("updates a tracked position while preserving the enriched job context", () => {
-  expect(mergeTrackedPosition([current], { ...current, lat: 3, timestamp: "2026-10-09T10:00:15Z" })[0]).toMatchObject({ lat: 3, activeJob: { id: "job" }, positionSource: "gps", stale: false });
+  // Staleness is now judged from the fix's measured time (live location 2026-11): pass "now".
+  const now = Date.parse("2026-10-09T10:01:00Z");
+  expect(mergeTrackedPosition([current], { ...current, lat: 3, timestamp: "2026-10-09T10:00:15Z" }, now)[0]).toMatchObject({ lat: 3, activeJob: { id: "job" }, positionSource: "gps", stale: false });
+});
+it("keeps a late-flushed backlog fix marked stale and drops an old accuracy", () => {
+  const now = Date.parse("2026-10-09T10:20:00Z");
+  const merged = mergeTrackedPosition([{ ...current, accuracy: 5 }], { ...current, lat: 3, timestamp: "2026-10-09T10:05:00Z", accuracy: null }, now)[0];
+  expect(merged).toMatchObject({ lat: 3, stale: true, accuracy: null });
 });

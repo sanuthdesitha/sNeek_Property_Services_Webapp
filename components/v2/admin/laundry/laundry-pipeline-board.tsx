@@ -10,6 +10,8 @@ import { cn } from "@/lib/utils";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
 import { EFilterPopover } from "@/components/v2/ui/filter-popover";
 import { EBulkBar, EBulkButton } from "@/components/v2/ui/bulk-bar";
+import { type ERowMenuItem } from "@/components/v2/ui/row-menu";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 import { EField, ESelect } from "@/components/v2/admin/estate-kit";
 import { PIPELINE_LANES, PIPELINE_LANE_LABELS, type PipelineLane } from "@/lib/laundry/pipeline";
 import { READY_TO_RETURN_LABEL, isReadyToReturnStatus } from "@/lib/laundry/status-groups";
@@ -32,7 +34,13 @@ type Props = {
   onMove: (cards: PipelineCardDTO[]) => void;
   onMoveNextDay: (card: PipelineCardDTO) => void;
   onRetry: () => void;
+  /** 2026-11-14: each card's ⋯ menu, and the bulk Change state / Void (when offered to this viewer). */
+  menuFor?: (card: PipelineCardDTO) => ERowMenuItem[];
+  onChangeState?: (cards: PipelineCardDTO[]) => void;
+  onVoid?: (cards: PipelineCardDTO[]) => void;
 };
+
+const PHONE_LANE_LABELS: Record<PipelineLane, string> = { pickup: "Pick up", laundry: "Laundry", drop: "Drop", delivered: "Done" };
 
 /** At the laundry: runs still being washed, then the ones marked "Ready to return". Order kept within each. */
 export function splitReadyToReturn(cards: PipelineCardDTO[]): { washing: PipelineCardDTO[]; ready: PipelineCardDTO[] } {
@@ -60,7 +68,11 @@ export function LaundryPipelineBoard(props: Props) {
   // A different day or filter set starts a fresh selection.
   React.useEffect(() => setSelected(new Set()), [query.date, query.q, query.driverId, query.supplierId]);
 
+  const phone = useIsPhone();
+  const [phoneLane, setPhoneLane] = React.useState<PipelineLane>("pickup");
   const allCards = data ? PIPELINE_LANES.flatMap((lane) => data.lanes[lane]) : [];
+  // On a phone, exceptions in the lanes not shown surface as one note so nothing stuck is hidden.
+  const otherLaneExceptions = phone && data ? PIPELINE_LANES.filter((key) => key !== phoneLane).flatMap((key) => data.lanes[key]).filter((card) => card.exceptions.length > 0).slice(0, 3) : [];
   const selectedCards = allCards.filter((card) => selected.has(card.id));
   const driverName = data?.drivers.find((driver) => driver.id === query.driverId)?.name ?? (query.driverId === "__none" ? "No route" : null);
   const supplierName = data?.suppliers.find((supplier) => supplier.id === query.supplierId)?.name ?? null;
@@ -90,6 +102,7 @@ export function LaundryPipelineBoard(props: Props) {
             onToggle={() => toggle(card.id)}
             onMove={() => props.onMoveNextDay(card)}
             todayKey={data?.today}
+            menuItems={props.menuFor?.(card)}
           />
         ))}
       </ul>
@@ -167,6 +180,8 @@ export function LaundryPipelineBoard(props: Props) {
 
       <EBulkBar count={selectedCards.length} noun={{ one: "run", many: "runs" }} onClear={() => setSelected(new Set())} note="Each run is checked against the version shown here.">
         <EBulkButton onClick={() => props.onMove(selectedCards)}>Move to…</EBulkButton>
+        {props.onChangeState ? <EBulkButton onClick={() => props.onChangeState?.(selectedCards)}>Change state…</EBulkButton> : null}
+        {props.onVoid ? <EBulkButton onClick={() => props.onVoid?.(selectedCards)}>Void selected…</EBulkButton> : null}
       </EBulkBar>
 
       {props.refreshFailed ? <p role="status" className="text-[0.75rem] text-[hsl(var(--e-warning))]">Could not refresh; showing the last loaded lanes.</p> : null}
@@ -177,9 +192,28 @@ export function LaundryPipelineBoard(props: Props) {
           <button type="button" className="underline" onClick={props.onRetry}>Retry</button>
         </div>
       ) : null}
-      <div className={cn("flex flex-col gap-2.5 lg:flex-row lg:items-stretch", status === "loading" && data && "opacity-70")} aria-busy={status === "loading"}>
-        {PIPELINE_LANES.map((laneKey) => lane(laneKey))}
-      </div>
+      {phone ? (
+        <>
+          {/* Phone (board M-LaundryStock): one lane at a time through a segmented control with counts. */}
+          <div role="tablist" aria-label="Lanes" className="grid grid-cols-4 gap-1 rounded-[10px] bg-[hsl(var(--e-surface-raised))] p-1">
+            {PIPELINE_LANES.map((laneKey) => (
+              <button key={laneKey} type="button" role="tab" aria-selected={phoneLane === laneKey} onClick={() => setPhoneLane(laneKey)} className={cn("min-h-11 rounded-[8px] text-[0.8125rem]", phoneLane === laneKey ? "bg-[hsl(var(--e-surface))] font-semibold shadow-sm" : "text-[hsl(var(--e-muted-foreground))]")}>
+                {PHONE_LANE_LABELS[laneKey]} <span className="e-tnum">{data?.counts[laneKey] ?? "—"}</span>
+              </button>
+            ))}
+          </div>
+          {otherLaneExceptions.length ? (
+            <p role="status" className="rounded-[10px] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem]">
+              {otherLaneExceptions.map((card) => `${card.property?.name ?? "A run"}: ${card.exceptions[0].label}`).join(" · ")}
+            </p>
+          ) : null}
+          <div aria-busy={status === "loading"} className={cn(status === "loading" && data && "opacity-70")}>{lane(phoneLane)}</div>
+        </>
+      ) : (
+        <div className={cn("flex flex-col gap-2.5 lg:flex-row lg:items-stretch", status === "loading" && data && "opacity-70")} aria-busy={status === "loading"}>
+          {PIPELINE_LANES.map((laneKey) => lane(laneKey))}
+        </div>
+      )}
     </div>
   );
 }

@@ -101,7 +101,7 @@ export default async function ClientDashboard() {
 
   const laundryUpdates = client && visibility.showLaundryUpdates
     ? await db.laundryTask.findMany({
-        where: { property: { clientId: client.id } },
+        where: { property: { clientId: client.id }, voidedAt: null },
         select: {
           id: true,
           status: true,

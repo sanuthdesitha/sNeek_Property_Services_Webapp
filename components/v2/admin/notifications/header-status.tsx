@@ -63,7 +63,8 @@ export function NotificationHeaderStatus({ showTestButton }: { showTestButton: b
       {health && working.length ? <EPill tone="ok">{`${working.length === health.transports.length ? "All transports" : working.join(", ")} working`}</EPill> : null}
       {problems.slice(0, 2).map((text) => <EPill key={text} tone="warn">{text}</EPill>)}
       {problems.length > 2 ? <EPill tone="warn">{`+${problems.length - 2} more in Health`}</EPill> : null}
-      {showTestButton ? <EButton variant="outline" size="sm" onClick={focusTest}>Send test to me</EButton> : null}
+      {/* Phones: the test send sits on the wording editor screen, so the jump button is hidden there. */}
+      {showTestButton ? <EButton variant="outline" size="sm" className="max-sm:hidden" onClick={focusTest}>Send test to me</EButton> : null}
     </>
   );
 }

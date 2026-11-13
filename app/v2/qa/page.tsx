@@ -12,6 +12,7 @@ import { QaVisitOrder } from "@/components/v2/qa/today/qa-visit-order";
 import { getAppSettings } from "@/lib/settings";
 import { qaAssignmentOwnerWhere } from "@/lib/qa/ownership";
 import { resolveReworkScope, reworkScopeWhere } from "@/lib/qa/rework-list";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export const metadata = { title: "Today · Estate QA" };
 export const dynamic = "force-dynamic";
@@ -96,7 +97,7 @@ export default async function QaTodayPage() {
       </header>
 
       {unavailable ? (
-        <div role="alert" className="border-l-4 border-[hsl(var(--e-danger))] px-4 py-3 text-sm">
+        <div role="alert" className={`rounded-[var(--e-radius)] ${toneNoticeClass("problem")} px-4 py-3 text-sm`}>
           Some QA figures could not be loaded. <a href="/v2/qa" className="underline">Retry</a>
         </div>
       ) : null}

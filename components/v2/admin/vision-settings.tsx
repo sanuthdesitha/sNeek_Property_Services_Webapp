@@ -13,7 +13,7 @@ export function VisionSettingsPanel({ initialSettings, canEdit, configured, prov
   const providerName = settings.provider === "ollama" ? "Ollama" : settings.provider === "openai" ? "OpenAI" : "Anthropic";
   const credentialName = settings.provider === "ollama" ? "OLLAMA_BASE_URL" : settings.provider === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
   async function save() {
-    if (!visionSettingsSchema.safeParse(settings).success) { setMessage("Check the limits shown beside each setting."); return; }
+    if (!visionSettingsSchema.safeParse(settings).success || settings.minorPoints > settings.majorPoints) { setMessage("Check the limits shown beside each setting."); return; }
     setBusy(true); setMessage("");
     try {
       const response = await fetch("/api/admin/ai/vision", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) });
@@ -36,7 +36,7 @@ export function VisionSettingsPanel({ initialSettings, canEdit, configured, prov
   }
   return <section className="space-y-4 rounded-xl border p-5" aria-labelledby="vision-settings-title">
     <h2 id="vision-settings-title" className="text-lg font-semibold">Photo analysis</h2>
-    <p className="text-sm">Enabled features send authorized property photos to the selected provider. Reference comparison proposes deductions for QA/admin approval; scores never change automatically.</p>
+    <p className="text-sm">Enabled features send authorized property photos to the selected provider. Reference comparison proposes deductions for QA/admin approval; scores never change automatically. A cloud provider receives photos only when <a href="/v2/admin/settings?tab=ai" className="underline">Settings, AI</a> allows it for that feature (off by default); the time and address stamp is blacked out first.</p>
     <p className="text-sm">{settings.provider === "ollama" ? <>Ollama uses the connection and shared vision model saved in <a href="/v2/admin/settings?tab=ollama" className="underline">Settings → Ollama</a>. {selectedConfigured ? "Configuration is present; connection has not been verified." : "Open Ollama setup to configure and test your local server."}</> : <>{providerName} uses the server-only {credentialName}. {selectedConfigured ? "Server configuration is present; connection has not been verified." : "Add this setting to your hosting environment and restart the app."}</>}</p>
     {settings.provider === "ollama" && <p className="text-sm">Run a vision-capable model on your own Ollama server. Photos go to that server; failures never switch to a paid provider. Install the selected model before checking. Previous property examples help recognition without retraining the base model.</p>}
     {settings.provider === "openai" ? <p className="text-sm">Connect using an OpenAI API project key, not your ChatGPT login. Previous property photos are supplied as examples during analysis. You can use OpenAI without the separate dedicated recognition service.</p> : null}
@@ -57,6 +57,11 @@ export function VisionSettingsPanel({ initialSettings, canEdit, configured, prov
         <label>Minimum confidence (0–1)<input aria-label="Minimum confidence" type="number" min={0} max={1} step={0.05} className="mt-1 block min-h-11 w-full rounded border p-2" value={settings.minConfidence} onChange={(event) => setSettings({ ...settings, minConfidence: Number(event.target.value) })} /></label>
         <label>Maximum proposed deduction (0–20 points)<input aria-label="Maximum proposed deduction" type="number" min={0} max={20} step={1} className="mt-1 block min-h-11 w-full rounded border p-2" value={settings.maxScoreContribution} onChange={(event) => setSettings({ ...settings, maxScoreContribution: Number(event.target.value) })} /></label>
       </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label>Points for an approved minor finding (0–10)<input aria-label="Points for a minor finding" type="number" min={0} max={10} step={1} className="mt-1 block min-h-11 w-full rounded border p-2" value={settings.minorPoints} onChange={(event) => setSettings({ ...settings, minorPoints: Number(event.target.value) })} /></label>
+        <label>Points for an approved major finding (0–20)<input aria-label="Points for a major finding" type="number" min={0} max={20} step={1} className="mt-1 block min-h-11 w-full rounded border p-2" value={settings.majorPoints} onChange={(event) => setSettings({ ...settings, majorPoints: Number(event.target.value) })} /></label>
+      </div>
+      <p className="text-sm">A reviewer still chooses which findings to approve; repeated photos of one field count once and the total stays within the maximum above. A minor finding cannot deduct more than a major one.</p>
       <div className="flex flex-wrap gap-3"><button type="button" className="min-h-11 rounded border px-4" onClick={save}>Save vision settings</button><button type="button" disabled={dirty || !selectedConfigured} className="min-h-11 rounded border px-4" onClick={check}>Check provider and saved model</button></div>
     </fieldset>
     <p className="text-sm">The connection check reads model availability only; it sends no photos and runs no image analysis. Save model changes before checking.</p>

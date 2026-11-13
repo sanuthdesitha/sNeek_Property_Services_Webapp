@@ -67,6 +67,24 @@ export function chipDescription(job: CalendarJob): string {
   return parts.join(" · ");
 }
 
+/**
+ * The job's menu, shared by the chip and the phone agenda card: Open preview,
+ * Open full job, Move or reassign…, Assign cleaners…, Assign QA inspector….
+ */
+export function chipMenuItems(job: CalendarJob, source: DropPoint, actions: ChipActions, pending: boolean): ERowMenuItem[] {
+  const movable = !job.moveBlock && !actions.readOnly && !pending;
+  return [
+    { key: "open", label: "Open preview", onSelect: () => actions.onOpen(job) },
+    { key: "full", label: "Open full job", href: `/v2/admin/jobs/${job.id}` },
+    {
+      key: "move", label: "Move or reassign…", separated: true, onSelect: () => actions.onMove(job, source),
+      disabled: !movable, hint: pending ? "Saving…" : job.moveBlock ?? (actions.readOnly ? "Read-only view" : undefined),
+    },
+    { key: "assign", label: job.cleaners.length === 0 ? "Assign cleaners…" : "Reassign cleaners…", onSelect: () => actions.onAssign(job), disabled: actions.readOnly || pending, hint: actions.readOnly ? "Read-only view" : undefined },
+    { key: "qa", label: job.qa?.assignedToId ? "Reassign QA inspector…" : "Assign QA inspector…", onSelect: () => actions.onQa(job), disabled: actions.readOnly, hint: actions.readOnly ? "Read-only view" : undefined },
+  ];
+}
+
 type ChipProps = {
   job: CalendarJob;
   source: DropPoint;
@@ -85,16 +103,7 @@ export function CalendarJobChip({ job, source, actions, showArrival, showCleaner
   const draggable = movable && actions.canDrag;
   const dragHint = draggable ? "Drag to another day or cleaner (on touch, press and hold first), or use the menu." : "Use the menu to move or reassign.";
   const hint = pending ? "A move for this job is being checked or saved." : job.moveBlock ?? (actions.readOnly ? "Read-only view: jobs cannot be moved." : dragHint);
-  const menu: ERowMenuItem[] = [
-    { key: "open", label: "Open preview", onSelect: () => actions.onOpen(job) },
-    { key: "full", label: "Open full job", href: `/v2/admin/jobs/${job.id}` },
-    {
-      key: "move", label: "Move or reassign…", separated: true, onSelect: () => actions.onMove(job, source),
-      disabled: !movable, hint: pending ? "Saving…" : job.moveBlock ?? (actions.readOnly ? "Read-only view" : undefined),
-    },
-    { key: "assign", label: job.cleaners.length === 0 ? "Assign cleaners…" : "Reassign cleaners…", onSelect: () => actions.onAssign(job), disabled: actions.readOnly || pending, hint: actions.readOnly ? "Read-only view" : undefined },
-    { key: "qa", label: job.qa?.assignedToId ? "Reassign QA inspector…" : "Assign QA inspector…", onSelect: () => actions.onQa(job), disabled: actions.readOnly, hint: actions.readOnly ? "Read-only view" : undefined },
-  ];
+  const menu = chipMenuItems(job, source, actions, pending);
 
   return (
     <div

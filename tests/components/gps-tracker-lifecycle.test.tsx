@@ -102,19 +102,26 @@ describe("GPS collection lifecycle", () => {
     expect(mocks.enqueue).toHaveBeenCalledTimes(3);
   });
 
-  it("resets on enable and account/impersonation changes without logging coordinates", async () => {
+  it("resets on enable and account changes, and never collects while impersonated, without logging coordinates", async () => {
     const log = vi.spyOn(console, "info").mockImplementation(() => {});
     const { result, rerender } = renderHook(({ enabled }) => useGpsTracker({ jobId: "job", enabled }), { initialProps: { enabled: true } });
     await act(async () => watches[0](position));
     rerender({ enabled: false }); rerender({ enabled: true });
     await act(async () => { await vi.advanceTimersByTimeAsync(45_000); });
     expect(mocks.enqueue).toHaveBeenCalledTimes(1);
-    mocks.session.mockReturnValue(signedIn("two", { actorId: "admin", mode: "FULL", startedAt: 1 }));
+    mocks.session.mockReturnValue(signedIn("two"));
     rerender({ enabled: true });
     expect(result.current.lastFix).toBeNull();
     await act(async () => { watches[1](position); oneShots.at(-1)!(position); });
     expect(mocks.enqueue).toHaveBeenCalledTimes(2);
-    expect(mocks.enqueue).toHaveBeenLastCalledWith(expect.objectContaining({ scope: JSON.stringify(["two", "CLEANER", "admin", "FULL", 1]) }));
+    expect(mocks.enqueue).toHaveBeenLastCalledWith(expect.objectContaining({ scope: scope("two") }));
+    // Live location 2026-11: an administrator viewing as the cleaner is never a location source.
+    const watchesBefore = geo.watchPosition.mock.calls.length;
+    mocks.session.mockReturnValue(signedIn("two", { actorId: "admin", mode: "FULL", startedAt: 1 }));
+    rerender({ enabled: true });
+    await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
+    expect(geo.watchPosition.mock.calls.length).toBe(watchesBefore);
+    expect(mocks.enqueue).toHaveBeenCalledTimes(2);
     expect(log).not.toHaveBeenCalled();
     log.mockRestore();
   });
@@ -127,9 +134,11 @@ describe("GPS owned queue flushing", () => {
     renderHook(() => useGpsTracker({ jobId: "job" }));
     await settle();
     expect(fetcher).toHaveBeenCalledTimes(2);
+    // Envelope since live location 2026-11: { sentAt, pings } with the queue id as the client id.
     const bodies = fetcher.mock.calls.map(call => JSON.parse(call[1].body));
-    expect(bodies.map(body => body.length)).toEqual([50, 1]);
-    expect(bodies.flat()).toEqual(owned.map(({ id: _id, scope: _scope, ...rest }) => rest));
+    expect(bodies.map(body => body.pings.length)).toEqual([50, 1]);
+    expect(bodies.every(body => typeof body.sentAt === "string")).toBe(true);
+    expect(bodies.flatMap(body => body.pings)).toEqual(owned.map(({ id, scope: _scope, ...rest }) => ({ clientId: id, ...rest })));
     expect(mocks.clear.mock.calls.flatMap(call => call[0])).toEqual(owned.map(p => p.id));
   });
 
@@ -220,18 +229,70 @@ describe("GPS owned queue flushing", () => {
     expect(mocks.clear).not.toHaveBeenCalled();
   });
 
-  it("isolates impersonation sessions even for the same cleaner", async () => {
+  it("never flushes, even its own queue, while an administrator is impersonating the cleaner", async () => {
     const impersonation = { actorId: "admin", mode: "FULL", startedAt: 2 };
     const currentScope = JSON.stringify(["one", "CLEANER", "admin", "FULL", 2]);
     mocks.session.mockReturnValue(signedIn("one", impersonation));
-    mocks.drain.mockResolvedValue([
-      ping("normal"),
-      ping("previous-impersonation", JSON.stringify(["one", "CLEANER", "admin", "FULL", 1])),
-      ping("current", currentScope),
-    ]);
+    mocks.drain.mockResolvedValue([ping("normal"), ping("current", currentScope)]);
     renderHook(() => useGpsTracker({ jobId: "job" }));
     await settle();
-    expect(mocks.clear.mock.calls).toEqual([[["current"]]]);
-    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toHaveLength(1);
+    expect(mocks.drain).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(mocks.clear).not.toHaveBeenCalled();
+  });
+});
+
+describe("tracker honesty and recovery (live location 2026-11)", () => {
+  it("tells the office when location permission is turned off, even with nothing queued", async () => {
+    renderHook(() => useGpsTracker({ jobId: "job" }));
+    await settle();
+    fetcher.mockClear();
+    await act(async () => { errors[0](denied); });
+    await settle();
+    const body = JSON.parse(fetcher.mock.calls.at(-1)![1].body);
+    expect(body.state.state).toBe("PERMISSION_OFF");
+    expect(body.pings).toEqual([]);
+  });
+
+  it("sends the queue with keepalive and a background state when the page is hidden", async () => {
+    mocks.drain.mockResolvedValue([ping("queued", scope(), "job")]);
+    renderHook(() => useGpsTracker({ jobId: "job" }));
+    await settle();
+    fetcher.mockClear();
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+    await settle();
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+    const [, init] = fetcher.mock.calls.at(-1)!;
+    expect(init.keepalive).toBe(true);
+    expect(JSON.parse(init.body).state.state).toBe("BACKGROUND");
+  });
+
+  it("asks the page to re-check its window when the server says it closed", async () => {
+    const closed = vi.fn();
+    mocks.drain.mockResolvedValue([ping("queued", scope(), "job")]);
+    fetcher.mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true, window: { active: false, reason: "CLOCK_STOPPED" } }) });
+    renderHook(() => useGpsTracker({ jobId: "job", onWindowClosed: closed }));
+    await settle();
+    expect(closed).toHaveBeenCalled();
+    expect(mocks.clear).toHaveBeenCalledWith(["queued"]);
+  });
+
+  it("restarts the watch on request (Retry location)", async () => {
+    const { requestTrackerRestart } = await import("@/lib/gps/live-fix-store");
+    renderHook(() => useGpsTracker({ jobId: "job" }));
+    await settle();
+    expect(geo.watchPosition).toHaveBeenCalledTimes(1);
+    await act(async () => { requestTrackerRestart(); });
+    expect(geo.clearWatch).toHaveBeenCalledWith(1);
+    expect(geo.watchPosition).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a rate-limited batch for the next flush", async () => {
+    mocks.drain.mockResolvedValue([ping("queued", scope(), "job")]);
+    fetcher.mockResolvedValue({ ok: false, status: 429, json: async () => ({ retryAfterMs: 5000 }) });
+    renderHook(() => useGpsTracker({ jobId: "job" }));
+    await settle();
+    expect(mocks.clear).not.toHaveBeenCalled();
   });
 });

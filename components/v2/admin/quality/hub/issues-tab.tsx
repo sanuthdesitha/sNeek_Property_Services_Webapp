@@ -28,6 +28,10 @@ import { issueColumns } from "./issue-columns";
 import { IssueBulkBar } from "./issue-bulk";
 import { useQualityRead, useReloadOn } from "./use-quality-read";
 import { severityLabel } from "@/lib/quality/severity";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
+import type { EActiveFilter } from "@/components/v2/ui/filter-bar";
+import type { IssueActionKey } from "../issues/issue-actions";
+import { issuePhoneActionsColumn } from "./issue-columns";
 
 export const ISSUE_PAGE_SIZE = 25;
 
@@ -62,6 +66,40 @@ function StatusFilter<T extends string>({
   );
 }
 
+/** The Issues tab's own status filters (inline from 640px; in the hub's filter sheet on a phone). */
+export function IssueStatusFilters({ filters, onFilters }: { filters: IssueListFilters; onFilters: (patch: Partial<IssueListFilters>) => void }) {
+  return (
+    <>
+      <StatusFilter label="Severity" value={filters.severity} values={ISSUE_SEVERITIES} optionLabel={severityLabel} onChange={(severity) => onFilters({ severity })} />
+      <StatusFilter
+        label="Rectification"
+        value={filters.rectificationStatus}
+        values={RECTIFICATION_STATUSES}
+        onChange={(rectificationStatus) => onFilters({ rectificationStatus })}
+      />
+      <StatusFilter
+        label="False confirmation"
+        value={filters.falseConfirmation}
+        values={FALSE_CONFIRMATION_STATUSES}
+        onChange={(falseConfirmation) => onFilters({ falseConfirmation })}
+      />
+    </>
+  );
+}
+
+/** Chips for the status filters in use (the phone filter bar). */
+export function issueStatusActiveFilters(filters: IssueListFilters, onFilters: (patch: Partial<IssueListFilters>) => void): EActiveFilter[] {
+  const active: EActiveFilter[] = [];
+  if (filters.severity) active.push({ key: "severity", label: `Severity: ${severityLabel(filters.severity)}`, onRemove: () => onFilters({ severity: "" }) });
+  if (filters.rectificationStatus) {
+    active.push({ key: "rectification", label: `Rectification: ${titleCaseKey(filters.rectificationStatus)}`, onRemove: () => onFilters({ rectificationStatus: "" }) });
+  }
+  if (filters.falseConfirmation) {
+    active.push({ key: "falseConfirmation", label: `False confirmation: ${titleCaseKey(filters.falseConfirmation)}`, onRemove: () => onFilters({ falseConfirmation: "" }) });
+  }
+  return active;
+}
+
 export function IssuesTab({
   apiQuery,
   filters,
@@ -75,6 +113,7 @@ export function IssuesTab({
   onSort,
   onPage,
   onOpenIssue,
+  onOpenIssueAction,
   onChanged,
 }: {
   /** Period + shared filters + the tab's own status filters, serialised. */
@@ -90,6 +129,8 @@ export function IssuesTab({
   onSort: (sort: string, dir: "asc" | "desc") => void;
   onPage: (page: number) => void;
   onOpenIssue: (issue: QualityIssueRow) => void;
+  /** Phones: open the issue on one of its actions (the card's Mark fixed and "⋯"). */
+  onOpenIssueAction?: (issue: QualityIssueRow, action: IssueActionKey) => void;
   onChanged: () => void;
 }) {
   const activeSort: IssueSort = (ISSUE_SORTS as readonly string[]).includes(sort) ? (sort as IssueSort) : "created";
@@ -110,10 +151,13 @@ export function IssuesTab({
 
   const rows = read.data?.rows ?? [];
   for (const row of rows) seen.current.set(row.id, `${labelFor(row.category)} (${row.cleaner?.name ?? "cleaner"})`);
-  const columns = React.useMemo(
-    () => issueColumns({ labelFor, timeZone: context.timeZone, onOpen: onOpenIssue }),
-    [labelFor, context.timeZone, onOpenIssue],
-  );
+  const phone = useIsPhone();
+  const phoneActions = phone && context.canManage && onOpenIssueAction ? onOpenIssueAction : null;
+  const columns = React.useMemo(() => {
+    const base = issueColumns({ labelFor, timeZone: context.timeZone, onOpen: onOpenIssue });
+    // Phones only: each card carries its actions (board "M-PeopleQuality"); the desktop table is unchanged.
+    return phoneActions ? [...base, issuePhoneActionsColumn({ labelFor, onOpen: onOpenIssue, onAction: phoneActions })] : base;
+  }, [labelFor, context.timeZone, onOpenIssue, phoneActions]);
   const exportParams = new URLSearchParams(apiQuery);
   exportParams.set("sort", activeSort);
   exportParams.set("dir", activeDir);
@@ -121,19 +165,8 @@ export function IssuesTab({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <StatusFilter label="Severity" value={filters.severity} values={ISSUE_SEVERITIES} optionLabel={severityLabel} onChange={(severity) => onFilters({ severity })} />
-        <StatusFilter
-          label="Rectification"
-          value={filters.rectificationStatus}
-          values={RECTIFICATION_STATUSES}
-          onChange={(rectificationStatus) => onFilters({ rectificationStatus })}
-        />
-        <StatusFilter
-          label="False confirmation"
-          value={filters.falseConfirmation}
-          values={FALSE_CONFIRMATION_STATUSES}
-          onChange={(falseConfirmation) => onFilters({ falseConfirmation })}
-        />
+        {/* Phones: the status filters are in the hub's one filter sheet. */}
+        {phone ? null : <IssueStatusFilters filters={filters} onFilters={onFilters} />}
         <span className="min-w-0 flex-1" />
         <EButton asChild size="sm" variant="outline">
           <a href={`/api/admin/quality/issues/export?${exportParams.toString()}`} download>

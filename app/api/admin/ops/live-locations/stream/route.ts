@@ -1,9 +1,11 @@
 import { getOpsAccess } from "@/lib/rbac/ops-access";
 import { canUseOpsPath } from "@/lib/rbac/ops-catalog";
 import { NextRequest } from "next/server";
-import { requireRole } from "@/lib/auth/session";
+import { liveErrorStatus, requireLiveViewer } from "@/lib/ops/live-viewer";
 import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
+import { liveAccessFor } from "@/lib/ops/live-access";
+import { advanceStreamCursor, initialStreamCursor, streamCursorWhere } from "@/lib/ops/live-stream";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,7 +27,12 @@ if (!globalRef.__sneekSseLiveLocations) globalRef.__sneekSseLiveLocations = { ac
 const sseState = globalRef.__sneekSseLiveLocations;
 
 /**
- * Server-Sent Events stream of new cleaner location pings.
+ * Server-Sent Events stream of newly STORED location pings.
+ *
+ * The cursor is the server's receive time plus the row id, not the fix's
+ * measured time: the tracker flushes every 30 s, so a fix measured before the
+ * last cursor routinely arrives after it and was never streamed. Laundry
+ * driver pings are sent only to viewers with the Laundry pack.
  *
  * Safety:
  *  - Max 50 concurrent connections per process
@@ -35,12 +42,13 @@ const sseState = globalRef.__sneekSseLiveLocations;
  *  - Single cleanup function called on abort OR lifetime timeout
  */
 export async function GET(req: NextRequest) {
-  let session;
+  let session: { user: { id: string } };
   try {
-    session = await requireRole(["ADMIN", "OPS_MANAGER"]);
+    const viewer = await requireLiveViewer();
+    session = { user: { id: viewer.userId } };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "FORBIDDEN";
-    return new Response(message, { status: message === "UNAUTHORIZED" ? 401 : 403 });
+    const status = liveErrorStatus(err);
+    return new Response(status === 401 ? "UNAUTHORIZED" : "FORBIDDEN", { status });
   }
 
   if (sseState.active >= MAX_CONNECTIONS) {
@@ -49,7 +57,7 @@ export async function GET(req: NextRequest) {
 
   sseState.active++;
   const encoder = new TextEncoder();
-  let lastTs = new Date(Date.now() - 60_000);
+  let cursor = initialStreamCursor(Date.now());
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -108,17 +116,29 @@ export async function GET(req: NextRequest) {
             cleanup();
             return;
           }
+          const liveAccess = liveAccessFor(access);
+          if (!liveAccess.live) {
+            cleanup();
+            return;
+          }
           const pings = await db.cleanerLocationPing.findMany({
-            where: { timestamp: { gt: lastTs } },
-            orderBy: { timestamp: "asc" },
-            include: { user: { select: { id: true, name: true } } },
+            where: {
+              ...streamCursorWhere(cursor),
+              ...(liveAccess.drivers ? {} : { source: { not: "LAUNDRY_ROUTE" as const } }),
+            },
+            orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
+            select: {
+              id: true, userId: true, jobId: true, lat: true, lng: true, accuracy: true, heading: true, speed: true,
+              timestamp: true, receivedAt: true, source: true,
+              user: { select: { id: true, name: true } },
+            },
             take: 100,
           });
           if (pings.length > 0) {
             for (const p of pings) {
-              send({ type: "ping", ping: p });
+              send({ type: "ping", ping: { ...p, measuredAt: p.timestamp } });
             }
-            lastTs = pings[pings.length - 1].timestamp;
+            cursor = advanceStreamCursor(cursor, pings);
           }
         } catch (err) {
           // Transient DB error — log + keep the connection alive.

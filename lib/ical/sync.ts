@@ -16,6 +16,16 @@ import { clearPendingLaundrySyncDraftForProperty, notifyLaundryTeamsForApprovedS
 import { attachPendingAdminTasksToJob, attachPendingCarryForwardTasksToJob } from "@/lib/job-tasks/service";
 import { notifyAutoSyncChanges } from "@/lib/ical/notifications";
 import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
+import { loadSchedulingRuleBook } from "@/lib/scheduling-rules/store";
+import type { RuleBook } from "@/lib/scheduling-rules/book";
+import {
+  ICAL_FEED_TIMEOUT_MS,
+  ICAL_INTERRUPTED_RUN_AFTER_MS,
+  ICAL_LEGACY_DUE_INTERVAL_MS,
+  ICAL_PRUNABLE_JOB_STATUSES,
+  ICAL_SYNC_CONCURRENCY as ICAL_SYNC_CONCURRENCY_VALUE,
+  ICAL_TERMINAL_JOB_STATUSES,
+} from "@/lib/scheduling-rules/constants";
 import { getAppSettings } from "@/lib/settings";
 import { resolvePropertyCleanHours } from "@/lib/properties/clean-hours";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
@@ -110,7 +120,7 @@ export type IcalSyncSummary = {
 };
 
 // Cancelled (Wave E) is the office's decision: the feed never updates or revives it.
-const TERMINAL_SYNC_JOB_STATUSES = new Set(["COMPLETED", "INVOICED", "CANCELLED"]);
+const TERMINAL_SYNC_JOB_STATUSES = new Set<string>(ICAL_TERMINAL_JOB_STATUSES);
 
 export interface SyncPropertyIcalOptions {
   triggeredById?: string | null;
@@ -123,7 +133,7 @@ export interface UndoIcalSyncOptions {
   revertedById?: string | null;
 }
 
-const AUTO_SYNC_INTERVAL_MS = 40 * 60_000;
+const AUTO_SYNC_INTERVAL_MS = ICAL_LEGACY_DUE_INTERVAL_MS;
 
 function icalDateToUtcDateOnly(value: ICAL.Time): Date {
   return new Date(Date.UTC(value.year, value.month - 1, value.day));
@@ -643,8 +653,18 @@ async function syncTurnoverJobsForReservations(params: {
   summary: IcalSyncSummary;
   snapshot: IcalSyncSnapshot;
   syncOptions: IcalSyncOptions;
+  /**
+   * The published scheduling rules: a NEW turnover uses the live "ready by"
+   * time; an existing one keeps the version it was created under unless a
+   * later version was published with "re-plan existing".
+   */
+  ruleBook: RuleBook | null;
 }) {
   if (!params.syncOptions.autoCreateTurnoverJobs) return;
+  if (!params.ruleBook || params.reservations.length === 0) return;
+  const ruleBook = params.ruleBook;
+  const liveReadyBy = ruleBook.live.values["jobs.turnoverReadyByTime"];
+  const readyByFor = (createdAt: Date) => ruleBook.forItem(createdAt).values["jobs.turnoverReadyByTime"];
 
   const existingJobs = await db.job.findMany({
     where: {
@@ -747,7 +767,7 @@ async function syncTurnoverJobsForReservations(params: {
         reservationDueTime: sameDayCheckinTime,
         earlyCheckin: createMeta.earlyCheckin,
         lateCheckout: createMeta.lateCheckout,
-      });
+      }, liveReadyBy);
       const created = await db.job.create({
         data: {
           jobNumber,
@@ -817,7 +837,7 @@ async function syncTurnoverJobsForReservations(params: {
         reservationDueTime: sameDayCheckinTime,
         earlyCheckin: movedMeta.earlyCheckin,
         lateCheckout: movedMeta.lateCheckout,
-      });
+      }, readyByFor(existingJob.createdAt));
       await db.jobAssignment.updateMany({
         where: { jobId: existingJob.id, removedAt: null },
         data: { removedAt: new Date() },
@@ -893,7 +913,7 @@ async function syncTurnoverJobsForReservations(params: {
       reservationDueTime: sameDayCheckinTime,
       earlyCheckin: latestMeta.earlyCheckin,
       lateCheckout: latestMeta.lateCheckout,
-    });
+    }, readyByFor(existingJob.createdAt));
     const syncedStartTime = resolvedTimes.startTime ?? startTime;
     const syncedDueTime = resolvedTimes.dueTime ?? sameDayCheckinTime;
 
@@ -958,7 +978,7 @@ async function syncTurnoverJobsForReservations(params: {
 // Statuses where the cleaner hasn't started work yet — safe to remove if the
 // booking vanished. Anything from EN_ROUTE onward means real work is underway
 // or done, so we never auto-delete those.
-const PRUNABLE_JOB_STATUSES = new Set(["UNASSIGNED", "OFFERED", "ASSIGNED"]);
+const PRUNABLE_JOB_STATUSES = new Set<string>(ICAL_PRUNABLE_JOB_STATUSES);
 
 /**
  * Remove jobs whose reservation is no longer in the feed (cancelled, or the
@@ -1149,7 +1169,7 @@ export async function syncPropertyIcal(
     // Keep the deadline through body consumption: fetch resolves on headers,
     // so clearing it there lets a stalled body occupy a pool slot forever.
     const fetchController = new AbortController();
-    const fetchTimer = setTimeout(() => fetchController.abort(), 15_000);
+    const fetchTimer = setTimeout(() => fetchController.abort(), ICAL_FEED_TIMEOUT_MS);
     let res: Response;
     let text = "";
     try {
@@ -1260,6 +1280,12 @@ export async function syncPropertyIcal(
       }
     }
 
+    // The published scheduling rules, read BEFORE anything is written so an
+    // unavailable rule store fails this run (recorded as ERROR with its reason)
+    // instead of creating jobs on guessed values.
+    const ruleBook =
+      syncOptions.autoCreateTurnoverJobs && uniqueEvents.length > 0 ? await loadSchedulingRuleBook() : null;
+
     const touchedReservations = await createOrUpdateReservations({
       propertyId: integration.propertyId,
       provider: integration.provider,
@@ -1301,6 +1327,7 @@ export async function syncPropertyIcal(
       summary,
       snapshot,
       syncOptions,
+      ruleBook,
     });
 
     // Remove jobs whose booking is no longer in the calendar (cancelled, or
@@ -1578,7 +1605,7 @@ export async function undoIcalSyncRun(options: UndoIcalSyncOptions) {
  * 40 minutes. Each feed still has a 15s `AbortController` timeout in
  * `syncPropertyIcal`, so the worst case for the whole batch is bounded.
  */
-const ICAL_SYNC_CONCURRENCY = 4;
+const ICAL_SYNC_CONCURRENCY = ICAL_SYNC_CONCURRENCY_VALUE;
 
 async function withConcurrency<T>(
   items: T[],
@@ -1604,7 +1631,7 @@ async function withConcurrency<T>(
 }
 
 /** Longer than any run can take: the worker aborts a handler after ten minutes. */
-const INTERRUPTED_RUN_AFTER_MS = 20 * 60_000;
+const INTERRUPTED_RUN_AFTER_MS = ICAL_INTERRUPTED_RUN_AFTER_MS;
 
 /**
  * A run whose process died (deploy, crash, restart) never reaches its error

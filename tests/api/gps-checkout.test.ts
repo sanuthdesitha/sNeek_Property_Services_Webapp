@@ -24,7 +24,8 @@ it.each([{ lat: null, lng: 2 }, { lat: true, lng: 2 }, { lat: 91, lng: 2 }, { la
 it("binds coordinates to authenticated cleaner and current assignment", async () => {
  const response = await send({ lat: 1, lng: 2, timeLogId: "clock", userId: "other" });
  expect(await response.json()).toMatchObject({ recorded: true, distanceMeters: 0 });
- expect(mocks.record).toHaveBeenCalledWith({}, { jobId: "job", userId: "cleaner", timeLogId: "clock", lat: 1, lng: 2 });
+ // The segment's stop location also carries accuracy and distance (live location 2026-11).
+ expect(mocks.record).toHaveBeenCalledWith({}, { jobId: "job", userId: "cleaner", timeLogId: "clock", lat: 1, lng: 2, accuracy: null, distanceM: 0 });
 });
 it("does not report stale coordinates as saved", async () => {
  mocks.record.mockResolvedValue({ recorded: false, reason: "CLOCK_OUT_ALREADY_RECORDED" });
@@ -33,6 +34,11 @@ it("does not report stale coordinates as saved", async () => {
 it("denies revoked assignments", async () => {
  mocks.record.mockRejectedValue(new Error("FORBIDDEN"));
  expect((await send({ lat: 1, lng: 2, timeLogId: "clock" })).status).toBe(403);
+});
+it("records nothing while an administrator is viewing as the cleaner", async () => {
+ mocks.role.mockResolvedValue({ user: { id: "cleaner" }, impersonation: { actorId: "office", mode: "FULL", startedAt: 1 } });
+ expect(await (await send({ lat: 1, lng: 2, timeLogId: "clock" })).json()).toEqual({ ok: true, recorded: false, reason: "IMPERSONATING" });
+ expect(mocks.record).not.toHaveBeenCalled();
 });
 it("denies unauthenticated requests", async () => {
  mocks.role.mockRejectedValue(new Error("UNAUTHORIZED"));

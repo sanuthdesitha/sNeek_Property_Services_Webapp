@@ -3,6 +3,11 @@
 /**
  * Client invoices tab: figures, status chips and filters, the paged table with
  * one action per row, the bulk bar, and the dialogs each action opens.
+ *
+ * Phones (below 640px, board "Admin phone: Invoices and pay"): the table's own
+ * stacked cards (number, client, period, due, total, owing, status, Xero, the
+ * next step and ⋯), filters behind "Filter", and "New invoice" docked at the
+ * bottom (hidden while the bulk bar is up) opening a chooser sheet.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -10,6 +15,8 @@ import { toast } from "@/hooks/use-toast";
 import { EButton, ECard } from "@/components/v2/ui/primitives";
 import { EDataTable } from "@/components/v2/ui/data-table";
 import { EPagination } from "@/components/v2/ui/pagination";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
+import { NewInvoiceSheet } from "./new-invoice-sheet";
 import type { ClientInvoiceBulkResponse } from "@/lib/billing/client-invoice-list-types";
 import { InvoiceStats } from "./invoice-stats";
 import { InvoiceFilters } from "./invoice-filters";
@@ -64,6 +71,7 @@ export function InvoiceList() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [statsToken, setStatsToken] = useState(0);
+  const [newSheetOpen, setNewSheetOpen] = useState(false);
   // Selection survives paging but not a change of filters or sort.
   const [selected, setSelected] = useState<Map<string, InvoiceRow>>(new Map());
   const signature = filterSignature(state);
@@ -197,6 +205,7 @@ export function InvoiceList() {
         counts={payload?.counts ?? null}
         clients={context?.clients ?? []}
         disabled={bulkRunning}
+        total={payload?.total ?? null}
         onChange={update}
       />
       {/* The old screen's "Refresh": re-reads the page of rows and the figures.
@@ -270,6 +279,17 @@ export function InvoiceList() {
         xeroRefreshing={xero.run.status === "running"}
       />
       <InvoiceDialogs dialog={dialog} context={context} onClose={() => setDialog(null)} onDone={refresh} />
+      <EPhoneActionBar
+        label="Client invoice actions"
+        hidden={selected.size > 0}
+        primary={<EButton type="button" onClick={() => setNewSheetOpen(true)} aria-haspopup="dialog">New invoice</EButton>}
+      />
+      <NewInvoiceSheet
+        open={newSheetOpen}
+        onOpenChange={setNewSheetOpen}
+        creditRefusal={payload?.canVoidCredit === false ? VOID_CREDIT_REFUSAL : null}
+        onContinue={(choice) => setDialog(NEW_INVOICE_DIALOGS[choice])}
+      />
     </div>
   );
 }

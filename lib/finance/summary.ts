@@ -8,6 +8,7 @@ import { laundryTaskAmount } from "@/lib/laundry/invoice";
 import { payRateUnknown } from "@/lib/insights/job-facts";
 import { sydneyDayStart, sydneyDayEndInclusive, sydneyTodayKey, monthStartKey } from "@/lib/time/sydney-range";
 import { loadPayRateBook } from "@/lib/accounts/pay-rate";
+import { NOT_VOIDED } from "@/lib/laundry/void-scope";
 
 export interface FinanceSummaryRow {
   clientId: string;
@@ -140,7 +141,8 @@ export async function getFinanceSummary(input: { startDate?: string; endDate?: s
       },
     }),
     db.laundryTask.findMany({
-      where: { droppedAt: { gte: start, lte: end } },
+      // A voided run never counts as laundry cost (2026-11-14).
+      where: { ...NOT_VOIDED, droppedAt: { gte: start, lte: end } },
       include: {
         property: { select: { clientId: true, client: { select: { name: true } } } },
         confirmations: { orderBy: { createdAt: "asc" } },

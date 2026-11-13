@@ -12,6 +12,7 @@ import { UnbilledList, UnbilledSummaryCard, type UnbilledCharge } from "@/compon
 import { RatesList, type ClientRate } from "@/components/v2/client/money/rates-list";
 import { MONEY_TZ, formatAud } from "@/components/v2/client/money/money-format";
 import { Info } from "lucide-react";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export const metadata = { title: "Money · Estate client" };
 export const dynamic = "force-dynamic";
@@ -89,11 +90,11 @@ export default async function V2ClientFinancePage({ searchParams }: { searchPara
       <EPageHeader title="Money" description={`Invoices, work not yet invoiced and rates for ${portal.client?.name ?? "your account"}.`} />
 
       {searchParams?.paid === "1" ? (
-        <p role="status" className="rounded-[var(--e-radius)] border-l-4 border-[hsl(var(--e-info))] bg-[hsl(var(--e-surface))] px-3 py-2 text-[0.8125rem]">
+        <p role="status" className={`rounded-[var(--e-radius)] ${toneNoticeClass("info")} px-3 py-2 text-[0.8125rem]`}>
           Your payment was handed to the payment provider. The invoice shows Paid once the provider confirms it.
         </p>
       ) : searchParams?.payment === "cancelled" ? (
-        <p role="status" className="rounded-[var(--e-radius)] border-l-4 border-[hsl(var(--e-warning))] bg-[hsl(var(--e-surface))] px-3 py-2 text-[0.8125rem]">
+        <p role="status" className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} px-3 py-2 text-[0.8125rem]`}>
           You left the payment page before finishing. Nothing was recorded as paid; you can choose Pay now again.
         </p>
       ) : null}

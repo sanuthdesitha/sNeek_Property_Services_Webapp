@@ -12,6 +12,7 @@
 import * as React from "react";
 import { AlertTriangle, ChevronRight, CheckCircle2, CloudOff } from "lucide-react";
 import { stripHtmlToText } from "@/lib/forms/sanitize";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export interface FormBlocker {
   fieldId: string;
@@ -77,7 +78,7 @@ export function SubmitBlockers({
           <CheckCircle2 className="h-4 w-4" aria-hidden /> Nothing stops the submit.
         </p>
       ) : (
-        <div aria-label="Submission checks" className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] p-2.5">
+        <div aria-label="Submission checks" className={`rounded-[var(--e-radius)] ${toneNoticeClass("problem")} p-2.5`}>
           <p className="flex items-center gap-1.5 px-1 text-[0.8125rem] font-[600]">
             <AlertTriangle className="h-4 w-4 text-[hsl(var(--e-danger))]" aria-hidden />
             {total} check{total === 1 ? "" : "s"} to finish

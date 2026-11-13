@@ -23,6 +23,7 @@ import { EPagination } from "@/components/v2/ui/pagination";
 import { EPill } from "@/components/v2/ui/pill";
 import { ESidePanel } from "@/components/v2/ui/side-panel";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
+import { EFilterBar, type EActiveFilter } from "@/components/v2/ui/filter-bar";
 import { AccountsBulk } from "@/components/v2/admin/accounts/hub/accounts-bulk";
 import { AccountEmailsSection } from "@/components/v2/admin/accounts/person/account-emails-section";
 import type { AccountRow } from "@/lib/accounts/list/types";
@@ -33,7 +34,7 @@ import { formatInstantDay } from "../format";
 import { useRead } from "../use-read";
 import { RevokeInvitationDialog, type RevokeTarget } from "../revoke-invitation-dialog";
 import { invitationColumns } from "./invitation-columns";
-import { invitationsListQuery, invitationsViewSearch, patchInvitationsView, readInvitationsView, type InvitationsView } from "./invitations-view";
+import { DEFAULT_INVITATIONS_VIEW, invitationsListQuery, invitationsViewSearch, patchInvitationsView, readInvitationsView, type InvitationsView } from "./invitations-view";
 
 const STATE_CHIPS: Array<{ key: EmailStateFilter; label: string }> = [
   { key: "never-signed-in", label: "Never signed in" },
@@ -120,6 +121,14 @@ export function InvitationsTab({ initialSearch, canWrite }: { initialSearch: str
   const revocable = rows.filter((row) => selected.has(row.userId) && row.canRevoke);
   const figures = data?.figures;
   const canBulk = canWrite && !data?.viewerRefusal;
+  // Phones (board M-People2): search, state, sender and period behind one Filter button.
+  const periodLabel: Record<InvitationsView["period"], string> = { "30d": "Last 30 days", "90d": "Last 90 days", all: "Last 12 months" };
+  const emailFilters: EActiveFilter[] = [];
+  if (search.trim()) emailFilters.push({ key: "q", label: `Search: ${search.trim()}`, onRemove: () => { setSearch(""); update({ q: "" }); } });
+  const stateChip = STATE_CHIPS.find((chip) => chip.key === view.state);
+  if (stateChip) emailFilters.push({ key: "state", label: stateChip.label, onRemove: () => update({ state: DEFAULT_INVITATIONS_VIEW.state }) });
+  if (view.sentBy) emailFilters.push({ key: "sentBy", label: `Sent by: ${data?.senders.find((sender) => sender.id === view.sentBy)?.name ?? "Selected"}`, onRemove: () => update({ sentBy: "" }) });
+  if (view.period !== DEFAULT_INVITATIONS_VIEW.period) emailFilters.push({ key: "period", label: periodLabel[view.period], onRemove: () => update({ period: DEFAULT_INVITATIONS_VIEW.period }) });
 
   return (
     <div className="flex min-w-0 gap-4">
@@ -135,7 +144,7 @@ export function InvitationsTab({ initialSearch, canWrite }: { initialSearch: str
             { key: "resets", label: "Password resets, 7 d", value: figures ? figures.passwordResets7d : null, extra: figures ? <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{figures.passwordResetsByOffice7d} by the office</span> : undefined },
           ]}
         />
-        <div role="group" aria-label="Email type" className="flex flex-wrap items-center gap-1.5">
+        <div role="group" aria-label="Email type" className="flex flex-wrap items-center gap-1.5 max-sm:-mx-4 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:px-4 max-sm:pb-0.5 max-sm:[scrollbar-width:none] max-sm:[&>button]:shrink-0">
           <button type="button" aria-pressed={view.state === "needs-action"} onClick={() => update({ state: view.state === "needs-action" ? "all" : "needs-action" })} className={cn(E_CHIP_CLASS, view.state === "needs-action" && E_CHIP_ON_CLASS)}>
             Needs action{data ? <span className="e-tnum ml-1">{data.stateCounts["needs-action"]}</span> : null}
           </button>
@@ -145,7 +154,12 @@ export function InvitationsTab({ initialSearch, canWrite }: { initialSearch: str
             </button>
           ))}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <EFilterBar
+          label="Filter account emails"
+          active={emailFilters}
+          onClear={() => { setSearch(""); update({ q: "", state: DEFAULT_INVITATIONS_VIEW.state, sentBy: "", period: DEFAULT_INVITATIONS_VIEW.period }); }}
+          resultLabel={data ? `Show ${data.total} ${data.total === 1 ? "person" : "people"}` : undefined}
+        >
           <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search name or email" placeholder="Search name or email" className="h-8 w-full min-w-0 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2.5 text-[0.8125rem] sm:w-[220px]" />
           {STATE_CHIPS.map((chip) => (
             <button key={chip.key} type="button" aria-pressed={view.state === chip.key} onClick={() => update({ state: view.state === chip.key ? "all" : chip.key })} className={cn(E_CHIP_CLASS, view.state === chip.key && E_CHIP_ON_CLASS)}>
@@ -161,7 +175,7 @@ export function InvitationsTab({ initialSearch, canWrite }: { initialSearch: str
             <option value="90d">Last 90 days</option>
             <option value="all">Last 12 months</option>
           </select>
-        </div>
+        </EFilterBar>
         {notice ? <EAlert tone={notice.ok ? "success" : "danger"}>{notice.message}</EAlert> : null}
         {data?.viewerRefusal ? <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">You can read this list. {data.viewerRefusal}</p> : null}
         <div className="overflow-hidden rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">

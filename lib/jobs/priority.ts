@@ -1,4 +1,12 @@
 import { resolveRuleTime, type JobTimingRule } from "@/lib/jobs/meta";
+import { PRIORITY_EARLY_CHECKIN_TIME, PRIORITY_SAME_DAY_CHECKIN_TIME } from "@/lib/scheduling-rules/constants";
+
+function clockMinutes(value: string): number {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+const EARLY_CHECKIN_MINUTES = clockMinutes(PRIORITY_EARLY_CHECKIN_TIME); // 12:30
+const SAME_DAY_CHECKIN_MINUTES = clockMinutes(PRIORITY_SAME_DAY_CHECKIN_TIME); // 15:00
 
 function toMinutes(value: string | null | undefined) {
   if (!value || !/^\d{2}:\d{2}$/.test(value)) return null;
@@ -26,7 +34,7 @@ export function classifySameDayCheckinPriority(input: {
   }
 
   const minutes = toMinutes(sameDayCheckinTime);
-  if (minutes !== null && minutes <= 12 * 60 + 30) {
+  if (minutes !== null && minutes <= EARLY_CHECKIN_MINUTES) {
     return {
       sameDayCheckin: true,
       sameDayCheckinTime,
@@ -35,7 +43,7 @@ export function classifySameDayCheckinPriority(input: {
     };
   }
 
-  if (minutes !== null && minutes <= 15 * 60) {
+  if (minutes !== null && minutes <= SAME_DAY_CHECKIN_MINUTES) {
     return {
       sameDayCheckin: true,
       sameDayCheckinTime,

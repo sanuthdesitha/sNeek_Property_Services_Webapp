@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { EButton } from "@/components/v2/ui/primitives";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
 import { CommandSearch } from "@/components/v2/admin/command/command-search";
 import { SectionLoading } from "@/components/v2/admin/command/section-state";
 import { CleanersSection, GlanceSection, MoneySection, QueueSection, TilesSection } from "@/components/v2/admin/command/command-sections";
@@ -38,7 +39,9 @@ export default async function AdminCommandPage() {
             {header.summary ?? "Today's summary could not be read just now."}
           </p>
         </div>
-        <div className="flex w-full min-w-0 flex-wrap items-center gap-3 sm:w-auto">
+        {/* Phones: search is the header's ⌕ (the same portal search) and New job
+            is the docked action below, so the work queue starts higher up. */}
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-3 sm:w-auto max-sm:hidden">
           <CommandSearch />
           {canCreateJob ? <EButton asChild size="sm"><Link href="/v2/admin/jobs/new">New job</Link></EButton> : null}
         </div>
@@ -77,6 +80,10 @@ export default async function AdminCommandPage() {
       <Suspense fallback={<SectionLoading label="today at a glance" rows={3} />}>
         <GlanceSection viewer={viewer} timeZone={timeZone} />
       </Suspense>
+
+      {canCreateJob ? (
+        <EPhoneActionBar label="Command actions" primary={<EButton asChild><Link href="/v2/admin/jobs/new">New job</Link></EButton>} />
+      ) : null}
     </div>
   );
 }

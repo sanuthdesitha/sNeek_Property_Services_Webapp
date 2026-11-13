@@ -7,6 +7,7 @@ import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/met
 import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { getAuthoritativeQaReview } from "@/lib/qa/authority";
 import { addCalendarMonths } from "./cadence-ledger";
+import { DEEP_CLEAN_CADENCE_MONTHS } from "@/lib/scheduling-rules/constants";
 
 export const DEEP_CLEAN_PLAN_PREFIX = "property_deep_clean_plan_v1:";
 const TZ = "Australia/Sydney";
@@ -116,7 +117,7 @@ export async function verifyDeepCleanBaseline(input: z.infer<typeof verifySchema
       plan.history.push({ ...plan.proposal, status: ["NEEDS_SCHEDULING", "DEFERRED"].includes(plan.proposal.status) ? "SUPERSEDED" : plan.proposal.status }); plan.proposal = null;
     }
     const completedDay = formatInTimeZone(reviewed.job.completedAt!, TZ, "yyyy-MM-dd");
-    plan.baseline = { jobId: body.jobId, completedAt, completedDay, dueDay: addCalendarMonths(completedDay, 3), verifiedBy: actorId, verifiedAt: now.toISOString(), reviewNote: body.reviewNote, submissionId: reviewed.submission.id, proofKeys: reviewed.proofKeys, qaReviewId: reviewed.qa?.id ?? null };
+    plan.baseline = { jobId: body.jobId, completedAt, completedDay, dueDay: addCalendarMonths(completedDay, DEEP_CLEAN_CADENCE_MONTHS), verifiedBy: actorId, verifiedAt: now.toISOString(), reviewNote: body.reviewNote, submissionId: reviewed.submission.id, proofKeys: reviewed.proofKeys, qaReviewId: reviewed.qa?.id ?? null };
     if (plan.proposal?.baselineJobId === body.jobId && ["NEEDS_SCHEDULING", "DEFERRED"].includes(plan.proposal.status)) {
       plan.proposal.dueDay = plan.baseline.dueDay;
       plan.proposal.status = plan.baseline.dueDay > formatInTimeZone(now, TZ, "yyyy-MM-dd") ? "DEFERRED" : "NEEDS_SCHEDULING";

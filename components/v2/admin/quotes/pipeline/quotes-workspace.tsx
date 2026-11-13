@@ -66,6 +66,8 @@ export function QuotesWorkspace({ initialTab, isAdmin, newLeads, pricingVariable
                 Export
               </a>
             ) : null}
+            {/* On a phone the pipeline docks "New quote" at the bottom instead. */}
+            <span className={tab === "pipeline" ? "contents max-sm:hidden" : "contents"}>
             <ERowMenu
               label="New quote"
               trigger={<>New quote ▾</>}
@@ -74,6 +76,7 @@ export function QuotesWorkspace({ initialTab, isAdmin, newLeads, pricingVariable
                 { key: "case", label: "Repair quote from a case", href: "/v2/admin/cases" },
               ]}
             />
+            </span>
           </>
         }
       />

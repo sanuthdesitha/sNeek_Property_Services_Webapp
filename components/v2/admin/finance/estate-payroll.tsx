@@ -6,6 +6,9 @@
  * "New run" modal posts to the SAME endpoint the v1 list used:
  *   POST /api/admin/payroll/runs   { periodStart, periodEnd, cleanerId? }
  * Per-run detail links to the native Estate run desk /v2/admin/payroll/[id].
+ *
+ * Phones (below 640px): one card per run (period, people, paid count, status,
+ * the stored grand total and "Open run") instead of the table.
  */
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -13,6 +16,7 @@ import Link from "next/link";
 import { CalendarRange, ChevronRight, Plus, Users, Wallet } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { CollapsibleFigures } from "@/components/v2/ui/collapsible-figures";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 import { EBadge, EButton, ECard, EStatCard } from "@/components/v2/ui/primitives";
 import { EField, EInput, EModal, ESelect, ETableShell } from "@/components/v2/admin/estate-kit";
 
@@ -49,6 +53,7 @@ export function EstatePayroll({
   runs: EstatePayrollRun[];
   cleaners: EstatePayrollCleaner[];
 }) {
+  const phone = useIsPhone();
   const router = useRouter();
   const [showNew, setShowNew] = useState(false);
   const [periodStart, setPeriodStart] = useState("");
@@ -121,7 +126,35 @@ export function EstatePayroll({
       </div>
 
       <ECard className="overflow-hidden p-0">
-        {runs.length === 0 ? (
+        {runs.length > 0 && phone ? (
+          <ul aria-label="Payroll runs" className="divide-y divide-[hsl(var(--e-border))]">
+            {runs.map((run) => (
+              <li key={run.id} className="space-y-2 px-3.5 py-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <Link href={`/v2/admin/payroll/${run.id}`} className="text-[0.9375rem] font-[600] text-[hsl(var(--e-foreground))]">
+                      {fmt(run.periodStart)} – {fmt(run.periodEnd)}
+                    </Link>
+                    <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+                      {run.cleanerCount} {run.cleanerCount === 1 ? "person" : "people"} · paid {run.paidCount}/{run.payoutCount} · created {fmt(run.createdAt)}
+                    </p>
+                  </div>
+                  <EBadge tone={STATUS_TONE[run.status] ?? "neutral"} soft>{run.status}</EBadge>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[0.8125rem]">
+                    Grand total <span className="e-numeral text-[0.9375rem]">{money(run.grandTotal)}</span>
+                  </span>
+                  <EButton asChild size="sm" variant="outline">
+                    <Link href={`/v2/admin/payroll/${run.id}`}>
+                      Open run <ChevronRight className="h-3.5 w-3.5" />
+                    </Link>
+                  </EButton>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : runs.length === 0 ? (
           <p className="py-16 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
             No payroll runs yet.
           </p>

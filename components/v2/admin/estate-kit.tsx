@@ -11,6 +11,7 @@ import Link from "next/link";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
+import { PHONE_SHEET_CONTAINER_CLASS, PHONE_SHEET_GRAB_CLASS, PHONE_SHEET_PANEL_CLASS } from "@/components/v2/ui/phone";
 import { markFieldControl, useAssociatedField } from "./field-association";
 import { EMPTY_OWN_PIN, OwnPinFields, useOwnPinPrompt } from "@/components/v2/shared/own-pin-fields";
 import { sensitiveVerificationText, type SensitiveCredentialsInput } from "@/lib/security/pin-rules";
@@ -256,7 +257,8 @@ export function EModal({
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:items-center"
+      // A bottom sheet below 640px (board "Admin phone"); unchanged from 640px up.
+      className={cn("fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:items-center", PHONE_SHEET_CONTAINER_CLASS)}
       role="dialog"
       aria-modal="true"
     >
@@ -268,9 +270,11 @@ export function EModal({
         variant="ceremony"
         className={cn(
           "e-rise relative z-10 my-8 w-full bg-[hsl(var(--e-surface))] shadow-[var(--e-elevation-3)]",
-          MODAL_SIZE[size ?? (wide ? "wide" : "md")]
+          MODAL_SIZE[size ?? (wide ? "wide" : "md")],
+          PHONE_SHEET_PANEL_CLASS,
         )}
       >
+        <span aria-hidden className={PHONE_SHEET_GRAB_CLASS} />
         <div className="flex items-start justify-between gap-4 border-b border-[hsl(var(--e-border))] px-6 py-4">
           <div className="min-w-0">
             {eyebrow ? <EEyebrow className="mb-1">{eyebrow}</EEyebrow> : null}
@@ -285,7 +289,7 @@ export function EModal({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="max-h-[82vh] overflow-y-auto px-6 py-5">{children}</div>
+        <div className="max-h-[82vh] overflow-y-auto px-6 py-5 max-sm:max-h-none max-sm:overflow-visible max-sm:px-4">{children}</div>
       </ECard>
     </div>
   );

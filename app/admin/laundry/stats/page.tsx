@@ -13,6 +13,7 @@ import {
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
+import { NOT_VOIDED } from "@/lib/laundry/void-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,7 @@ export default async function LaundryStatsPage() {
 
   const tasks = await db.laundryTask.findMany({
     where: {
+      ...NOT_VOIDED,
       OR: [
         { pickupDate: { gte: windowStart } },
         { droppedAt: { gte: windowStart } },

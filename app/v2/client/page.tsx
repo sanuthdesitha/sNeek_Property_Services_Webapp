@@ -6,6 +6,7 @@ import { DesktopDashboard } from "@/components/v2/client/home/desktop-dashboard"
 import { RequestButton } from "@/components/v2/client/portal/request-sheet";
 import { EEyebrow } from "@/components/v2/ui/primitives";
 import { greetingFor, happeningNow, sydneyFormat, sydneyKey, type HomeJob } from "@/components/v2/client/home/home-model";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export const metadata = { title: "Home · Estate client" };
 export const dynamic = "force-dynamic";
@@ -56,7 +57,7 @@ export default async function ClientHomePage() {
       </header>
 
       {data.failed.length > 0 ? (
-        <div role="alert" className="border-l-4 border-[hsl(var(--e-danger))] px-4 py-3 text-sm">
+        <div role="alert" className={`rounded-[var(--e-radius)] ${toneNoticeClass("problem")} px-4 py-3 text-sm`}>
           Some dashboard data could not be loaded: {data.failed.join(", ")}.{" "}
           <a href="/v2/client" className="underline">Retry</a>
         </div>

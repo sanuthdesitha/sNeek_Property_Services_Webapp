@@ -194,17 +194,7 @@ export async function generateRecurringJobs(input: {
     },
     select: { id: true, propertyId: true, jobType: true, scheduledDate: true, startTime: true, internalNotes: true },
   });
-  const existingBaseKeys = new Set<string>();
-  const existingRuleKeys = new Set<string>();
-  for (const job of existingJobs) {
-    const meta = parseJobInternalNotes(job.internalNotes);
-    const recurringTag = meta.tags.find((tag) => tag.startsWith("recurring:"));
-    const baseKey = `${job.propertyId}|${job.jobType}|${dateKey(job.scheduledDate)}|${job.startTime ?? ""}`;
-    existingBaseKeys.add(baseKey);
-    if (recurringTag) {
-      existingRuleKeys.add(`${baseKey}|${recurringTag}`);
-    }
-  }
+  const plan = planRecurringOccurrences({ rules, activePropertyIds: new Set(propertyMap.keys()), existingJobs, start, end });
 
   const activeCleanerIds = new Set(
     (
@@ -216,25 +206,10 @@ export async function generateRecurringJobs(input: {
   );
 
   let created = 0;
-  let skipped = 0;
-  for (const rule of rules) {
-    if (!propertyMap.has(rule.propertyId)) {
-      skipped += 1;
-      continue;
-    }
-
-    for (let cursor = new Date(start.getTime()); cursor <= end; cursor = addDays(cursor, 1)) {
-      const key = dateKey(cursor);
-      if (!matchesRuleDate(rule, key)) continue;
-      if (!rule.daysOfWeek.includes(dayOfWeekUtc(cursor))) continue;
-
-      const baseKey = `${rule.propertyId}|${rule.jobType}|${key}|${rule.startTime ?? ""}`;
-      const dedupeKey = `${baseKey}|recurring:${rule.id}`;
-      if (existingBaseKeys.has(baseKey) || existingRuleKeys.has(dedupeKey)) {
-        skipped += 1;
-        continue;
-      }
-
+  const skipped = plan.skipped;
+  for (const occurrence of plan.occurrences) {
+    const { rule, key } = occurrence;
+    {
       const metaNotes = serializeJobInternalNotes({
         internalNoteText: rule.notes ?? "",
         tags: [`recurring:${rule.id}`, `recurring-name:${rule.name}`],
@@ -321,11 +296,87 @@ export async function generateRecurringJobs(input: {
         jobType: createdJob.jobType,
       });
 
-      existingBaseKeys.add(baseKey);
-      existingRuleKeys.add(dedupeKey);
       created += 1;
     }
   }
 
   return { created, skipped, reasons: [] as string[] };
+}
+
+export type RecurringOccurrence = { rule: RecurringJobRule; key: string };
+
+/**
+ * PURE: which recurring jobs a run would create, and how many it would skip —
+ * the exact decisions generateRecurringJobs makes, in its order (rules in
+ * stored order, each day from start to end), without writing anything. Also
+ * used by the scheduling-rules preview to count a look-ahead change.
+ */
+export function planRecurringOccurrences(input: {
+  rules: RecurringJobRule[];
+  activePropertyIds: Set<string>;
+  existingJobs: Array<{ propertyId: string; jobType: JobType | string; scheduledDate: Date; startTime: string | null; internalNotes: string | null }>;
+  start: Date;
+  end: Date;
+}): { occurrences: RecurringOccurrence[]; skipped: number } {
+  const existingBaseKeys = new Set<string>();
+  const existingRuleKeys = new Set<string>();
+  for (const job of input.existingJobs) {
+    const meta = parseJobInternalNotes(job.internalNotes);
+    const recurringTag = meta.tags.find((tag) => tag.startsWith("recurring:"));
+    const baseKey = `${job.propertyId}|${job.jobType}|${dateKey(job.scheduledDate)}|${job.startTime ?? ""}`;
+    existingBaseKeys.add(baseKey);
+    if (recurringTag) {
+      existingRuleKeys.add(`${baseKey}|${recurringTag}`);
+    }
+  }
+
+  const occurrences: RecurringOccurrence[] = [];
+  let skipped = 0;
+  for (const rule of input.rules) {
+    if (!input.activePropertyIds.has(rule.propertyId)) {
+      skipped += 1;
+      continue;
+    }
+
+    for (let cursor = new Date(input.start.getTime()); cursor <= input.end; cursor = addDays(cursor, 1)) {
+      const key = dateKey(cursor);
+      if (!matchesRuleDate(rule, key)) continue;
+      if (!rule.daysOfWeek.includes(dayOfWeekUtc(cursor))) continue;
+
+      const baseKey = `${rule.propertyId}|${rule.jobType}|${key}|${rule.startTime ?? ""}`;
+      const dedupeKey = `${baseKey}|recurring:${rule.id}`;
+      if (existingBaseKeys.has(baseKey) || existingRuleKeys.has(dedupeKey)) {
+        skipped += 1;
+        continue;
+      }
+      occurrences.push({ rule, key });
+      existingBaseKeys.add(baseKey);
+      existingRuleKeys.add(dedupeKey);
+    }
+  }
+  return { occurrences, skipped };
+}
+
+/**
+ * Preview only: how many recurring jobs one nightly run would create with the
+ * given switch and look-ahead, from today's worker window. Writes nothing.
+ */
+export async function previewRecurringRun(input: { enabled: boolean; lookaheadDays: number; now?: Date }): Promise<{ wouldCreate: number; skipped: number }> {
+  if (!input.enabled) return { wouldCreate: 0, skipped: 0 };
+  const now = input.now ?? new Date();
+  // Same window the worker uses (workers/boss.ts recurring-job-generate).
+  const start = toUtcDateOnly(now.toISOString().slice(0, 10));
+  const end = toUtcDateOnly(new Date(now.getTime() + input.lookaheadDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
+  const rules = (await getRecurringJobRules()).filter((rule) => rule.isActive);
+  if (rules.length === 0) return { wouldCreate: 0, skipped: 0 };
+  const propertyIds = Array.from(new Set(rules.map((rule) => rule.propertyId)));
+  const [properties, existingJobs] = await Promise.all([
+    db.property.findMany({ where: { id: { in: propertyIds }, isActive: true }, select: { id: true } }),
+    db.job.findMany({
+      where: { propertyId: { in: propertyIds }, scheduledDate: { gte: start, lte: addDays(end, 1) } },
+      select: { propertyId: true, jobType: true, scheduledDate: true, startTime: true, internalNotes: true },
+    }),
+  ]);
+  const plan = planRecurringOccurrences({ rules, activePropertyIds: new Set(properties.map((row) => row.id)), existingJobs, start, end });
+  return { wouldCreate: plan.occurrences.length, skipped: plan.skipped };
 }

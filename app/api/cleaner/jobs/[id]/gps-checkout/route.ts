@@ -14,9 +14,15 @@ function toNumber(value: unknown) {
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.CLEANER]);
-    const body = (await req.json().catch(() => ({}))) as { lat?: unknown; lng?: unknown; timeLogId?: unknown };
+    const body = (await req.json().catch(() => ({}))) as { lat?: unknown; lng?: unknown; accuracy?: unknown; timeLogId?: unknown };
+    // An administrator viewing as the cleaner is never a location source.
+    if (session.impersonation) {
+      return NextResponse.json({ ok: true, recorded: false, reason: "IMPERSONATING" });
+    }
     const lat = toNumber(body.lat);
     const lng = toNumber(body.lng);
+    const accuracyValue = toNumber(body.accuracy);
+    const accuracy = accuracyValue != null && accuracyValue >= 0 ? accuracyValue : null;
     if (lat == null || lng == null || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
       return NextResponse.json({ error: "GPS coordinates are required." }, { status: 400 });
     }
@@ -46,7 +52,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       propertyLat != null && propertyLng != null ? haversineMeters(lat, lng, propertyLat, propertyLng) : null;
 
     const result = await db.$transaction(tx => recordCheckoutLocation(tx, {
-      jobId: job.id, userId: session.user.id, timeLogId, lat, lng,
+      jobId: job.id, userId: session.user.id, timeLogId, lat, lng, accuracy, distanceM: distanceMeters,
     }));
     return NextResponse.json({ ok: true, ...result, ...(result.recorded ? { distanceMeters } : {}) });
   } catch (error: any) {

@@ -18,6 +18,7 @@
 import * as React from "react";
 import { toast } from "@/hooks/use-toast";
 import type { ERowMenuItem } from "@/components/v2/ui/row-menu";
+import { EPhoneActionBar, ESectionSwitcher } from "@/components/v2/ui/phone-bars";
 import { asQuoteStatus, convertAvailability, quoteEditLock, quotePrimaryAction, quoteSecondaryActions, quoteStages, repairQuoteHref, QUOTE_STATUS_LABEL, type QuotePageStatus } from "@/lib/quotes/quote-page-actions";
 import { shortQuoteRef } from "@/lib/quotes/pipeline-types";
 import { notesMetaBlock, type QuoteSnapshot } from "@/lib/quotes/quote-record";
@@ -29,7 +30,7 @@ import { SectionAddressedTo } from "../builder/section-addressed-to";
 import { SectionServicePricing } from "../builder/section-service-pricing";
 import { SectionDiscountTotals } from "../builder/section-discount-totals";
 import { SectionPresentation } from "../builder/section-presentation";
-import { QuoteHeader, QuoteProgress, STATUS_TONE, type HeaderButton } from "./quote-header";
+import { QuoteHeader, QuoteHeaderButton, QuoteProgress, STATUS_TONE, type HeaderButton } from "./quote-header";
 import { quoteFacts } from "./facts";
 import { RequestedAddOnsCard } from "./rail-addons";
 import { ActivityCard, ConvertCard, ShareCard, StatusCard } from "./quote-rail";
@@ -201,6 +202,18 @@ export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone
   const convert = snapshot ? convertAvailability(status) : { enabled: false, reason: "Available once the quote is created and won." };
   const addOnBlocked = locked ? "This quote is converted; add-ons can no longer be priced in." : dirty || autosave.saving ? "Save or discard your changes first: adding updates the saved quote." : null;
   const emailPreviewReason = isNew ? "Available once the quote is created." : builder.dirty ? "Save first to preview your changes." : null;
+  const facts = quoteFacts({ totalIncGst: shownTotals.totalAmount, gstEnabled: builderOptions.gstEnabled, validUntilDay: builder.validUntilDate, viewedAt: snapshot?.viewedAt ?? null, isNew, pricingSource: builder.pricing.pricingSource, margin, requestedCount: snapshot?.requestedAddOns.length ?? 0, timezone });
+  // Phones (board M-QuotesMessages): the builder sections as steps, and a sticky
+  // bar with the total, the save state and the page's one action.
+  const totalFact = facts.find((fact) => fact.key === "total") ?? null;
+  const phoneAction = primary ?? save;
+  const quoteSteps = [
+    { id: "quote-step-addressed", label: "1 Addressed to" },
+    { id: "quote-step-pricing", label: "2 Service and pricing" },
+    { id: "quote-step-discount", label: "3 Discount" },
+    { id: "quote-step-presentation", label: "4 Presentation" },
+    { id: "quote-status", label: "Status and share" },
+  ];
 
   return (
     <div className="space-y-5">
@@ -214,6 +227,7 @@ export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone
         primary={primary}
         save={save}
         moreItems={moreItems}
+        phoneMovedKey={phoneAction?.key ?? null}
       />
       {notices}
       {!isNew ? <QuoteSaveBanner status={autosave.status} onReloadTheirs={() => void onReload()} onKeepMine={autosave.keepMine} onDismiss={autosave.dismiss} /> : null}
@@ -228,23 +242,24 @@ export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone
       ) : null}
       <QuoteProgress
         stages={quoteStages({ status, shared: Boolean(snapshot?.publicToken), acceptedAt: snapshot?.acceptedAt ?? null, convertedJobId: snapshot?.convertedJobId ?? null })}
-        facts={quoteFacts({ totalIncGst: shownTotals.totalAmount, gstEnabled: builderOptions.gstEnabled, validUntilDay: builder.validUntilDate, viewedAt: snapshot?.viewedAt ?? null, isNew, pricingSource: builder.pricing.pricingSource, margin, requestedCount: snapshot?.requestedAddOns.length ?? 0, timezone })}
+        facts={facts}
       />
       {lockReason ? <p role="note" className="rounded-[var(--e-radius)] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem]">{lockReason} Status, valid until, notes and add-on price visibility can still be changed.</p> : null}
 
+      <ESectionSwitcher label="Quote steps" sections={quoteSteps} />
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <section aria-label="Quote builder" className="min-w-0 space-y-4">
           <fieldset disabled={locked || saving} className="min-w-0 space-y-4">
-            <SectionAddressedTo builder={builder} clients={builderOptions.clients} leads={builderOptions.leads} leadName={snapshot?.lead?.name ?? null} />
-            <SectionServicePricing builder={builder} pricingVariables={builderOptions.pricingVariables} margin={margin} />
-            <SectionDiscountTotals builder={builder} gstEnabled={builderOptions.gstEnabled} savedDiscount={!isNew && !builder.dirty} />
+            <div id="quote-step-addressed" className="max-sm:scroll-mt-32"><SectionAddressedTo builder={builder} clients={builderOptions.clients} leads={builderOptions.leads} leadName={snapshot?.lead?.name ?? null} /></div>
+            <div id="quote-step-pricing" className="max-sm:scroll-mt-32"><SectionServicePricing builder={builder} pricingVariables={builderOptions.pricingVariables} margin={margin} /></div>
+            <div id="quote-step-discount" className="max-sm:scroll-mt-32"><SectionDiscountTotals builder={builder} gstEnabled={builderOptions.gstEnabled} savedDiscount={!isNew && !builder.dirty} /></div>
           </fieldset>
-          <fieldset disabled={saving} className="min-w-0">
+          <fieldset id="quote-step-presentation" disabled={saving} className="min-w-0 max-sm:scroll-mt-32">
             <SectionPresentation builder={builder} locked={locked} emailPreviewReason={emailPreviewReason} onEmailPreview={() => snapshot && void actions.openEmailPreview(snapshot.id, builder.recipientEmail.trim() || null)} />
           </fieldset>
         </section>
 
-        <aside aria-label="Quote status" className="min-w-0 space-y-4">
+        <aside id="quote-status" aria-label="Quote status" className="min-w-0 space-y-4 max-sm:scroll-mt-32">
           {snapshot ? (
             <RequestedAddOnsCard
               items={snapshot.requestedAddOns}
@@ -287,6 +302,16 @@ export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone
           {snapshot ? <ActivityCard quoteId={snapshot.id} timezone={timezone} /> : null}
         </aside>
       </div>
+      <EPhoneActionBar
+        label="Quote total and action"
+        secondary={
+          <div className="min-w-0 flex-1" aria-live="polite">
+            <p className="truncate text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">{[totalFact ? `${totalFact.label}${totalFact.note ? ` ${totalFact.note}` : ""}` : null, saveState].filter(Boolean).join(" · ")}</p>
+            <p className="e-tnum text-[1.125rem] font-[650] leading-tight">{totalFact?.value ?? "–"}</p>
+          </div>
+        }
+        primary={phoneAction ? <QuoteHeaderButton button={phoneAction} variant="primary" /> : <span />}
+      />
     </div>
   );
 }

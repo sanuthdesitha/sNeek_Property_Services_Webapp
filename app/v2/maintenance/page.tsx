@@ -21,6 +21,7 @@ import { EButton } from "@/components/v2/ui/primitives";
 import { listMaintenanceItemsForUser } from "@/lib/maintenance/assignments";
 import { MAINTENANCE_STAGES } from "@/lib/maintenance/ticket-stage";
 import { NewAssignments, isNewAssignment, type NewAssignmentEntry } from "@/components/v2/maintenance/today/new-assignments";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 const TZ = "Australia/Sydney";
 
@@ -186,7 +187,7 @@ export default async function MaintenanceTodayPage() {
         <div className="e-signature-rule mt-4" />
       </header>
 
-      {unavailable ? <div role="alert" className="border-l-4 border-[hsl(var(--e-danger))] px-4 py-3 text-sm">
+      {unavailable ? <div role="alert" className={`rounded-[var(--e-radius)] ${toneNoticeClass("problem")} px-4 py-3 text-sm`}>
         Some maintenance data could not be loaded. <a href="/v2/maintenance" className="underline">Retry</a>
       </div> : null}
       <section aria-label="Today's figures" className="grid grid-cols-3 gap-2 sm:gap-4">

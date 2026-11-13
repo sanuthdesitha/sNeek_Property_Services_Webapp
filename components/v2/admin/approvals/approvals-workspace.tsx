@@ -12,10 +12,12 @@
  * panel/* and lib/admin/approvals/*.
  */
 import * as React from "react";
-import { RefreshCw } from "lucide-react";
+import { ChevronDown, RefreshCw } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
 import { EActionDialog } from "@/components/v2/ui/action-dialog";
+import { EBottomSheet } from "@/components/v2/ui/bottom-sheet";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 import { cn } from "@/lib/utils";
 import { APPROVAL_QUEUES, APPROVAL_QUEUE_ORDER, type ApprovalsQueueKey, type BulkDecision } from "@/lib/admin/approvals/queues";
 import { DAY_MS, allRows, rowsForQueue, sortByWaiting, waitedMs, type ApprovalQueueRow, type WaitingOrder } from "@/lib/admin/approvals/rows";
@@ -47,6 +49,9 @@ export function ApprovalsWorkspace({ timezone = DEFAULT_TIMEZONE }: { timezone?:
   const [bulkRequest, setBulkRequest] = React.useState<{ decision: BulkDecision; ids: string[] } | null>(null);
   const [now, setNow] = React.useState(() => Date.now());
   const clearBulkRequest = React.useCallback(() => setBulkRequest(null), []);
+  const phone = useIsPhone();
+  // Phones: the queues open from one button as a sheet of tiles.
+  const [queueSheetOpen, setQueueSheetOpen] = React.useState(false);
 
   React.useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -98,6 +103,7 @@ export function ApprovalsWorkspace({ timezone = DEFAULT_TIMEZONE }: { timezone?:
 
   function selectQueue(next: QueueSelection) {
     setUrl({ queue: next, open: null });
+    setQueueSheetOpen(false);
   }
 
   function onPrimary(row: ApprovalQueueRow, action: RowPrimary) {
@@ -166,7 +172,30 @@ export function ApprovalsWorkspace({ timezone = DEFAULT_TIMEZONE }: { timezone?:
           <div className="hidden w-[212px] shrink-0 rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-3 lg:block">
             <QueueNav counts={data?.counts ?? null} active={queue} onSelect={selectQueue} />
           </div>
-          <label className="flex flex-col gap-1 lg:hidden">
+          {phone ? (
+            <>
+              <button
+                type="button"
+                aria-haspopup="dialog"
+                aria-expanded={queueSheetOpen}
+                onClick={() => setQueueSheetOpen(true)}
+                className="inline-flex min-h-11 w-full items-center justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-primary)/0.35)] bg-[hsl(var(--e-primary-soft))] px-3.5 text-left text-[0.875rem] font-[600] text-[hsl(var(--e-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]"
+              >
+                <span className="min-w-0 truncate">
+                  <span className="sr-only">Queue: </span>
+                  {queue === "all" ? "All waiting" : APPROVAL_QUEUES[queue].label}
+                  {(queue === "all" ? total : data?.counts[queue]) != null ? <span className="e-tnum"> {queue === "all" ? total : data?.counts[queue]}</span> : null}
+                </span>
+                <ChevronDown aria-hidden className="h-4 w-4 shrink-0" />
+              </button>
+              <EBottomSheet open={queueSheetOpen} onOpenChange={setQueueSheetOpen} title="Queues" description="Waiting requests by queue, empty queues folded" tall>
+                <div className="[&_button]:min-h-11 [&_button]:text-[0.875rem]">
+                  <QueueNav counts={data?.counts ?? null} active={queue} onSelect={selectQueue} />
+                </div>
+              </EBottomSheet>
+            </>
+          ) : null}
+          <label className="flex flex-col gap-1 lg:hidden max-sm:hidden">
             <span className="text-[0.75rem] font-[550]">Queue</span>
             <select
               value={queue}
@@ -204,6 +233,7 @@ export function ApprovalsWorkspace({ timezone = DEFAULT_TIMEZONE }: { timezone?:
             ) : null}
             {queue !== "all" ? (
               <BulkDecisionBar
+                showPhoneTotal={phone}
                 queue={queue as ApprovalsQueueKey}
                 selectedRows={selectedRows}
                 onClear={() => setSelected(new Set())}

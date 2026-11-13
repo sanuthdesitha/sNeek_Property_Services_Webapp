@@ -6,6 +6,7 @@
  */
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { toneFromLegacy, toneMutedClass, toneNoticeClass } from "./tone-band";
 
 /* ── Skin root ─────────────────────────────────────────────────────────── */
 export function EstateSkin({
@@ -48,11 +49,13 @@ const BTN_VARIANT: Record<ButtonVariant, string> = {
     "bg-[hsl(var(--e-danger))] text-[hsl(var(--e-danger-foreground))] shadow-[var(--e-elevation-1)] hover:brightness-[1.05]",
 };
 
+// Phones (below 640px) get a 44px tap target on every size (board "Admin
+// phone", 2026-11); from 640px up the sizes are unchanged.
 const BTN_SIZE: Record<ButtonSize, string> = {
-  sm: "h-8 rounded-[var(--e-radius-sm)] px-3 text-[0.8125rem]",
-  md: "h-10 rounded-[var(--e-radius)] px-4 text-[0.875rem]",
+  sm: "h-8 rounded-[var(--e-radius-sm)] px-3 text-[0.8125rem] max-sm:h-11 max-sm:px-3.5",
+  md: "h-10 rounded-[var(--e-radius)] px-4 text-[0.875rem] max-sm:h-11",
   lg: "h-12 rounded-[var(--e-radius)] px-6 text-[0.9375rem]",
-  icon: "h-10 w-10 rounded-[var(--e-radius)]",
+  icon: "h-10 w-10 rounded-[var(--e-radius)] max-sm:h-11 max-sm:w-11",
 };
 
 export const EButton = React.forwardRef<
@@ -242,6 +245,8 @@ export function EThread({ className }: { className?: string }) {
 }
 
 /* ── Alert / callout ───────────────────────────────────────────────────── */
+/* The whole callout takes the tone band tint with a hairline border; no left
+   line (owner decision 2026-11, see components/v2/ui/tone-band.tsx). */
 export function EAlert({
   tone = "info",
   title,
@@ -253,23 +258,11 @@ export function EAlert({
   className?: string;
   children?: React.ReactNode;
 }) {
-  const map = {
-    info: ["--e-info", "--e-info-soft"],
-    success: ["--e-success", "--e-success-soft"],
-    warning: ["--e-warning", "--e-warning-soft"],
-    danger: ["--e-danger", "--e-danger-soft"],
-  }[tone];
+  const band = toneFromLegacy(tone);
   return (
-    <div
-      className={cn("rounded-[var(--e-radius-lg)] border-l-[3px] p-4", className)}
-      style={{
-        backgroundColor: `hsl(var(${map[1]}))`,
-        borderColor: `hsl(var(${map[0]}))`,
-        color: `hsl(var(--e-foreground))`,
-      }}
-    >
+    <div data-tone={band} className={cn("rounded-[var(--e-radius-lg)] p-4", toneNoticeClass(band), className)}>
       {title ? <p className="text-[0.875rem] font-semibold">{title}</p> : null}
-      {children ? <div className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{children}</div> : null}
+      {children ? <div className={cn("text-[0.8125rem]", toneMutedClass(band))}>{children}</div> : null}
     </div>
   );
 }

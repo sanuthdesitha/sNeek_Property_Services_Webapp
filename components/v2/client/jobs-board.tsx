@@ -58,6 +58,7 @@ import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 import { cn } from "@/lib/utils";
 import { canRebookJob } from "@/lib/booking/rebook";
 import { clientLaundryStatusLabel } from "@/lib/client/laundry-status";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 const TZ = "Australia/Sydney";
 
@@ -536,12 +537,12 @@ function JobCard({
 
         {/* Skip state */}
         {skipStatus === "SKIPPED" ? (
-          <div className="mt-3 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem]">
+          <div className={`mt-3 rounded-[var(--e-radius)] ${toneNoticeClass("attention")} px-3 py-2 text-[0.8125rem]`}>
             <span className="font-semibold">Skipped — no clean.</span>{" "}
             {job.cleanSkipReason ? `Reason: ${job.cleanSkipReason}` : "This turnover will not be cleaned."}
           </div>
         ) : skipStatus === "REQUESTED" ? (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem]">
+          <div className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--e-radius)] ${toneNoticeClass("attention")} px-3 py-2 text-[0.8125rem]`}>
             <span>
               <span className="font-semibold">Skip request pending</span> — awaiting review.
             </span>

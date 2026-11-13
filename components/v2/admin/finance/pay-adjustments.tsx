@@ -16,9 +16,12 @@ import { useRestorableState } from "@/hooks/use-restorable-state";
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { format } from "date-fns";
+import { cleanerPayFieldDefault, cleanerRequestedAmount, clientChargeView } from "@/lib/payroll/cleaner-pay-amount";
 import { BadgeDollarSign, Eye, FileText, Link2, Pencil, Plus, RefreshCw, Send, Undo2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
+import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 import {
   adjustmentSettlement,
   deriveAdjustmentOrigin,
@@ -72,6 +75,7 @@ type PayAdjustmentRow = {
     id: string;
     status: "PENDING" | "APPROVED" | "DECLINED" | "CANCELLED" | "EXPIRED" | string;
     amount?: number;
+    counterAmount?: number | null;
     currency?: string;
     title?: string;
     requestedAt?: string;
@@ -95,10 +99,13 @@ const STATUS_TONE: Record<PayStatus, "warning" | "success" | "danger"> = {
 
 const money = (v: number | null | undefined) => `$${Number(v ?? 0).toFixed(2)}`;
 
+/**
+ * The cleaner's requested amount — the default for the cleaner pay field
+ * (owner rule 2026-11-13). The client charge is shown beside it, read only,
+ * and never used for the cleaner's pay.
+ */
 function primaryAmount(row: PayAdjustmentRow): number {
-  return Number(
-    row.primaryDisplayAmount ?? row.clientRequestedAmount ?? row.cleanerRequestedAmount ?? row.requestedAmount ?? 0
-  );
+  return Number(cleanerRequestedAmount(row) ?? 0);
 }
 
 function dateSafe(value: string | null | undefined): string {
@@ -135,7 +142,25 @@ function DetailTile({ label, children }: { label: string; children: ReactNode })
   );
 }
 
+type PhoneRowHandlers = { details: () => void; reopen: () => void; edit: () => void; link: () => void; recall: () => void; send: () => void; remove: () => void };
+
+/** Phones: the row's secondary actions, the same buttons the desktop row shows. */
+function phoneRowMenu(row: PayAdjustmentRow, settled: boolean, on: PhoneRowHandlers): ERowMenuItem[] {
+  const items: ERowMenuItem[] = [{ key: "details", label: `Details${(row.attachmentUrls?.length ?? 0) > 0 ? ` · ${row.attachmentUrls?.length} receipts` : ""}`, onSelect: on.details }];
+  if (!settled && row.status !== "PENDING") items.push({ key: "reopen", label: "Reopen", onSelect: on.reopen });
+  items.push({ key: "edit", label: "Edit", onSelect: on.edit });
+  items.push({ key: "link", label: "Link to a property", onSelect: on.link });
+  items.push(row.clientApproval?.status === "PENDING"
+    ? { key: "recall", label: "Recall client", onSelect: on.recall }
+    : { key: "send", label: "Send to client", onSelect: on.send });
+  if (row.status !== "APPROVED") items.push({ key: "delete", label: "Delete", danger: true, separated: true, onSelect: on.remove });
+  return items;
+}
+
 export function EstatePayAdjustments() {
+  // Phones (below 640px): each row keeps Approve… / Reject… on the card and
+  // moves Details, Edit, Link, client approval, Reopen and Delete into ⋯.
+  const phone = useIsPhone();
   const [rows, setRows] = useState<PayAdjustmentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useRestorableState<"PENDING" | "APPROVED" | "REJECTED" | "ALL">("pay-adjustments:tab", "PENDING");
@@ -222,7 +247,7 @@ export function EstatePayAdjustments() {
   function openReview(row: PayAdjustmentRow, action: "APPROVED" | "REJECTED") {
     setReviewing(row);
     setReviewAction(action);
-    setApprovedAmount(primaryAmount(row).toFixed(2));
+    setApprovedAmount(cleanerPayFieldDefault(row));
     setAdminNote("");
   }
 
@@ -601,6 +626,30 @@ export function EstatePayAdjustments() {
                         <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">requested {money(primaryAmount(row))}</p>
                       ) : null}
                     </div>
+                    {phone ? (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {settled ? (
+                          <span className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">Settled — raise a correcting adjustment</span>
+                        ) : row.status === "PENDING" ? (
+                          <>
+                            <EButton size="sm" variant="outline" onClick={() => openReview(row, "REJECTED")}>Reject…</EButton>
+                            <EButton size="sm" variant="gold" onClick={() => openReview(row, "APPROVED")}>Approve…</EButton>
+                          </>
+                        ) : null}
+                        <ERowMenu
+                          label={`More actions for ${row.title || "pay request"}`}
+                          items={phoneRowMenu(row, Boolean(settled), {
+                            details: () => setDetailFor(row),
+                            reopen: () => setReverseFor(row),
+                            edit: () => openEditRequest(row),
+                            link: () => openLinkProperty(row),
+                            recall: () => setRecallFor(row),
+                            send: () => openSendToClient(row),
+                            remove: () => setDeleteFor(row),
+                          })}
+                        />
+                      </div>
+                    ) : (
                     <div className="flex flex-wrap items-center gap-1.5">
                       {/* Read-only, so available at every status — including settled. */}
                       <EButton
@@ -673,6 +722,7 @@ export function EstatePayAdjustments() {
                         </EButton>
                       ) : null}
                     </div>
+                    )}
                   </div>
                 </div>
               );
@@ -711,9 +761,7 @@ export function EstatePayAdjustments() {
               <DetailTile label="Primary displayed amount">
                 <p className="e-numeral text-[0.9375rem]">{money(primaryAmount(detailFor))}</p>
                 <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                  {detailFor.primaryDisplayAmountSource === "CLIENT_REQUESTED"
-                    ? "Client-facing amount"
-                    : "Cleaner-requested amount"}
+                  Cleaner-requested amount
                 </p>
                 {detailFor.type === "HOURLY" ? (
                   <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
@@ -885,7 +933,12 @@ export function EstatePayAdjustments() {
             </div>
           ) : null}
           {reviewAction === "APPROVED" ? (
-            <EField label="Approved amount (AUD)" hint="Defaults to the requested amount — adjust if needed.">
+            <EField
+              label="Pay the cleaner (AUD)"
+              hint={`Starts at what the cleaner requested; lower it if needed. Only an administrator override can pay more.${
+                reviewing && clientChargeView(reviewing.clientApproval) ? ` ${clientChargeView(reviewing.clientApproval)!.label} — what the client is charged, not the cleaner's pay.` : ""
+              }`}
+            >
               <EInput type="number" min="0" step="0.01" value={approvedAmount} onChange={(e) => setApprovedAmount(e.target.value)} />
             </EField>
           ) : null}

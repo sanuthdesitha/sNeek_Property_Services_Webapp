@@ -13,6 +13,7 @@ import { EPill } from "@/components/v2/ui/pill";
 import { OFFICE_REQUEST_BADGES, type LaundryOfficeRequest, type OfficeRequestsResponse } from "@/lib/laundry/office-request-types";
 import { describeTeamReply, type TeamReplySummary } from "@/lib/laundry/team-request-reply-rules";
 import { OfficeRequestAnswer } from "./office-request-answer";
+import { E_BAND_BADGE_CLASS, toneBandClass, toneMutedClass } from "@/components/v2/ui/tone-band";
 
 const TONE = { warning: "warn", info: "info", danger: "bad" } as const;
 
@@ -23,15 +24,19 @@ function dayLabel(key: string): string {
 
 function RequestCard({ request, todayKey, onAnswered, highlight, partnerEntries, onRunChanged }: { request: LaundryOfficeRequest; todayKey: string; onAnswered: (reply: TeamReplySummary) => void; highlight: boolean; partnerEntries: boolean; onRunChanged: () => void }) {
   const badge = OFFICE_REQUEST_BADGES[request.kind];
+  // A "warning" request flags its card with the attention band; others stay plain.
+  const flagged = badge.tone === "warning";
   return (
-    <ECard className={`p-3 ${badge.tone === "warning" ? "border-l-[3px] border-l-[hsl(var(--e-warning))]" : ""} ${highlight ? "ring-2 ring-[hsl(var(--e-ring))]" : ""}`}>
-      <div className="flex items-center justify-between gap-2">
-        <EPill tone={TONE[badge.tone]}>{request.badge}</EPill>
-        <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{request.reminderNumber > 1 ? `Reminder ${request.reminderNumber} · ` : ""}{request.askedAtLabel}</span>
+    <ECard className={`overflow-hidden ${highlight ? "ring-2 ring-[hsl(var(--e-ring))]" : ""}`}>
+      <div className={`flex items-center justify-between gap-2 px-3 ${flagged ? `${toneBandClass("attention")} py-2.5` : "pt-3"}`}>
+        <EPill tone={TONE[badge.tone]} className={flagged ? E_BAND_BADGE_CLASS : undefined}>{request.badge}</EPill>
+        <span className={`text-[0.75rem] ${flagged ? toneMutedClass("attention") : "text-[hsl(var(--e-muted-foreground))]"}`}>{request.reminderNumber > 1 ? `Reminder ${request.reminderNumber} · ` : ""}{request.askedAtLabel}</span>
       </div>
-      <b className="mt-1.5 block break-words text-[0.9375rem] font-[600]">{request.title}</b>
-      <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{request.note ? `"${request.note}"` : request.text}</p>
-      <OfficeRequestAnswer request={request} todayKey={todayKey} onAnswered={onAnswered} partnerEntries={partnerEntries} onRunChanged={onRunChanged} />
+      <div className="px-3 pb-3 pt-1.5">
+        <b className="block break-words text-[0.9375rem] font-[600]">{request.title}</b>
+        <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{request.note ? `"${request.note}"` : request.text}</p>
+        <OfficeRequestAnswer request={request} todayKey={todayKey} onAnswered={onAnswered} partnerEntries={partnerEntries} onRunChanged={onRunChanged} />
+      </div>
     </ECard>
   );
 }

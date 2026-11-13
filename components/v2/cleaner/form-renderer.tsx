@@ -62,6 +62,7 @@ import { BarcodeFieldInput, BARCODE_CAPTURE_KEY, type BarcodeCapture } from "@/c
 import { StockCountFieldInput, TableFieldInput } from "@/components/v2/cleaner/structured-field-inputs";
 import { FormJobContext, QuestionEffectNotice } from "@/components/v2/cleaner/question-effect-notice";
 import { SandboxMediaInput } from "@/components/v2/cleaner/sandbox-media-input";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export type AnswerMap = Record<string, unknown>;
 export type UploadMap = Record<string, CapturedMedia[]>;
@@ -522,7 +523,7 @@ function ValidationSummary({
   onJump: (fieldId: string) => void;
 }) {
   return (
-    <div className="rounded-[var(--e-radius-lg)] border-l-[3px] border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] p-4">
+    <div className={`rounded-[var(--e-radius-lg)] ${toneNoticeClass("problem")} p-4`}>
       <p className="flex items-center gap-1.5 text-[0.875rem] font-semibold text-[hsl(var(--e-foreground))]">
         <AlertTriangle className="h-4 w-4 text-[hsl(var(--e-danger))]" />
         {errors.length} required item{errors.length === 1 ? "" : "s"} incomplete
@@ -960,7 +961,8 @@ function FieldBlock({
   // Read-only instruction block.
   if (field.type === "instruction") {
     return (
-      <div className={cn("rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-info))] bg-[hsl(var(--e-info-soft))] p-3", indent)}>
+      // A nested instruction indents by margin: the nesting guide line would sit on the tinted notice.
+      <div className={cn("rounded-[var(--e-radius)] p-3", toneNoticeClass("info"), (field as any)._isChild && "ml-4")}>
         <p className="flex items-center gap-1.5 text-[0.875rem] font-[550]">
           <Info className="h-4 w-4" /> {stripHtmlToText(field.label)}
         </p>

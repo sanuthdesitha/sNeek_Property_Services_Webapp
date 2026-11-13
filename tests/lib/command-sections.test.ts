@@ -80,8 +80,12 @@ describe("tiles", () => {
     expect(tiles.find((t) => t.key === "unassigned")?.count).toBe(3);
   });
   it("omits the invoices tile without finance and the late tile without the Live ops pack", async () => {
-    const { tiles } = await loadCommandTiles({ levels: { ...allOpsLevels("manage"), finance: "off", system: "off" }, readOnly: false }, NOW, TZ);
-    expect(tiles.map((t) => t.key)).toEqual(["unassigned", "qa"]);
+    // Live ops is the Dashboard pack since live location 2026-11 (it was System):
+    // System off no longer hides the late tile; Dashboard off does.
+    const systemOff = await loadCommandTiles({ levels: { ...allOpsLevels("manage"), finance: "off", system: "off" }, readOnly: false }, NOW, TZ);
+    expect(systemOff.tiles.map((t) => t.key)).toEqual(["unassigned", "late", "qa"]);
+    const dashboardOff = await loadCommandTiles({ levels: { ...allOpsLevels("manage"), finance: "off", dashboard: "off" }, readOnly: false }, NOW, TZ);
+    expect(dashboardOff.tiles.map((t) => t.key)).not.toContain("late");
   });
 });
 

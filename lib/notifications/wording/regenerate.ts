@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { requestWordingJson, wordingProviderAvailability } from "./ai-provider";
+import { isAiUnavailable, type AiActor } from "@/lib/ai/provider/types";
 import { partProblems } from "./store";
 import { wordingDefinition } from "./registry";
 import { templateVariables } from "./template";
@@ -79,7 +80,7 @@ function proposalFields(raw: unknown, part: WordingPartDefinition): WordingField
   return fields;
 }
 
-export async function regenerateWording(input: unknown): Promise<RegenerateResult> {
+export async function regenerateWording(input: unknown, actor?: AiActor): Promise<RegenerateResult> {
   const request = regenerateSchema.parse(input);
   const definition = wordingDefinition(request.typeKey);
   const part = definition?.parts.find((item) => item.id === request.partId && item.transport === request.transport);
@@ -88,8 +89,10 @@ export async function regenerateWording(input: unknown): Promise<RegenerateResul
   if (!availability.available) throw new RegenerateUnavailableError(availability.reason ?? "No AI provider is configured.");
   let raw: unknown;
   try {
-    raw = await requestWordingJson(buildRegeneratePrompt(part, request.fields, request.tone));
-  } catch {
+    raw = await requestWordingJson({ ...buildRegeneratePrompt(part, request.fields, request.tone), actor });
+  } catch (error) {
+    // A refusal before any request (hourly limit, images, switched off) keeps its safe reason.
+    if (isAiUnavailable(error)) return { ok: false, reason: `${error.message} Nothing was changed.` };
     return { ok: false, reason: "The AI provider did not return a usable suggestion. Nothing was changed; try again." };
   }
   const proposal = proposalFields(raw, part);

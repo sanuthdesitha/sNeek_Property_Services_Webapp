@@ -17,7 +17,7 @@
  *
  * Also renders: "next stop / X of N" progress card, a Google map (numbered
  * pins, polyline, InfoWindow, multi-stop Google Maps link) and the GPS share
- * control (watchPosition → POST /api/laundry/location/ping, ~20s/50m throttle).
+ * status (the layout tracker shares the location; see RouteShareControl).
  */
 import * as React from "react";
 import { format } from "date-fns";
@@ -43,6 +43,8 @@ import {
   EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { ensureGoogleMaps } from "@/lib/maps/loader";
+import { requestTrackerRestart, subscribeRouteArrival } from "@/lib/gps/live-fix-store";
+import { useTrackerStatus } from "@/components/v2/location/location-sharing-indicator";
 import { buildGoogleMapsMultiStopUrl } from "@/lib/jobs/schedule-order";
 import { compareByTimeThenSuburb, type RouteStopKind } from "@/lib/laundry/route-plan";
 import {
@@ -253,129 +255,39 @@ function NextStopCard({ stops, runner, taskById, config, onAction }: { stops: Ro
   );
 }
 
-/* ── Start / stop live GPS share ────────────────────────────────────────── */
-export function RouteShareControl({
-  autoStart = false,
-  onArrived,
-}: {
-  /** Auto-begin sharing (runner mode: an ACTIVE route implies a live run). */
-  autoStart?: boolean;
-  /** Server said we reached the next stop — open its action surface. */
-  onArrived?: (stop: { taskId: string; kind: RouteStopKind }) => void;
-}) {
-  const [sharing, setSharing] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [lastPingAt, setLastPingAt] = React.useState<Date | null>(null);
-  const watchIdRef = React.useRef<number | null>(null);
-  const lastSentRef = React.useRef<{ at: number; lat: number; lng: number } | null>(null);
-  const autoStartedRef = React.useRef(false);
-  const onArrivedRef = React.useRef(onArrived);
-  onArrivedRef.current = onArrived;
-
-  const stopWatch = React.useCallback(() => {
-    if (watchIdRef.current !== null && typeof navigator !== "undefined" && navigator.geolocation) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-    }
-    watchIdRef.current = null;
-    lastSentRef.current = null;
-  }, []);
-
-  React.useEffect(() => () => stopWatch(), [stopWatch]);
-
-  const sendPing = React.useCallback(async (pos: GeolocationPosition) => {
-    const { latitude, longitude, accuracy } = pos.coords;
-    const last = lastSentRef.current;
-    const now = Date.now();
-    if (last) {
-      const dtOk = now - last.at >= 20_000;
-      // ~meters via equirectangular approximation — fine at city scale.
-      const dLat = (latitude - last.lat) * 111_320;
-      const dLng = (longitude - last.lng) * 111_320 * Math.cos((latitude * Math.PI) / 180);
-      const distOk = Math.sqrt(dLat * dLat + dLng * dLng) >= 50;
-      if (!dtOk && !distOk) return;
-    }
-    lastSentRef.current = { at: now, lat: latitude, lng: longitude };
-    try {
-      const res = await fetch("/api/laundry/location/ping", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lat: latitude,
-          lng: longitude,
-          accuracy: accuracy ?? undefined,
-          timestamp: new Date(pos.timestamp).toISOString(),
-        }),
-      });
-      const data = await res.json().catch(() => null);
-      if (res.ok) {
-        setLastPingAt(new Date());
-        const arrived = data?.arrivedStop;
-        if (
-          arrived &&
-          typeof arrived.taskId === "string" &&
-          (arrived.kind === "PICKUP" || arrived.kind === "DROP")
-        ) {
-          onArrivedRef.current?.(arrived);
-        }
-      }
-    } catch {
-      // Transient network failure — the next watch tick retries.
-    }
-  }, []);
-
-  const startSharing = React.useCallback(() => {
-    setError(null);
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setError("This device does not support location sharing.");
-      return;
-    }
-    if (watchIdRef.current !== null) return;
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => void sendPing(pos),
-      (err) => {
-        if (err.code === err.PERMISSION_DENIED) {
-          setError("Location permission denied — enable it in your browser settings to share your route.");
-        } else {
-          setError("Could not read your location. Check GPS and try again.");
-        }
-        stopWatch();
-        setSharing(false);
-      },
-      { enableHighAccuracy: true, maximumAge: 10_000, timeout: 30_000 },
-    );
-    setSharing(true);
-  }, [sendPing, stopWatch]);
-
-  // Runner mode: share automatically once per mount when the route goes ACTIVE.
-  React.useEffect(() => {
-    if (autoStart && !autoStartedRef.current) {
-      autoStartedRef.current = true;
-      startSharing();
-    }
-  }, [autoStart, startSharing]);
-
-  function stopSharing() {
-    stopWatch();
-    setSharing(false);
+/* ── Live location status (the layout tracker shares; this only shows it) ── */
+/**
+ * The driver's live location is shared by the tracker in the laundry portal
+ * layout (components/v2/laundry/driver-location-tracker) whenever their route
+ * is ACTIVE today — on every screen, with an offline queue and a heartbeat.
+ * This control no longer starts or stops sharing (there was a manual "Share
+ * GPS" that worked without a route and stopped for good on any GPS error); it
+ * shows the state and offers "Retry location" when permission is off.
+ */
+export function RouteShareControl({ runner }: { runner: boolean }) {
+  const status = useTrackerStatus();
+  if (!runner) {
+    return <p className="max-w-xs text-right text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Location is shared only while your route is active.</p>;
   }
-
+  if (!status.active) {
+    return <p role="status" className="max-w-xs text-right text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Starting location sharing…</p>;
+  }
+  if (status.permission === "denied") {
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <EButton variant="outline" size="sm" onClick={requestTrackerRestart}>
+          <LocateFixed className="h-3.5 w-3.5" aria-hidden />
+          Retry location
+        </EButton>
+        <p className="max-w-xs text-right text-[0.75rem] text-[hsl(var(--e-danger))]">Location is off — the office sees &quot;location off&quot;.</p>
+      </div>
+    );
+  }
   return (
-    <div className="flex flex-col items-end gap-1">
-      {sharing ? (
-        <EButton variant="outline" size="sm" onClick={stopSharing}>
-          <Radio className="h-3.5 w-3.5 animate-pulse text-[hsl(var(--e-success))]" />
-          Sharing live{lastPingAt ? ` · ${format(lastPingAt, "HH:mm:ss")}` : ""} — Stop
-        </EButton>
-      ) : (
-        <EButton size="sm" onClick={startSharing}>
-          <LocateFixed className="h-3.5 w-3.5" />
-          Share GPS
-        </EButton>
-      )}
-      {error ? (
-        <p className="max-w-xs text-right text-[0.75rem] text-[hsl(var(--e-danger))]">{error}</p>
-      ) : null}
-    </div>
+    <p role="status" className="inline-flex items-center gap-1.5 text-[0.75rem] font-[550] text-[hsl(var(--e-success))]">
+      <Radio className="h-3.5 w-3.5 animate-pulse motion-reduce:animate-none" aria-hidden />
+      Sharing live{status.lastSentAt ? ` · sent ${format(status.lastSentAt, "HH:mm:ss")}` : ""}
+    </p>
   );
 }
 
@@ -732,8 +644,9 @@ export function LaundryRouteMap() {
     [taskById, openAction, errored],
   );
 
-  // Arrival auto-open: scroll to the stop and pop its action modal (manual
-  // taps on any other stop keep working — this is just a shortcut).
+  // Arrival auto-open: the layout tracker's ping response says the driver
+  // reached the next stop; scroll to it and pop its action modal (manual taps
+  // on any other stop keep working — this is just a shortcut).
   const handleArrived = React.useCallback(
     (arrived: { taskId: string; kind: RouteStopKind }) => {
       if (errored) return;
@@ -751,6 +664,13 @@ export function LaundryRouteMap() {
     },
     [taskById, openAction, load, errored],
   );
+
+  React.useEffect(() => {
+    if (!runner) return;
+    return subscribeRouteArrival((stop) => {
+      if (stop.kind === "PICKUP" || stop.kind === "DROP") handleArrived({ taskId: stop.taskId, kind: stop.kind });
+    });
+  }, [runner, handleArrived]);
 
   const markStopDone = React.useCallback(
     async (taskId: string, kind: RouteStopKind) => {
@@ -776,6 +696,7 @@ export function LaundryRouteMap() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "end" }),
       });
+      window.dispatchEvent(new Event("sneek:laundry-route-changed"));
     } finally {
       void load();
     }
@@ -793,7 +714,7 @@ export function LaundryRouteMap() {
           </p>
         </div>
         <div className="flex flex-shrink-0 items-center gap-2">
-          <RouteShareControl autoStart={runner} onArrived={runner ? handleArrived : undefined} />
+          <RouteShareControl runner={runner} />
           {runner ? (
             <EButton variant="outline" size="sm" onClick={() => void endRoute()}>
               End route

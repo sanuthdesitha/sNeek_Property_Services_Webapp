@@ -30,6 +30,7 @@ import {
   ETableShell,
   ETextarea,
 } from "@/components/v2/admin/estate-kit";
+import { PhoneStackedTable } from "@/components/v2/admin/phone-stacked-table";
 
 type InventoryItem = {
   id: string;
@@ -314,6 +315,7 @@ export function EstateItems() {
             No items match.
           </p>
         ) : (
+          <PhoneStackedTable>
           <ETableShell
             headers={[
               { label: "Item" },
@@ -375,6 +377,7 @@ export function EstateItems() {
               </tr>
             ))}
           </ETableShell>
+          </PhoneStackedTable>
         )}
       </ECard>
 

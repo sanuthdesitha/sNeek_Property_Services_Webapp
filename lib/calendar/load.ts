@@ -13,6 +13,7 @@ import { HOURS_BASIS, chipCategory, guestArrivalOnDay, isJobLate, jobScheduledHo
 import { buildRows, type RowSource } from "./rows";
 import { dayKeyToUtcDate, listDays, utcDateToDayKey, type CalendarRange } from "./range";
 import type { CalendarJob, CalendarLaundryDay, CalendarResponse } from "./types";
+import { NOT_VOIDED } from "@/lib/laundry/void-scope";
 
 /** One response carries at most this many jobs; more sets `truncated`. */
 export const CALENDAR_JOB_LIMIT = 3000;
@@ -112,6 +113,7 @@ async function loadLaundryCounts(range: CalendarRange, clientId: string | null):
   const lt = dayKeyToUtcDate(addDaysToKey(range.end, 1));
   const tasks = await db.laundryTask.findMany({
     where: {
+      ...NOT_VOIDED,
       OR: [{ pickupDate: { gte, lt } }, { dropoffDate: { gte, lt } }],
       ...(clientId ? { property: { clientId } } : {}),
     },

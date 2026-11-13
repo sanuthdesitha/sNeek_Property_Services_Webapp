@@ -15,6 +15,7 @@ import { CleanerTimingSummary } from "@/components/v2/cleaner/timing-summary";
 import type { ImmediateAttentionItem } from "@/components/shared/immediate-attention-panel";
 import type { JobTimingBadges } from "@/lib/jobs/timing-badges";
 import { formatAud, statusTone, titleCase, type TodayClockState } from "@/lib/cleaner/today-view";
+import { EToneBand, toneMutedClass } from "@/components/v2/ui/tone-band";
 
 /* ── Clock state ───────────────────────────────────────────────────────── */
 
@@ -125,17 +126,20 @@ export function NextJobCard({ job, routeHref }: { job: TodayJobView; routeHref: 
 export function OfferCard({ job, dayLabel }: { job: TodayJobView; dayLabel: string }) {
   const facts = [job.jobTypeLabel, job.duration, job.pay != null ? formatAud(job.pay) : null].filter(Boolean).join(" · ");
   return (
-    <ECard className="space-y-1.5 border-l-[3px] border-l-[hsl(var(--e-warning))] px-3 py-2.5">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+    // An open offer flags its card: the title row is the attention band ("Offer:" states the reason).
+    <ECard className="overflow-hidden">
+      <EToneBand tone="attention" className="flex flex-wrap items-baseline justify-between gap-x-2 px-3 py-2.5">
         <h3 className="text-[0.9375rem] font-[600] [overflow-wrap:anywhere]">
           <Link href={`/v2/cleaner/jobs/${job.id}`} className="underline-offset-2 hover:underline">Offer: {job.propertyName}</Link>
         </h3>
-        <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{dayLabel} · {job.startTime ?? "Time not set"}</span>
-      </div>
-      <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{facts}</p>
-      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Access details appear once you accept.</p>
-      <div className="pt-1">
-        <JobOfferActions jobId={job.id} size="md" />
+        <span className={`text-[0.75rem] ${toneMutedClass("attention")}`}>{dayLabel} · {job.startTime ?? "Time not set"}</span>
+      </EToneBand>
+      <div className="space-y-1.5 px-3 pb-2.5 pt-2">
+        <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{facts}</p>
+        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Access details appear once you accept.</p>
+        <div className="pt-1">
+          <JobOfferActions jobId={job.id} size="md" />
+        </div>
       </div>
     </ECard>
   );

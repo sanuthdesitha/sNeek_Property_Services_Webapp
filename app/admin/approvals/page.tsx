@@ -76,14 +76,9 @@ function fmt(dateStr: string | null | undefined) {
   try { return format(parseISO(dateStr), "dd MMM yyyy HH:mm"); } catch { return dateStr; }
 }
 
+// The cleaner's requested amount, never the client charge (owner rule 2026-11-13).
 function primaryPayAmount(row: any) {
-  return Number(
-    row.primaryDisplayAmount ??
-      row.clientRequestedAmount ??
-      row.cleanerRequestedAmount ??
-      row.requestedAmount ??
-      0
-  );
+  return Number(row.requestedAmount ?? row.cleanerRequestedAmount ?? 0);
 }
 
 function StatusBadge({ status }: { status: string }) {

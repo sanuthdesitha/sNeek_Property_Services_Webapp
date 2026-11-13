@@ -215,12 +215,12 @@ export function ERowMenu({ label, items, disabled = false, className, trigger, t
         onKeyDown={onTriggerKeyDown}
         className={cn(
           trigger
-            ? "inline-flex h-10 items-center gap-1.5 whitespace-nowrap rounded-[var(--e-radius)] px-4 text-[0.875rem] font-[550] " +
+            ? "inline-flex h-10 items-center gap-1.5 max-sm:h-11 whitespace-nowrap rounded-[var(--e-radius)] px-4 text-[0.875rem] font-[550] " +
                 (triggerVariant === "outline"
                   ? "border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] hover:bg-[hsl(var(--e-muted))]"
                   : "bg-[hsl(var(--e-primary))] text-[hsl(var(--e-primary-foreground))] hover:bg-[hsl(var(--e-primary-hover))]")
             : // The concept's `.btn.q.s`: a quiet, borderless "⋯".
-              "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--e-radius)] bg-transparent " +
+              "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--e-radius)] bg-transparent max-sm:h-11 max-sm:w-11 " +
                 "text-[hsl(var(--e-text-secondary))] hover:bg-[hsl(var(--e-muted))]",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))] disabled:opacity-50",
           className,

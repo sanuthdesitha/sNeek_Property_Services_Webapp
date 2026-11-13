@@ -18,6 +18,8 @@ it("ANDs requested properties with VA scope and permits explicitly requested his
   const response = await get("propertyId=not-allowed&status=PICKED_UP&from=2020-01-01&to=2020-01-31&dateField=pickup");
   expect(response.status).toBe(200);
   expect(m.rows).toHaveBeenCalledWith(expect.objectContaining({ where: {
+    // Voided runs never reach the client (2026-11-14).
+    voidedAt: null,
     property: { clientId: "client", id: { in: ["allowed"] } }, propertyId: "not-allowed", status: "PICKED_UP",
     pickupDate: { gte: new Date("2019-12-31T13:00:00Z"), lte: new Date("2020-01-31T12:59:59.999Z") },
   }, take: 200, orderBy: [{ pickupDate: "desc" }, { updatedAt: "desc" }, { id: "desc" }] }));
@@ -25,7 +27,7 @@ it("ANDs requested properties with VA scope and permits explicitly requested his
 it("matches any cleaning, pickup or dropoff date over the full Sydney DST transition day", async () => {
   expect((await get("from=2026-10-04&to=2026-10-04&dateField=any")).status).toBe(200);
   const range = { gte: new Date("2026-10-03T14:00:00Z"), lte: new Date("2026-10-04T12:59:59.999Z") };
-  expect(m.rows.mock.calls[0][0].where).toEqual({ property: { clientId: "client", id: { in: ["allowed"] } }, OR: [{ pickupDate: range }, { dropoffDate: range }, { job: { scheduledDate: range } }] });
+  expect(m.rows.mock.calls[0][0].where).toEqual({ voidedAt: null, property: { clientId: "client", id: { in: ["allowed"] } }, OR: [{ pickupDate: range }, { dropoffDate: range }, { job: { scheduledDate: range } }] });
 });
 it.each(["cleaning", "dropoff"])("uses only the selected %s date field", async field => {
   await get(`from=2020-01-01&dateField=${field}`);

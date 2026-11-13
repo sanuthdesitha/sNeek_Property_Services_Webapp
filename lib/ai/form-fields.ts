@@ -1,6 +1,6 @@
 import { isTemplateNodeVisible } from "@/lib/forms/visibility";
 import { isUploadFieldType } from "@/lib/forms/field-types";
-export type VisionFormField = { id: string; label: string; sectionLabel: string; referenceKeys: string[]; imageCapable: boolean; maxFiles?: number };
+export type VisionFormField = { id: string; label: string; sectionLabel: string; referenceKeys: string[]; imageCapable: boolean; maxFiles?: number; /** Optional acceptance criteria for AI photo checks (form builder, Example media). */ criteria?: string };
 /** Caller supplies only the canonical resolved template and authorized property projection. */
 export function deriveVisionFields(schema: unknown, answers: Record<string, unknown>, property: Record<string, unknown>, laundryReady = false): VisionFormField[] {
   const fields: VisionFormField[] = [];
@@ -12,6 +12,7 @@ export function deriveVisionFields(schema: unknown, answers: Record<string, unkn
       id: node.id, label: String(node.label ?? node.id).slice(0, 300), sectionLabel,
       imageCapable: isUploadFieldType(node.type) && (node.type === "file" || node.mediaMode === "both" || (node.type === "photo" && node.mediaMode !== "video")),
       ...(Number(node.maxFiles) > 0 ? { maxFiles: Number(node.maxFiles) } : {}),
+      ...(typeof node.aiCriteria === "string" && node.aiCriteria.trim() ? { criteria: node.aiCriteria.trim().slice(0, 1000) } : {}),
       referenceKeys: (Array.isArray(node.references) ? node.references : []).filter((ref: any) => ref?.kind === "image" && typeof ref.storageKey === "string" && ref.storageKey.startsWith("form-references/") && !/[\\\u0000-\u0020]/.test(ref.storageKey) && !ref.storageKey.split("/").some((part: string) => !part || part === ".." || part === ".")).map((ref: any) => ref.storageKey).slice(0, 2),
     });
     for (const key of ["sections", "fields", "children"]) if (Array.isArray(node[key])) node[key].forEach((child: any) => visit(child, visible, sectionLabel));

@@ -135,7 +135,10 @@ export const createClientSchema = z.object({
   welcomeNote: z.string().max(4000).optional(),
 });
 
-export const updateClientSchema = createClientSchema.partial();
+export const updateClientSchema = createClientSchema.partial().extend({
+  /** The client sees the cleaner's live position while on the way (off by default). */
+  showCleanerLiveLocation: z.boolean().optional(),
+});
 
 export const createPropertySchema = z.object({
   clientId: z.string().min(1),

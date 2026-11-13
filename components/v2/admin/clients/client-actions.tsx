@@ -70,6 +70,8 @@ export type ClientActionsClient = {
   notes?: string | null;
   isActive: boolean;
   portalVisibilityOverrides?: PortalVisibilityOverrides | null;
+  /** The client sees the cleaner's live position while on the way (off by default). */
+  showCleanerLiveLocation?: boolean;
 };
 
 /** Openers for the three dialogs, for a caller that draws its own triggers (the client page's More menu). */
@@ -111,6 +113,8 @@ export function ClientActions({
     ...(client.portalVisibilityOverrides ?? {}),
   });
 
+  const [showLiveLocation, setShowLiveLocation] = useState(client.showCleanerLiveLocation === true);
+
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [welcomeNote, setWelcomeNote] = useState("");
@@ -146,6 +150,7 @@ export function ClientActions({
           // actually persists — the API treats an empty object as "no
           // overrides" and stores JsonNull.
           portalVisibilityOverrides: overrides,
+          showCleanerLiveLocation: showLiveLocation,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -325,6 +330,25 @@ export function ClientActions({
                 );
               })}
             </div>
+          </div>
+
+          {/* Live location of the cleaner on the way — off by default; the cleaner is told when it is on. */}
+          <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-4">
+            <label className="flex min-h-11 cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4"
+                checked={showLiveLocation}
+                disabled={saving}
+                onChange={(e) => setShowLiveLocation(e.target.checked)}
+              />
+              <span>
+                <span className="block text-[0.8125rem] font-[550]">Show the cleaner&apos;s live location while they are on the way</span>
+                <span className="block text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                  Off by default. When on, this client sees the assigned cleaner on a map from &ldquo;On my way&rdquo; until arrival, and the cleaner&apos;s screen says the client can see them. The change is recorded.
+                </span>
+              </span>
+            </label>
           </div>
 
           <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">

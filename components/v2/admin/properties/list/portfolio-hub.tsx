@@ -11,6 +11,8 @@ import { EButton, ECard } from "@/components/v2/ui/primitives";
 import { EDataTable } from "@/components/v2/ui/data-table";
 import { EPagination } from "@/components/v2/ui/pagination";
 import { EPill } from "@/components/v2/ui/pill";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
+import { CollapsibleFigures } from "@/components/v2/ui/collapsible-figures";
 import type { PortfolioListResponse, PortfolioRow, PortfolioSort } from "@/lib/properties/portfolio-options";
 import type { PropertyBulkResult } from "@/lib/properties/bulk-types";
 import { portfolioColumns } from "./portfolio-columns";
@@ -89,13 +91,16 @@ export function PortfolioHub({ initialView, timeZone }: { initialView: Portfolio
             <EButton asChild variant="outline" size="sm">
               <a href={exportBase} download>Export</a>
             </EButton>
-            <EButton asChild size="sm">
+            <EButton asChild size="sm" className="max-sm:hidden">
               <Link href="/v2/admin/properties/new">Add property</Link>
             </EButton>
           </div>
         </header>
 
-        <StatCards data={data} />
+        {/* Phones (board M-Properties): the four figures fold behind one row. */}
+        <CollapsibleFigures storageKey="properties:portfolio" count={4} label="Portfolio figures">
+          <StatCards data={data} />
+        </CollapsibleFigures>
         <PortfolioFilters view={view} data={data} onChange={update} disabled={bulkRunning} />
 
         {view.mode === "list" ? (
@@ -144,6 +149,15 @@ export function PortfolioHub({ initialView, timeZone }: { initialView: Portfolio
             onRunningChange={setBulkRunning}
           />
         ) : null}
+        <EPhoneActionBar
+          label="Properties actions"
+          hidden={selected.size > 0}
+          primary={
+            <EButton asChild>
+              <Link href="/v2/admin/properties/new">Add property</Link>
+            </EButton>
+          }
+        />
       </div>
 
       {view.open ? (

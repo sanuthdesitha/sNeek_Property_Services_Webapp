@@ -5,6 +5,8 @@ vi.mock("@/lib/db", () => ({
   db: {
     job: { findMany: m.jobs },
     cleanerLocationPing: { findMany: m.pings },
+    // Positions come from UserLastLocation since live location 2026-11.
+    userLastLocation: { findMany: m.pings },
     laundryRoute: { findMany: m.routes },
     user: { findMany: vi.fn(async () => []) },
   },
@@ -13,7 +15,7 @@ vi.mock("@/lib/jobs/continuation-requests", () => ({ listContinuationRequests: m
 vi.mock("@/lib/settings", () => ({ getAppSettings: vi.fn(async () => ({})) }));
 vi.mock("@/lib/jobs/progress", () => ({ computeChecklistProgressPercent: vi.fn(async () => 40) }));
 
-import { loadLiveBoard } from "@/lib/ops/live-board";
+import { filterBoardForViewer, loadLiveBoard, mostActionableState } from "@/lib/ops/live-board";
 import { serializeJobInternalNotes } from "@/lib/jobs/meta";
 
 // 12:00 Sydney on 11 Nov 2026.
@@ -81,5 +83,55 @@ describe("loadLiveBoard", () => {
     const board = await loadLiveBoard({ now: NOW });
     expect(board.drivers).toEqual([expect.objectContaining({ name: "Tom", stopsDone: 2, stopsTotal: 4 })]);
     expect(board.counts.driversOnShift).toBe(1);
+  });
+
+  it("classifies each cleaner on their own clock and position; one teammate's stale fix no longer speaks for the job", async () => {
+    // Property at the origin; u-a has an open clock and a fresh fix 500 m away (off site);
+    // u-b listed first has an old fix at the property and no clock.
+    m.jobs.mockResolvedValue([job("team", {
+      status: "IN_PROGRESS",
+      property: { name: "Team", suburb: null, address: null, latitude: -33.86, longitude: 151.2, geofenceRadiusM: null },
+      assignments: [
+        { user: { id: "u-b", name: "B", email: "b@x", phone: null } },
+        { user: { id: "u-a", name: "A", email: "a@x", phone: null } },
+      ],
+      timeLogs: [{ id: "t-a", userId: "u-a", startedAt: new Date("2026-11-11T00:30:00Z") }],
+    })]);
+    m.pings.mockResolvedValue([
+      { userId: "u-b", lat: -33.86, lng: 151.2, accuracy: 5, measuredAt: new Date("2026-11-10T01:00:00Z"), trackingState: null },
+      { userId: "u-a", lat: -33.8645, lng: 151.2, accuracy: 8, measuredAt: new Date(NOW.getTime() - 30_000), trackingState: null },
+    ]);
+    const board = await loadLiveBoard({ now: NOW, withProgress: false });
+    const row = board.jobs[0];
+    expect(row.state).toBe("off-site");
+    expect(row.cleanerStates?.find((c) => c.userId === "u-a")).toMatchObject({ state: "off-site", liveStatus: "OFF_SITE" });
+    expect(row.cleanerStates?.find((c) => c.userId === "u-b")?.state).toBe("on-site");
+    expect(row.distanceMeters).toBeGreaterThan(400);
+  });
+
+  it("never calls an imprecise fix off site (one geofence policy)", async () => {
+    m.jobs.mockResolvedValue([job("rough", {
+      status: "IN_PROGRESS",
+      property: { name: "Rough", suburb: null, address: null, latitude: -33.86, longitude: 151.2, geofenceRadiusM: null },
+      timeLogs: [{ id: "t", userId: "u-rough", startedAt: new Date("2026-11-11T00:30:00Z") }],
+    })]);
+    m.pings.mockResolvedValue([{ userId: "u-rough", lat: -33.8645, lng: 151.2, accuracy: 400, measuredAt: new Date(NOW.getTime() - 30_000), trackingState: null }]);
+    const board = await loadLiveBoard({ now: NOW, withProgress: false });
+    expect(board.jobs[0].state).toBe("on-site");
+    expect(board.jobs[0].cleanerStates?.[0].liveStatus).toBe("UNCERTAIN");
+  });
+
+  it("picks the most actionable state and withholds what a pack does not cover", async () => {
+    expect(mostActionableState(["on-site", "off-site", "travelling"])).toBe("off-site");
+    expect(mostActionableState([])).toBeNull();
+    m.jobs.mockResolvedValue([]);
+    m.continuations.mockResolvedValue([]);
+    m.routes.mockResolvedValue([{ id: "r1", userId: "d1", stops: [{ taskId: "a", kind: "PICKUP", order: 1, propertyId: "p" }], user: { name: "Tom", email: "t@x", phone: null } }]);
+    const board = await loadLiveBoard({ now: NOW, withProgress: false });
+    const filtered = filterBoardForViewer({ ...board, continuations: [{ id: "c", jobId: "j", propertyName: "P", cleanerName: "C", reason: "r", remainingHours: 1, requestedAt: "x" }], counts: { ...board.counts, exceptions: 1 } }, { drivers: false, continuations: false });
+    expect(filtered.drivers).toEqual([]);
+    expect(filtered.continuations).toEqual([]);
+    expect(filtered.counts).toMatchObject({ exceptions: 0, driversOnShift: 0 });
+    expect(filtered.visibility).toEqual({ drivers: false, continuations: false });
   });
 });

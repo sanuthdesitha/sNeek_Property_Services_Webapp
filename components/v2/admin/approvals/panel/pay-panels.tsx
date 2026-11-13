@@ -12,7 +12,8 @@ import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import { PayAdjustmentDisplay, toPayAdjustmentListItem } from "@/components/v2/shared/pay-adjustment-list";
 import { EvidenceThumbs } from "@/components/v2/shared/evidence-thumbs";
-import { money, payAskedAmount, type ApprovalRecord } from "@/lib/admin/approvals/rows";
+import { money, payAskedAmount, payClientCharge, type ApprovalRecord } from "@/lib/admin/approvals/rows";
+import { cleanerPayFieldDefault } from "@/lib/payroll/cleaner-pay-amount";
 import { ConfirmButton, ContextLinks, DetailList, PanelNote, PanelSection, jobHref, type QueuePanelProps } from "./panel-kit";
 
 const FIELD =
@@ -33,7 +34,7 @@ function SendToClient({ record, busy, onSent }: { record: PayRecord; busy: boole
   const [open, setOpen] = React.useState(false);
   const [sending, setSending] = React.useState(false);
   const asked = payAskedAmount(record);
-  const [amount, setAmount] = React.useState(asked > 0 ? asked.toFixed(2) : "");
+  const [amount, setAmount] = React.useState(asked !== null && asked > 0 ? asked.toFixed(2) : "");
   const [title, setTitle] = React.useState(record.title ?? record.reason ?? "Additional charge for approval");
   const [description, setDescription] = React.useState(record.description ?? "");
   const ids = React.useId();
@@ -87,18 +88,46 @@ function SendToClient({ record, busy, onSent }: { record: PayRecord; busy: boole
   );
 }
 
+/** The client charge beside the pay field: read only, never copied into it. */
+function ClientChargeLine({ record, id }: { record: PayRecord; id: string }) {
+  const charge = payClientCharge(record);
+  if (!charge) return null;
+  return (
+    <p id={id} className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+      <span className="e-tnum font-[550] text-[hsl(var(--e-foreground))]">{charge.label}</span>
+      {" "}— what the client is charged. The cleaner is paid the amount above, which starts at what they requested.
+    </p>
+  );
+}
+
 export function PayRequestPanel({ row, busy, decide, reload }: QueuePanelProps) {
   const record = row.record as PayRecord;
   const asked = payAskedAmount(record);
   // Drafts live here; the panel stays mounted while a decision runs, so a
-  // refused decision keeps what was typed.
-  const [amount, setAmount] = React.useState(asked.toFixed(2));
+  // refused decision keeps what was typed. The pay field always starts at the
+  // cleaner's REQUESTED amount, whatever the client approved (owner rule
+  // 2026-11-13); the panel is keyed by request, so another request starts fresh.
+  const [amount, setAmount] = React.useState(() => cleanerPayFieldDefault(record));
   const [note, setNote] = React.useState("");
   const [visible, setVisible] = React.useState(true);
+  const [override, setOverride] = React.useState(false);
+  const [overrideReason, setOverrideReason] = React.useState("");
   const ids = React.useId();
   const awaitingClient = record.clientApproval?.status === "PENDING";
   const value = Number(amount);
+  const aboveRequest = asked !== null && amount.trim() !== "" && Number.isFinite(value) && Math.round(value * 100) > Math.round(asked * 100);
   const noteBody = note.trim() ? (visible ? { decisionMessage: note.trim() } : { adminNote: note.trim() }) : {};
+  const overrideBody = aboveRequest && override ? { overrideAboveRequest: true, overrideReason: overrideReason.trim() } : {};
+  const charge = payClientCharge(record);
+
+  function approve() {
+    if (!Number.isFinite(value) || value <= 0) return toast({ title: "A valid amount greater than zero is required.", variant: "destructive" });
+    if (aboveRequest && !override) {
+      return toast({ title: "More than the cleaner requested", description: `The cleaner asked for ${money(asked)}. Lower the amount, or use the administrator override with a reason.`, variant: "destructive" });
+    }
+    if (aboveRequest && !overrideReason.trim()) return toast({ title: "Say why the cleaner is paid more than they requested.", variant: "destructive" });
+    void decide({ url: `/api/admin/pay-adjustments/${record.id}`, body: { status: "APPROVED", approvedAmount: value, ...noteBody, ...overrideBody }, successMsg: "Pay request approved" });
+  }
 
   return (
     <>
@@ -106,7 +135,8 @@ export function PayRequestPanel({ row, busy, decide, reload }: QueuePanelProps) 
         <DetailList
           items={[
             ["Type", row.type.label],
-            ["Amount", money(asked)],
+            ["Requested", money(asked) ?? "No amount recorded"],
+            charge ? ["Client charge", <span key="charge" className="e-tnum">{charge.label}</span>] : null,
             record.requestedHours != null ? ["Time", `${record.requestedHours} h at $${Number(record.requestedRate ?? 0).toFixed(2)}/h`] : null,
             record.cleanerNote ? ["Reason", `“${record.cleanerNote}”`] : null,
           ]}
@@ -124,8 +154,34 @@ export function PayRequestPanel({ row, busy, decide, reload }: QueuePanelProps) 
       <PanelSection title="Decision" tone="decision">
         {awaitingClient ? <EBadge tone="info" soft>Awaiting client approval</EBadge> : null}
         <fieldset disabled={busy} className="flex flex-col gap-2">
-          <label className="text-[0.75rem] font-[550]" htmlFor={`${ids}-amt`}>Approve amount ($)</label>
-          <input id={`${ids}-amt`} className={FIELD + " e-tnum"} type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <label className="text-[0.75rem] font-[550]" htmlFor={`${ids}-amt`}>Pay the cleaner ($)</label>
+          <input
+            id={`${ids}-amt`}
+            className={FIELD + " e-tnum"}
+            type="number"
+            min="0"
+            step="0.01"
+            value={amount}
+            aria-describedby={charge ? `${ids}-charge` : undefined}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+          <ClientChargeLine record={record} id={`${ids}-charge`} />
+          {aboveRequest ? (
+            <div className="space-y-2 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-warning))] p-2.5" role="group" aria-label="Pay above the request">
+              <p className="text-[0.75rem]">
+                This is more than the cleaner requested ({money(asked)}). Only an administrator can pay more, with a reason that is recorded.
+              </p>
+              <label className="flex min-h-[44px] items-center gap-2 text-[0.8125rem]">
+                <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} /> Administrator override: pay more than requested
+              </label>
+              {override ? (
+                <>
+                  <label className="block text-[0.75rem] font-[550]" htmlFor={`${ids}-why`}>Reason for paying more (required)</label>
+                  <input id={`${ids}-why`} className={FIELD} value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} />
+                </>
+              ) : null}
+            </div>
+          ) : null}
           <label className="text-[0.75rem] font-[550]" htmlFor={`${ids}-note`}>Admin note, optional</label>
           <input id={`${ids}-note`} className={FIELD} value={note} placeholder="Shown with the decision" onChange={(e) => setNote(e.target.value)} />
           <label className="flex min-h-[44px] items-center gap-2 text-[0.8125rem]">
@@ -136,10 +192,7 @@ export function PayRequestPanel({ row, busy, decide, reload }: QueuePanelProps) 
               size="sm"
               variant="gold"
               className="grow justify-center"
-              onClick={() => {
-                if (!Number.isFinite(value) || value <= 0) return toast({ title: "A valid amount greater than zero is required.", variant: "destructive" });
-                void decide({ url: `/api/admin/pay-adjustments/${record.id}`, body: { status: "APPROVED", approvedAmount: value, ...noteBody }, successMsg: "Pay request approved" });
-              }}
+              onClick={approve}
             >
               <CheckCircle2 aria-hidden className="h-3.5 w-3.5" /> Approve {Number.isFinite(value) && value > 0 ? money(value) : ""}
             </EButton>
@@ -153,7 +206,7 @@ export function PayRequestPanel({ row, busy, decide, reload }: QueuePanelProps) 
         </fieldset>
         <SendToClient record={record} busy={busy} onSent={reload} />
         <PanelNote>
-          When "Visible to the cleaner" is off the note is kept private to the office. Approving adds the amount to the next pay run; pay runs already issued keep their amounts.
+          When "Visible to the cleaner" is off the note is kept private to the office. Approving adds the amount to the next pay run; pay runs already issued keep their amounts. The client charge is separate and never changes what the cleaner is paid.
         </PanelNote>
       </PanelSection>
     </>

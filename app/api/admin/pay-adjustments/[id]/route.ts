@@ -20,6 +20,9 @@ import { adjustmentSignedAmount } from "@/lib/finance/pay-adjustments";
 import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
 import type { ApprovalQueueKey } from "@/lib/admin/approval-history";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { isAdministrator } from "@/lib/rbac/access-evaluator";
+import { BONUS_SOURCES, RECTIFICATION_SOURCES } from "@/lib/admin/approvals/sources";
+import { decideCleanerPayAmount, type CleanerPayAmountDecision } from "@/lib/payroll/cleaner-pay-amount";
 
 const updateSchema = z.object({
   // Status changes now include reversing back to PENDING (admins can undo a
@@ -38,6 +41,12 @@ const updateSchema = z.object({
   requestedAmount: z.number().positive().optional(),
   requestedHours: z.number().positive().nullable().optional(),
   requestedRate: z.number().positive().nullable().optional(),
+  /**
+   * Pay a cleaner MORE than they requested (owner rule 2026-11-13). Honoured
+   * only for an administrator in a real session, with a reason; audited.
+   */
+  overrideAboveRequest: z.boolean().optional(),
+  overrideReason: z.string().trim().max(2000).optional(),
 });
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -127,6 +136,48 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       );
     }
 
+    // Which Approval Center tab this row lives in. Mirrors the RECTIFICATION_SOURCES
+    // / BONUS_SOURCES split in /api/admin/all-approvals, so a history row lands in
+    // the same queue the admin actually decided it in.
+    const source = existing.source ?? null;
+    const approvalQueue: ApprovalQueueKey =
+      source && RECTIFICATION_SOURCES.includes(source)
+        ? "rectificationAdjustments"
+        : source && BONUS_SOURCES.includes(source)
+        ? "bonusProposals"
+        : "payAdjustments";
+
+    // CLEANER PAY IS THE REQUESTED AMOUNT (owner rule 2026-11-13). On a cleaner
+    // pay request the amount paid defaults to what the cleaner requested — never
+    // the client charge on a linked client approval — and more than requested
+    // needs an administrator (real session, not "test as") with an explicit
+    // override and a reason. Lower than requested stays allowed as before.
+    const decidesPayAmount =
+      approvalQueue === "payAdjustments" &&
+      ((isStatusChange && body.status === PayAdjustmentStatus.APPROVED) || isAmountEdit);
+    let payDecision: CleanerPayAmountDecision | null = null;
+    if (decidesPayAmount) {
+      payDecision = decideCleanerPayAmount({
+        requestedAmount: existing.requestedAmount,
+        proposedAmount: body.approvedAmount,
+        callerIsAdministrator:
+          !session.impersonation &&
+          isAdministrator({ id: session.user.id, role: String(session.user.role), heldRoles: (session.user.heldRoles ?? []).map(String) }),
+        overrideAboveRequest: body.overrideAboveRequest,
+        overrideReason: body.overrideReason,
+      });
+      if (!payDecision.ok) {
+        return NextResponse.json(
+          { error: payDecision.error, code: payDecision.code, requestedAmount: existing.requestedAmount },
+          { status: payDecision.status }
+        );
+      }
+    }
+    const aboveRequestOverride =
+      payDecision?.ok && payDecision.aboveRequest
+        ? { requestedAmount: existing.requestedAmount, paidAmount: payDecision.amount, reason: payDecision.overrideReason }
+        : null;
+
     const previousApprovedAmount = existing.approvedAmount;
     // Resolve the resulting request fields so we can recompute requestedAmount for
     // HOURLY edits (hours * rate) when only one side is supplied.
@@ -159,6 +210,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // Reversing to PENDING clears the prior decision; an approve/reject sets it.
     const approvedAmountRaw = isReverseToPending
       ? null
+      : payDecision?.ok
+      ? payDecision.amount
       : body.status === PayAdjustmentStatus.APPROVED
       ? body.approvedAmount ?? existing.requestedAmount
       : isAmountEdit
@@ -426,23 +479,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       });
     }
 
-    // Which Approval Center tab this row lives in. Mirrors the RECTIFICATION_SOURCES
-    // / BONUS_SOURCES split in /api/admin/all-approvals, so a history row lands in
-    // the same queue the admin actually decided it in.
-    const RECTIFICATION_SOURCES = [
-      "QA_RECTIFICATION_PAY",
-      "RECTIFICATION_DEDUCTION",
-      "REWORK_DEDUCTION",
-    ];
-    const BONUS_SOURCES = ["STREAK_5", "STREAK_10", "MONTHLY_RANK_1", "MONTHLY_RANK_2"];
-    const source = existing.source ?? null;
-    const approvalQueue: ApprovalQueueKey =
-      source && RECTIFICATION_SOURCES.includes(source)
-        ? "rectificationAdjustments"
-        : source && BONUS_SOURCES.includes(source)
-        ? "bonusProposals"
-        : "payAdjustments";
-
     if (isStatusChange || isAmountEdit || isFieldEdit) {
       void recordApprovalDecision({
         queue: approvalQueue,
@@ -515,9 +551,31 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           propertyId: updated.propertyId,
           title: updated.title,
           adminNote: updated.adminNote,
+          ...(aboveRequestOverride ? { aboveRequestOverride } : {}),
         } as any,
       },
     });
+
+    // Paying more than the cleaner requested is its own audited act: the actor
+    // (real session — "test as" cannot override), both amounts and the reason.
+    if (aboveRequestOverride) {
+      await db.auditLog.create({
+        data: {
+          userId: session.user.id,
+          jobId: updated.job?.id ?? undefined,
+          action: "PAY_ADJUSTMENT_PAID_ABOVE_REQUEST",
+          entity: "CleanerPayAdjustment",
+          entityId: updated.id,
+          before: { requestedAmount: existing.requestedAmount, approvedAmount: previousApprovedAmount } as any,
+          after: {
+            requestedAmount: aboveRequestOverride.requestedAmount,
+            paidAmount: aboveRequestOverride.paidAmount,
+            reason: aboveRequestOverride.reason,
+            actorRole: String(session.user.role),
+          } as any,
+        },
+      });
+    }
 
     return NextResponse.json(updated);
   } catch (err: any) {

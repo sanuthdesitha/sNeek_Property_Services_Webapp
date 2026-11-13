@@ -16,6 +16,7 @@ import {
 } from "@/components/v2/client/portal/portal-nav";
 import { ClientRequestProvider } from "@/components/v2/client/portal/request-sheet";
 import { ClientHeaderActions } from "@/components/v2/client/portal/header-actions";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /**
  * Client portal shell (approved boards "Client portal" and "Client portal
@@ -130,7 +131,7 @@ export default function V2ClientLayout({ children }: { children: React.ReactNode
           headerActions={viewer ? <ClientHeaderActions showMessages={showMessages} unread={counts[MESSAGES]} /> : null}
         >
           {identity && (gateStatus === "unavailable" || gateStatus === "denied") ? (
-            <div role="alert" className="mb-4 border-l-4 border-amber-600 px-3 py-2 text-sm">
+            <div role="alert" className={`mb-4 rounded-[var(--e-radius)] ${toneNoticeClass("attention")} px-3 py-2 text-sm`}>
               {gateStatus === "denied" ? "Your access could not be confirmed." : "Navigation updates are unavailable."}
               {isVa ? " Delegated actions are hidden until access is confirmed." : ""}
               <button type="button" onClick={refresh} className="ml-2 min-h-11 underline">Retry</button>

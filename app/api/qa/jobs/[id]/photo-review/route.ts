@@ -7,8 +7,9 @@ import { requireRole } from "@/lib/auth/session";
 import { qaAssignmentOwnerWhere } from "@/lib/qa/ownership";
 import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
 import { keepAppliedCountsWithoutChoice } from "@/lib/inventory/stock-count-reset";
-import { photoSourceFingerprint, photoSubmissionInclude } from "@/lib/ai/photo-review";
+import { photoReviewSnapshot, photoSourceFingerprint, photoSubmissionInclude } from "@/lib/ai/photo-review";
 import { getVisionSettings } from "@/lib/ai/vision-settings";
+import { isPropertyOptedOut } from "@/lib/ai/photo-review-opt-out";
 import { visionSettingsSchema } from "@/lib/ai/vision-settings-schema";
 import { proposedPhotoDeduction, parsePhotoReviewResult } from "@/lib/ai/photo-review-policy";
 import { getAppSettings } from "@/lib/settings";
@@ -65,6 +66,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const body = bodySchema.parse(await req.json());
     const config = await getVisionSettings();
     const appSettings = await getAppSettings();
+    // A fresh analysis keeps the photo_compare route of this moment (deselected providers are refused later).
+    const snapshot = body.action === "analyze" ? await photoReviewSnapshot(config) : config;
     const result = await db.$transaction(async tx => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${params.id}))`;
       await tx.$queryRaw`SELECT "id" FROM "Job" WHERE "id" = ${params.id} FOR UPDATE`;
@@ -80,9 +83,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       const review = submission.aiPhotoReview;
       if (body.action === "analyze") {
         if (!config.comparisonEnabled) throw new ReviewError("Enable photo comparison in AI configuration first.");
+        if (await isPropertyOptedOut(submission.job.propertyId, tx)) throw new ReviewError("This property is opted out of AI photo review.");
         if (review?.reviewedAt) throw new ReviewError("This analysis already has a reviewer decision. A new form submission starts a new review.");
         if (review?.status === "RUNNING" && review.leaseUntil && review.leaseUntil > new Date()) throw new ReviewError("Analysis is already running.");
-        return tx.aiPhotoReview.upsert({ where: { submissionId: submission.id }, create: { submissionId: submission.id, settings: config }, update: { settings: config, result: Prisma.DbNull, sourceFingerprint: null, status: "PENDING", attempts: 0, leaseToken: null, leaseUntil: null, error: null } });
+        return tx.aiPhotoReview.upsert({ where: { submissionId: submission.id }, create: { submissionId: submission.id, settings: snapshot }, update: { settings: snapshot, result: Prisma.DbNull, sourceFingerprint: null, status: "PENDING", attempts: 0, leaseToken: null, leaseUntil: null, error: null } });
       }
       if (!review || review.id !== body.analysisId) throw new ReviewError("The submitted form changed. Refresh the analysis.");
       if (review.reviewedAt) {
@@ -99,7 +103,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         const settings = visionSettingsSchema.parse(review.settings);
         const findings = parsePhotoReviewResult(review.result).observations.flatMap(item => item.findings);
         if (body.findingIds.some(id => !findings.some(finding => finding.id === id))) throw new ReviewError("One or more selected findings are unavailable.");
-        const deduction = proposedPhotoDeduction(findings, body.findingIds, settings.minConfidence, settings.maxScoreContribution);
+        const deduction = proposedPhotoDeduction(findings, body.findingIds, settings.minConfidence, settings.maxScoreContribution, { minor: settings.minorPoints, major: settings.majorPoints });
         if (deduction <= 0) throw new ReviewError("Select an eligible finding, or dismiss the suggestions.");
         const scoreReview = authoritative(await tx.qAReview.findMany({ where: { jobId: params.id } }));
         if (!scoreReview || scoreReview.id !== body.expectedReviewId || scoreReview.score !== body.expectedScore) throw new ReviewError("The QA score changed. Refresh and review the deduction again.");
