@@ -21,7 +21,9 @@ import { QualityStatCards } from "./stat-cards";
 import { QualityTabs } from "./hub-tabs";
 import { SharedFilters } from "./shared-filters";
 import { CleanersTab } from "./cleaners-tab";
-import { IssuesTab } from "./issues-tab";
+import { IssueStatusFilters, IssuesTab, issueStatusActiveFilters } from "./issues-tab";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
+import type { IssueActionKey } from "../issues/issue-actions";
 import { InspectorsTab } from "./inspectors-tab";
 import { CategoriesTab } from "./categories-tab";
 import { ReviewTab } from "./review-tab";
@@ -34,7 +36,7 @@ const INSPECTOR_TABS: readonly QualityTab[] = ["issues"];
 /** A manager whose packs refuse the coaching endpoints never gets a blank tab. */
 const MANAGER_TABS_WITHOUT_COACHING: readonly QualityTab[] = MANAGER_TABS.filter((tab) => tab !== "coaching");
 
-type OpenDetail = { issue: QualityIssueRow; action: "rectify" | "deduction" | null };
+type OpenDetail = { issue: QualityIssueRow; action: IssueActionKey | null };
 
 export function QualityHub({ context }: { context: HubContext }) {
   const coaching = context.coaching ?? { visible: true, canManage: context.canManage, fullPageLink: true };
@@ -73,6 +75,10 @@ export function QualityHub({ context }: { context: HubContext }) {
   const onPage = React.useCallback((page: number) => update({ page }), [update]);
   const openIssue = React.useCallback((issue: QualityIssueRow) => setDetail({ issue, action: null }), []);
   const openIssueRequest = React.useCallback((request: OpenIssueRequest) => setDetail(request), []);
+  const openIssueAction = React.useCallback((issue: QualityIssueRow, action: IssueActionKey) => setDetail({ issue, action }), []);
+  const phone = useIsPhone();
+  // Phones: the Issues tab's status filters join the shared filter sheet.
+  const phoneIssueFilters = phone && state.tab === "issues";
 
   const counts: Partial<Record<QualityTab, number>> = summary.data
     ? { review: summary.data.tabs.reviewQueue, issues: summary.data.tabs.issues, coaching: summary.data.tabs.coaching }
@@ -106,6 +112,8 @@ export function QualityHub({ context }: { context: HubContext }) {
         optionsError={options.error}
         searchLabel="Search cleaner, property or job"
         onChange={onFilters}
+        phoneExtra={phoneIssueFilters ? <IssueStatusFilters filters={state.filters} onFilters={onFilters} /> : undefined}
+        phoneExtraActive={phoneIssueFilters ? issueStatusActiveFilters(state.filters, onFilters) : undefined}
       />
 
       <div className="min-w-0">
@@ -138,6 +146,7 @@ export function QualityHub({ context }: { context: HubContext }) {
             onSort={onSort}
             onPage={onPage}
             onOpenIssue={openIssue}
+            onOpenIssueAction={openIssueAction}
             onChanged={onChanged}
           />
         ) : null}

@@ -85,9 +85,10 @@ export function isLaundryOfficeRole(role: Role | string): boolean {
 export async function laundryTaskScope(viewer: {
   id: string;
   role: Role | string;
-}): Promise<{ propertyId?: { in: string[] } }> {
+}): Promise<{ propertyId?: { in: string[] }; voidedAt?: null }> {
   if (isLaundryOfficeRole(viewer.role)) return {};
-  return { propertyId: { in: await getVisibleLaundryPropertyIds(viewer.id) } };
+  // A run the office voided is gone from the laundry portal (2026-11-14).
+  return { propertyId: { in: await getVisibleLaundryPropertyIds(viewer.id) }, voidedAt: null };
 }
 
 /** Matches no property. An empty list means "no filter" to the invoice query. */

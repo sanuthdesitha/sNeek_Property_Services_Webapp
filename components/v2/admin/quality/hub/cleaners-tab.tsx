@@ -28,6 +28,8 @@ import { BonusDialog } from "./bonus-dialog";
 import { ProposeBonusDialog } from "./propose-bonus-dialog";
 import { CLEANER_ROW_ACTION_LABEL, cleanerRowActions, type CleanerRowActionKey } from "./cleaner-row-actions";
 import { TableState } from "./table-state";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
+import { CleanersPhoneList } from "./cleaners-phone";
 
 const FIRST_DIR: Partial<Record<CleanerSort, "asc" | "desc">> = { cleaner: "asc", topCategory: "asc" };
 
@@ -83,13 +85,43 @@ export function CleanersTab({
     canDecideBonus: context.canDecideBonus ?? context.canManage,
     canProposeBonus: context.canProposeBonus ?? context.canManage,
   };
+  const phone = useIsPhone();
+  const actionsFor = (row: CleanerRow) => cleanerRowActions(row, permissions);
+  const renderActions = (row: CleanerRow, actions: ReturnType<typeof cleanerRowActions>) => (
+    <RowActions row={row} actions={actions} onAction={(key) => setDialog({ kind: DIALOG_FOR[key], row })} />
+  );
   const header = (key: CleanerSort, label: string, align: "left" | "right" = "left") => (
     <SortHeader label={label} sortKey={key} active={activeSort} dir={activeDir} firstDir={FIRST_DIR[key] ?? "desc"} align={align} onSort={onSort} />
   );
 
   return (
     <div className="space-y-2">
-      <ECard className="overflow-hidden p-0">
+      {phone ? (
+        <CleanersPhoneList
+          rows={rows}
+          sort={activeSort}
+          dir={activeDir}
+          openId={expanded}
+          periodText={periodText}
+          apiQuery={apiQuery}
+          context={context}
+          labelFor={labelFor}
+          refreshToken={refreshToken}
+          hrefForTab={hrefForTab}
+          actionsFor={actionsFor}
+          renderActions={renderActions}
+          onSort={onSort}
+          onOpen={setExpanded}
+          onOpenIssue={onOpenIssue}
+          onChanged={onChanged}
+          state={(content) => (
+            <TableState loading={read.loading} error={read.error} hasRows={rows.length > 0} hasData={Boolean(read.data)} onRetry={read.reload} emptyTitle="No cleaners match" emptyDescription="Change the period or filters.">
+              {content}
+            </TableState>
+          )}
+        />
+      ) : (
+      <ECard className="overflow-hidden p-0 max-sm:hidden">
         <TableState loading={read.loading} error={read.error} hasRows={rows.length > 0} hasData={Boolean(read.data)} onRetry={read.reload} emptyTitle="No cleaners match" emptyDescription="Change the period or filters.">
           <div role="region" aria-label="Cleaners" tabIndex={0} className="overflow-x-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]">
             <table className="w-full min-w-[68rem] text-[0.8125rem]" aria-busy={read.loading || undefined}>
@@ -164,6 +196,7 @@ export function CleanersTab({
           </div>
         </TableState>
       </ECard>
+      )}
       <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
         Cleans are submitted cleans scheduled in the period; score is the authoritative review (QA, then admin, then automatic).
         Trend shows the 8 Sydney weeks to the end of the period. Streak counts consecutive qualifying cleans, all time.

@@ -10,6 +10,7 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
 import { EFilterPopover } from "@/components/v2/ui/filter-popover";
+import { EFilterBar, EFilterBarInlineOnly, type EActiveFilter } from "@/components/v2/ui/filter-bar";
 import { ESelect } from "@/components/v2/admin/estate-kit";
 import type { IssueListFilters } from "@/lib/quality/types";
 import type { QualityOption, QualityOptions } from "./hub-types";
@@ -58,18 +59,40 @@ function RemovableChip({ label, onRemove }: { label: string; onRemove: () => voi
   );
 }
 
+/** One removable chip per shared filter in use (the phone filter bar). */
+export function sharedActiveFilters(filters: IssueListFilters, options: QualityOptions | null, onChange: (patch: Partial<IssueListFilters>) => void): EActiveFilter[] {
+  const active: EActiveFilter[] = [];
+  if (filters.q.trim()) active.push({ key: "q", label: `Search: ${filters.q.trim()}`, onRemove: () => onChange({ q: "" }) });
+  const property = labelOf(options?.properties, filters.propertyId);
+  if (property) active.push({ key: "property", label: `Property: ${property}`, onRemove: () => onChange({ propertyId: "" }) });
+  const category = labelOf(options?.categories, filters.category);
+  if (category) active.push({ key: "category", label: `Category: ${category}`, onRemove: () => onChange({ category: "" }) });
+  if (filters.openFixes) active.push({ key: "openFixes", label: "Has open fixes", onRemove: () => onChange({ openFixes: false }) });
+  const cleaner = labelOf(options?.cleaners, filters.cleanerId);
+  if (cleaner) active.push({ key: "cleaner", label: `Cleaner: ${cleaner}`, onRemove: () => onChange({ cleanerId: "" }) });
+  const inspector = labelOf(options?.inspectors, filters.raisedById);
+  if (inspector) active.push({ key: "inspector", label: `Raised by: ${inspector}`, onRemove: () => onChange({ raisedById: "" }) });
+  return active;
+}
+
 export function SharedFilters({
   filters,
   options,
   optionsError,
   searchLabel,
   onChange,
+  phoneExtra,
+  phoneExtraActive = [],
 }: {
   filters: IssueListFilters;
   options: QualityOptions | null;
   optionsError: string | null;
   searchLabel: string;
   onChange: (patch: Partial<IssueListFilters>) => void;
+  /** Phones only: a tab's own filters, shown in the same sheet (the Issues tab's status filters). */
+  phoneExtra?: React.ReactNode;
+  /** Chips for `phoneExtra`'s filters in use. */
+  phoneExtraActive?: EActiveFilter[];
 }) {
   const [draft, setDraft] = React.useState(filters.q);
   const committed = React.useRef(filters.q);
@@ -91,11 +114,28 @@ export function SharedFilters({
     return () => window.clearTimeout(timer);
   }, [draft, onChange]);
 
+  /** Applies a change at once; a cleared search also clears the box so the delay cannot bring it back. */
+  const changeNow = (patch: Partial<IssueListFilters>) => {
+    if (patch.q !== undefined) {
+      committed.current = patch.q;
+      setDraft(patch.q);
+    }
+    onChange(patch);
+  };
+
   const cleanerLabel = labelOf(options?.cleaners, filters.cleanerId);
   const inspectorLabel = labelOf(options?.inspectors, filters.raisedById);
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    // Phones: every filter sits behind one Filter button with removable chips; unchanged from 640px.
+    <EFilterBar
+      label="Filter quality"
+      active={[...sharedActiveFilters(filters, options, changeNow), ...phoneExtraActive]}
+      onClear={() => {
+        changeNow({ q: "", propertyId: "", category: "", openFixes: false, cleanerId: "", raisedById: "" });
+        phoneExtraActive.forEach((filter) => filter.onRemove?.());
+      }}
+    >
       <input
         type="search"
         value={draft}
@@ -118,12 +158,15 @@ export function SharedFilters({
       >
         Has open fixes
       </button>
-      {cleanerLabel ? <RemovableChip label={`Cleaner: ${cleanerLabel}`} onRemove={() => onChange({ cleanerId: "" })} /> : null}
-      {inspectorLabel ? <RemovableChip label={`Raised by: ${inspectorLabel}`} onRemove={() => onChange({ raisedById: "" })} /> : null}
-      <span className="hidden min-w-0 flex-1 sm:block" />
+      <EFilterBarInlineOnly>
+        {cleanerLabel ? <RemovableChip label={`Cleaner: ${cleanerLabel}`} onRemove={() => onChange({ cleanerId: "" })} /> : null}
+        {inspectorLabel ? <RemovableChip label={`Raised by: ${inspectorLabel}`} onRemove={() => onChange({ raisedById: "" })} /> : null}
+        <span className="hidden min-w-0 flex-1 sm:block" />
+      </EFilterBarInlineOnly>
+      {phoneExtra}
       <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
         {optionsError ? `Filter options could not be loaded. ${optionsError}` : "All tabs share the period and these filters."}
       </span>
-    </div>
+    </EFilterBar>
   );
 }

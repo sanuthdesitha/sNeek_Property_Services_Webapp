@@ -167,7 +167,8 @@ export function CleanerExpanded({
 
   const rows = read.data?.rows ?? [];
   return (
-    <div className="flex flex-col gap-5 md:flex-row md:items-start">
+    // Phones (the cleaner screen) put the rating mix and categories above the issues, as drawn.
+    <div className="flex flex-col gap-5 max-sm:flex-col-reverse md:flex-row md:items-start">
       <div className="min-w-0 flex-1 space-y-1.5">
         <EEyebrow>{`${firstName}'s open issues`}</EEyebrow>
         {read.loading && !read.data ? <p role="status" className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Loading…</p> : null}
