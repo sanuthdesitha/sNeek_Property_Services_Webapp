@@ -5597,6 +5597,68 @@ model AiTask {
   @@index([requestedById, createdAt])
 }
 
+/// A connected AI agent (Hermes, Claude, any MCP client), created by an
+/// administrator (2026-11-14). Not a User: it can never sign in, never appears
+/// in people lists and holds no password, PIN or key. Its access is the
+/// intersection of `areas` (read-only scope packs) and its creator's current
+/// access, recomputed on every call.
+model AgentProfile {
+  id          String    @id @default(cuid())
+  name        String
+  createdById String
+  /// Scope pack keys (lib/agents/scopes.ts); read-only.
+  areas       String[]
+  /// ACTIVE | REVOKED
+  status      String    @default("ACTIVE")
+  revokedAt   DateTime?
+  revokedById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tokens AgentToken[]
+
+  @@index([status, createdAt])
+}
+
+/// A bearer token for an agent. Only the sha-256 hash is stored; the token is
+/// shown once. Rotation revokes the previous token in the same transaction.
+model AgentToken {
+  id          String    @id @default(cuid())
+  agentId     String
+  tokenHash   String    @unique
+  /// First characters of the token, for recognising it on screen.
+  prefix      String
+  expiresAt   DateTime
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+
+  agent AgentProfile @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, createdAt])
+}
+
+/// One row per agent request (append-only: a database trigger refuses UPDATE
+/// and DELETE). Argument summaries never hold sensitive values.
+model AgentAuditEntry {
+  id          String   @id @default(cuid())
+  agentId     String?
+  tokenId     String?
+  creatorId   String?
+  method      String
+  tool        String?
+  argsSummary Json?
+  outcome     String
+  errorCode   String?
+  resultBytes Int?
+  latencyMs   Int
+  createdAt   DateTime @default(now())
+
+  @@index([agentId, createdAt])
+  @@index([createdAt])
+}
+
 model ShoppingClientCharge {
   expenseBillable Boolean @default(true)
   allocatedExpenseAmount Float @default(0)

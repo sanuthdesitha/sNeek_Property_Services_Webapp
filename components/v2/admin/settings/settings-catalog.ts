@@ -268,6 +268,14 @@ export const SETTINGS_DESTINATIONS = [
     href: "/v2/admin/settings/access",
   },
   {
+    key: "agents",
+    label: "Agents (Hermes, Claude)",
+    description: "Connect AI agents that read your operations within the access you choose; tokens, revoke, recent calls.",
+    group: "access",
+    adminOnly: true,
+    href: "/v2/admin/settings/agents",
+  },
+  {
     key: "ai",
     label: "AI providers and models",
     description: "Choose local or cloud models per feature, store keys encrypted, test each feature and see this month's usage.",
