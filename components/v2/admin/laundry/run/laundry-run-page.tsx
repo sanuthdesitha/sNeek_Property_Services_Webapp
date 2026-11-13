@@ -211,7 +211,8 @@ export function LaundryRunPage({ task, extras, viewer, skipReasons }: Props) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {!voided && viewer.canChangeState ? <EButton variant="outline" className="max-sm:hidden" onClick={() => setChangeRuns([changeRun])}>Change state…</EButton> : null}
+            {/* When the primary action already is Change state, it is not offered twice (as on the phone bar). */}
+            {!voided && viewer.canChangeState && primary.key !== "CHANGE_STATE" ? <EButton variant="outline" className="max-sm:hidden" onClick={() => setChangeRuns([changeRun])}>Change state…</EButton> : null}
             <span className="max-sm:hidden">{primaryButton}</span>
             <ERowMenu label={`More actions for ${name}`} trigger="More ▾" triggerVariant="outline" items={menu} footnote="Void, Undo void and Delete permanently ask for your own PIN." />
           </div>

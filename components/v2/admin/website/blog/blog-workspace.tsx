@@ -246,7 +246,7 @@ export function BlogWorkspace() {
                         ) : null}
                       </span>
                       <div className="min-w-0">
-                        <p className="truncate text-[0.875rem] font-[550] text-[hsl(var(--e-foreground))]">
+                        <p className="truncate text-[0.875rem] font-[550] text-[hsl(var(--e-foreground))] max-sm:whitespace-normal max-sm:break-words">
                           {post.title}
                         </p>
                         <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
