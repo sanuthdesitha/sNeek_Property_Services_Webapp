@@ -1,4 +1,5 @@
 "use client";
+import { AiDraftButton } from "@/components/v2/shared/ai-help";
 
 /**
  * The quote page's right rail below the add-on requests: Status and details
@@ -40,6 +41,8 @@ export type StatusCardProps = {
   /** Office notes the client never sees (Quote.internalNotes). */
   internalNotes: string;
   onInternalNotes: (value: string) => void;
+  /** Saved quotes only: lets "Draft with AI" read the quote. */
+  quoteId?: string | null;
   onRegenerateNotes: (() => void) | null;
   saving: boolean;
   saveLabel: string;
@@ -80,6 +83,7 @@ export function StatusCard(props: StatusCardProps) {
         <EField label="Office notes (not shown to the client)" hint="Only the office sees these: never on the online quote, the PDF, emails or the client portal.">
           <ETextarea value={props.internalNotes} maxLength={10000} onChange={(e) => props.onInternalNotes(e.target.value)} placeholder="Access, pricing reasoning, follow-up reminders…" />
         </EField>
+        {props.quoteId ? <AiDraftButton scopeKey={props.quoteId} request={{ kind: "quote_notes", quoteId: props.quoteId }} onUse={(draft) => props.onInternalNotes(props.internalNotes.trim() ? `${props.internalNotes.trim()}\n\n${draft}` : draft)} /> : null}
       </fieldset>
       <p role="status" className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{props.savedLine}</p>
     </RailCard>

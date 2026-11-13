@@ -6,7 +6,8 @@
  * folded. Middle: the selected queue as a table, oldest first, one primary
  * action per row, bulk decisions where a queue allows them. Right: the side
  * panel with that queue's own decision controls (?open=<id>). The Decided tab
- * holds the history with its corrections.
+ * holds the history with its corrections; Agent requests (?tab=agents) holds
+ * the changes connected agents asked for (agent-requests-tab.tsx).
  *
  * Every decision goes to the same route and body as before the redesign; see
  * panel/* and lib/admin/approvals/*.
@@ -22,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { APPROVAL_QUEUES, APPROVAL_QUEUE_ORDER, type ApprovalsQueueKey, type BulkDecision } from "@/lib/admin/approvals/queues";
 import { DAY_MS, allRows, rowsForQueue, sortByWaiting, waitedMs, type ApprovalQueueRow, type WaitingOrder } from "@/lib/admin/approvals/rows";
 import { ApprovalsHistory } from "./approvals-history";
+import { AgentRequestsTab } from "./agent-requests-tab";
 import { QueueNav } from "./queue-nav";
 import { QueueTable } from "./queue-table";
 import { BulkDecisionBar } from "./bulk-decision";
@@ -118,8 +120,8 @@ export function ApprovalsWorkspace({ timezone = DEFAULT_TIMEZONE }: { timezone?:
 
   const waitingCount = total ?? 0;
   const tabs = (
-    <div role="tablist" aria-label="Approvals" className="inline-flex gap-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1">
-      {(["waiting", "decided"] as const).map((key) => (
+    <div role="tablist" aria-label="Approvals" className="inline-flex max-w-full gap-1 overflow-x-auto rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1">
+      {(["waiting", "decided", "agents"] as const).map((key) => (
         <button
           key={key}
           type="button"
@@ -127,11 +129,11 @@ export function ApprovalsWorkspace({ timezone = DEFAULT_TIMEZONE }: { timezone?:
           aria-selected={url.tab === key}
           onClick={() => setUrl({ tab: key, open: null })}
           className={cn(
-            "inline-flex min-h-[36px] items-center gap-1.5 rounded-[var(--e-radius)] px-3 text-[0.8125rem] font-[550]",
+            "inline-flex min-h-[36px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--e-radius)] px-3 text-[0.8125rem] font-[550]",
             url.tab === key ? "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]" : "text-[hsl(var(--e-muted-foreground))]",
           )}
         >
-          {key === "waiting" ? <>Waiting {total != null ? <span className="e-tnum">{waitingCount}</span> : null}</> : "Decided"}
+          {key === "waiting" ? <>Waiting {total != null ? <span className="e-tnum">{waitingCount}</span> : null}</> : key === "decided" ? "Decided" : "Agent requests"}
         </button>
       ))}
     </div>
@@ -158,14 +160,18 @@ export function ApprovalsWorkspace({ timezone = DEFAULT_TIMEZONE }: { timezone?:
                 </select>
               </label>
             ) : null}
-            <EButton variant="outline" size="sm" onClick={() => void reload()} disabled={loading}>
-              <RefreshCw aria-hidden className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh
-            </EButton>
+            {url.tab !== "agents" ? (
+              <EButton variant="outline" size="sm" onClick={() => void reload()} disabled={loading}>
+                <RefreshCw aria-hidden className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh
+              </EButton>
+            ) : null}
           </>
         }
       />
       {tabs}
-      {url.tab === "decided" ? (
+      {url.tab === "agents" ? (
+        <AgentRequestsTab timezone={timezone} />
+      ) : url.tab === "decided" ? (
         <ApprovalsHistory timezone={timezone} />
       ) : (
         <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start">

@@ -6,7 +6,7 @@ import { z } from "zod";
  * live encrypted in `ai_provider_credentials_v1` (see ./credentials.ts).
  */
 
-export const AI_FEATURES = ["photo_compare", "photo_assign", "text_compose", "wording", "assistant", "agent_summaries"] as const;
+export const AI_FEATURES = ["photo_compare", "photo_assign", "text_compose", "wording", "assistant", "explain_flag", "draft_reply", "agent_summaries"] as const;
 export type AiFeature = (typeof AI_FEATURES)[number];
 
 export const AI_PROVIDER_KINDS = ["anthropic", "openai", "openai_compatible", "ollama"] as const;
@@ -31,7 +31,9 @@ export const AI_FEATURE_CATALOG: Readonly<Record<AiFeature, AiFeatureDefinition>
   photo_assign: { label: "Photo assignment", description: "Suggests which checklist field each bulk-uploaded photo belongs to. The cleaner reviews every suggestion.", usesImages: true, built: true },
   text_compose: { label: "Social post drafts", description: "Drafts social captions. Nothing is published; a person applies and edits the draft.", usesImages: false, built: true },
   wording: { label: "Notification wording", description: "Proposes new notification wording beside the current text. Nothing is saved until a person saves it.", usesImages: false, built: true },
-  assistant: { label: "Assistant", description: "Reserved for the office assistant (not built yet).", usesImages: false, built: false },
+  assistant: { label: "Ask (assistant)", description: "Answers questions about operations on Command, only from data the person asking can read, with links to the records. Read-only.", usesImages: false, built: true },
+  explain_flag: { label: "Explain this flag", description: "Explains a photo finding or photo check in plain words, from the stored finding only.", usesImages: false, built: true },
+  draft_reply: { label: "Drafts (client replies, quote notes)", description: "Drafts a client reply or quote notes into the editor; a person edits and sends or saves. Never sends.", usesImages: false, built: true },
   agent_summaries: { label: "Agent summaries", description: "Reserved for summaries prepared for connected agents (not built yet).", usesImages: false, built: false },
 };
 
@@ -89,7 +91,12 @@ export const aiModelPriceSchema = z.object({
 }).strict();
 export type AiModelPrice = z.infer<typeof aiModelPriceSchema>;
 
-const featureShape = Object.fromEntries(AI_FEATURES.map((feature) => [feature, aiFeatureSettingsSchema])) as Record<AiFeature, typeof aiFeatureSettingsSchema>;
+// Features added after a routing row was saved fall back to their defaults (an older row stays readable).
+const LATER_FEATURE_DEFAULTS: Partial<Record<AiFeature, number>> = { explain_flag: 60, draft_reply: 30 };
+const featureShape = Object.fromEntries(AI_FEATURES.map((feature) => [
+  feature,
+  LATER_FEATURE_DEFAULTS[feature] !== undefined ? aiFeatureSettingsSchema.default({ enabled: true, route: null, allowCloudImages: false, hourlyLimitPerActor: LATER_FEATURE_DEFAULTS[feature]!, timeoutSeconds: 30 }) : aiFeatureSettingsSchema,
+])) as Record<AiFeature, typeof aiFeatureSettingsSchema>;
 
 export const aiRoutingSchema = z.object({
   version: z.literal(1),
@@ -117,6 +124,8 @@ export const DEFAULT_AI_ROUTING: AiRoutingSettings = {
     text_compose: featureDefaults(30),
     wording: featureDefaults(30),
     assistant: featureDefaults(60),
+    explain_flag: featureDefaults(60),
+    draft_reply: featureDefaults(30),
     agent_summaries: featureDefaults(60),
   },
   compatible: { baseUrl: "", label: "" },

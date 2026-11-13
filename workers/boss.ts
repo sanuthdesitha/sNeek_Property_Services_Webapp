@@ -33,6 +33,7 @@ import { runSlaEscalation } from "@/lib/ops/sla";
 import { sendStockAlerts } from "@/lib/ops/stock-alerts";
 import { dispatchPropertyCare } from "@/lib/property-care/service";
 import { dispatchUrgentStockReminders } from "@/lib/inventory/urgent-stock";
+import { expireAgentRequests } from "@/lib/agents/action-requests";
 import { dispatchTomorrowPrepSummaries } from "@/lib/ops/tomorrow-prep";
 import { dispatchScheduledEmailCampaigns } from "@/lib/marketing/email-campaigns";
 import { refreshGoogleReviewsCache } from "@/lib/public-site/google-reviews";
@@ -318,6 +319,15 @@ async function main() {
     await boss.schedule("urgent-stock-reminders", "0 * * * *", {}, { tz: TZ });
     await boss.work("urgent-stock-reminders", safeHandler("urgent-stock-reminders", async () => {
       await dispatchUrgentStockReminders();
+    }));
+  }
+
+  // Agent requests nobody decided within their time (24 h) become EXPIRED.
+  if (jobEnabled("agent-request-expiry")) {
+    await boss.schedule("agent-request-expiry", "10 * * * *", {}, { tz: TZ });
+    await boss.work("agent-request-expiry", safeHandler("agent-request-expiry", async () => {
+      const result = await expireAgentRequests();
+      if (result.expired > 0) logger.info(result, "Agent requests expired");
     }));
   }
 

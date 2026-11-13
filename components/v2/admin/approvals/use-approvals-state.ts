@@ -3,7 +3,7 @@
 /**
  * Approvals page state: the waiting requests (one read of
  * /api/admin/all-approvals, obsolete reads aborted) and the URL values the page
- * keeps (?tab=decided, ?queue=<key>|all, ?open=<request id>), so a reload or a
+ * keeps (?tab=decided|agents, ?queue=<key>|all, ?open=<request id>), so a reload or a
  * shared link reopens the same queue and request. Other query values are left
  * as they are.
  */
@@ -12,7 +12,7 @@ import { rememberCurrentView } from "@/lib/navigation/view-memory";
 import { isApprovalsQueueKey, type ApprovalsQueueKey } from "@/lib/admin/approvals/queues";
 import type { AllApprovalsResponse } from "@/lib/admin/approvals/rows";
 
-export type ApprovalsTab = "waiting" | "decided";
+export type ApprovalsTab = "waiting" | "decided" | "agents";
 export type QueueSelection = ApprovalsQueueKey | "all";
 
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
@@ -24,7 +24,7 @@ export function readApprovalsUrl(search: string): ApprovalsUrlState {
   const rawQueue = params.get("queue");
   const rawOpen = params.get("open");
   return {
-    tab: params.get("tab") === "decided" || params.get("tab") === "history" ? "decided" : "waiting",
+    tab: params.get("tab") === "decided" || params.get("tab") === "history" ? "decided" : params.get("tab") === "agents" ? "agents" : "waiting",
     queue: rawQueue === "all" ? "all" : isApprovalsQueueKey(rawQueue) ? rawQueue : null,
     open: rawOpen && ID_PATTERN.test(rawOpen) ? rawOpen : null,
   };
@@ -32,7 +32,7 @@ export function readApprovalsUrl(search: string): ApprovalsUrlState {
 
 function writeUrl(next: ApprovalsUrlState) {
   const params = new URLSearchParams(window.location.search);
-  if (next.tab === "decided") params.set("tab", "decided");
+  if (next.tab === "decided" || next.tab === "agents") params.set("tab", next.tab);
   else params.delete("tab");
   if (next.queue) params.set("queue", next.queue);
   else params.delete("queue");

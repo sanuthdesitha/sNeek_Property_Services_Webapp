@@ -83,9 +83,14 @@ describe("routing", () => {
     expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ outcome: code }));
   });
 
-  it("reserved features (assistant, agent summaries) stay unavailable even when enabled", async () => {
-    await expect(generateStructured({ ...base, feature: "assistant" })).rejects.toMatchObject({ code: "DISABLED" });
+  it("the reserved feature (agent summaries) stays unavailable even when enabled; Ask is built since step 5", async () => {
     await expect(generateStructured({ ...base, feature: "agent_summaries" })).rejects.toMatchObject({ code: "DISABLED" });
+    await expect(generateStructured({ ...base, feature: "assistant" })).resolves.toMatchObject({ data: { ok: true } });
+  });
+  it("an older saved routing without the step 5 features still reads, with their defaults", async () => {
+    const { aiRoutingSchema } = await import("@/lib/ai/provider/routing-schema");
+    const { explain_flag: _e, draft_reply: _d, ...older } = DEFAULT_AI_ROUTING.features;
+    expect(aiRoutingSchema.parse({ ...DEFAULT_AI_ROUTING, features: older }).features.draft_reply).toMatchObject({ enabled: true, hourlyLimitPerActor: 30, allowCloudImages: false });
   });
 });
 

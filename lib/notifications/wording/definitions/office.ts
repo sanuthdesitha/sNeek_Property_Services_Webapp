@@ -2,7 +2,7 @@
 import type { TypeWordingDefinition } from "../types";
 import { editable, emailTemplatePart, inCode, notificationTemplateParts, someParts, storePart } from "./build";
 import { SUBMISSION_LOW_STOCK_WORDING, URGENT_NEED_WORDING } from "./stock";
-import { ICAL_ALERTS_WORDING, REPORTS_GENERATED_WORDING } from "./office-alerts";
+import { AGENT_REQUEST_WORDING, ICAL_ALERTS_WORDING, REPORTS_GENERATED_WORDING } from "./office-alerts";
 import { MAINTENANCE_WORDING } from "./maintenance";
 import { CASE_FOLLOW_UP_PARTS, NEW_PROFILE_PARTS, SLA_PARTS } from "./office-summaries";
 import { LAUNDRY_UPDATE_PARTS } from "./laundry-updates";
@@ -34,6 +34,7 @@ export const OFFICE_WORDING: readonly TypeWordingDefinition[] = [
   ], "The job, laundry and stock lists inside the summaries are built from the day's records."),
   editable("office.new_profile", NEW_PROFILE_PARTS),
   REPORTS_GENERATED_WORDING,
+  AGENT_REQUEST_WORDING,
   editable("laundry.updates", LAUNDRY_UPDATE_PARTS),
   editable("laundry.failed_pickup", [
     storePart("rescheduled", "Rescheduled", "INBOX", {

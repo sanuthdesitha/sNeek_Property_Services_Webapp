@@ -1,4 +1,4 @@
-/** Wording for office.reports_generated, office.ical_alerts and leads.alerts. */
+/** Wording for office.reports_generated, office.ical_alerts, agent.action_request and leads.alerts. */
 import { editable, inbox, line, part } from "./build";
 
 const ICAL_EMAIL = `
@@ -84,4 +84,8 @@ export const LEAD_ALERTS_WORDING = editable("leads.alerts", [
   part("response", "Quote accepted or declined", "EMAIL", { subject: "Quote {{quoteRef}} {{verdict}} by {{clientName}}", body: RESPONSE_EMAIL }, { required: ["quoteRef", "verdict"], note: "{{verdict}} is \"accepted\" or \"declined\"." }),
   line("client-note", "Client note paragraph", "EMAIL", "<p style=\"margin:0 0 8px 0;\"><strong>Client note:</strong> {{note}}</p>", "Added when the client wrote a note."),
   part("counter-offer", "Counter offer", "EMAIL", { subject: "Counter offer for {{leadName}}", body: "{{quoteHtml}}" }, { required: ["quoteHtml"], note: "To the lead; {{quoteHtml}} is the generated quote document." }),
+]);
+
+export const AGENT_REQUEST_WORDING = editable("agent.action_request", [
+  inbox("waiting", "Request waiting", "Agent request waiting: {{agentName}}", "{{agentName}} asks to: {{summary}} Nothing changes until someone approves it in Approvals, Agent requests.", { required: ["agentName", "summary"], note: "Inbox only, to the people who could approve it." }),
 ]);
