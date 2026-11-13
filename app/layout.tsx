@@ -6,7 +6,7 @@ import { cookies } from "next/headers";
 import { ViewMemoryProvider } from "@/components/shared/view-memory-provider";
 import { AccountScopeProvider } from "@/components/auth/account-scope-provider";
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono, Cormorant_Garamond, Fraunces } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { Providers } from "./providers";
 import { getServerSession } from "next-auth";
@@ -14,44 +14,50 @@ import { authOptions } from "@/lib/auth/auth-options";
 import { getThemeForUser } from "@/lib/theme/server";
 import { getImpersonationBanner, ImpersonationSlot } from "@/components/admin/impersonation-slot";
 
-const fontSans = Inter({
-  subsets: ["latin"],
+// Fonts are served from files in app/fonts (latin subset, variable weight, SIL
+// Open Font License) instead of next/font/google, so a production build never
+// depends on reaching Google Fonts. Each `weight` is the range the file covers.
+const fontSans = localFont({
+  src: "./fonts/inter-latin-wght-normal.woff2",
   variable: "--font-sans",
+  weight: "100 900",
   display: "swap",
 });
 
-const fontDisplay = Inter({
-  subsets: ["latin"],
+const fontDisplay = localFont({
+  src: "./fonts/inter-latin-wght-normal.woff2",
   variable: "--font-display",
-  weight: ["500", "600", "700"],
+  weight: "100 900",
   display: "swap",
 });
 
-const fontMono = JetBrains_Mono({
-  subsets: ["latin"],
+const fontMono = localFont({
+  src: "./fonts/jetbrains-mono-latin-wght-normal.woff2",
   variable: "--font-mono",
-  weight: ["400", "500"],
+  weight: "100 800",
   display: "swap",
 });
 
 // Luxury display serif for the PUBLIC marketing site only. Applied via the
 // `.marketing-only` scope in globals.css so the admin/portal apps keep Inter.
-const fontDisplaySerif = Cormorant_Garamond({
-  subsets: ["latin"],
+const fontDisplaySerif = localFont({
+  src: [
+    { path: "./fonts/cormorant-garamond-latin-wght-normal.woff2", weight: "300 700", style: "normal" },
+    { path: "./fonts/cormorant-garamond-latin-wght-italic.woff2", weight: "300 700", style: "italic" },
+  ],
   variable: "--font-display-serif",
-  weight: ["400", "500", "600", "700"],
-  style: ["normal", "italic"],
   display: "swap",
 });
 
-// ESTATE rebrand (v2) display serif — optical-size variable Fraunces. Loaded
-// here so it's available app-wide, but only CONSUMED under the `[data-skin=
-// "estate"]` scope (app/v2/**), so the live app is visually unaffected.
-const fontEstateSerif = Fraunces({
-  subsets: ["latin"],
+// ESTATE rebrand (v2) display serif, Fraunces. Loaded here so it's available
+// app-wide, but only CONSUMED under the `[data-skin="estate"]` scope
+// (app/v2/**), so the live app is visually unaffected.
+const fontEstateSerif = localFont({
+  src: [
+    { path: "./fonts/fraunces-latin-wght-normal.woff2", weight: "100 900", style: "normal" },
+    { path: "./fonts/fraunces-latin-wght-italic.woff2", weight: "100 900", style: "italic" },
+  ],
   variable: "--font-estate-serif",
-  weight: ["300", "400", "500", "600", "700"],
-  style: ["normal", "italic"],
   display: "swap",
 });
 
