@@ -338,6 +338,10 @@ const ADMIN_SECTIONS: Record<string, OpsFeature | "owner"> = {
   // Command sections (GET /api/admin/command/[section]); rows inside are filtered per pack.
   command: "dashboard",
   "live-locations": "dashboard",
+  // Assistant (Ask on Command, drafts). It is a POST, so a manager needs the
+  // dashboard pack at manage; every tool and draft re-checks the person's own
+  // access to the records it reads (default pending owner confirmation, 2026-11-14).
+  assistant: "dashboard",
   dispatch: "jobs",
   jobs: "jobs",
   "job-tasks": "jobs",
