@@ -132,7 +132,17 @@ export const createClientSchema = z.object({
   notes: optionalNoteSchema(4000),
   portalVisibilityOverrides: clientPortalVisibilityOverrideSchema,
   sendPortalInvite: z.boolean().optional(),
+  /** Kept for older callers; the invitation email (a fixed design) has no welcome note. */
   welcomeNote: z.string().max(4000).optional(),
+  /** Add client (2026-11-16): the client's own terms; null or absent = organisation default. */
+  paymentTermsDays: z.number().int().min(0).max(120).nullable().optional(),
+  /** An existing Xero contact to link (checked read-only before linking). */
+  xeroContactId: z.string().trim().max(64).nullable().optional(),
+  /** The client's notification preferences, set at creation. */
+  notifications: z
+    .object({ jobUpdates: z.boolean(), enRoute: z.boolean(), startFinish: z.boolean(), liveLocation: z.boolean() })
+    .optional(),
+  idempotencyKey: z.string().trim().regex(/^[A-Za-z0-9_-]{8,80}$/).optional(),
 });
 
 export const updateClientSchema = createClientSchema.partial().extend({

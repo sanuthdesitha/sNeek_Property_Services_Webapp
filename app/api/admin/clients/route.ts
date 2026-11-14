@@ -2,16 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { createClientSchema } from "@/lib/validations/client";
-import { Role } from "@prisma/client";
-import bcrypt from "bcryptjs";
-import { generateTempPassword } from "@/lib/auth/temp-password";
-import { sendEmailDetailed } from "@/lib/notifications/email";
-import { getAppSettings } from "@/lib/settings";
-import { renderEmailTemplate } from "@/lib/email-templates";
-import { resolveAppUrl } from "@/lib/app-url";
-import { upsertAuthUserState } from "@/lib/auth/account-state";
+import { Prisma, Role } from "@prisma/client";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
-import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { ClientCreateError, createClientWithLogin } from "@/lib/clients/create-client";
+import { resolveAccountCreator } from "@/lib/accounts/account-creator";
+import { clientLoginRefusal } from "@/lib/accounts/create-account-rules";
 
 export async function GET(req: NextRequest) {
   try {
@@ -34,143 +29,61 @@ export async function GET(req: NextRequest) {
   }
 }
 
+/**
+ * POST /api/admin/clients — Add client. Administrators and operations managers
+ * (Clients pack), as before. The portal login now uses the shared 7-day
+ * invitation link (lib/accounts/create-account.ts) instead of an emailed
+ * temporary password, and is refused while testing as someone else. Payment
+ * terms and a Xero link keep their finance rule; the Xero contact is only read.
+ * Repeat-safe with `idempotencyKey`. Never returns the link or a password.
+ */
 export async function POST(req: NextRequest) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = createClientSchema.parse(await req.json());
-    const sendPortalInvite = body.sendPortalInvite === true;
-    const welcomeNote = body.welcomeNote?.trim() ?? "";
-    const email = body.email?.trim().toLowerCase() || "";
-
-    if (sendPortalInvite && !email) {
-      return NextResponse.json(
-        { error: "Client email is required to send a portal invite." },
-        { status: 400 }
-      );
+    const portalLogin = body.sendPortalInvite === true;
+    if (portalLogin) {
+      const refusal = clientLoginRefusal(await resolveAccountCreator(session));
+      if (refusal) return NextResponse.json({ error: refusal }, { status: 403 });
     }
-
-    if (sendPortalInvite && email) {
-      const existing = await db.user.findUnique({
-        where: { email },
-        select: { id: true, role: true, clientId: true },
-      });
-      if (existing) {
-        return NextResponse.json(
-          { error: "A user account already exists with this email. Link or update that user instead." },
-          { status: 409 }
-        );
-      }
-    }
-
-    const tempPassword = sendPortalInvite ? generateTempPassword() : null;
-    const passwordHash = tempPassword ? await bcrypt.hash(tempPassword, 10) : null;
-
-    const result = await db.$transaction(async (tx) => {
-      const client = await tx.client.create({
-        data: {
-          name: body.name,
-          email: email || undefined,
-          phone: body.phone || undefined,
-          address: body.address || undefined,
-          suburb: body.suburb || undefined,
-          state: body.state || undefined,
-          postcode: body.postcode || undefined,
-          latitude: body.latitude ?? undefined,
-          longitude: body.longitude ?? undefined,
-          placeId: body.placeId ?? undefined,
-          notes: body.notes || undefined,
-        },
-      });
-
-      let invitedUser:
-        | {
-            id: string;
-            name: string | null;
-            email: string;
-            role: Role;
-          }
-        | null = null;
-
-      if (sendPortalInvite && email && passwordHash) {
-        invitedUser = await tx.user.create({
-          data: {
-            name: body.name,
-            email,
-            role: Role.CLIENT,
-            phone: body.phone || undefined,
-            clientId: client.id,
-            isActive: true,
-            emailVerified: new Date(),
-            passwordHash,
-          },
-          select: { id: true, name: true, email: true, role: true },
-        });
-      }
-
-      await tx.auditLog.create({
-        data: {
-          userId: session.user.id,
-          action: sendPortalInvite ? "CREATE_CLIENT_WITH_INVITE" : "CREATE_CLIENT",
-          entity: "Client",
-          entityId: client.id,
-          after: {
-            email: email || null,
-            invited: sendPortalInvite,
-            invitedUserId: invitedUser?.id ?? null,
-          } as any,
-        },
-      });
-
-      return { client, invitedUser };
-    });
-
-    let warning: string | undefined;
-    if (result.invitedUser && tempPassword) {
-      await upsertAuthUserState(result.invitedUser.id, {
-        requiresOnboarding: true,
-        requiresPasswordReset: true,
-        tutorialSeen: false,
-        welcomeEmailSent: false,
-      });
-
-      const settings = await getAppSettings();
-      const template = renderEmailTemplate(settings, "welcomeAccount", {
-        userName: result.invitedUser.name ?? result.invitedUser.email,
-        role: "CLIENT",
-        email: result.invitedUser.email,
-        tempPassword,
-        welcomeNote,
-        actionUrl: resolveAppUrl("/login", req),
-        actionLabel: (await loadNotificationWording("account.invitations")).line("button-complete-setup", "INBOX", {}),
-      });
-      const emailResult = await sendEmailDetailed({
-        to: result.invitedUser.email,
-        subject: template.subject,
-        html: template.html,
-        // An invite is how this person gets INTO the system — a stale bounce
-        // or allEmailOff must not strand them at the door.
-        transactional: true,
-        critical: true,
-      });
-      if (emailResult.ok) {
-        await upsertAuthUserState(result.invitedUser.id, { welcomeEmailSent: true });
-      } else {
-        warning =
-          emailResult.error ??
-          "Client was created and invited, but the invite email could not be delivered.";
-      }
-    }
-
+    const result = await createClientWithLogin(
+      {
+        name: body.name,
+        email: body.email ?? null,
+        phone: body.phone ?? null,
+        address: body.address ?? null,
+        suburb: body.suburb ?? null,
+        state: body.state ?? null,
+        postcode: body.postcode ?? null,
+        latitude: body.latitude ?? null,
+        longitude: body.longitude ?? null,
+        placeId: body.placeId ?? null,
+        notes: body.notes ?? null,
+        paymentTermsDays: body.paymentTermsDays,
+        xeroContactId: body.xeroContactId ?? null,
+        portalLogin,
+        notifications: body.notifications ?? null,
+        portalVisibilityOverrides: body.portalVisibilityOverrides as Prisma.InputJsonValue | undefined,
+      },
+      { id: session.user.id, role: String(session.user.role), heldRoles: (session.user.heldRoles ?? [session.user.role]).map(String) },
+      body.idempotencyKey ?? null,
+    );
+    const login = result.login;
+    const emailOk = login ? login.email.state === "ACCEPTED" : true;
     return NextResponse.json(
       {
         ...result.client,
-        invitedUserId: result.invitedUser?.id ?? null,
-        invited: Boolean(result.invitedUser),
-        warning,
+        invitedUserId: login?.user.id ?? null,
+        invited: Boolean(login),
+        replayed: result.replayed,
+        login,
+        xeroLinked: result.xeroLinked,
+        warning: login && !emailOk ? `Client added, but the invitation could not be emailed${login.email.error ? `: ${login.email.error}` : ""}.` : undefined,
       },
-      { status: 201 }
+      { status: result.replayed ? 200 : 201 }
     );
   } catch (err: any) {
+    if (err instanceof ClientCreateError) return NextResponse.json({ error: err.message, field: err.field ?? null }, { status: err.status });
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: getValidationErrorMessage(err, "Could not create client.") }, { status });
   }

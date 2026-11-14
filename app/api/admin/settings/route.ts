@@ -6,7 +6,7 @@ import { getAppSettings, saveAppSettings, schedulingRuleFieldsChanged } from "@/
 import { invalidateDefaultPortalVersion } from "@/lib/portal-version-store";
 import { db } from "@/lib/db";
 import { z } from "zod";
-import { EMAIL_TEMPLATE_KEYS } from "@/lib/email-templates";
+import { EMAIL_TEMPLATE_KEYS, getDefaultEmailTemplates } from "@/lib/email-templates";
 import { NOTIFICATION_TEMPLATE_KEYS } from "@/lib/notification-templates";
 
 const rolePolicySchema = z.object({
@@ -309,6 +309,21 @@ export async function GET() {
   }
 }
 
+/** Shared templates whose raw HTML or subject a request changes to something other than the standard. */
+function changedRawEmailTemplates(input: unknown, current: Record<string, { subject: string; html: string }>): string[] {
+  if (!input || typeof input !== "object") return [];
+  const standard = getDefaultEmailTemplates() as Record<string, { subject: string; html: string }>;
+  const norm = (value: unknown) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "");
+  return Object.entries(input as Record<string, { subject?: unknown; html?: unknown }>).flatMap(([key, value]) => {
+    if (!value || typeof value !== "object" || !standard[key]) return [];
+    const nextSubject = norm(value.subject ?? current[key]?.subject);
+    const nextHtml = norm(value.html ?? current[key]?.html);
+    const unchanged = nextSubject === norm(current[key]?.subject) && nextHtml === norm(current[key]?.html);
+    const isStandard = nextSubject === norm(standard[key].subject) && nextHtml === norm(standard[key].html);
+    return unchanged || isStandard ? [] : [key];
+  });
+}
+
 export async function PATCH(req: NextRequest) {
   try {
     const session = await requireRole([Role.ADMIN]);
@@ -318,6 +333,11 @@ export async function PATCH(req: NextRequest) {
     // service (Settings › Scheduling rules); saveAppSettings keeps their stored
     // values, and the response says which requested changes were not applied.
     const schedulingRulesIgnored = schedulingRuleFieldsChanged(body as any, before);
+    // Shared emails are block designs (2026-11-16): a raw-HTML change to one is refused; putting the standard back is allowed.
+    const rawTemplateEdit = changedRawEmailTemplates((body as { emailTemplates?: unknown }).emailTemplates, before.emailTemplates);
+    if (rawTemplateEdit.length) {
+      return NextResponse.json({ error: `These emails are edited as blocks now, in Notifications, Types and wording (Email design): ${rawTemplateEdit.join(", ")}. Raw HTML was not saved; nothing else changed.`, code: "moved_to_design" }, { status: 409 });
+    }
     const settings = await saveAppSettings(body as any);
 
     // The default look is cached for a few seconds (middleware asks for it on

@@ -90,6 +90,8 @@ export type AccountCreateOptions = {
   origin: AccountCreateOrigin;
   idempotencyKey?: string | null;
   purpose?: "staff" | "client-login";
+  /** Runs in the same transaction before the account row (Add client creates the client here). */
+  beforeInsert?: (tx: Tx) => Promise<{ clientId?: string | null }>;
   /** Runs in the same transaction once the account exists (link an application, a client). */
   linkInTransaction?: (tx: Tx, userId: string) => Promise<void>;
   /** Extra fields kept on the CREATE_USER audit row (never secrets). */
@@ -155,9 +157,14 @@ function isEmailUniqueViolation(error: unknown): boolean {
 type CreatedRow = { user: { id: string; name: string | null; email: string; phone: string | null; role: Role }; token: string | null; expiresAt: Date | null };
 
 async function insertAccount(tx: Tx, options: AccountCreateOptions, email: string, passwordHash: string): Promise<CreatedRow> {
-  const { input, actor } = options;
+  const { actor } = options;
   const existing = await findAccountByEmail(email, tx);
   if (existing) throw new AccountCreateError(409, emailInUseMessage(existing, options.purpose ?? "staff"), "EMAIL_IN_USE", existing);
+  const before = options.beforeInsert ? await options.beforeInsert(tx) : {};
+  const input = before.clientId ? { ...options.input, clientId: before.clientId } : options.input;
+  if ((input.role === Role.CLIENT || input.role === Role.VA) && !input.clientId) {
+    throw new AccountCreateError(400, "A client login must be linked to a client.");
+  }
   const invite = input.signIn === "INVITATION";
   const user = await tx.user.create({
     data: {
@@ -265,7 +272,7 @@ export async function createAccountWithInvitation(options: AccountCreateOptions)
   if (input.signIn === "PASSWORD" && (!input.password || input.password.length < 8)) {
     throw new AccountCreateError(400, "Password must be at least 8 characters.");
   }
-  if ((input.role === Role.CLIENT || input.role === Role.VA) && !input.clientId) {
+  if ((input.role === Role.CLIENT || input.role === Role.VA) && !input.clientId && !options.beforeInsert) {
     throw new AccountCreateError(400, "A client login must be linked to a client.");
   }
   const passwordHash = await bcrypt.hash(input.signIn === "PASSWORD" ? input.password! : randomBytes(32).toString("hex"), 10);
