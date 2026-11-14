@@ -45,6 +45,7 @@ export const KIND_URGENCY: Record<WorkQueueKind, WorkQueueUrgency> = {
   "case-open": "week",
   "case-stale": "today",
   "lost-item": "today",
+  "maintenance-unassigned": "today",
   "lead-new": "today",
   "invoices-draft": "week",
   "invoices-outstanding": "week",
@@ -55,6 +56,7 @@ export const KIND_URGENCY: Record<WorkQueueKind, WorkQueueUrgency> = {
   "qa-rework": "today",
   "document-expiring": "week",
   "low-stock": "week",
+  "sending-paused": "now",
 };
 
 export const KIND_CATEGORY: Record<WorkQueueKind, WorkQueueCategory> = {
@@ -75,6 +77,7 @@ export const KIND_CATEGORY: Record<WorkQueueKind, WorkQueueCategory> = {
   "case-open": "clients",
   "case-stale": "clients",
   "lost-item": "clients",
+  "maintenance-unassigned": "dispatch",
   "lead-new": "clients",
   "invoices-draft": "money",
   "invoices-outstanding": "money",
@@ -85,6 +88,7 @@ export const KIND_CATEGORY: Record<WorkQueueKind, WorkQueueCategory> = {
   "qa-rework": "quality",
   "document-expiring": "team",
   "low-stock": "team",
+  "sending-paused": "team",
 };
 
 /**
@@ -100,6 +104,8 @@ export const KIND_REQUIRES: Partial<Record<WorkQueueKind, OpsFeature[]>> = {
   "shopping-reimbursement": ["inventory", "finance"],
   "document-expiring": ["accounts"],
   "lead-new": ["quotes"],
+  "maintenance-unassigned": ["maintenance"],
+  "sending-paused": ["communications"],
 };
 
 export const CATEGORY_LABEL: Record<WorkQueueCategory, string> = {

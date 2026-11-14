@@ -14,6 +14,7 @@ import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { sendWebPushToUser } from "@/lib/notifications/web-push";
 import { resolveNotificationHrefForRole } from "@/lib/notifications/feed";
 import { logger } from "@/lib/logger";
+import type { SafeguardMeta } from "@/lib/notifications/safeguards/gate";
 
 export type Recipient = {
   id: string;
@@ -52,7 +53,21 @@ export type DeliveryInput = {
   kind?: EmailAutoKind;
   /** New domain events only: queue in the same transaction as their stable receipt. */
   durable?: import("./queue-delivery").DurableDeliveryContext;
+  /**
+   * The catalog type, for the sending safeguards (caps per type and subject,
+   * pausing a type). Without it the type is worked out from the subject.
+   */
+  typeKey?: string;
 };
+
+/** Safeguard metadata for one recipient: type, subject entity (the job) and account. */
+function safeguardFor(input: DeliveryInput, recipient: Recipient): SafeguardMeta {
+  return {
+    typeKey: input.typeKey ?? null,
+    entityKey: input.jobId ? `Job:${input.jobId}` : null,
+    recipientUserId: recipient.id,
+  };
+}
 
 /** Fallback mapping from notification category → email-automation kind. */
 const CATEGORY_TO_EMAIL_KIND: Record<NotificationCategory, EmailAutoKind> = {
@@ -152,7 +167,7 @@ async function createWebNotification(input: DeliveryInput, recipient: Recipient)
       body: input.web.body,
       url: resolveWebPushUrl(input, recipient),
       tag: input.jobId ? `job-${input.jobId}` : undefined,
-    });
+    }, safeguardFor(input, recipient));
   } catch (err) {
     logger.warn({ err, userId: recipient.id }, "Web push dispatch failed (non-fatal)");
   }
@@ -171,6 +186,7 @@ async function sendEmailNotification(
     html: emailPayload.html,
     // Pass the already-resolved audience so the chokepoint skips a second lookup.
     audience,
+    safeguard: safeguardFor(input, recipient),
   });
 
   await db.notification.create({
@@ -184,7 +200,8 @@ async function sendEmailNotification(
       sentAt: result.ok ? new Date() : undefined,
       errorMsg: result.ok ? undefined : result.error ?? "Email delivery failed.",
       externalId: result.externalId ?? undefined,
-      deliveryStatus: result.ok ? "PENDING" : undefined,
+      // A safeguard decision is "not sent", never pending delivery.
+      deliveryStatus: result.ok ? "PENDING" : result.suppressed ? (result.suppressed.held ? "HELD" : "SUPPRESSED") : undefined,
     },
   });
 }
@@ -195,8 +212,8 @@ async function sendSmsNotification(
   smsBody: string,
   audience: NotificationAudience
 ) {
-  const result = await sendSmsDetailed(recipient.phone!, smsBody, audience);
-  if (result.status !== "sent" && result.status !== "failed") return;
+  const result = await sendSmsDetailed(recipient.phone!, smsBody, audience, safeguardFor(input, recipient));
+  if (result.status !== "sent" && result.status !== "failed" && result.status !== "suppressed") return;
 
   await db.notification.create({
     data: {
@@ -208,6 +225,7 @@ async function sendSmsNotification(
       status: result.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
       sentAt: result.ok ? new Date() : undefined,
       errorMsg: result.ok ? undefined : result.error ?? "SMS delivery failed.",
+      deliveryStatus: result.suppressed ? (result.suppressed.held ? "HELD" : "SUPPRESSED") : undefined,
     },
   });
 }

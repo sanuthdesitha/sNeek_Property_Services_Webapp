@@ -76,7 +76,7 @@ describe("void (PATCH status VOID, invoices and credit notes)", () => {
   });
 
   it("allows a manager at Finance Full with their own PIN, checked for this sensitive action", async () => {
-    const response = await voidPatch({ status: "VOID", security: { pin: "2468" } });
+    const response = await voidPatch({ status: "VOID", voidReason: "Duplicate", security: { pin: "2468" } });
     expect(response.status).toBe(200);
     expect(m.verify).toHaveBeenCalledWith("m", { pin: "2468" }, "invoices.void_credit");
     expect(m.patch).toHaveBeenCalledTimes(1);
@@ -84,7 +84,7 @@ describe("void (PATCH status VOID, invoices and credit notes)", () => {
 
   it("allows a manager with the explicit grant at Manage", async () => {
     m.policy.mockResolvedValue(policyWithFinance("manage", { "invoices.void_credit": true }));
-    expect((await voidPatch({ status: "VOID", security: { pin: "2468" } })).status).toBe(200);
+    expect((await voidPatch({ status: "VOID", voidReason: "Wrong client", security: { pin: "2468" } })).status).toBe(200);
   });
 
   it("refuses a wrong or absent PIN with 423 and changes nothing", async () => {
@@ -98,7 +98,7 @@ describe("void (PATCH status VOID, invoices and credit notes)", () => {
 
   it("asks an administrator for their own PIN too, without reading any policy", async () => {
     m.requireRole.mockResolvedValue(admin);
-    expect((await voidPatch({ status: "VOID", security: { pin: "1357" } })).status).toBe(200);
+    expect((await voidPatch({ status: "VOID", voidReason: "Job cancelled", security: { pin: "1357" } })).status).toBe(200);
     expect(m.policy).not.toHaveBeenCalled();
     expect(m.verify).toHaveBeenCalledWith("admin", { pin: "1357" }, "invoices.void_credit");
   });
@@ -108,6 +108,17 @@ describe("void (PATCH status VOID, invoices and credit notes)", () => {
     expect((await voidPatch({ status: "VOID", security: { pin: "2468" } })).status).toBe(403);
     expect(m.verify).not.toHaveBeenCalled();
     expect(m.patch).not.toHaveBeenCalled();
+  });
+
+  // Owner default 2026-11-14 (pending confirmation): a void needs a reason (quick pick, no minimum length).
+  it("refuses a void without a reason after the PIN and changes nothing; a short reason is enough", async () => {
+    const missing = await voidPatch({ status: "VOID", security: { pin: "2468" } });
+    expect(missing.status).toBe(400);
+    expect((await missing.json()).code).toBe("REASON_REQUIRED");
+    expect((await voidPatch({ status: "VOID", voidReason: "   ", security: { pin: "2468" } })).status).toBe(400);
+    expect(m.patch).not.toHaveBeenCalled();
+    expect((await voidPatch({ status: "VOID", voidReason: "Dup", security: { pin: "2468" } })).status).toBe(200);
+    expect(m.patch).toHaveBeenCalledWith(expect.objectContaining({ body: expect.objectContaining({ voidReason: "Dup" }) }));
   });
 
   it("other status changes are not asked for a PIN", async () => {

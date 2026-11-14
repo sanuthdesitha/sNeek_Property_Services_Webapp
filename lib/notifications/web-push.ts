@@ -1,6 +1,7 @@
 import webpush, { type PushSubscription as WebPushSubscription } from "web-push";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { guardOutbound, recordOutboundOutcome, type SafeguardMeta } from "@/lib/notifications/safeguards/gate";
 
 /**
  * Browser / PWA Web Push (VAPID) delivery.
@@ -121,18 +122,44 @@ function buildNotificationPayload(payload: WebPushPayload) {
   });
 }
 
-type SendResult = { ok: boolean; gone: boolean; statusCode?: number };
+type SendResult = { ok: boolean; gone: boolean; statusCode?: number; suppressed?: boolean };
+
+/** Who a push is for, so the sending safeguards can count it (one decision per person). */
+export type WebPushGuard = { userId: string; meta?: SafeguardMeta | null; deviceKey?: string };
+
+async function guardPush(guard: WebPushGuard, payload: WebPushPayload) {
+  return guardOutbound({
+    transport: "WEB_PUSH",
+    recipient: guard.userId,
+    meta: { ...(guard.meta ?? {}), recipientUserId: guard.userId },
+    subject: payload.title,
+    // A per-device send keeps identical pushes to a person's second device apart.
+    content: `${payload.body ?? ""}${guard.deviceKey ? `\u0000${guard.deviceKey}` : ""}`,
+  });
+}
 
 /**
- * Send a push to a single stored subscription.
+ * Send a push to a single stored subscription, after the sending safeguards.
  * Returns { gone: true } when the subscription is dead (404/410) so the caller
- * can prune it.
+ * can prune it, and { suppressed: true } when the safeguards did not send it.
  */
 export async function sendWebPush(
   subscription: StoredPushSubscription,
-  payload: WebPushPayload
+  payload: WebPushPayload,
+  guard: WebPushGuard,
 ): Promise<SendResult> {
   if (!(await configureWebPush())) return { ok: false, gone: false };
+  const decision = await guardPush(guard, payload);
+  if (!decision.allowed) return { ok: false, gone: false, suppressed: true };
+  const result = await deliverToSubscription(subscription, payload);
+  await recordOutboundOutcome(decision.eventId, result.ok ? "ACCEPTED" : result.statusCode ? "NOT_ACCEPTED" : "UNCERTAIN");
+  return result;
+}
+
+async function deliverToSubscription(
+  subscription: StoredPushSubscription,
+  payload: WebPushPayload
+): Promise<SendResult> {
 
   const target: WebPushSubscription = {
     endpoint: subscription.endpoint,
@@ -168,7 +195,7 @@ export async function sendWebPush(
  * Prunes any subscriptions the push service reports as gone (404/410).
  * Best-effort: never throws.
  */
-export async function sendWebPushToUser(userId: string, payload: WebPushPayload): Promise<void> {
+export async function sendWebPushToUser(userId: string, payload: WebPushPayload, meta?: SafeguardMeta | null): Promise<void> {
   if (!userId || typeof userId !== "string") return;
   if (!(await configureWebPush())) return;
 
@@ -185,12 +212,16 @@ export async function sendWebPushToUser(userId: string, payload: WebPushPayload)
 
   if (subscriptions.length === 0) return;
 
+  // One safeguard decision per person, however many browsers they use.
+  const decision = await guardPush({ userId, meta }, payload);
+  if (!decision.allowed) return;
+
   const goneIds: string[] = [];
   const liveIds: string[] = [];
 
   await Promise.all(
     subscriptions.map(async (sub) => {
-      const result = await sendWebPush(sub, payload);
+      const result = await deliverToSubscription(sub, payload);
       if (result.gone) {
         goneIds.push(sub.id);
       } else if (result.ok) {
@@ -198,6 +229,8 @@ export async function sendWebPushToUser(userId: string, payload: WebPushPayload)
       }
     })
   );
+
+  await recordOutboundOutcome(decision.eventId, liveIds.length > 0 ? "ACCEPTED" : "UNCERTAIN");
 
   // Prune dead subscriptions.
   if (goneIds.length > 0) {

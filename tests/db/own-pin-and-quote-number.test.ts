@@ -63,9 +63,13 @@ describe.skipIf(!url)("own PINs and quote numbers (database)", () => {
     m.actor.mockReset();
   });
 
-  it("asks someone with no PIN for their password once plus a new PIN, then only accepts that PIN", async () => {
+  // Changed 2026-11-14 (owner default, pending confirmation): with no PIN the
+  // password alone confirms; a password sent with a valid new PIN still sets it.
+  it("lets someone with no PIN confirm with their password, stores a new PIN sent with it, then only accepts that PIN", async () => {
     actAs(ids.ops);
-    await expect(verifySensitiveAction(ids.ops, { password: "correct horse" })).rejects.toMatchObject({ code: "PIN_SETUP_REQUIRED" });
+    await expect(verifySensitiveAction(ids.ops, {})).rejects.toMatchObject({ code: "PIN_SETUP_REQUIRED" });
+    await expect(verifySensitiveAction(ids.ops, { password: "correct horse" })).resolves.toBe(true);
+    expect((await getAdminPinState(ids.ops)).hasPin).toBe(false);
     await expect(verifySensitiveAction(ids.ops, { password: "correct horse", newPin: "1111" })).rejects.toMatchObject({ code: "NEW_PIN_INVALID" });
     await expect(verifySensitiveAction(ids.ops, { password: "correct horse", newPin: "4826" })).resolves.toBe(true);
 

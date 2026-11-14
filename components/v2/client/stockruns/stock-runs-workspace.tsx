@@ -452,10 +452,9 @@ export function StockRunsWorkspace({ apiBase }: { apiBase: string }) {
       <EConfirmModal
         open={discardConfirmOpen}
         onClose={() => setDiscardConfirmOpen(false)}
-        title="Discard stock count"
+        title="Discard this stock count?"
         description="This keeps the stock count for reference but prevents it from being edited or applied to inventory."
         confirmLabel="Discard stock count"
-        confirmPhrase="DISCARD"
         loading={saving}
         onConfirm={() => void saveRun("DISCARDED")}
       />

@@ -1,18 +1,9 @@
 import { NotificationChannel, NotificationLogStatus, NotificationRecipientRole } from "@prisma/client";
 import { db } from "@/lib/db";
-import { getAppSettings } from "@/lib/settings";
-import { audienceForRole, isChannelAllowed } from "@/lib/notifications/audience-controls";
 import { FINANCE_EVENTS } from "./events";
 import type { EmailAutoKind } from "@/lib/notifications/email-kinds";
 
 type NotificationContext = Record<string, string | number | null | undefined>;
-
-const CREDENTIAL_KEY = "integrationCredentials";
-
-async function getIntegrationCredentials(): Promise<Record<string, string | boolean>> {
-  const row = await db.appSetting.findUnique({ where: { key: CREDENTIAL_KEY } });
-  return (row?.value as Record<string, string | boolean> | null) ?? {};
-}
 
 interface SendNotificationOptions {
   to?: string;
@@ -172,42 +163,13 @@ async function sendViaChannel(
 
       case NotificationChannel.SMS: {
         if (!content.sms || !options.to) return { ok: false, error: "Missing SMS body or recipient" };
-        // Audience-level gating: own Twilio transport, so gate here. Resolve the
-        // recipient's audience by phone → user role (no account → PUBLIC).
-        const smsSettings = await getAppSettings();
-        const smsUser = await db.user.findFirst({
-          where: { phone: options.to },
-          select: { role: true },
-        });
-        if (!isChannelAllowed(smsSettings.notificationAudienceControls, audienceForRole(smsUser?.role ?? null), "sms")) {
-          return { ok: false, error: "audience_disabled" };
-        }
-        const creds = await getIntegrationCredentials();
-        const twilioSid = (creds.twilioAccountSid as string) || process.env.TWILIO_ACCOUNT_SID;
-        if (!twilioSid) return { ok: false, error: "TWILIO_ACCOUNT_SID not configured" };
-
-        const twilioAuth = (creds.twilioAuthToken as string) || process.env.TWILIO_AUTH_TOKEN;
-        const twilioFrom = (creds.twilioPhoneNumber as string) || process.env.TWILIO_PHONE_NUMBER;
-        if (!twilioAuth || !twilioFrom) return { ok: false, error: "Twilio credentials not configured" };
-
-        const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            Authorization: `Basic ${Buffer.from(`${twilioSid}:${twilioAuth}`).toString("base64")}`,
-          },
-          body: new URLSearchParams({
-            From: twilioFrom,
-            To: options.to,
-            Body: content.sms,
-          }),
-        });
-
-        if (!res.ok) {
-          const body = await res.text().catch(() => "");
-          return { ok: false, error: `Twilio API error: ${body}` };
-        }
-        return { ok: true };
+        // Through the one SMS chokepoint (provider choice, audience switches and
+        // the sending safeguards). This used to call Twilio's API directly,
+        // which no cap, pause or emergency stop could see.
+        const { sendSmsDetailed } = await import("@/lib/notifications/sms");
+        const result = await sendSmsDetailed(options.to, content.sms, undefined, { typeKey: "money.finance_events" });
+        if (result.ok) return { ok: true };
+        return { ok: false, error: result.error ?? result.status };
       }
 
       default:

@@ -17,6 +17,12 @@ import { UNFINISHED_PUSH_DEDUP_HOURS } from "@/lib/scheduling-rules/constants";
 const TZ = "Australia/Sydney";
 const DEDUP_LOOKBACK_HOURS = UNFINISHED_PUSH_DEDUP_HOURS;
 const MAX_JOBS_PER_RUN = 50;
+/**
+ * A job left PAUSED never leaves this list, so without a ceiling its cleaner
+ * was pushed every evening for ever. After this many daily nudges the office
+ * owns it (it is on Command's work queue); the cleaner is not pushed again.
+ */
+export const MAX_UNFINISHED_REMINDERS_PER_JOB = 3;
 
 export async function dispatchUnfinishedJobPushReminders(now = new Date()) {
   // Start of today in Sydney, expressed as a UTC instant boundary on the
@@ -56,6 +62,14 @@ export async function dispatchUnfinishedJobPushReminders(now = new Date()) {
     select: { jobId: true },
   });
   const alreadyReminded = new Set(recent.map((row) => row.jobId));
+  const totals = await db.auditLog.groupBy({
+    by: ["jobId"],
+    where: { action: "JOB_UNFINISHED_PUSH_REMINDER", jobId: { in: jobs.map((j) => j.id) } },
+    _count: { _all: true },
+  });
+  for (const row of totals) {
+    if (row.jobId && row._count._all >= MAX_UNFINISHED_REMINDERS_PER_JOB) alreadyReminded.add(row.jobId);
+  }
 
   let reminded = 0;
   let skipped = 0;
@@ -91,7 +105,7 @@ export async function dispatchUnfinishedJobPushReminders(now = new Date()) {
           body,
           url: "/cleaner/jobs",
           tag: `job-unfinished-${job.id}`,
-        });
+        }, { typeKey: "job.reminder.unfinished_daily", entityKey: `Job:${job.id}`, recipientUserId: assignment.userId });
       }
       // Audit doubles as the dedup marker (userId FK → attribute to the first
       // assignee, same convention as the auto-pause sweep).

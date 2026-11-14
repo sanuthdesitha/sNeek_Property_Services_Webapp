@@ -151,10 +151,9 @@ export function PersonActions({
       <EConfirmModal
         open={dialog === "delete"}
         onClose={() => setDialog(null)}
-        title="Delete account"
+        title={`Delete ${who}?`}
         description={`This will permanently delete ${who}. Accounts with job history cannot be deleted; disable them instead.`}
         confirmLabel="Delete account"
-        confirmPhrase="DELETE"
         requireSecurity
         loading={busy}
         onConfirm={async (credentials?: Credentials) => {

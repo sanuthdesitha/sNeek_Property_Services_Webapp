@@ -11,7 +11,9 @@ import { isXeroExportPending } from "@/lib/billing/client-invoice-guards";
 import { creditNoteVoidRebillRefusal, refreshCreditCoverage, returnInvoicedJobsToBillable } from "@/lib/billing/invoice-job-release";
 
 const schema = z.object({
-  reason: z.string().trim().min(10).max(2000),
+  // Quick pick or "Other…" text; no minimum length (2026-11-14).
+  reason: z.string().trim().min(1).max(2000),
+  // Required by this route (unchanged): the reference of the correction in Xero.
   reference: z.string().trim().min(3).max(500),
   confirmedInXero: z.literal(true),
   security: z.object({

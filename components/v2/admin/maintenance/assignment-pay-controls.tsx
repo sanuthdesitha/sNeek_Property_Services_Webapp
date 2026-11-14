@@ -24,7 +24,9 @@
 
 import * as React from "react";
 import { CheckCircle2, Clock, DollarSign, Loader2, XCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { EField, EInput, ESelect } from "@/components/v2/admin/estate-kit";
 import { describePay, resolveAssignmentPay } from "@/lib/maintenance/instructions";
 
@@ -76,10 +78,17 @@ function status(row: AssignmentLifecycle): {
 export function AssignmentPayControls({
   row,
   onChanged,
+  canApprovePrice,
 }: {
   row: AssignmentLifecycle;
   /** Called after a successful write so the caller can refetch the roster. */
   onChanged: () => void | Promise<void>;
+  /**
+   * Approving a higher price is for administrators (owner default 2026-11-14;
+   * the server checks it too). An operations manager sees the request and may
+   * decline it or change the pay.
+   */
+  canApprovePrice: boolean;
 }) {
   const [editing, setEditing] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -118,7 +127,7 @@ export function AssignmentPayControls({
   }
 
   return (
-    <div className="mt-1 space-y-1.5 pl-5">
+    <div className="mt-1 space-y-1.5">
       <div className="flex flex-wrap items-center gap-2 text-[0.6875rem]">
         <EBadge tone={state.tone} soft>
           <StateIcon className="mr-1 h-3 w-3" />
@@ -141,7 +150,7 @@ export function AssignmentPayControls({
             className="inline-flex items-center gap-1 text-[hsl(var(--e-primary))] underline-offset-2 hover:underline"
           >
             <DollarSign className="h-3 w-3" />
-            {pay ? "Change pay" : "Set pay"}
+            {pay ? "Change pay…" : "Set pay…"}
           </button>
         ) : null}
       </div>
@@ -158,25 +167,32 @@ export function AssignmentPayControls({
       ) : null}
 
       {pending ? (
-        <div className="rounded-[var(--e-radius-sm,0.5rem)] border border-[hsl(var(--e-warning)/0.4)] bg-[hsl(var(--e-warning)/0.08)] p-2">
+        <div className={cn("rounded-[var(--e-radius-sm,0.5rem)] p-2", toneNoticeClass("attention"))}>
           <p className="text-[0.75rem] text-[hsl(var(--e-foreground))]">
             They have asked for <strong>${Number(row.payChangeAmount ?? 0).toFixed(2)}</strong>
             {row.payChangeReason ? ` — “${row.payChangeReason}”` : ""}
           </p>
-          <div className="mt-1.5 flex gap-2">
-            <EButton size="sm" disabled={busy} onClick={() => void send({ action: "APPROVE_PAY_CHANGE" })}>
-              {busy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
-              Approve their price
-            </EButton>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            {canApprovePrice ? (
+              <EButton size="sm" disabled={busy} onClick={() => void send({ action: "APPROVE_PAY_CHANGE" })}>
+                {busy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                Approve ${Number(row.payChangeAmount ?? 0).toFixed(2)}
+              </EButton>
+            ) : null}
             <EButton
               size="sm"
-              variant="ghost"
+              variant="outline"
               disabled={busy}
               onClick={() => void send({ action: "REJECT_PAY_CHANGE" })}
             >
-              Decline it
+              Decline
             </EButton>
           </div>
+          {!canApprovePrice ? (
+            <p className="mt-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+              An administrator approves a higher price. You can decline it or change the pay.
+            </p>
+          ) : null}
         </div>
       ) : row.payChangeStatus === "APPROVED" || row.payChangeStatus === "REJECTED" ? (
         // Kept visible after the decision: a pattern of low quotes is only

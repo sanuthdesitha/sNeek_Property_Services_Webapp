@@ -40,8 +40,10 @@ describe("VA account actions send the PIN to the server", () => {
     expect(JSON.parse(String(init.body)).security.pin).toBe("2468");
   });
 
+  // Changed 2026-11-14 (simpler confirmations): no typed DELETE; the own PIN alone confirms.
   it("delete", async () => {
-    const [url, init] = await confirmWithPin("Delete account", "Delete account", "DELETE");
+    const [url, init] = await confirmWithPin("Delete account", "Delete account");
+    expect(screen.queryByLabelText(/Type DELETE/)).toBeNull();
     expect(url).toBe("/api/admin/users/va1");
     expect(init.method).toBe("DELETE");
     expect(JSON.parse(String(init.body)).security.pin).toBe("2468");

@@ -124,6 +124,7 @@ export async function dispatchCleanerDayReminders(
           { id: cleaner.id, role: cleaner.role, email: cleaner.email, phone: cleaner.phone, name: cleaner.name },
         ],
         category: "jobs",
+        typeKey: "job.cleaner_day_reminder",
         jobId: job.id,
         web: { subject, body },
         url: "/cleaner/jobs",

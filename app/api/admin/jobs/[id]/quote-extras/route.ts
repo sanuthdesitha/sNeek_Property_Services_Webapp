@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
+import { routeSecurityRefusal, securityFromBody } from "@/lib/security/route-verification";
 import { db } from "@/lib/db";
 import {
   parseJobInternalNotes,
@@ -348,7 +349,13 @@ export async function DELETE(
 ) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const body = deleteSchema.parse(await req.json());
+    const raw = await req.json();
+    const body = deleteSchema.parse(raw);
+    // Removing an extra changes the client's price: tier C, the person's own
+    // PIN verified here in the same request (2026-11-14; before, the browser
+    // checked it through the verify-only endpoint first).
+    const refusal = await routeSecurityRefusal(session, securityFromBody(raw) ?? null);
+    if (refusal) return refusal;
     return await applyExtrasChange(params.id, { removeLabels: body.removeLabels, notifyClient: body.notifyClient }, session.user.id);
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

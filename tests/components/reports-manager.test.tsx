@@ -66,7 +66,8 @@ describe("Client report PDFs manager", () => {
     render(<ReportsManager />);
     fireEvent.click(await screen.findByRole("button", { name: "Delete report for Glebe House" }));
     expect(fetchMock.mock.calls.some((call) => call[1]?.method === "DELETE")).toBe(false);
-    expect(screen.getByText("Please confirm")).toBeTruthy();
+    // 2026-11-14 (simpler confirmations): a delete is tier B, "Removes something".
+    expect(screen.getByText("Removes something")).toBeTruthy();
     const confirm = screen.getAllByRole("button", { name: "Delete report" }).at(-1)!;
     fireEvent.click(confirm);
     await waitFor(() => expect(fetchMock.mock.calls.some((call) => call[1]?.method === "DELETE" && String(call[0]) === "/api/admin/reports/job-1")).toBe(true));

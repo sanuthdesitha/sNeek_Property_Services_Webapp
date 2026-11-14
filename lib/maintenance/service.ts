@@ -121,6 +121,17 @@ export interface UpdateMaintenanceStatusInput {
   resolutionNote?: string | null;
 }
 
+/**
+ * What happened to one item in a status update: changed ("done", with the
+ * status it had before, so the office can undo), already at that status
+ * ("unchanged"), or not found ("missing").
+ */
+export interface MaintenanceStatusResult {
+  id: string;
+  outcome: "done" | "unchanged" | "missing";
+  fromStatus: MaintenanceStatus | null;
+}
+
 export interface UpdateMaintenanceItemInput {
   id: string;
   userId: string;
@@ -234,9 +245,10 @@ export async function getMaintenanceItem(id: string): Promise<MaintenanceItemDet
  */
 export async function updateMaintenanceStatus(
   input: UpdateMaintenanceStatusInput,
-): Promise<{ updated: number }> {
+): Promise<{ updated: number; results: MaintenanceStatusResult[] }> {
   const ids = Array.from(new Set(input.ids.filter(Boolean)));
-  if (ids.length === 0) return { updated: 0 };
+  if (ids.length === 0) return { updated: 0, results: [] };
+  const results: MaintenanceStatusResult[] = [];
 
   const targetTerminal = isTerminal(input.status);
   const now = new Date();
@@ -247,9 +259,18 @@ export async function updateMaintenanceStatus(
       select: { id: true, status: true },
     });
 
+    const found = new Set(current.map((row) => row.id));
+    for (const id of ids) {
+      if (!found.has(id)) results.push({ id, outcome: "missing", fromStatus: null });
+    }
+
     // Repeated requests preserve the original resolution evidence.
     for (const row of current) {
-      if (row.status === input.status) continue;
+      if (row.status === input.status) {
+        results.push({ id: row.id, outcome: "unchanged", fromStatus: row.status });
+        continue;
+      }
+      results.push({ id: row.id, outcome: "done", fromStatus: row.status });
       await tx.propertyMaintenanceItem.update({
         where: { id: row.id },
         data: {
@@ -282,7 +303,7 @@ export async function updateMaintenanceStatus(
     await syncCaseFromMaintenance({ itemId: id, status: input.status });
   }
 
-  return { updated: ids.length };
+  return { updated: ids.length, results };
 }
 
 // ─── Edit item fields ─────────────────────────────────────────────────────────

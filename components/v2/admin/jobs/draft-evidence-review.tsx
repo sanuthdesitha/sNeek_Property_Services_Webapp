@@ -6,7 +6,7 @@ import { useRestorableState } from "@/hooks/use-restorable-state";
 import * as React from "react";
 import { ChevronDown, ExternalLink, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { EBadge, EButton, ECard } from "@/components/v2/ui/primitives";
-import { ETextarea } from "@/components/v2/admin/estate-kit";
+import { EConfirmModal, ETextarea } from "@/components/v2/admin/estate-kit";
 import type { EvidenceDestination } from "@/lib/cleaner/evidence-destination";
 
 type Row = {
@@ -17,6 +17,8 @@ type Row = {
 };
 type Review = { comparisonWarning?: string | null; jobId: string; locked: boolean; rows: Row[]; history: Array<{ id: string; action: string; createdAt: string; user: { name: string | null }; after: { reason?: string } | null }> };
 type Result = { key: string; name: string; text: string };
+/** A discard frozen when it was asked for: these references, this reason. */
+type DiscardBatch = { batch: Row[]; reason: string; conflicts: string[] };
 const PAGE_SIZE = 8;
 function locationLabel(value: EvidenceDestination) {
   return value.type === "bulkPool" ? "Bulk photos" : value.type === "formField" ? `Section: ${value.fieldId}` : value.type === "jobTask" ? `Task: ${value.taskId}` : value.type === "laundry" ? "Laundry" : "Follow-up task";
@@ -61,16 +63,24 @@ export function DraftEvidenceReview({ jobId }: { jobId: string }) {
   const eligible = review?.locked ? [] : visible.filter(row => !row.removed);
   const selectedRows = eligible.filter(row => selected.includes(row.key));
   const clearSelection = () => { setSelected([]); setReason(""); };
+  const [confirming, setConfirming] = React.useState<DiscardBatch | null>(null);
 
-  async function discardSelected() {
+  /** Freeze exactly the visible, explicitly selected references and the reason, then ask (tier A). */
+  function requestDiscard() {
     if (busyRef.current || loading || !review || review.locked || !selectedRows.length) return;
     const sharedReason = reason.trim();
-    if (sharedReason.length < 10 || sharedReason.length > 1000) return;
-    // Freeze exactly the visible, explicitly selected references and their
-    // reviewed versions. Each retains the existing transactional audit check.
+    // Required, with no minimum length (board "Confirmations and deletes", 2026-11-14).
+    if (!sharedReason || sharedReason.length > 1000) return;
     const batch = [...selectedRows];
     const conflicts = Array.from(new Set(batch.flatMap(row => row.issues.length ? row.issues : ["Draft attachment (no conflict flagged)"])));
-    if (!window.confirm(`Discard ${batch.length} selected draft reference${batch.length === 1 ? "" : "s"}?\n\nSelected: ${batch.map(row => row.name).join(", ")}\nReview types: ${conflicts.join("; ")}\nShared reason: ${sharedReason}\n\nOnly these references will be removed from this draft. Original photos, provenance and submitted records stay unchanged. Each removal is audited separately.`)) return;
+    setConfirming({ batch, reason: sharedReason, conflicts });
+  }
+
+  async function discardSelected(frozen: DiscardBatch) {
+    if (busyRef.current || loading || !review || review.locked) return;
+    // Each frozen reference keeps its reviewed version and the existing transactional audit check.
+    const { batch, reason: sharedReason } = frozen;
+    setConfirming(null);
     busyRef.current = true; stopRef.current = false; setBusy(true); setError(null); setNotice(null); setResults([]);
     let completed = 0;
     try {
@@ -145,14 +155,23 @@ export function DraftEvidenceReview({ jobId }: { jobId: string }) {
       </div>
       {pageCount > 1 ? <div className="flex items-center justify-between gap-2"><EButton type="button" size="sm" variant="ghost" className="min-h-11" disabled={busy || loading || currentPage === 0} onClick={() => { setPage(currentPage - 1); clearSelection(); }}>Previous</EButton><span>Page {currentPage + 1} of {pageCount}</span><EButton type="button" size="sm" variant="ghost" className="min-h-11" disabled={busy || loading || currentPage + 1 === pageCount} onClick={() => { setPage(currentPage + 1); clearSelection(); }}>Next</EButton></div> : null}
       {selectedRows.length ? <div className="space-y-2 rounded border border-[hsl(var(--e-border))] bg-[hsl(var(--e-muted))] p-3">
-        <label className="block font-medium">Shared reason for {selectedRows.length} selected<ETextarea rows={2} value={reason} maxLength={1000} disabled={busy} className="mt-1 min-h-16 w-full text-base sm:text-sm" placeholder="Explain why these references should be discarded (10–1000 characters)." onChange={event => setReason(event.target.value)} /></label>
+        <label className="block font-medium">Shared reason for {selectedRows.length} selected<ETextarea rows={2} value={reason} maxLength={1000} disabled={busy} className="mt-1 min-h-16 w-full text-base sm:text-sm" placeholder="Why these references should be discarded (required)." onChange={event => setReason(event.target.value)} /></label>
         <p className="text-xs">Review each selected item. The same reason is recorded separately for each removal.</p>
-        <div className="flex flex-wrap gap-2"><EButton type="button" size="sm" variant="outline" className="min-h-11 h-auto whitespace-normal text-[hsl(var(--e-danger))]" disabled={loading || busy || reason.trim().length < 10} onClick={() => void discardSelected()}><Trash2 aria-hidden="true" className="h-4 w-4" />{busy ? "Processing…" : `Discard ${selectedRows.length} selected`}</EButton>
+        <div className="flex flex-wrap gap-2"><EButton type="button" size="sm" variant="outline" className="min-h-11 h-auto whitespace-normal text-[hsl(var(--e-danger))]" disabled={loading || busy || reason.trim().length === 0} onClick={requestDiscard}><Trash2 aria-hidden="true" className="h-4 w-4" />{busy ? "Processing…" : `Discard ${selectedRows.length} selected`}</EButton>
           {busy ? <EButton type="button" size="sm" variant="ghost" className="min-h-11" onClick={() => { stopRef.current = true; setNotice("Stopping after the current request. Confirmed removals are retained."); }}>Stop after current</EButton> : <EButton type="button" size="sm" variant="ghost" className="min-h-11" onClick={clearSelection}>Clear selection</EButton>}
         </div>
       </div> : null}
       {results.length ? <details open={Boolean(error)}><summary className="min-h-11 cursor-pointer py-3">Batch results ({results.length})</summary><ul className="max-h-40 space-y-1 overflow-auto">{results.map(result => <li key={result.key} className="break-words">{result.name}: {result.text}</li>)}</ul></details> : null}
       {review?.history.length ? <details><summary className="min-h-11 cursor-pointer py-3">Resolution history (latest 50)</summary><ol className="max-h-48 space-y-2 overflow-auto">{review.history.map(item => <li key={item.id} className="border-b border-[hsl(var(--e-border))] pb-2"><p>{item.user.name ?? "Office user"} · {new Date(item.createdAt).toLocaleString()}</p><p>{item.action === "OFFICE_DISCARD_DRAFT_REFERENCE" ? "Office draft-reference override" : "Cleaner discarded a wrong reference"}</p><p className="break-words">{item.after?.reason}</p></li>)}</ol></details> : null}
     </div> : null}
+  <EConfirmModal
+      open={Boolean(confirming)}
+      tier="ordinary"
+      onClose={() => setConfirming(null)}
+      title={confirming ? `Discard ${confirming.batch.length} selected draft reference${confirming.batch.length === 1 ? "" : "s"}?` : "Discard draft references?"}
+      description={confirming ? <div className="space-y-1 [overflow-wrap:anywhere]"><p>Only these come out of this draft; original photos, provenance and submitted records stay unchanged. Each removal is audited separately.</p><p><b>Selected:</b> {confirming.batch.map(row => row.name).join(", ")}</p><p><b>Review types:</b> {confirming.conflicts.join("; ")}</p><p><b>Shared reason:</b> {confirming.reason}</p></div> : null}
+      confirmLabel="Discard"
+      onConfirm={() => { if (confirming) void discardSelected(confirming); }}
+    />
   </ECard>;
 }

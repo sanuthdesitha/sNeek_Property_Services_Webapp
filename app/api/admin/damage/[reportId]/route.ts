@@ -1,3 +1,4 @@
+import { routeSecurityRefusal, securityFromBody } from "@/lib/security/route-verification";
 import { NextResponse } from "next/server";
 import { DamageVoidMode, Role } from "@prisma/client";
 import { z } from "zod";
@@ -39,14 +40,11 @@ const patchSchema = z.union([
     action: z.literal("VOID"),
     mode: z.nativeEnum(DamageVoidMode),
     /**
-     * Required and non-trivial. The cleaner is shown this verbatim, and a void
-     * with no usable reason just produces the same report again.
+     * Required; the cleaner is shown it verbatim. A quick pick or "Other…"
+     * text, with no minimum length (board "Confirmations and deletes",
+     * 2026-11-14).
      */
-    reason: z
-      .string()
-      .trim()
-      .min(10, "Say why this is being sent back — at least a sentence.")
-      .max(2_000),
+    reason: z.string().trim().min(1, "Say why this is being sent back.").max(2_000),
   }),
 ]);
 
@@ -101,6 +99,10 @@ export async function PATCH(req: Request, { params }: { params: { reportId: stri
     if (body.action === "SET_COST") {
       await setDamageItemCost({ itemId: body.itemId, estimatedCost: body.estimatedCost });
     } else if (body.action === "VOID") {
+      // Tier C (2026-11-14): deductions may follow a damage report, so voiding
+      // it needs the person's own PIN, verified here (who may void is unchanged).
+      const refusal = await routeSecurityRefusal(session, securityFromBody(payload) ?? null);
+      if (refusal) return refusal;
       await voidDamageReport({
         reportId: params.reportId,
         actorUserId: session.user.id,

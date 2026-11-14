@@ -3,6 +3,7 @@ import { Role, GatewayStatus } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { routeSecurityRefusal, securityFromBody } from "@/lib/security/route-verification";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -29,9 +30,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+/**
+ * Tier C (2026-11-14, simpler confirmations): the administrator's own PIN (their
+ * password while they have none) is sent as `{ security }` and verified here,
+ * in the same request, instead of a browser pre-check against the verify endpoint.
+ */
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireRole([Role.ADMIN]);
+    const session = await requireRole([Role.ADMIN]);
+    const refusal = await routeSecurityRefusal(session, securityFromBody(await req.json().catch(() => ({}))) ?? null);
+    if (refusal) return refusal;
     await db.paymentGateway.delete({ where: { id: params.id } });
     return NextResponse.json({ ok: true });
   } catch (err: any) {

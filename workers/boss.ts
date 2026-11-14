@@ -54,6 +54,7 @@ import { autoPauseStaleJobs } from "@/lib/ops/auto-pause";
 import { dispatchUnfinishedJobPushReminders } from "@/lib/ops/unfinished-reminders";
 import { dispatchLaundryDriverNudges } from "@/lib/laundry/reminders";
 import { runMissedClockInSweep } from "@/lib/ops/missed-clock-in-sweep";
+import { createWorkerGuard } from "@/lib/ops/worker-guard";
 
 const TZ = "Australia/Sydney";
 
@@ -139,7 +140,7 @@ function recordFailure(jobName: string, err: unknown) {
  * will NOT see worker stats. In that case check the worker container's
  * logs directly.
  */
-type JobRun = { name: string; ok: boolean; durationMs: number; error?: string; finishedAt: number };
+type JobRun = { name: string; ok: boolean; durationMs: number; error?: string; skipped?: boolean; finishedAt: number };
 const RUN_HISTORY_LIMIT = 200;
 const globalRunsRef = globalThis as unknown as { __sneekJobRuns?: JobRun[] };
 if (!globalRunsRef.__sneekJobRuns) globalRunsRef.__sneekJobRuns = [];
@@ -155,41 +156,33 @@ export function getRecentJobRuns(): JobRun[] {
 }
 
 /**
- * Wrap a pg-boss handler so:
- *  - it cannot crash the worker process (try/catch)
- *  - it cannot run longer than `timeoutMs` (Promise.race vs a timer)
+ * Wrap a pg-boss handler (lib/ops/worker-guard.ts) so:
+ *  - it cannot crash the worker process and is never retried by pg-boss
+ *  - it cannot hold the worker longer than `timeoutMs`; the next tick of the
+ *    same job is skipped while an earlier run is still going
  *  - failures are logged AND recorded in `recentFailures` for the diagnostics
- *    page so an admin can see what's failing without tail-logging the VPS.
+ *    page, and administrators are told once when a job keeps failing.
  */
+const workerGuard = createWorkerGuard({
+  log: logger,
+  recordRun: (run) => recordJobRun(run),
+  recordFailure,
+  raiseFailure: async (jobName, count, message) => {
+    const { raiseWorkerFailure } = await import("@/lib/notifications/safeguards/alerts");
+    return raiseWorkerFailure(jobName, count, message);
+  },
+  resolveFailure: async (jobName) => {
+    const { resolveWorkerFailure } = await import("@/lib/notifications/safeguards/alerts");
+    return resolveWorkerFailure(jobName);
+  },
+});
+
 function safeHandler<T>(
   jobName: string,
   handler: (job?: { data: T }) => Promise<unknown>,
   timeoutMs = DEFAULT_HANDLER_TIMEOUT_MS,
 ) {
-  return async (job?: { data: T }) => {
-    const start = Date.now();
-    try {
-      await Promise.race([
-        handler(job),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Handler timeout after ${timeoutMs}ms`)), timeoutMs),
-        ),
-      ]);
-      recordJobRun({ name: jobName, ok: true, durationMs: Date.now() - start });
-    } catch (err) {
-      logger.error({ err, jobName }, `[worker] ${jobName} failed`);
-      recordFailure(jobName, err);
-      recordJobRun({
-        name: jobName,
-        ok: false,
-        durationMs: Date.now() - start,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      // Swallow — returning normally tells pg-boss the job is done.
-      // This intentionally prevents pg-boss from spinning into a fast
-      // retry loop, which is what was pinning CPU at 97%.
-    }
-  };
+  return workerGuard.safeHandler<T>(jobName, handler, timeoutMs);
 }
 
 async function main() {
@@ -276,6 +269,18 @@ async function main() {
     await boss.work("notification-intent-dispatch", safeHandler("notification-intent-dispatch", async () => {
       const { dispatchNotificationIntents } = await import("@/lib/notifications/intent-store");
       await dispatchNotificationIntents(new Date());
+    }));
+  }
+
+  // Sending safeguards (2026-11-15): release messages held over quiet hours
+  // once, expire stale holds, keep the event log to 35 days, and the daily
+  // inbox line to administrators when something was not sent.
+  if (jobEnabled("notification-safeguards")) {
+    await boss.schedule("notification-safeguards", "*/10 * * * *", {}, { tz: TZ });
+    await boss.work("notification-safeguards", safeHandler("notification-safeguards", async () => {
+      const { runSafeguardsMaintenance } = await import("@/lib/notifications/safeguards/maintenance");
+      const result = await runSafeguardsMaintenance(new Date());
+      if (result.released || result.expired || result.digest) logger.info(result, "[safeguards] maintenance");
     }));
   }
 
@@ -474,6 +479,19 @@ async function main() {
     await boss.work("xero-invoice-sync", safeHandler("xero-invoice-sync", async () => {
       const { runScheduledXeroSync } = await import("@/lib/billing/client-invoice-xero-sync");
       await runScheduledXeroSync();
+    }));
+  }
+
+  // Daily Xero keep-alive (2026-11-15): renews the sign-in so an idle
+  // connection never reaches Xero's 60-day unused refresh-token expiry, checks
+  // the organisation is still connected, and retries an unsent reconnect
+  // notice. Never pushes or reads financial documents.
+  if (jobEnabled("xero-token-keepalive")) {
+    await boss.schedule("xero-token-keepalive", "47 3 * * *", {}, { tz: TZ });
+    await boss.work("xero-token-keepalive", safeHandler("xero-token-keepalive", async () => {
+      const { runXeroKeepAlive } = await import("@/lib/xero/keepalive");
+      const result = await runXeroKeepAlive();
+      logger.info({ ...result }, "[xero-token-keepalive] done");
     }));
   }
 

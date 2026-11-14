@@ -333,6 +333,7 @@ export function StockCountRun({
           open={Boolean(zeroPrompt)}
           onClose={() => setZeroPrompt(null)}
           title="Set these to zero?"
+          tier="ordinary"
           description={
             zeroPrompt
               ? `${zeroPrompt.length} item${

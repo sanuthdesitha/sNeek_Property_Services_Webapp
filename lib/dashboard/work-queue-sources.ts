@@ -4,6 +4,8 @@
  * total is a real count, never the length of a capped list.
  */
 import { unprocessedNewFlag } from "@/lib/lost-found/holding";
+import { ADMIN_OPEN_STATUSES, NOBODY_ASSIGNED_ATTENTION_DAYS, daysWaiting, nobodyAssignedCutoff } from "@/lib/maintenance/attention";
+import { PRIORITY_LABELS } from "@/lib/maintenance/labels";
 import { JobStatus } from "@prisma/client";
 import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/lib/db";
@@ -265,4 +267,39 @@ export async function lostItemItems(ctx: QueueContext): Promise<WorkQueueItem[]>
     });
   });
   return [...items, ...overflow("lost-item", items.length, total, "reported item", links.LOST_FOUND_HREF)];
+}
+
+/**
+ * Maintenance items nobody is on for more than two days (owner default
+ * 2026-11-14, pending confirmation). "Nobody" means no visit worker and no
+ * active person in the role roster, the same rule as the Maintenance list
+ * (lib/maintenance/attention.ts). A queue row only; no notification is sent.
+ */
+export async function unassignedMaintenanceItems(ctx: QueueContext): Promise<WorkQueueItem[]> {
+  const where = {
+    status: { in: [...ADMIN_OPEN_STATUSES] },
+    assignedWorkerId: null,
+    roleAssignments: { none: { removedAt: null } },
+    createdAt: { lt: nobodyAssignedCutoff(ctx.now) },
+  };
+  const [total, rows] = await Promise.all([
+    db.propertyMaintenanceItem.count({ where }),
+    db.propertyMaintenanceItem.findMany({
+      where, orderBy: [{ priority: "desc" }, { createdAt: "asc" }], take: PER_KIND_ROW_CAP,
+      select: { id: true, title: true, priority: true, createdAt: true, property: { select: { name: true } } },
+    }),
+  ]);
+  const items = rows.map((item) => {
+    const href = links.maintenanceItemHref(item.id);
+    const days = daysWaiting(item.createdAt, ctx.now);
+    return row("maintenance-unassigned", {
+      id: `maintenance:${item.id}`,
+      title: `Maintenance with nobody assigned: ${item.title}`,
+      detail: [item.property?.name, PRIORITY_LABELS[item.priority], `reported ${days} ${days === 1 ? "day" : "days"} ago`, `over ${NOBODY_ASSIGNED_ATTENTION_DAYS} days`].filter(Boolean).join(" · "),
+      href,
+      urgency: item.priority === "URGENT" ? "now" : KIND_URGENCY["maintenance-unassigned"],
+      actions: [{ kind: "link", label: "Assign", href, primary: true }],
+    });
+  });
+  return [...items, ...overflow("maintenance-unassigned", items.length, total, "unassigned maintenance item", links.MAINTENANCE_NOBODY_HREF)];
 }

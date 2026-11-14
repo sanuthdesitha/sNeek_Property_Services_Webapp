@@ -77,7 +77,9 @@ describe("/api/me/admin-pin", () => {
     const response = await getOwnPin();
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body).toEqual({ hasPin: true, updatedAt: null, lockedUntil: null, resetByAdministrator: false, userId: "ops-1" });
+    // 2026-11-14: also the organisation timezone, so a prompt can say when a lock ends.
+    expect(body).toEqual({ hasPin: true, updatedAt: null, lockedUntil: null, resetByAdministrator: false, userId: "ops-1", timezone: expect.any(String) });
+    expect(JSON.stringify(body)).not.toMatch(/\$2[aby]\$/);
     expect(m.state).toHaveBeenCalledWith("ops-1");
   });
 
@@ -86,6 +88,10 @@ describe("/api/me/admin-pin", () => {
     const response = await postOwnPin(req("/api/me/admin-pin", { currentPassword: "pw", pin: "4826" }));
     expect(response.status).toBe(403);
     expect(m.setPin).not.toHaveBeenCalled();
+    // The prompt reads this code to show "Not available" instead of a credential field (2026-11-14).
+    const read = await getOwnPin();
+    expect(read.status).toBe(403);
+    expect((await read.json()).code).toBe("ACTUAL_ACTOR_REQUIRED");
   });
 
   it("refuses people who are not administrators or operations managers", async () => {

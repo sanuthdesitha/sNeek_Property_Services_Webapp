@@ -15,6 +15,8 @@ import {
   isChannelAllowed,
   type NotificationAudience,
 } from "@/lib/notifications/audience-controls";
+import { guardOutbound, recordOutboundOutcome, refuseOversizedSend, type HeldPayload, type SafeguardMeta } from "@/lib/notifications/safeguards/gate";
+import { notSentText, type SuppressionReason } from "@/lib/notifications/safeguards/config";
 
 const FROM = process.env.EMAIL_FROM ?? "admin@sneekproservices.com.au";
 let resendClient: Resend | null = null;
@@ -81,6 +83,12 @@ export interface EmailPayload {
    * which are resolved per address.
    */
   audience?: NotificationAudience;
+  /**
+   * What the sending safeguards need to know (type, subject entity, recipient
+   * account). Optional: a send without it is still capped and deduplicated,
+   * identified by its subject or kind (lib/notifications/safeguards).
+   */
+  safeguard?: SafeguardMeta;
   attachments?: Array<{
     filename: string;
     content: string | Buffer;
@@ -124,10 +132,75 @@ async function resolveRecipient(email: string): Promise<ResolvedRecipient> {
   }
 }
 
+export type EmailSendResult = {
+  ok: boolean;
+  error?: string;
+  externalId?: string | null;
+  skipped?: boolean;
+  acceptance?: "ACCEPTED" | "NOT_ACCEPTED" | "UNKNOWN";
+  retryable?: boolean;
+  /** Not sent by the sending safeguards (never a delivery); `held` = sent once after quiet hours. */
+  suppressed?: { reason: SuppressionReason; held: boolean };
+};
+
+type EmailGateOutcome =
+  | { kind: "send"; to: string[]; eventIds: Array<string | null> }
+  | { kind: "suppressed"; result: EmailSendResult };
+
+function suppressedResult(reason: SuppressionReason, held: boolean): EmailSendResult {
+  return { ok: false, skipped: true, error: notSentText(reason), acceptance: "NOT_ACCEPTED", retryable: false, suppressed: { reason, held } };
+}
+
+/**
+ * The sending safeguards, per address (lib/notifications/safeguards/gate.ts).
+ * Runs after every existing gate so a message someone switched off is never
+ * counted. Addresses the gate refuses are dropped; when none is left the
+ * whole send is "not sent" with the first reason.
+ */
+async function applySendingSafeguards(payload: EmailPayload, recipients: string[]): Promise<EmailGateOutcome> {
+  const meta: SafeguardMeta = { ...(payload.safeguard ?? {}), ...(payload.critical ? { messageClass: "SECURITY" as const } : {}) };
+  const oversized = await refuseOversizedSend("EMAIL", recipients, payload.subject, meta);
+  if (oversized && !oversized.allowed) return { kind: "suppressed", result: suppressedResult(oversized.reason, false) };
+  const allowed: string[] = [];
+  const eventIds: Array<string | null> = [];
+  let first: { reason: SuppressionReason; held: boolean } | null = null;
+  const holdable = recipients.length === 1 && !payload.attachments?.length;
+  for (const address of recipients) {
+    const hold: HeldPayload | null = holdable
+      ? { transport: "EMAIL", to: address, subject: payload.subject, html: payload.html, replyTo: payload.replyTo, from: payload.from, kind: payload.kind, transactional: payload.transactional }
+      : null;
+    const decision = await guardOutbound({
+      transport: "EMAIL", recipient: address, meta, hints: { emailKind: payload.kind ?? null },
+      subject: payload.subject, content: payload.html, holdPayload: hold,
+    });
+    if (decision.allowed) {
+      allowed.push(address);
+      eventIds.push(decision.eventId);
+    } else if (!first) {
+      first = { reason: decision.reason, held: decision.held };
+    }
+  }
+  if (allowed.length === 0) return { kind: "suppressed", result: suppressedResult(first?.reason ?? "SAFEGUARD_UNAVAILABLE", first?.held ?? false) };
+  return { kind: "send", to: allowed, eventIds };
+}
+
+/** Non-production only: every email goes to one sandbox inbox, marked with the real recipients. */
+function applySandbox(payload: EmailPayload, to: string[]): { to: string[]; subject: string } {
+  const sandbox = process.env.SNEEK_OUTBOUND_SANDBOX_EMAIL?.trim();
+  if (!sandbox) return { to, subject: payload.subject };
+  return { to: [sandbox], subject: `[Sandbox for ${to.join(", ")}] ${payload.subject}` };
+}
+
+async function recordEmailOutcome(eventIds: Array<string | null>, acceptance: "ACCEPTED" | "NOT_ACCEPTED" | "UNKNOWN") {
+  const outcome = acceptance === "UNKNOWN" ? "UNCERTAIN" : acceptance;
+  await Promise.all(eventIds.map((eventId) => recordOutboundOutcome(eventId, outcome)));
+}
+
 export async function sendEmailDetailed(
   payload: EmailPayload
-): Promise<{ ok: boolean; error?: string; externalId?: string | null; skipped?: boolean; acceptance?: "ACCEPTED" | "NOT_ACCEPTED" | "UNKNOWN"; retryable?: boolean }> {
+): Promise<EmailSendResult> {
   let dispatchStarted = false;
+  let eventIds: Array<string | null> = [];
   try {
     const resend = getResendClient();
     if (!resend) {
@@ -244,13 +317,19 @@ export async function sendEmailDetailed(
       }
     }
 
+    // The sending safeguards: caps, duplicates, pauses, emergency stop, quiet hours.
+    const gate = await applySendingSafeguards(payload, Array.isArray(payload.to) ? payload.to : [payload.to]);
+    if (gate.kind === "suppressed") return gate.result;
+    eventIds = gate.eventIds;
+    const target = applySandbox(payload, gate.to);
+
     const html = await prepareHtml(payload.html);
 
     dispatchStarted = true;
     const response = await resend.emails.send({
       from: payload.from ?? FROM,
-      to: Array.isArray(payload.to) ? payload.to : [payload.to],
-      subject: payload.subject,
+      to: target.to,
+      subject: target.subject,
       html,
       replyTo: payload.replyTo,
       attachments: payload.attachments,
@@ -259,11 +338,17 @@ export async function sendEmailDetailed(
       // SDK errors may be returned instead of thrown. Server failures are
       // uncertain; only explicit validation/auth/rate rejection proves no send.
       const knownRejection = ["missing_required_field", "invalid_access", "invalid_parameter", "invalid_region", "rate_limit_exceeded", "missing_api_key", "invalid_api_Key", "invalid_from_address", "validation_error", "not_found", "method_not_allowed"].includes(response.error.name);
+      await recordEmailOutcome(eventIds, knownRejection ? "NOT_ACCEPTED" : "UNKNOWN");
       return { ok: false, error: response.error.message, acceptance: knownRejection ? "NOT_ACCEPTED" : "UNKNOWN", retryable: response.error.name === "rate_limit_exceeded" };
     }
-    if (!response.data?.id) return { ok: false, error: "Email provider acceptance could not be confirmed.", acceptance: "UNKNOWN" };
+    if (!response.data?.id) {
+      await recordEmailOutcome(eventIds, "UNKNOWN");
+      return { ok: false, error: "Email provider acceptance could not be confirmed.", acceptance: "UNKNOWN" };
+    }
+    await recordEmailOutcome(eventIds, "ACCEPTED");
     return { ok: true, externalId: response.data.id, acceptance: "ACCEPTED" };
   } catch (err: any) {
+    if (dispatchStarted) await recordEmailOutcome(eventIds, "UNKNOWN");
     logger.error({ err, payload }, "Failed to send email");
     return { ok: false, error: err?.message ?? "Unknown email provider error", acceptance: dispatchStarted ? "UNKNOWN" : "NOT_ACCEPTED", retryable: !dispatchStarted };
   }

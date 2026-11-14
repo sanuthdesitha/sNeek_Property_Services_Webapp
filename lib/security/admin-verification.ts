@@ -41,9 +41,15 @@ import {
  *     with PIN_REQUIRED (a forgotten PIN is changed in the profile with the
  *     password);
  *   - a person with no PIN yet (never set, or cleared by an administrator)
- *     confirms ONCE with their account password plus a new PIN, which becomes
- *     their PIN; a password alone answers PIN_SETUP_REQUIRED so the prompt can
- *     ask for the new PIN. Nobody is locked out by the change;
+ *     confirms with their account password alone (owner default 2026-11-14,
+ *     "simpler confirmations", pending owner confirmation; before it the
+ *     password had to come with a new PIN). The prompt offers "Set a PIN" as a
+ *     link to the profile. A password sent together with a valid new PIN still
+ *     stores that PIN (older prompts). With neither, PIN_SETUP_REQUIRED asks
+ *     for the password. Nobody is locked out by the change;
+ *   - every accepted confirmation writes a SENSITIVE_ACTION_CONFIRMED audit
+ *     row against the actual actor, naming the action and which credential
+ *     was used ("pin", "password" or "password_and_new_pin"), never the value;
  *   - PIN_LOCK_THRESHOLD wrong PINs or passwords in a row lock verification for
  *     PIN_LOCK_MINUTES (stored on the person's row, so every instance sees it).
  */
@@ -113,11 +119,31 @@ export async function clearAdminPin(userId: string, currentPassword: string): Pr
   await removeOwnPin(userId);
 }
 
-export async function verifySensitiveAction(
+/** Which credential confirmed a sensitive action (recorded in the audit, never the value). */
+export type SensitiveCredentialUsed = "pin" | "password" | "password_and_new_pin";
+
+async function auditConfirmation(userId: string, action: SensitiveAction | undefined, credential: SensitiveCredentialUsed) {
+  try {
+    await db.auditLog.create({
+      data: {
+        userId,
+        action: "SENSITIVE_ACTION_CONFIRMED",
+        entity: "UserSecurityPin",
+        entityId: userId,
+        after: { action: action ?? null, credential },
+      },
+    });
+  } catch {
+    // The confirmation itself stands; the route's own audit row still names the actor.
+  }
+}
+
+/** verifySensitiveAction, also answering which credential was accepted. */
+export async function verifySensitiveActionCredential(
   userId: string,
   credentials: SensitiveActionCredentials | null | undefined,
   action?: SensitiveAction,
-) {
+): Promise<{ credential: SensitiveCredentialUsed }> {
   const user = await db.user.findUnique({
     where: { id: userId },
     select: {
@@ -152,24 +178,40 @@ export async function verifySensitiveAction(
   const newPin = typeof credentials?.newPin === "string" ? credentials.newPin.trim() : "";
 
   if (row?.pinHash) {
+    // A person with a PIN confirms with that PIN only; never their password.
     if (!pin) refuse(password ? "PIN_REQUIRED" : "PIN_OR_PASSWORD_REQUIRED");
     if (await pinMatches(row, pin)) {
       await clearPinFailures(userId);
-      return true;
+      await auditConfirmation(userId, action, "pin");
+      return { credential: "pin" };
     }
     const { locked } = await recordPinFailure(userId);
     refuse(locked ? "PIN_LOCKED" : "INVALID_SECURITY_VERIFICATION");
   }
 
-  // No PIN yet: the account password, once, together with the PIN to set.
-  if (!password || !newPin) refuse("PIN_SETUP_REQUIRED");
-  if (newPinProblem(newPin)) refuse("NEW_PIN_INVALID");
+  // No PIN yet: the account password confirms. A valid new PIN sent with it is stored.
+  if (!password) refuse("PIN_SETUP_REQUIRED");
+  if (newPin && newPinProblem(newPin)) refuse("NEW_PIN_INVALID");
   if (!(await passwordMatches(user, password))) {
     const { locked } = await recordPinFailure(userId);
     refuse(locked ? "PIN_LOCKED" : "INVALID_SECURITY_VERIFICATION");
   }
   await clearPinFailures(userId);
-  await storeOwnPin(userId, newPin, "sensitive-action");
+  if (newPin) {
+    await storeOwnPin(userId, newPin, "sensitive-action");
+    await auditConfirmation(userId, action, "password_and_new_pin");
+    return { credential: "password_and_new_pin" };
+  }
+  await auditConfirmation(userId, action, "password");
+  return { credential: "password" };
+}
+
+export async function verifySensitiveAction(
+  userId: string,
+  credentials: SensitiveActionCredentials | null | undefined,
+  action?: SensitiveAction,
+): Promise<true> {
+  await verifySensitiveActionCredential(userId, credentials, action);
   return true;
 }
 

@@ -39,12 +39,15 @@ it("new item save uses the selected module and a stable derived key", async () =
  const call = m.fetch.mock.calls.find(([url]) => url.endsWith("/room/items"))!;
  expect(JSON.parse(call[1].body)).toMatchObject({ key: "room.check-plant-soil", label: "Check plant soil", instructions: "Water only if dry" });
 });
-it.each([true, false])("module deletion verifies security before DELETE (verification accepted=%s)", async accepted => {
- m.fetch.mockImplementation(async (url, options) => url === "/api/admin/security/verify" ? response(accepted ? { ok: true } : { error: "Denied" }, accepted) : response(fixture));
+// Changed 2026-11-14: the PIN travels with the DELETE and the library route verifies it (no client-only pre-check).
+it.each([true, false])("module deletion sends the PIN with the DELETE for the server to verify (accepted=%s)", async accepted => {
+ m.fetch.mockImplementation(async (url, options) => options?.method === "DELETE" ? response(accepted ? { ok: true } : { error: "INVALID_SECURITY_VERIFICATION" }, accepted) : response(fixture));
  render(<EstateChecklistLibrary />); await screen.findByText("Living"); fireEvent.click(screen.getByRole("button", { name: "Delete module" }));
  fireEvent.change(screen.getByText("Your PIN").parentElement!.querySelector("input")!, { target: { value: "1234" } });
  fireEvent.click(screen.getAllByRole("button", { name: "Delete module" }).at(-1)!);
- await waitFor(() => expect(m.fetch.mock.calls.some(([url]) => url === "/api/admin/security/verify")).toBe(true));
- if (accepted) await waitFor(() => expect(m.fetch.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(true));
- else { await screen.findByText(/not accepted|Denied/); expect(m.fetch.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(false); }
+ await waitFor(() => expect(m.fetch.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(true));
+ const [, init] = m.fetch.mock.calls.find(([, options]) => options?.method === "DELETE")!;
+ expect(JSON.parse(init.body)).toEqual({ security: { pin: "1234" } });
+ expect(m.fetch.mock.calls.some(([url]) => url === "/api/admin/security/verify")).toBe(false);
+ if (!accepted) await screen.findByText(/not accepted/);
 });

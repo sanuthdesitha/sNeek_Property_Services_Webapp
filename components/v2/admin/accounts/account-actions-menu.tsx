@@ -174,7 +174,7 @@ export function AccountActionsMenu({
         open={dialog === "password"}
         onClose={close}
         title="Reset password"
-        description={`Generate a temporary password for ${account.email} and email it to them. Enter your PIN or password to continue.`}
+        description={`Generate a temporary password for ${account.email} and email it to them.`}
         confirmLabel="Reset password"
         requireSecurity
         danger={false}
@@ -194,7 +194,7 @@ export function AccountActionsMenu({
         open={dialog === "twofa"}
         onClose={close}
         title="Reset two-factor?"
-        description={`${account.email} will be able to sign in without a code until they set it up again. Enter your PIN or password to continue.`}
+        description={`${account.email} will be able to sign in without a code until they set it up again.`}
         confirmLabel="Reset 2FA"
         requireSecurity
         loading={busy}
@@ -214,9 +214,8 @@ export function AccountActionsMenu({
         open={dialog === "delete"}
         onClose={close}
         title={`Delete ${account.name || account.email}?`}
-        description="This permanently removes the login. Their history stays, but they can no longer sign in. Enter your PIN or password to continue."
+        description="This permanently removes the login. Their history stays, but they can no longer sign in."
         confirmLabel="Delete account"
-        confirmPhrase="DELETE"
         requireSecurity
         loading={busy}
         onConfirm={async (credentials) => {

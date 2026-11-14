@@ -11,6 +11,7 @@ import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { extractLaundryTeamUserIds } from "@/lib/laundry/teams";
 import { logger } from "@/lib/logger";
 import { sendEmailDetailed } from "@/lib/notifications/email";
+import { dispatchNotificationOnce } from "@/lib/notifications/dispatch-once";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { isPastLocalDispatchTime, localDateKey } from "@/lib/ops/scheduled-dispatch";
 import { getAppSettings } from "@/lib/settings";
@@ -292,7 +293,7 @@ async function logPushNotification(userId: string, subject: string, body: string
   });
 }
 
-async function logEmailNotification(userId: string, subject: string, body: string, result: { ok: boolean; error?: string }) {
+async function logEmailNotification(userId: string, subject: string, body: string, result: { ok: boolean; error?: string; suppressed?: { held: boolean } }) {
   await db.notification.create({
     data: {
       userId,
@@ -302,6 +303,7 @@ async function logEmailNotification(userId: string, subject: string, body: strin
       status: result.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
       sentAt: result.ok ? new Date() : undefined,
       errorMsg: result.ok ? undefined : result.error ?? "Email delivery failed.",
+      deliveryStatus: result.suppressed ? (result.suppressed.held ? "HELD" : "SUPPRESSED") : undefined,
     },
   });
 }
@@ -310,9 +312,9 @@ async function logSmsNotification(
   userId: string,
   subject: string,
   body: string,
-  result: { ok: boolean; status: "sent" | "disabled" | "not_configured" | "failed"; error?: string }
+  result: { ok: boolean; status: "sent" | "disabled" | "not_configured" | "failed" | "suppressed"; error?: string }
 ) {
-  if (result.status !== "sent" && result.status !== "failed") return;
+  if (result.status !== "sent" && result.status !== "failed" && result.status !== "suppressed") return;
   await db.notification.create({
     data: {
       userId,
@@ -326,29 +328,60 @@ async function logSmsNotification(
   });
 }
 
-async function sendDirectSummaryNotification(input: {
+export const TOMORROW_PREP_TYPE_KEY = "office.sla_and_summaries";
+
+type SummaryPart = "cleaner" | "cleaner-inventory" | "laundry" | "admin-inventory";
+
+type SummaryNotification = {
   recipient: Recipient;
   webSubject: string;
   webBody: string;
   emailSubject: string;
   emailHtml: string;
   smsBody: string;
-}) {
+  part: SummaryPart;
+  /** The local day the summary belongs to. */
+  dayKey: string;
+  /**
+   * Scheduled runs claim one receipt per person, part and day BEFORE sending,
+   * so a run that fails part-way and is repeated two hours later skips the
+   * people it already reached. A manual "send now" (no receipt) always sends.
+   */
+  once: boolean;
+  /** "Nothing tomorrow": the inbox only, never an email or SMS. */
+  inboxOnly: boolean;
+};
+
+async function deliverSummary(input: SummaryNotification) {
   await logPushNotification(input.recipient.id, input.webSubject, input.webBody);
+  if (input.inboxOnly) return;
+  const safeguard = { typeKey: TOMORROW_PREP_TYPE_KEY, entityKey: `TomorrowPrep:${input.part}:${input.dayKey}`, recipientUserId: input.recipient.id };
 
   if (input.recipient.email) {
     const result = await sendEmailDetailed({ kind: "tomorrow_prep",
       to: input.recipient.email,
       subject: input.emailSubject,
       html: input.emailHtml,
+      safeguard,
     });
     await logEmailNotification(input.recipient.id, input.emailSubject, input.webBody, result);
   }
 
   if (input.recipient.phone) {
-    const result = await sendSmsDetailed(input.recipient.phone, input.smsBody);
+    const result = await sendSmsDetailed(input.recipient.phone, input.smsBody, undefined, safeguard);
     await logSmsNotification(input.recipient.id, input.webSubject, input.smsBody, result);
   }
+}
+
+async function sendDirectSummaryNotification(input: SummaryNotification): Promise<boolean> {
+  if (!input.once) {
+    await deliverSummary(input);
+    return true;
+  }
+  return dispatchNotificationOnce(
+    { event: `tomorrow_prep.${input.part}`, day: input.dayKey, recipientId: input.recipient.id },
+    () => deliverSummary(input),
+  );
 }
 
 export async function dispatchTomorrowPrepSummaries(
@@ -372,6 +405,7 @@ export async function dispatchTomorrowPrepSummaries(
     return { skipped: "before_dispatch_window" as const };
   }
 
+  const scheduledRun = !options.ignoreWindow;
   const state = await readDispatchState();
   if (!options.ignoreWindow && state.lastDispatchDate === todayKey) {
     return { skipped: "already_dispatched" as const };
@@ -558,6 +592,10 @@ export async function dispatchTomorrowPrepSummaries(
       emailSubject: emailTemplate.subject,
       emailHtml: emailTemplate.html,
       smsBody: notificationTemplate.smsBody,
+      part: "cleaner",
+      dayKey: todayKey,
+      once: scheduledRun,
+      inboxOnly: jobsForRecipient.length === 0,
     });
 
     const recipientStocks = criticalStocks.filter((row) =>
@@ -591,6 +629,10 @@ export async function dispatchTomorrowPrepSummaries(
         emailSubject: inventoryEmail.subject,
         emailHtml: inventoryEmail.html,
         smsBody: inventoryNotification.smsBody,
+        part: "cleaner-inventory",
+        dayKey: todayKey,
+        once: scheduledRun,
+        inboxOnly: false,
       });
     }
   }
@@ -628,6 +670,10 @@ export async function dispatchTomorrowPrepSummaries(
       emailSubject: emailTemplate.subject,
       emailHtml: emailTemplate.html,
       smsBody: notificationTemplate.smsBody,
+      part: "laundry",
+      dayKey: todayKey,
+      once: scheduledRun,
+      inboxOnly: tasksForRecipient.length === 0,
     });
   }
 
@@ -664,6 +710,10 @@ export async function dispatchTomorrowPrepSummaries(
         emailSubject: inventoryEmail.subject,
         emailHtml: inventoryEmail.html,
         smsBody: inventoryNotification.smsBody,
+        part: "admin-inventory",
+        dayKey: todayKey,
+        once: scheduledRun,
+        inboxOnly: false,
       });
     }
   }

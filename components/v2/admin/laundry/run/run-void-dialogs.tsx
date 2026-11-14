@@ -1,24 +1,47 @@
 "use client";
 
 /**
- * "Void this run" and "Undo void" (board LaundryRunActions). Void is offered on
- * Skipped and Flagged runs and on failed runs still waiting for pickup; it
- * needs a reason and the person's own PIN, and says what it removes and what
- * it keeps. A run on an emailed laundry report is refused by the server with
- * the reason. With several runs one reason and one PIN cover the batch and
- * each run answers with its outcome.
+ * "Void this run" and "Undo void" (board LaundryRunActions; tiers from board
+ * "Confirmations and deletes", 2026-11-14). Both are tier C: a required quick-
+ * pick reason (no minimum length) and the person's own PIN, verified by the
+ * server. Void is offered on Skipped and Flagged runs and on failed runs still
+ * waiting for pickup. What it removes and keeps sits under a disclosure. A run
+ * on an emailed laundry report is refused by the server with the reason, and
+ * the dialog says so instead of offering the button. With several runs one
+ * reason and one PIN cover the batch and each run answers with its outcome.
  */
 import * as React from "react";
-import { EActionDialog } from "@/components/v2/ui/action-dialog";
+import { EConfirmDialog } from "@/components/v2/ui/confirm-dialog";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EToneNotice } from "@/components/v2/ui/tone-band";
-import { OwnPinFields, useOwnPinPrompt } from "@/components/v2/shared/own-pin-fields";
+import { REASON_CHOICES } from "@/lib/confirmations/reasons";
+import { sensitiveVerificationText } from "@/lib/security/pin-rules";
 import { requestUndoVoid, requestVoid, RunRequestError, type RunOutcome, type RunVersion } from "./run-requests";
 
 export type VoidRun = RunVersion & { name: string; status: string };
 
-const FIELD = "w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-3 py-2 text-[16px] sm:text-[0.875rem] disabled:opacity-60";
-const LABEL = "block text-[0.75rem] font-semibold text-[hsl(var(--e-text-secondary))]";
+function VoidEffects() {
+  return (
+    <div className="space-y-2">
+      <EToneNotice tone="problem" title="Voiding removes it from">
+        <ul className="list-disc space-y-0.5 pl-4">
+          <li>The Pipeline and Completed history (shown only under "Voided")</li>
+          <li>The laundry portal: Today, Runs, Tracking, route stops and From the office</li>
+          <li>Calendar laundry counts, overdue and failed-pickup alerts and nudges</li>
+          <li>Statistics, team metrics, laundry reports (admin and partner) and the job margin's laundry cost</li>
+          <li>A waiting skip request in Approvals closes as "Voided by office"</li>
+        </ul>
+      </EToneNotice>
+      <EToneNotice tone="info" title="Kept">
+        <ul className="list-disc space-y-0.5 pl-4">
+          <li>The run, photos and reports, in History as "Voided" with who, when and why</li>
+          <li>Undo void (administrators) restores the state before the void</li>
+          <li>The linked job is not changed</li>
+        </ul>
+      </EToneNotice>
+    </div>
+  );
+}
 
 export function RunVoidDialog({ runs, nextCleanNote, emailedReport, onClose, onDone }: {
   runs: VoidRun[] | null;
@@ -30,82 +53,63 @@ export function RunVoidDialog({ runs, nextCleanNote, emailedReport, onClose, onD
   onDone: (outcomes: RunOutcome[]) => void;
 }) {
   const open = Boolean(runs && runs.length);
-  const pin = useOwnPinPrompt(open);
-  const [reason, setReason] = React.useState("");
   const [notifyTeam, setNotifyTeam] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const runKey = runs?.map((run) => run.taskId).join("|") ?? "";
   React.useEffect(() => {
-    setReason("");
     setNotifyTeam(false);
     setError(null);
   }, [runKey]);
   if (!runs || !runs.length) return null;
   const single = runs.length === 1 ? runs[0] : null;
-  const problem = emailedReport ? "This run is on an emailed laundry report." : reason.trim().length < 3 ? "Give the reason for the void." : pin.problem;
 
-  async function submit() {
-    if (problem || !pin.credentials || !runs) return;
+  async function submit(reason: string, credentials: NonNullable<Parameters<typeof requestVoid>[3]>) {
+    if (emailedReport || !runs) return;
     setBusy(true);
     setError(null);
     try {
-      const outcomes = await requestVoid(runs.map(({ taskId, expectedUpdatedAt }) => ({ taskId, expectedUpdatedAt })), reason.trim(), notifyTeam, pin.credentials);
-      pin.reset();
+      const outcomes = await requestVoid(runs.map(({ taskId, expectedUpdatedAt }) => ({ taskId, expectedUpdatedAt })), reason, notifyTeam, credentials);
       onDone(outcomes);
     } catch (cause) {
-      setError(cause instanceof RunRequestError ? cause.message : "Not voided. Your answers are kept; try again.");
+      setError(cause instanceof RunRequestError ? `Not voided. ${sensitiveVerificationText(cause.message)}` : "Not voided. Your answers are kept; try again.");
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <EActionDialog
-      open
-      eyebrow="Void this run"
-      title={single ? single.name : `Void ${runs.length} runs`}
-      description="Voiding says this run should never have counted. Offered on skipped and flagged runs, and on failed pickups still waiting."
-      busy={busy}
-      onClose={onClose}
-      footer={
-        <>
-          <EButton variant="ghost" onClick={onClose} disabled={busy}>Cancel</EButton>
-          <EButton variant="danger" onClick={() => void submit()} disabled={busy || Boolean(problem)} title={problem ?? undefined}>{busy ? "Voiding…" : single ? "Void run" : `Void ${runs.length} runs`}</EButton>
-        </>
+    <EConfirmDialog
+      open={open}
+      tier="sensitive"
+      title={single ? `Void ${single.name}?` : `Void ${runs.length} runs?`}
+      description={
+        single
+          ? "It leaves the pipeline, the laundry portal, counts and reports. It is kept in history and can be undone."
+          : `${runs.map((run) => run.name).join(", ")}. They leave the pipeline, the laundry portal, counts and reports; each is kept in history and can be undone.`
       }
+      reason={emailedReport ? undefined : { label: "Reason", choices: REASON_CHOICES.laundryVoid }}
+      details={{ label: "What voiding removes and keeps", content: <VoidEffects /> }}
+      busy={busy}
+      error={error}
+      confirmDisabled={Boolean(emailedReport)}
+      confirmLabel={single ? "Void run" : `Void ${runs.length} runs`}
+      onClose={onClose}
+      onConfirm={async ({ reason, credentials }) => {
+        if (!reason || !credentials) return;
+        await submit(reason, credentials);
+      }}
     >
-      <fieldset disabled={busy} className="space-y-3">
-        {emailedReport ? (
-          <EToneNotice tone="problem" title="This run cannot be voided">
-            <p>It is on a laundry report that was {emailedReport}. An issued record is never rewritten. Put the correction on the next laundry report instead.</p>
-          </EToneNotice>
-        ) : null}
-        <label className={LABEL}>Reason, required
-          <textarea className={`${FIELD} h-20`} value={reason} onChange={(e) => setReason(e.target.value)} />
-        </label>
-        <EToneNotice tone="problem" title="Voiding removes it from">
-          <ul className="list-disc space-y-0.5 pl-4">
-            <li>The Pipeline and Completed history (shown only under "Voided")</li>
-            <li>The laundry portal: Today, Runs, Tracking, route stops and From the office</li>
-            <li>Calendar laundry counts, overdue and failed-pickup alerts and nudges</li>
-            <li>Statistics, team metrics, laundry reports (admin and partner) and the job margin's laundry cost</li>
-            <li>A waiting skip request in Approvals closes as "Voided by office"</li>
-          </ul>
+      {emailedReport ? (
+        <EToneNotice tone="problem" title="This run cannot be voided">
+          <p>It is on a laundry report that was {emailedReport}. An issued record is never rewritten. Put the correction on the next laundry report instead.</p>
         </EToneNotice>
-        <EToneNotice tone="info" title="Kept">
-          <ul className="list-disc space-y-0.5 pl-4">
-            <li>The run, photos and reports, in History as "Voided" with who, when and why</li>
-            <li>Undo void (administrators) restores the state before the void</li>
-            <li>The linked job is not changed</li>
-          </ul>
-        </EToneNotice>
-        {nextCleanNote ? <EToneNotice tone="attention" title="Linen for the next clean"><p>{nextCleanNote} Plan clean linen for it; a replacement linen delivery is not built yet.</p></EToneNotice> : null}
-        <label className="flex items-center gap-2 text-[0.8125rem]"><input type="checkbox" checked={notifyTeam} onChange={(e) => setNotifyTeam(e.target.checked)} /> Tell the laundry team in their portal inbox</label>
-        <OwnPinFields {...pin.fieldProps} disabled={busy} />
-        {error ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{error}</p> : null}
-      </fieldset>
-    </EActionDialog>
+      ) : null}
+      {nextCleanNote ? <EToneNotice tone="attention" title="Linen for the next clean"><p>{nextCleanNote} Plan clean linen for it; a replacement linen delivery is not built yet.</p></EToneNotice> : null}
+      <label className="flex min-h-11 items-center gap-2 text-[0.8125rem]">
+        <input type="checkbox" checked={notifyTeam} disabled={busy} onChange={(e) => setNotifyTeam(e.target.checked)} /> Tell the laundry team in their portal inbox
+      </label>
+    </EConfirmDialog>
   );
 }
 
@@ -115,50 +119,37 @@ export function RunUndoVoidDialog({ run, previousState, onClose, onDone }: {
   onClose: () => void;
   onDone: () => void;
 }) {
-  const pin = useOwnPinPrompt(Boolean(run));
-  const [reason, setReason] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   React.useEffect(() => {
-    setReason("");
     setError(null);
   }, [run?.taskId]);
   if (!run) return null;
-  async function submit() {
-    if (!pin.credentials || !run) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await requestUndoVoid({ taskId: run.taskId, expectedUpdatedAt: run.expectedUpdatedAt }, reason.trim(), pin.credentials);
-      pin.reset();
-      onDone();
-    } catch (cause) {
-      setError(cause instanceof RunRequestError ? cause.message : "Not undone. Try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
   return (
-    <EActionDialog
+    <EConfirmDialog
       open
-      eyebrow="Undo void"
-      title={run.name}
-      description={previousState ? `The run goes back to ${previousState}, as it was before the void.` : "The run goes back to its state before the void."}
+      tier="sensitive"
+      title={`Undo the void of ${run.name}?`}
+      description={previousState ? `The run goes back to ${previousState}, as it was before the void, and counts again.` : "The run goes back to its state before the void and counts again."}
+      reason={{ label: "Reason", choices: REASON_CHOICES.laundryUndoVoid }}
       busy={busy}
+      error={error}
+      confirmLabel="Undo void"
       onClose={onClose}
-      footer={
-        <>
-          <EButton variant="ghost" onClick={onClose} disabled={busy}>Cancel</EButton>
-          <EButton onClick={() => void submit()} disabled={busy || Boolean(pin.problem)} title={pin.problem ?? undefined}>{busy ? "Undoing…" : "Undo void"}</EButton>
-        </>
-      }
-    >
-      <fieldset disabled={busy} className="space-y-3">
-        <label className={LABEL}>Note, optional<input className={FIELD} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
-        <OwnPinFields {...pin.fieldProps} disabled={busy} />
-        {error ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{error}</p> : null}
-      </fieldset>
-    </EActionDialog>
+      onConfirm={async ({ reason, credentials }) => {
+        if (!reason || !credentials) return;
+        setBusy(true);
+        setError(null);
+        try {
+          await requestUndoVoid({ taskId: run.taskId, expectedUpdatedAt: run.expectedUpdatedAt }, reason, credentials);
+          onDone();
+        } catch (cause) {
+          setError(cause instanceof RunRequestError ? `Not undone. ${sensitiveVerificationText(cause.message)}` : "Not undone. Try again.");
+        } finally {
+          setBusy(false);
+        }
+      }}
+    />
   );
 }
 

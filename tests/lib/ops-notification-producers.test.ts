@@ -8,7 +8,7 @@ import { dispatchTomorrowPrepSummaries } from "@/lib/ops/tomorrow-prep";
 const m = vi.hoisted(() => ({ jobs: vi.fn(), users: vi.fn(), recent: vi.fn(), audit: vi.fn(), create: vi.fn(), many: vi.fn(), settings: vi.fn(), pause: vi.fn(), close: vi.fn(), push: vi.fn(), state: vi.fn(), summary: vi.fn() }));
 vi.mock("@/lib/db", () => ({ db: {
   job: { findMany: m.jobs, updateMany: m.pause }, user: { findMany: m.users }, timeLog: { update: m.close },
-  auditLog: { findMany: m.recent, create: m.audit }, notification: { create: m.create, createMany: m.many },
+  auditLog: { findMany: m.recent, create: m.audit, groupBy: async () => [] }, notification: { create: m.create, createMany: m.many },
   appSetting: { findUnique: m.state, upsert: vi.fn() }, laundryTask: { findMany: async () => [] },
 } }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: m.settings }));

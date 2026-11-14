@@ -2,7 +2,8 @@
 /** Xero invoice/credit-note reads: batching, token use, rate limits, typed failures. Mocked fetch only. */
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({ connection: vi.fn(), fetch: vi.fn() }));
-vi.mock("@/lib/db", () => ({ db: { xeroConnection: { findFirst: m.connection }, appSetting: { findUnique: async () => null } } }));
+vi.mock("@/lib/db", () => ({ db: { xeroConnection: { findFirst: m.connection, findUnique: async () => null, updateMany: async () => ({ count: 1 }) }, appSetting: { findUnique: async () => null } } }));
+vi.mock("@/lib/xero/reconnect-notice", () => ({ sendXeroReconnectNotice: async () => [] }));
 import { readXeroCreditNote, readXeroInvoices, hasActiveXeroConnection, XERO_READ_BATCH_SIZE } from "@/lib/xero/client";
 
 const ok = (body: unknown) => ({ ok: true, status: 200, headers: new Headers(), json: async () => body, text: async () => JSON.stringify(body) });

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { releaseCleanerInvoiceConsumables } from "@/lib/cleaner/invoice-release";
-const schema = z.object({ resolution: z.enum(["CONFIRMED_SENT", "CONFIRMED_NOT_SENT"]), evidenceNote: z.string().trim().min(10).max(2000) });
+const schema = z.object({ resolution: z.enum(["CONFIRMED_SENT", "CONFIRMED_NOT_SENT"]), evidenceNote: z.string().trim().min(1).max(2000) }); // Required, no minimum length (2026-11-14).
 /** Human reconciliation only. Never attempts external delivery or a refund. */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {

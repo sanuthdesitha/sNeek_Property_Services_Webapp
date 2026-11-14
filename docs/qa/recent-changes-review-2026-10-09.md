@@ -1956,3 +1956,151 @@ Owner request: "Fix all the backends now, redo the small UIs missed." Method: pr
 **Changed files.** `app/v2/qa/jobs/[id]/page.tsx`, `components/v2/qa/photo-review-panel.tsx`, `components/v2/qa/qa-inspection-workspace.tsx`, `components/v2/cleaner/qa-feedback-card.tsx`, `app/v2/cleaner/quality/page.tsx`, `lib/jobs/status-presentation.ts`, `components/shared/job-status-progress.tsx`, `app/v2/cleaner/jobs/page.tsx`, `components/v2/admin/jobs/job-row.tsx`, `components/v2/laundry/laundry-board.tsx`, `components/v2/laundry/history-board.tsx`, `components/v2/client/laundry/laundry-workspace.tsx`, `components/v2/client/jobs-board.tsx`, `app/v2/client/jobs/[id]/page.tsx`, `app/v2/client/inventory/page.tsx`, `app/v2/client/reports/page.tsx`, `components/v2/ui/tone-band.tsx`, `components/v2/ui/stage-bar.tsx`, `components/v2/ui/primitives.tsx`, `components/v2/admin/estate-kit.tsx`, `components/v2/admin/website/blog/blog-workspace.tsx`, `components/v2/cleaner/shopping-run-workspace.tsx`, `components/v2/client/shopping/run-workspace.tsx`, `components/v2/admin/inventory/estate-shopping-run-detail.tsx`, `components/v2/admin/inventory/urgent/urgent-needs-workspace.tsx`, `components/v2/admin/hiring/pipeline/hiring-pipeline.tsx`, `components/v2/admin/workforce/compliance-board.tsx`, `components/v2/laundry/route-map.tsx`, `lib/maintenance/tickets-by-day.ts`, `components/v2/admin/laundry/run/laundry-run-page.tsx`, `components/v2/cleaner/invoices-panel.tsx`, `components/v2/admin/properties/property-setup-guide-editor.tsx`, tests and docs. No schema, route, permission or request change.
 
 **Verification.** New `tests/components/phone-audit-2026-11-15.test.tsx` (10); extended `tests/lib/no-left-accent-lines.test.ts`; run with the touched suites (`laundry-run-actions`, `tone-band`, `qa-maintenance-portal-redesign`, `client-portal-redesign`, `client-visibility-redesign`, `admin-phone-stock`, `urgent-office-manage-controls`, `photo-review-panel`, `cleaner-shift-home`, `cleaner-shopping-actual-purchases`, `client-job-projection`, `status-presentation`, `job-page-timeline`) plus `server-client-value-imports` and `ops-policy`: 17 files, 155 tests pass. `tsc --noEmit` clean. Production build passed three times. Full suite not run. Not checked: keyboard traversal beyond the dialogs' focus traps, real device Safari, provider-backed screens (Maps, push, email, Xero, AI providers are not configured here and show explicit "not configured" states), deployment. The last two small edits (laundry run duplicate button, blog title wrap) were type-checked and unit-tested but not re-inspected in a browser.
+
+
+## AI configuration page rebuilt (2026-11-15)
+
+**What changed.** `/v2/admin/ai` is the one AI page (boards AiConfiguration, AiConfigurationStates, M-AiConfiguration). New `components/v2/admin/ai/*` (workspace, providers, features, photo checks, usage, overview, key dialog, test hook, model), `lib/ai/provider/status.ts`; `app/api/admin/ai/settings/route.ts` (OPS read, hints hidden, `status`, 409 `savedBy`), `lib/ai/provider/admin-http.ts` (`requireAiReader`), `app/v2/admin/settings/page.tsx` (redirects for `?tab=ai` and `?tab=ollama`), settings catalog, `lib/rbac/ops-catalog.ts` (`SETTINGS_TABS.ai`), Ollama tool link. Removed (functions moved onto the page): `components/v2/admin/settings/ai-section.tsx`, `components/v2/admin/photo-review-opt-out.tsx` and the old section test. `components/v2/admin/vision-settings.tsx` stays only for the existing e2e fixture.
+
+**Old control → new place.** Provider key save/remove (password) → provider card / phone provider sheet, Add / Replace / Remove key (own PIN, shared `EConfirmDialog`). Compatible base address and name → compatible card, "Endpoint address and name". Default text provider/model → Section 1 defaults card. Per-feature on/off, provider, model, photo switch, hourly limit → Section 2 row (and feature sheet). Per-feature cloud deadline → Section 1 "Cloud deadline" (all) and the feature's Settings. Run a real test → row "Test", feature sheet "Run a test", provider "Test connection". Model prices → Section 4 Model prices. Usage table → Section 4. Stale-write choices → conflict card. Photo analysis provider and vision model, "Check provider and saved model" → photo feature Settings (when using the photo default). Compare/assign workflow switches → photo feature Settings. Use prior photos → Points and batches "Learn rooms…". Dedicated recognition → Points and batches. Photos per batch, minimum confidence, maximum deduction, minor/major points → Photo checks cards (minimum confidence as the band select plus "Exact minimum confidence"). Opted-out properties → Properties opted out, Manage dialog. Agreement report → Agreement with inspectors. Property photo memory → "Review photo memory ›" disclosure. Social composer status → Social post drafts row. Ollama tab → "Ollama setup ›" on the Local Ollama card (`?section=ollama`). "Refresh status" → not kept (the page reads live; reload refreshes).
+
+**Key dialog request (to join with the credential-route change).** `POST /api/admin/ai/credentials` with `{ provider, apiKey, security }` or `{ provider, clear: true, security }`, where `security` is `ConfirmResult.credentials` from `EConfirmDialog tier="sensitive"`: `{ pin }`, or `{ password }` while the person has no PIN (the field name the laundry void and other tier C routes use, and the one the reworked credential route reads). The route file was not edited here. A refusal shows "Not saved. …" with the key kept.
+
+**Tests.** `tests/components/ai-configuration-workspace.test.tsx` (16: first run, configured, failing/blocked/limit/conflict states, freeze and failed draft, test queued→passed, recorded failure and Test off while dirty, add and remove key bodies, ops read-only, phone sheets, every old control reachable, Ollama deep link, loading/failure/retry, Not known), `tests/components/ai-configuration-page.test.tsx` (3, rewritten), `tests/components/ai-settings-destination.test.ts` (3), `tests/api/ai-settings-read-access.test.ts` (6), `tests/lib/ai-provider-status.test.ts` (5); with `ai-settings-routes`, `ai-vision-settings`, `vision-settings`, `ai-provider-generate`, `ai-provider-credentials`, `settings-navigation`, `settings-home`, `admin-phone-settings-activity`, `server-client-value-imports`, `no-left-accent-lines`, `ops-policy`. TypeScript clean. Production build and the full suite not run (as instructed).
+
+**Inspected in Chromium** (dev server on 3081, disposable fixture rows in `sneek_ui` removed afterwards, fake environment keys, no provider calls, worker disabled): first-run and configured page, provider sheet / provider cards, Photo comparison settings sheet, add-key dialog, key refusal and the failing / blocked / limit states, ops read-only, at 390px and 1280px, light and dark; one h1, one main, no horizontal overflow at either width. Not verified: real provider tests and the worker; keyboard-only walk-through beyond the shared dialogs; the key save end-to-end (blocked on the credential-route change).
+
+
+## Admin Maintenance redesign (2026-11-15)
+
+**What changed.** `/v2/admin/maintenance` and `/v2/admin/maintenance/[id]` rebuilt from boards Maintenance, MaintenanceDetail and M-Maintenance (see SYSTEM.md "Admin Maintenance redesign"). New `GET /api/admin/maintenance` and `/export`; `POST /api/maintenance/bulk` answers per item and can assign one visit worker; `APPROVE_PAY_CHANGE` is ADMIN-only; Command work queue kind `maintenance-unassigned`; `EDataTable` gained optional `leadCellClassName`. Removed `maintenance-workspace.tsx` and `role-assignments-panel.tsx` (their functions moved into the hub, panel, assign sheet and Who is on this). No schema change.
+
+**Defaults pending owner confirmation.** Airbnb-only as today; nobody assigned for more than 2 days in Command; a declined price keeps the item open; an approved price adds no invoice line; only ADMIN approves a higher worker price.
+
+**Tests.** New `tests/components/admin-maintenance.test.tsx` (12), `tests/api/admin-maintenance-routes.test.ts` (9: list auth/400s, OPS vs ADMIN price approval, bulk per-item status and assign), `tests/lib/maintenance-admin-list.test.ts` (12: attention rules, filters, organisation week/month, sort, stages, view, wording, visit time); extended `tests/lib/work-queue.test.ts` (+2) and the `no-left-accent-lines` allowlist (two removed). Run with `server-client-value-imports`, `ops-policy`, `work-queue-rules`, every existing maintenance suite and the suppliers suite: 32 files, 312 tests passed. `tsc --noEmit` clean apart from another agent's generated `.next-aicfg` types. Production build and the full suite not run (instructed).
+
+**Inspected in Chromium** (dev server on 3061 against `sneek_ui`, read only; `.next-maint` deleted, the `tsconfig.json` include line it added removed): list, filter sheet (390), side panel, item page, assign sheet and People and trades at 390px and 1280px in light and dark. One h1 and one main landmark on both pages, no horizontal page overflow. The demo data has four open items, one worker, no photos, no events and no price requests, so the price-request band, photo galleries and long histories were checked in component tests, not on screen. Not verified: email or portal notice delivery, CSV download in a browser, bulk Undo against a live database, OPS_MANAGER in the browser.
+
+
+
+## Simpler confirmations: three tiers, no typed words (2026-11-14)
+
+**What changed.** Board "Confirmations and deletes" built across the app (see SYSTEM.md "Simpler confirmations"). Shared pieces: `components/v2/ui/confirm-dialog.tsx` (`EConfirmDialog`, tiers ordinary / destructive / sensitive, reason, Add details, error, phone sheet), `components/v2/ui/reason-picker.tsx`, `components/v2/ui/undo-toast.tsx`, `components/v2/shared/own-pin-fields.tsx` (the one credential field, five states), `lib/confirmations/reasons.ts` (plain module), `lib/security/route-verification.ts`. `EConfirmModal` keeps its props and renders the new dialog; `confirmPhrase` is ignored. No schema change, no migration.
+
+**Defaults applied, pending owner confirmation.** (1) With no PIN the account password alone confirms; never when a PIN exists; lockout, Test-as refusal and rate limits unchanged; `SENSITIVE_ACTION_CONFIRMED` audit names the credential. (2) Invoice and credit-note void require a quick-pick reason (`voidReason`, `CLIENT_INVOICE_VOIDED` audit; no record or amount changes). (3) Draft invoice line removal: no PIN, tier B, Undo for plain manual lines; past DRAFT unchanged; the draft status is rechecked under the row lock. (4) Cleaner submitted-invoice delete is tier C (`cleaner_invoices.delete`, Payroll Manage tier so rights are unchanged). (5) Quick picks fixed in the product.
+
+**Server rule changes.** Reasons without minimums: reconcile (min 10 → 1), laundry void (3 → 1), damage void (10 → 1), delivery review evidence (10 → 1), draft evidence review (10 → 1). Newly required: invoice/credit-note `voidReason`, laundry undo-void `reason`, approvals history `note` for edit and delete. PIN now verified by the action's route: quote extras DELETE, checklist module DELETE, shopping-run PATCH that removes a receipt, va-teams team DELETE and member DELETE, cleaner invoice DELETE (new), damage VOID (new). AI credentials route: `security: { pin } | { password }` through `verifySensitiveAction` (legacy top-level `password` read as `security.password`). `GET /api/me/admin-pin` adds `attemptsLeft`, `timezone`, and `code: ACTUAL_ACTOR_REQUIRED` on its testing refusal. The Xero reconcile route still requires the correction reference (3+ characters), so the dialog keeps it visible and required.
+
+**Inventory (board rows → final state).**
+
+| Dialog | Final | Notes |
+|---|---|---|
+| Reconcile Xero invoice | Done, C + reason | Quick pick; reference stays visible and required (server requires it); note under Add details; no VOID |
+| Void invoice / Void credit note | Done, C + reason | Separate choice lists; reason sent and audited |
+| Issue credit note (draft) | Done, C | Via `EConfirmModal requireSecurity` |
+| Delete invoice | Done, C | Copy shortened |
+| Remove invoice line | Done, B (draft) / C (issued) | Undo only for plain manual draft lines |
+| Reverse to draft, Mark as sent, Mark as paid | Done, A | |
+| Cleaner invoice: reverse | Done, B | Optional reason to the cleaner NOT added: the route has no field for it (would change what the action stores) |
+| Cleaner invoice: delete | Done, C | New server check |
+| Cleaner invoice: reject claim | Done, A | |
+| Cleaner invoice: review delivery | Done, required, no minimum | |
+| Pay adjustment: recall, reopen | Done, A | Reopen has no reason field today; none added |
+| Pay adjustment: delete | Done, B | "C once approved" NOT done: would add a new PIN rule and sensitive key |
+| Approvals: change decided amount | Done, A + reason | Server now requires the note |
+| Approvals: delete decided record | Done, C + reason | No DELETE word |
+| Agent request approve/reject | Done (shared field) | Own dialog; credential field states come from the shared field |
+| Delete job | Done, C | No DELETE word |
+| Reset job | Done (shared field) | Own dialog keeps its choices |
+| Remove job extra | Done, C | PIN now verified by the extras route |
+| Delete job template | Done, B | |
+| Draft evidence review | Done, A, reason required no minimum | Browser confirm replaced |
+| Deactivate property | Done, C | |
+| Key lost mode | Done, A | |
+| Delete client | Done, C | No DELETE word |
+| Mark clients inactive (bulk) | Done (shared field) | |
+| Maintenance resolve / dismiss | Not done | Maintenance pages belong to another agent |
+| Delete case | Done, C | No DELETE word |
+| Void laundry run(s), Undo void | Done, C + reason | Effects under a disclosure; emailed-report refusal replaces the button |
+| Decide skip or delete request | Unchanged | A choice dialog, already one step |
+| Delete laundry partner | Done, B | |
+| Void damage submission | Done, C + reason | New server PIN check; mode stays a choice |
+| Reset password, Reset 2FA, Reset someone's PIN | Done, C | |
+| Delete account (person page, accounts menu) | Done, C | No DELETE word |
+| Remove assistant (Assistants tab and team manager) | Done, C | Browser confirm replaced; members route verifies the PIN |
+| Delete assistant team | Done, C | No DELETE word; team route verifies the PIN |
+| Access review and save, scheduling rules, agents, pricing page lock | Done via the shared field | Settings files not edited (another agent) |
+| Delete payment gateway | Partly | Shared dialog and field apply; the gateway route still relies on the verify-endpoint pre-check (settings file not mine to edit) |
+| AI provider key add/replace/remove | Server done | Request shape above; client is the AI page agent's `ai-key-dialog.tsx` |
+| Clear notification logs | Done, B | "This cannot be undone" |
+| Delete form template | Done, C | |
+| Delete checklist library module | Done, C | PIN now verified by the route; classic `/admin/checklists/library` delete will be refused until it sends a PIN |
+| Delete checklist library item | Done, B, no Undo | Undo not safe: the server deletes at once and the editor does not hold every field to recreate it |
+| Delete forms group | Done, B | |
+| Form builder delete question(s), section | Done, B + Undo | Undo steps the document back while still the last change |
+| Form builder discard / replace draft | Done, B | |
+| QA template delete / reset to default | Done, B / A | |
+| Message template delete | Done, B | |
+| Hiring delete section, question | Done, B + Undo | |
+| Campaign, plan, email campaign, blog post, report(s), automation rule delete | Done, B | Through `EConfirmModal` |
+| Email campaign send to one | Done, A | |
+| Shopping run remove receipt | Done, C | PIN now verified by the shopping-run route |
+| Delete stock supplier | Done, B | |
+| Withdraw pay request, Set these to zero | Done, A | |
+| Discard stock count (cleaner, client) | Done, B | Client DISCARD word removed |
+| Delete chat message, Remove passkey | Done, B | |
+| QA remove damage entry, flagged area | Done, B + Undo | |
+| Client remove assistant team | Done, B | REMOVE word removed |
+| Client remove assistant | Done, B | |
+
+**Not in scope / not done.** Classic pages using `components/shared/two-step-confirm-dialog.tsx` (classic jobs, laundry, properties, clients, users, cases, quotes, notifications, reports) keep their typed phrase; they share only the credential field, so their no-PIN path now asks for the password alone. `window.confirm` prompts outside the inventory (job manage, payroll process, pricing editor, lost-and-found guest, cleaner portal) and minimum-length rules outside the listed dialogs (cancel job 3, property photo memory 3, laundry Change state 3, started-work review 10, QA early start 10) are unchanged.
+
+**Tests.** New: `tests/db/confirmation-credential-rule.test.ts` (5, PostgreSQL 55439), `tests/api/simpler-confirmations-routes.test.ts` (22), `tests/components/confirm-tiers.test.tsx` (16). Changed on purpose: `tests/db/own-pin-and-quote-number.test.ts` (password alone now confirms with no PIN), `tests/db/laundry-run-void.test.ts` (undo void needs a reason), `tests/api/ai-settings-routes.test.ts` (own-PIN credential instead of a bcrypt password check), `tests/api/approvals-history-delete-pin.test.ts` (reason sent; new reason tests), `tests/api/cleaner-invoice-admin-transitions.test.ts` (delete sends the PIN; new PIN tests), `tests/api/cleaner-invoice-delivery-review.test.ts` and `tests/components/cleaner-invoice-delivery-review.test.tsx` (no minimum), `tests/api/invoice-step-c-patch.test.ts` (draft removal without PIN, APPROVED with PIN, race, void audit), `tests/api/invoice-void-credit-sensitive.test.ts` (voidReason), `tests/api/quote-extras-finance-guards.test.ts` (PIN on the route), `tests/api/own-pin-routes.test.ts` (timezone, testing code), `tests/components/own-pin-prompts.test.tsx`, `accounts-person-panel.test.tsx`, `access-permissions.test.tsx` (password alone), `account-actions-menu.test.tsx` (no DELETE word), `checklist-library-save.test.tsx` and `job-extras-save-messaging.test.tsx` (PIN sent with the action, no verify pre-check), `draft-evidence-review.test.tsx` (dialog instead of browser confirm), `owner-decisions-1113-dialogs.test.tsx` (void needs a reason).
+
+## Xero stays connected (2026-11-15)
+
+Owner report: "it only connects for 30 mins from xero." Section: `docs/SYSTEM.md` › "Xero connection stays connected (2026-11-15)".
+
+**Cause, proved before the fix** (`tests/lib/xero-token-lifecycle.test.ts` first block, run against the old `lib/xero/client.ts`: 3 of 3 failed — two concurrent calls made 2 token exchanges; a 503 renewal returned "No active Xero connection" and stored "SIGN_IN_LAPSED"; a 401 was thrown, not renewed and retried). Also: connections made before `offline_access` (2026-11-11) have no refresh token; no keep-alive for the 60-day unused expiry; tokens plaintext; status said "Connected" for a lapsed connection.
+
+**Fix.** `lib/xero/token-service.ts` (single-flight lease + compare-and-set on `tokenVersion`, encrypted persist before use, transient vs terminal classification, tenant check), `lib/xero/keepalive.ts` + worker job `xero-token-keepalive` (daily 03:47 Sydney), `lib/xero/connection-status.ts`, `lib/xero/reconnect-notice.ts` (catalog `xero.reconnect_needed`, inbox only, administrators, once per outage), `lib/xero/credentials.ts`; `lib/xero/client.ts` routes every call through one `xeroCall` (401 → renew once → retry once). Settings › Xero card `components/v2/admin/settings/xero-connection-card.tsx`. Migration `20261115050000_xero_token_lifecycle`. Not changed: push payloads, money arithmetic, issued/paid records; failed pushes stay retryable through the existing Retry paths with their idempotency keys.
+
+**Verification.**
+- `npx prisma migrate deploy` on fresh `xero_token_fresh` and `xero_token_fresh2`, on a database at the previous migration with a legacy no-refresh-token row and a renewable row (`xero_token_backfill`: backfill gave NEEDS_RECONNECT/NO_REFRESH_TOKEN and CONNECTED with `connectedAt`/`lastRefreshedAt` copied), and on `sneek_ui`; repeated: "No pending migrations to apply"; `prisma migrate diff --from-url … --to-schema-datamodel prisma/schema.prisma --exit-code` exit 0 on each. Note: deploy also applied another agent's pending `20261115060000_sending_safeguards` to `sneek_ui`.
+- Tests (Xero mocked; no credentials here): `tests/lib/xero-token-lifecycle.test.ts` 19, `tests/db/xero-token-refresh.test.ts` 4 (PostgreSQL 55439, fresh database, two Prisma clients as two processes, `--no-file-parallelism`), `tests/lib/xero-reconnect-notice.test.ts` 3, `tests/components/xero-connection-card.test.tsx` 5, `tests/lib/xero-connect-exchange.test.ts` 3; existing Xero/finance/notification/worker suites (35 files, 356 tests) pass except `notification-catalog` "lists every file that sends a notification", which fails on `lib/maintenance/assign-notice.ts` (another agent's in-progress file, not this change). Changed on purpose: `tests/lib/finance-decisions-rules.test.ts` (sign-in wording and the NEEDS_RECONNECT rule), `tests/lib/xero-read-transport.test.ts` (mock gains `updateMany`/notice).
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: clean on the final run (an earlier run showed one error in `lib/ops/tomorrow-prep.ts` from another agent's in-progress work, since resolved).
+- Not done: production build (not requested), browser inspection of the settings card at 390/1280 light/dark (jsdom component tests only), anything against real Xero.
+
+## Sending safeguards and repeated-email audit (2026-11-15)
+
+Scope, causes and defaults: `docs/SYSTEM.md`, "Sending safeguards and the repeated-email audit". Migration `20261115060000_sending_safeguards` (additive: `OutboundMessageEvent`, `OutboundSafeguardIncident`).
+
+**Verification.**
+- Migrations:
+  - `npx prisma migrate deploy` on a freshly created `sneek_sg_fresh2` applied all 156, including the new one. A second run reported "No pending migrations to apply". `prisma migrate diff --from-url … --to-schema-datamodel prisma/schema.prisma --exit-code` reported "No difference detected" (exit 0).
+  - On `sneek_ui` the migration was already recorded (applied 12:06 UTC by a concurrent session). Repeat: no pending; diff exit 0.
+- Regression tests, each shown to FAIL on the code at `acff1d5` and pass now:
+  - `tests/lib/qa-auto-score-once.test.ts` (3; old code: 3 AUTO reviews and 3 notifications in 3 hours)
+  - `tests/lib/tomorrow-prep-once.test.ts` (3; old code: 6 emails for 2 cleaners over 3 failed runs)
+  - `tests/lib/job-reminders-claim.test.ts` (4; old code: 3 emails in 3 ticks)
+  - `tests/lib/follow-up-once.test.ts` (2)
+- Safeguards:
+  - `tests/lib/safeguards-decide.test.ts` 16
+  - `tests/lib/outbound-provider-imports.test.ts` 2 (no provider access outside the four chokepoints)
+  - `tests/lib/worker-guard.test.ts` 4 (alert once, skip overlapping tick, retried three times sends once)
+  - `tests/api/sending-safeguards-routes.test.ts` 6
+  - `tests/components/sending-safeguards-screen.test.tsx` 6 (includes phone)
+  - `tests/db/sending-safeguards.test.ts` 8 (fresh PostgreSQL 55439, `--no-file-parallelism`): caps under 12 concurrent senders (exactly 5 allowed); duplicate; breaker with one incident, one admin email and one inbox notice; pause/resume; emergency stop with the security email still sent; hold and release once; suppressed never delivered; recipient cap and disabled account.
+- Existing notification, work-queue, worker, settings, server-client-imports, no-left-accent and ops-policy suites, together with the new ones: 86 files, 797 tests, 796 pass. The 1 failure is `tests/lib/notification-catalog.test.ts`: `lib/maintenance/assign-notice.ts` is not listed in the catalog. That file predates this change (Maintenance work at `acff1d5`) and was left to that work. Updated for the gate: `tests/lib/mobile-outbox-delivery.test.ts`, `tests/lib/ops-notification-producers.test.ts`, `tests/lib/work-queue.test.ts` (plus a new card test).
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: clean.
+- Browser check (`e2e/admin/sending-safeguards.spec.ts`, system Chrome, esbuild fixture with mocked routes): 390px and 1280px, light and dark. One h1; no horizontal overflow; keyboard Enter opens the PIN dialog; a refused PIN keeps the dialog with the reason; Escape closes; an out-of-bounds limit draft is kept with its problem. Screenshots were inspected; one double label ("Scheduled job: Scheduled job:") was fixed. The fixture renders the dialog portal outside its `.dark` wrapper, so the dark dialog was not inspected in true dark.
+
+**Not done or not verifiable.**
+- No production build or full suite (not requested).
+- No production logs, so the ranking of causes is from code and the real volume per cause is unknown.
+- No real provider sends (Resend is mocked; no Twilio, Cellcast, VAPID or Expo credentials here).
+- Deployment is not verified.
+- Another agent committed these files part-way in commits `48431dd` and `586c754`. This session did not commit.
+
+**Follow-up (same day).** (1) Classic `/admin/checklists/library` module delete collects the credential with the classic confirm dialog and sends `{ security }`. Callers checked for every tightened route (app/admin, app/cleaner, app/client, app/laundry, app/qa, components, lib, hooks; `mobile/` excluded): quote-extras DELETE (only `job-extras-panel`), checklist module DELETE (v2 editor, classic page: fixed), shopping-run PATCH (v2 run desk; the Command work-queue "Approve" sends only `cleanerReimbursementStatus`, no receipts, so no PIN), va-teams team/member DELETE (v2 team manager, Assistants tab; the client portal uses `/api/client/va-teams`, unchanged), damage VOID (only the admin investigation), cleaner-invoice DELETE (only the v2 dialog), invoice/credit-note void (v2 dialogs; classic `components/admin/client-invoices-page.tsx` Void button and status menu: fixed, PIN plus reason; its delete: fixed, PIN), undo laundry void (only `run-requests.ts`), approvals history edit/delete (only `approvals-history.tsx`). No agent executor or worker calls these routes over HTTP. Not fixed: the classic invoice page's line removal past DRAFT sends no PIN (refused before this change too). (2) Payment gateway delete verifies `{ security }` on the route; v2 Settings section and the classic gateways page send it (the verify-endpoint pre-check has no callers left). (3) Admin Maintenance resolve / dismiss (single and bulk) moved to `EConfirmDialog` tier A with the optional note; behaviour unchanged. (4) `two-step-confirm-dialog.tsx` asks for no typed phrase (no route requires one) and accepts `reasonChoices`. Tests: new `tests/components/confirm-followups.test.tsx` (5); `tests/api/simpler-confirmations-routes.test.ts` gains the gateway route (25); `tests/components/admin-maintenance.test.tsx` updated (question title, tier A eyebrow).
+

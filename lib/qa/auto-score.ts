@@ -118,7 +118,28 @@ export async function listJobsAwaitingQuickScore(params?: {
 
 export type QuickScoreOutcome =
   | { ok: true; jobId: string; score: number; passed: boolean }
-  | { ok: false; jobId: string; reason: "NOT_FOUND" | "NOT_SCOREABLE" | "REAL_QA_EXISTS" };
+  | { ok: false; jobId: string; reason: "NOT_FOUND" | "NOT_SCOREABLE" | "REAL_QA_EXISTS" | "ALREADY_SCORED" };
+
+/**
+ * Has this job already been given a quick (ADMIN) or automatic score for its
+ * latest submission? The automatic sweep scores each submission ONCE.
+ *
+ * Without this, a failed automatic score put the job back in QA_REVIEW — a
+ * status the sweep scores — so every hourly run filed another AUTO review and
+ * sent the cleaner the "QA needs attention" inbox, push, email and SMS again,
+ * for as long as nobody inspected the job (2026-11-15).
+ */
+export async function hasQuickScoreForLatestSubmission(
+  client: Pick<Prisma.TransactionClient, "formSubmission" | "qAReview">,
+  jobId: string,
+): Promise<boolean> {
+  const latest = await client.formSubmission.findFirst({ where: { jobId }, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
+  const scored = await client.qAReview.findFirst({
+    where: { jobId, kind: { in: ["AUTO", "ADMIN"] }, ...(latest ? { createdAt: { gte: latest.createdAt } } : {}) },
+    select: { id: true },
+  });
+  return Boolean(scored);
+}
 
 /**
  * File a quick QA review and let authority derive the job outcome.
@@ -158,9 +179,12 @@ export async function applyQuickQaScore(params: {
 
   const passed = score >= threshold;
 
-  await db.$transaction(async (tx) => {
+  const filed = await db.$transaction(async (tx) => {
     // Serialize concurrent scoring of the same job (bulk click racing the sweep).
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${params.jobId}))`;
+    // The sweep scores a submission once; re-checked under the lock so two
+    // overlapping sweeps cannot both file (and both notify).
+    if (params.kind === "AUTO" && (await hasQuickScoreForLatestSubmission(tx, params.jobId))) return false;
 
     await tx.qAReview.create({
       data: {
@@ -190,7 +214,9 @@ export async function applyQuickQaScore(params: {
         },
       });
     }
+    return true;
   });
+  if (!filed) return { ok: false, jobId: params.jobId, reason: "ALREADY_SCORED" };
 
   // Authority derives status/completedAt (and defers to a QA review if one
   // landed in the meantime).
@@ -234,6 +260,10 @@ export async function runQaAutoScoreSweep(params?: { now?: Date }): Promise<{
   let skipped = 0;
   for (const candidate of candidates) {
     try {
+      if (await hasQuickScoreForLatestSubmission(db, candidate.jobId)) {
+        skipped += 1;
+        continue;
+      }
       const result = await applyQuickQaScore({
         jobId: candidate.jobId,
         score: candidate.suggestion.score,

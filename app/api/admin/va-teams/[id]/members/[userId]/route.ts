@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
+import { routeSecurityRefusal, securityFromBody } from "@/lib/security/route-verification";
 import { db } from "@/lib/db";
 import { z } from "zod";
 import { removeVaMember } from "@/lib/va/teams";
@@ -49,11 +50,15 @@ export async function PATCH(req: Request, { params }: { params: { id: string; us
  * holds a working login that merely resolves to no client.
  */
 export async function DELETE(
-  _req: Request,
+  req: Request,
   { params }: { params: { id: string; userId: string } }
 ) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    // Tier C (2026-11-14): the person's own PIN, sent as `security` and
+    // verified here, not only through the verify-only endpoint beforehand.
+    const refusal = await routeSecurityRefusal(session, securityFromBody(await req.json().catch(() => ({}))) ?? null);
+    if (refusal) return refusal;
 
     const team = await db.vaTeam.findUnique({
       where: { id: params.id },

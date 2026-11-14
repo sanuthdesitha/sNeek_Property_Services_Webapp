@@ -13,6 +13,7 @@ import { canManageInvoices } from "@/lib/billing/client-invoice-access";
 import { securitySchema, verifyInvoiceSecurity } from "@/lib/billing/client-invoice-patch-rules";
 import { isXeroExportPending } from "@/lib/billing/client-invoice-guards";
 import { patchVoids, voidCreditSecurityRefusal } from "@/lib/billing/client-invoice-void-guard";
+import { REASON_REQUIRED_MESSAGE, requiredReason } from "@/lib/confirmations/reasons";
 
 /** 401/403 for the session guards, like the other invoice routes; 400 otherwise. */
 function authStatus(message: string): number {
@@ -59,6 +60,11 @@ export async function PATCH(req: NextRequest, context: { params: { id: string } 
     if (patchVoids(body)) {
       const pinRefusal = await voidCreditSecurityRefusal(actor, body);
       if (pinRefusal) return NextResponse.json(pinRefusal.body, { status: pinRefusal.status });
+      // A void keeps its reason in the invoice history (quick pick, owner
+      // default 2026-11-14; no minimum length). Checked before anything changes.
+      if (!requiredReason((body as { voidReason?: unknown }).voidReason)) {
+        return NextResponse.json({ error: REASON_REQUIRED_MESSAGE, code: "REASON_REQUIRED" }, { status: 400 });
+      }
     }
     const result = await patchClientInvoice({ invoiceId: context.params.id, body, actor });
     return NextResponse.json(result.body, { status: result.status });

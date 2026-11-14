@@ -366,6 +366,7 @@ export function QaTemplatesManager({ canWrite = false }: { canWrite?: boolean })
         open={Boolean(resetFor)}
         onClose={() => setResetFor(null)}
         title={`Reset "${resetFor?.name ?? "template"}" to default?`}
+        tier="ordinary"
         description="This replaces its scoring sections with the latest detailed default for the job type. Existing submissions are unaffected."
         confirmLabel="Reset to default"
         loading={resetting}

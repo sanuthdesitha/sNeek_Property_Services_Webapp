@@ -577,6 +577,7 @@ export function PayRequestsPanel({
         open={Boolean(withdrawTarget)}
         onClose={() => setWithdrawTarget(null)}
         title="Withdraw this pay request"
+        tier="ordinary"
         description="The request and the evidence attached to it are taken off the admin queue for good. To ask again you would have to write it up and re-upload the photos."
         confirmLabel="Withdraw request"
         loading={Boolean(withdrawingId)}

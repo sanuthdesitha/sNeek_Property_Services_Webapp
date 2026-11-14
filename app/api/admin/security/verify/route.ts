@@ -6,8 +6,10 @@ import { SensitiveVerificationError, verifySensitiveAction } from "@/lib/securit
 /**
  * Verify-only endpoint: confirms the caller's OWN PIN without performing any
  * mutation. Used to gate/unlock sensitive admin pages (Rate card, Price book)
- * and by prompts that check before a delete. While the caller has no PIN yet it
- * accepts their account password once together with `newPin`, which becomes
+ * and by a few prompts owned by other screens that check before acting (every
+ * tier C route in the confirmations board verifies `security` itself since
+ * 2026-11-14). While the caller has no PIN yet their account password alone
+ * confirms (owner default 2026-11-14); a `newPin` sent with it is stored as
  * their PIN. Refused while testing as someone else. Answers
  * `{ ok: false, error, code }`; `code` is one of SensitiveVerificationCode.
  */

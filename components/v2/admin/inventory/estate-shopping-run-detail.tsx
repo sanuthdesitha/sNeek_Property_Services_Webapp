@@ -10,6 +10,7 @@
  *   POST  /api/admin/inventory/shopping-runs/[id]/deposit-on-hand                → moves purchased stock to on-hand
  *   POST  /api/uploads/direct                                          (receipt upload → { key, url })
  */
+import { sensitiveVerificationText } from "@/lib/security/pin-rules";
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ShoppingClientCharges } from "./shopping-client-charges";
@@ -22,7 +23,6 @@ import {
   EInput,
   ESelect,
   ETableShell,
-  verifyAdminSecurity,
 } from "@/components/v2/admin/estate-kit";
 
 type Attachment = { key: string; url: string; name: string; mimeType?: string; sizeBytes?: number };
@@ -129,7 +129,7 @@ export function EstateShoppingRunDetail({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast({ title: "Update failed", description: data.error, variant: "destructive" });
+        toast({ title: "Update failed", description: data.error ? sensitiveVerificationText(data.error) : undefined, variant: "destructive" });
         return false;
       }
       // The PATCH endpoint returns the admin *record* (payment, totals, statuses)
@@ -481,7 +481,7 @@ export function EstateShoppingRunDetail({
         title="Remove this receipt"
         description={
           removeReceipt
-            ? `"${removeReceipt.name}" comes off the run's payment record straight away, and the reimbursement PDF is generated without it. Enter your PIN or password to continue.`
+            ? `"${removeReceipt.name}" comes off the run's payment record straight away, and the reimbursement PDF is generated without it.`
             : undefined
         }
         confirmLabel="Remove receipt"
@@ -490,18 +490,9 @@ export function EstateShoppingRunDetail({
         onConfirm={async (credentials) => {
           const target = removeReceipt;
           if (!target) return;
-          try {
-            // The shopping-run route takes no security payload of its own.
-            await verifyAdminSecurity(credentials);
-          } catch (err: any) {
-            toast({ title: "Not removed", description: err?.message, variant: "destructive" });
-            return;
-          }
-          setRemoveReceipt(null);
-          await updatePayment(
-            { receipts: receipts.filter((x) => x.key !== target.key) },
-            "Receipt removed"
-          );
+          // The PIN travels with the change and is verified by the shopping-run route.
+          const payment = { ...run.payment, receipts: receipts.filter((x) => x.key !== target.key) };
+          if (await patch({ payment, security: credentials ?? {} }, "Receipt removed")) setRemoveReceipt(null);
         }}
       />
     </div>

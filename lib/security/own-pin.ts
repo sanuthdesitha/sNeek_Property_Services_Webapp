@@ -34,6 +34,8 @@ export type OwnPinState = {
   lockedUntil: string | null;
   /** True when an administrator cleared this person's PIN and they have not set a new one. */
   resetByAdministrator: boolean;
+  /** Wrong PIN or password tries left before verification locks (PIN_LOCK_THRESHOLD when none failed). */
+  attemptsLeft: number;
 };
 
 export async function readOwnPin(userId: string): Promise<OwnPinRow | null> {
@@ -54,6 +56,7 @@ export async function ownPinState(userId: string, now = new Date()): Promise<Own
     updatedAt: row?.pinHash && row.pinSetAt ? row.pinSetAt.toISOString() : null,
     lockedUntil: isLocked(row, now) ? row!.lockedUntil!.toISOString() : null,
     resetByAdministrator: Boolean(row && !row.pinHash && row.resetAt),
+    attemptsLeft: Math.max(0, PIN_LOCK_THRESHOLD - (row?.failedAttempts ?? 0)),
   };
 }
 

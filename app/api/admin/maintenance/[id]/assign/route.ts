@@ -1,11 +1,9 @@
-import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
-import { Role, NotificationChannel, NotificationStatus } from "@prisma/client";
+import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
-import { db } from "@/lib/db";
 import { assignMaintenanceItem } from "@/lib/maintenance/workers";
-import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { recordWorkerAssignedNotice } from "@/lib/maintenance/assign-notice";
 
 const schema = z.object({
   workerId: z.string().min(1),
@@ -30,28 +28,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (item.unchanged) return NextResponse.json({ ok: true, item, unchanged: true });
 
     // Notify the worker (if they have a portal login).
-    const worker = await db.maintenanceWorker.findUnique({
-      where: { id: body.workerId },
-      select: { userId: true, name: true },
-    });
-    if (worker?.userId) {
-      const detail = await db.propertyMaintenanceItem.findUnique({
-        where: { id: params.id },
-        select: { title: true, property: { select: { name: true } } },
-      });
-      const notice = (await loadNotificationWording("maintenance.assignment")).render("assigned", "INBOX", { propertyName: detail?.property?.name ?? "A property", itemTitle: detail?.title ?? "Repair job" });
-      await db.notification.create({
-        data: {
-          userId: worker.userId,
-          externalId: mobilePendingMarker("cases"),
-          channel: NotificationChannel.PUSH,
-          subject: notice.title,
-          body: notice.body,
-          status: NotificationStatus.SENT,
-          sentAt: new Date(),
-        },
-      });
-    }
+    await recordWorkerAssignedNotice({ itemId: params.id, workerId: body.workerId });
 
     return NextResponse.json({ ok: true, item });
   } catch (err: any) {

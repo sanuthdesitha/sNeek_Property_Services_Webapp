@@ -22,14 +22,16 @@ import { PHONE_SHEET_CONTAINER_CLASS, PHONE_SHEET_GRAB_CLASS, PHONE_SHEET_PANEL_
 
 export type EActionDialogProps = {
   open: boolean;
-  title: string;
-  eyebrow?: string;
+  title: React.ReactNode;
+  eyebrow?: React.ReactNode;
   description?: React.ReactNode;
   busy?: boolean;
   onClose: () => void;
   children: React.ReactNode;
   /** Buttons; rendered in a footer row. */
   footer?: React.ReactNode;
+  /** Replaces the footer row's layout classes (the confirm dialog stacks its buttons on a phone). */
+  footerClassName?: string;
 };
 
 const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -38,7 +40,15 @@ function focusables(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((element) => !element.hasAttribute("data-focus-skip"));
 }
 
-export function EActionDialog({ open, title, eyebrow, description, busy = false, onClose, children, footer }: EActionDialogProps) {
+/** Where focus starts: a marked control, else the first control after the close button. */
+function initialFocus(root: HTMLElement): HTMLElement {
+  const marked = root.querySelector<HTMLElement>("[data-autofocus]");
+  if (marked) return marked;
+  const items = focusables(root);
+  return items.find((element) => !element.hasAttribute("data-dialog-close")) ?? items[0] ?? root;
+}
+
+export function EActionDialog({ open, title, eyebrow, description, busy = false, onClose, children, footer, footerClassName }: EActionDialogProps) {
   const titleId = React.useId();
   const descriptionId = React.useId();
   const panelRef = React.useRef<HTMLDivElement>(null);
@@ -60,11 +70,32 @@ export function EActionDialog({ open, title, eyebrow, description, busy = false,
         if (attempts++ < 10) timer = window.setTimeout(focusFirst, 16);
         return;
       }
-      const first = panel.querySelector<HTMLElement>("[data-autofocus]") ?? focusables(panel)[0] ?? panel;
-      first.focus();
+      initialFocus(panel).focus();
     };
     timer = window.setTimeout(focusFirst, 0);
+    // A menu that opened this dialog may hand focus back to its trigger after
+    // the dialog took it; keep focus inside while open (a real trap), and let
+    // Escape close from anywhere on the page.
+    const onFocusIn = (event: FocusEvent) => {
+      const panel = panelRef.current;
+      const target = event.target as Node | null;
+      if (!panel || !target || panel.contains(target)) return;
+      if (target instanceof Element && target.closest('[role="dialog"]')) return;
+      // A menu or popover opened from inside the dialog is portalled after it: allowed.
+      if (panel.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING) return;
+      initialFocus(panel).focus();
+    };
+    const onDocumentKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const panel = panelRef.current;
+      if (panel && event.target instanceof Node && panel.contains(event.target)) return;
+      if (!busyRef.current) closeRef.current();
+    };
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("keydown", onDocumentKey);
     return () => {
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("keydown", onDocumentKey);
       window.clearTimeout(timer);
       const target = returnFocus.current;
       returnFocus.current = null;
@@ -121,6 +152,7 @@ export function EActionDialog({ open, title, eyebrow, description, busy = false,
               type="button"
               onClick={onClose}
               disabled={busy}
+              data-dialog-close
               aria-label="Close"
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full max-sm:h-11 max-sm:w-11 border border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-muted))] disabled:opacity-50"
             >
@@ -131,7 +163,7 @@ export function EActionDialog({ open, title, eyebrow, description, busy = false,
             {description ? <div id={descriptionId} className="text-[hsl(var(--e-text-secondary))]">{description}</div> : null}
             {children}
           </div>
-          {footer ? <div className="flex flex-wrap justify-end gap-2 border-t border-[hsl(var(--e-border))] px-5 py-3 max-sm:sticky max-sm:bottom-0 max-sm:bg-[hsl(var(--e-surface))] max-sm:[&>*]:flex-1">{footer}</div> : null}
+          {footer ? <div className={cn("border-t border-[hsl(var(--e-border))] px-5 py-3 max-sm:sticky max-sm:bottom-0 max-sm:bg-[hsl(var(--e-surface))]", footerClassName ?? "flex flex-wrap justify-end gap-2 max-sm:[&>*]:flex-1")}>{footer}</div> : null}
         </div>
       </div>
     </EstatePortal>

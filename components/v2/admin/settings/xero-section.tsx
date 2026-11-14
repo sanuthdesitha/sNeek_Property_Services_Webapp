@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Link2, Unlink } from "lucide-react";
-import { EAlert, EBadge, EButton, ECard } from "@/components/v2/ui/primitives";
+import { EAlert, EButton, ECard } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESaveStatus, ESectionHeading, useSaveStatus } from "./estate-form";
+import { XeroConnectionCard, type XeroStatusView } from "./xero-connection-card";
 
 interface XeroInvoiceDefaults {
   defaultAccountCode: string;
@@ -40,15 +40,6 @@ const ERROR_HELP: Record<string, string> = {
   unauthorized: "You need to be signed in as an admin to connect Xero.",
 };
 
-/** What /api/xero/status returns (lib/xero/client.ts, XeroStatus). */
-type XeroStatusView = {
-  connected: boolean;
-  tenantName?: string;
-  lastSyncAt?: string;
-  hasRefreshToken?: boolean;
-  signIn?: "ok" | "no-refresh-token" | "lapsed";
-};
-
 /**
  * Xero — connect status via /api/xero/status|connect|disconnect and invoice
  * defaults via GET/PATCH /api/admin/integrations/settings ({ xero: {...} }).
@@ -62,8 +53,9 @@ export function XeroSection() {
     contactFallbackEmail: "",
     itemCodeByService: {},
   });
-  const [connection, setConnection] = useState<XeroStatusView | null>(null);
+  const [connection, setConnection] = useState<XeroStatusView>(null);
   const [loading, setLoading] = useState(true);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [savingCfg, setSavingCfg] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -76,18 +68,29 @@ export function XeroSection() {
   const errorDescParam = searchParams.get("error_description");
 
   useEffect(() => {
-    void loadStatus();
+    const controller = new AbortController();
+    void loadStatus(controller.signal);
     void loadCfg();
+    return () => controller.abort();
   }, []);
 
-  async function loadStatus() {
+  /** A failed read is shown as a failure, never as "Not connected". */
+  async function loadStatus(signal?: AbortSignal) {
+    setStatusError(null);
     try {
-      const res = await fetch("/api/xero/status");
-      if (res.ok) setConnection(await res.json());
+      const res = await fetch("/api/xero/status", { signal });
+      const body = await res.json().catch(() => null);
+      if (signal?.aborted) return;
+      if (!res.ok || !body) {
+        setStatusError(body?.error ?? "The Xero connection could not be read.");
+        return;
+      }
+      setConnection(body as XeroStatusView);
     } catch {
-      /* ignore */
+      if (signal?.aborted) return;
+      setStatusError("The Xero connection could not be read.");
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }
 
@@ -186,8 +189,6 @@ export function XeroSection() {
     );
   }
 
-  const isConnected = connection?.connected ?? false;
-
   return (
     <div className="min-w-0 space-y-6 [&_input]:min-h-11 [&_button]:min-h-11">
       <ESectionHeading
@@ -207,48 +208,22 @@ export function XeroSection() {
 
       {/* Connection card */}
       <ECard variant="ceremony" className="p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <EBadge tone={isConnected ? "success" : "neutral"} soft>
-              {isConnected ? "Connected" : "Not connected"}
-            </EBadge>
-            {isConnected && connection?.tenantName ? (
-              <span className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
-                Tenant · {connection.tenantName}
-              </span>
-            ) : null}
-            {isConnected && connection?.lastSyncAt ? (
-              <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-                Last sync {new Date(connection.lastSyncAt).toLocaleString()}
-              </span>
-            ) : null}
-          </div>
-          {!isConnected ? (
-            <EButton variant="gold" onClick={connect} disabled={connecting}>
-              <Link2 className="h-4 w-4" /> {connecting ? "Connecting…" : "Connect to Xero"}
-            </EButton>
-          ) : (
-            <EButton variant="outline" onClick={disconnect} disabled={disconnecting}>
-              <Unlink className="h-4 w-4" /> {disconnecting ? "Disconnecting…" : "Disconnect"}
-            </EButton>
-          )}
-        </div>
-        {isConnected && connection?.signIn && connection.signIn !== "ok" ? (
-          <EAlert
-            tone={connection.signIn === "lapsed" ? "danger" : "warning"}
-            title={connection.signIn === "lapsed" ? "Xero sign-in lapsed — reconnect" : "Reconnect Xero once to keep it signed in"}
-            className="mt-4"
-          >
-            <p>
-              {connection.signIn === "lapsed"
-                ? "The stored Xero sign-in has expired and cannot renew itself, so pushes and the hourly Xero check cannot reach Xero."
-                : "This connection was made without a refresh token, so it stops working about 30 minutes after it was made. Reconnecting once stores a refresh token and keeps it signed in."}
-            </p>
-            <EButton variant="gold" className="mt-3" onClick={connect} disabled={connecting}>
-              <Link2 className="h-4 w-4" /> {connecting ? "Opening Xero…" : "Reconnect Xero"}
+        {statusError ? (
+          <EAlert tone="danger" title="Could not read the Xero connection">
+            <p>{statusError}</p>
+            <EButton variant="outline" className="mt-3" onClick={() => void loadStatus()}>
+              Try again
             </EButton>
           </EAlert>
-        ) : null}
+        ) : (
+          <XeroConnectionCard
+            view={connection}
+            connecting={connecting}
+            disconnecting={disconnecting}
+            onConnect={connect}
+            onDisconnect={disconnect}
+          />
+        )}
         <hr className="e-thread my-5" />
         <p className="text-[0.8125rem] font-medium">What gets synced</p>
         <ul className="mt-2 space-y-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">

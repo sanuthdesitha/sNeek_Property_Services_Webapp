@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
+import { sensitiveVerificationText, type SensitiveCredentialsInput } from "@/lib/security/pin-rules";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -93,19 +95,53 @@ export function PaymentGatewaysPage() {
     } catch { /* ignore */ }
   }
 
-  async function deleteGateway(gw: Gateway) {
-    if (!confirm(`Delete ${gw.label}?`)) return;
+  // Tier C since 2026-11-14: the gateway route verifies the administrator's own PIN.
+  const [gatewayToDelete, setGatewayToDelete] = useState<Gateway | null>(null);
+  const [deletingGateway, setDeletingGateway] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  function deleteGateway(gw: Gateway) {
+    setDeleteError(null);
+    setGatewayToDelete(gw);
+  }
+  async function confirmDeleteGateway(security?: SensitiveCredentialsInput) {
+    const gw = gatewayToDelete;
+    if (!gw) return;
+    setDeletingGateway(true);
     try {
-      const res = await fetch(`/api/admin/payment-gateways/${gw.id}`, { method: "DELETE" });
-      if (!res.ok) return;
+      const res = await fetch(`/api/admin/payment-gateways/${gw.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: security ?? {} }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setDeleteError(body.error ? sensitiveVerificationText(body.error) : "Delete failed.");
+        return;
+      }
+      setGatewayToDelete(null);
       await loadGateways();
-    } catch { /* ignore */ }
+    } catch {
+      setDeleteError("Could not reach the server.");
+    } finally {
+      setDeletingGateway(false);
+    }
   }
 
   if (loading) return <div className="rounded-xl border px-4 py-10 text-sm text-muted-foreground">Loading gateways...</div>;
 
   return (
     <div className="space-y-6">
+      <TwoStepConfirmDialog
+        open={Boolean(gatewayToDelete)}
+        onOpenChange={(open) => { if (!open && !deletingGateway) setGatewayToDelete(null); }}
+        title={gatewayToDelete ? `Delete ${gatewayToDelete.label}?` : "Delete gateway?"}
+        description={deleteError ?? "Clients can no longer pay through this gateway. This cannot be undone."}
+        confirmLabel="Delete gateway"
+        cancelLabel="Cancel"
+        requireSecurityVerification
+        loading={deletingGateway}
+        onConfirm={(security) => void confirmDeleteGateway(security)}
+      />
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">

@@ -43,7 +43,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     return json({ jobId: params.id, locked: locked.has(job.status), rows, history, comparisonWarning });
   } catch (error) { return failure(error); }
 }
-const schema = z.object({ action: z.literal("DISCARD_DRAFT_REFERENCE"), key: z.string().min(1).max(1000), version: z.string().regex(/^[a-f0-9]{64}$/), reason: z.string().trim().min(10).max(1000) }).strict();
+const schema = z.object({ action: z.literal("DISCARD_DRAFT_REFERENCE"), key: z.string().min(1).max(1000), version: z.string().regex(/^[a-f0-9]{64}$/), reason: z.string().trim().min(1).max(1000) }).strict(); // Reason required, no minimum length (2026-11-14).
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);

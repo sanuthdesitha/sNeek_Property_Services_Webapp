@@ -25,6 +25,8 @@ import type { BuilderUsage } from "@/lib/forms/builder-context";
 import { cn } from "@/lib/utils";
 import { BuilderHeader, BuilderPhoneActionBar, publishTarget, type BuilderStatus } from "./builder-header";
 import { BuilderOverlays, type Overlay } from "./builder-overlays";
+import { undoToast } from "@/components/v2/ui/undo-toast";
+import { toast } from "@/hooks/use-toast";
 import { CleanerPreview } from "./cleaner-preview";
 import { MultiEditPanel } from "./multi-edit-panel";
 import { OutlinePane } from "./outline-pane";
@@ -113,6 +115,25 @@ export function EstateFormBuilder(props: EstateFormBuilderProps) {
     onSaved: () => setStatus((prev) => (prev.hasDraft ? prev : { ...prev, hasDraft: true })),
   });
   const editing = useBuilderEditing(document);
+
+  // Tier B removals offer Undo for 10 seconds (board "Confirmations and
+  // deletes"). Undo steps the document back only while the removal is still
+  // its last change; after another edit the header's Undo is the way back.
+  const revisionRef = React.useRef(document.revision);
+  revisionRef.current = document.revision;
+  const undoRef = React.useRef(document.undo);
+  undoRef.current = document.undo;
+  const removeWithUndo = React.useCallback((title: string, run: () => void) => {
+    const expected = revisionRef.current + 1;
+    run();
+    undoToast({
+      title,
+      onUndo: () => {
+        if (revisionRef.current === expected) undoRef.current();
+        else toast({ title: "Something changed since", description: "Use Undo in the header to step back." });
+      },
+    });
+  }, []);
   const lifecycle = useBuilderLifecycle({ templateId, document, autosave, status, setStatus });
   const rename = useInlineRename({ templateId, document, autosave, initialTemplateToken: props.initialTemplateToken, hasDraft: status.hasDraft });
   const [overlay, setOverlay] = React.useState<Overlay>({ kind: "none" });
@@ -350,8 +371,8 @@ export function EstateFormBuilder(props: EstateFormBuilderProps) {
         onRestored={() => lifecycle.adoptServerDraft()}
         onInsertBlock={editing.insertBlockFields}
         onMove={editing.moveTo}
-        onDelete={editing.remove}
-        onDeleteSection={editing.removeSection}
+        onDelete={(ids) => removeWithUndo(ids.length > 1 ? `${ids.length} questions deleted` : "Question deleted", () => editing.remove(ids))}
+        onDeleteSection={(sectionId) => removeWithUndo("Section deleted", () => editing.removeSection(sectionId))}
         onDiscard={() => void lifecycle.discardDraft()}
       />
       {phone ? (

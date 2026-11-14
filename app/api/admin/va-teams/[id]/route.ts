@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
+import { routeSecurityRefusal, securityFromBody } from "@/lib/security/route-verification";
 import { db } from "@/lib/db";
 import { updateVaTeam, deleteVaTeam, vaTeamUpdateSchema } from "@/lib/va/teams";
 import { vaTeamErrorStatus } from "@/lib/va/http";
@@ -70,9 +71,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 }
 
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.ADMIN]);
+    // Tier C (2026-11-14): the administrator's own PIN, sent as `security` and
+    // verified here, not only through the verify-only endpoint beforehand.
+    const refusal = await routeSecurityRefusal(session, securityFromBody(await req.json().catch(() => ({}))) ?? null);
+    if (refusal) return refusal;
     const teamId = params.id;
 
     const clientId = await resolveTeamClientId(teamId);

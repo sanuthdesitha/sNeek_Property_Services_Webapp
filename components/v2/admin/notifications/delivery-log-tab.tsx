@@ -197,8 +197,8 @@ export function DeliveryLogTab({ readOnly, onToast, timeZone }: { readOnly: bool
       <EConfirmModal
         open={clearOpen}
         onClose={() => setClearOpen(false)}
-        title="Clear notifications"
-        description="This will remove all notification logs from the system, including everyone's inbox history. Pipeline intents are kept."
+        title="Clear the notification logs?"
+        description="All notification logs come out, including everyone's inbox history; pipeline intents are kept. This cannot be undone."
         confirmLabel="Clear logs"
         loading={clearing}
         onConfirm={clearAll}

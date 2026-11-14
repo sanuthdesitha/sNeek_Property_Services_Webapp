@@ -47,6 +47,42 @@ export async function listMaintenanceWorkers(opts?: { activeOnly?: boolean }) {
   });
 }
 
+/**
+ * Per worker: how many open items they are the visit worker on, and when they
+ * last arrived or clocked in on any item. A worker with no recorded visit has
+ * `lastVisitAt: null` (shown as "No visit recorded", never a made-up date).
+ */
+export async function maintenanceWorkerStats(): Promise<Map<string, { openItems: number; lastVisitAt: Date | null }>> {
+  const [open, visits] = await Promise.all([
+    db.propertyMaintenanceItem.groupBy({
+      by: ["assignedWorkerId"],
+      where: {
+        assignedWorkerId: { not: null },
+        status: { in: [MaintenanceStatus.OPEN, MaintenanceStatus.ACKNOWLEDGED, MaintenanceStatus.IN_PROGRESS, MaintenanceStatus.ORDERED] },
+      },
+      _count: { _all: true },
+    }),
+    db.propertyMaintenanceItem.groupBy({
+      by: ["assignedWorkerId"],
+      where: { assignedWorkerId: { not: null } },
+      _max: { arrivedAt: true, clockInAt: true },
+    }),
+  ]);
+  const stats = new Map<string, { openItems: number; lastVisitAt: Date | null }>();
+  for (const row of visits) {
+    if (!row.assignedWorkerId) continue;
+    const times = [row._max.arrivedAt, row._max.clockInAt].filter((value): value is Date => value instanceof Date);
+    const last = times.length > 0 ? new Date(Math.max(...times.map((value) => value.getTime()))) : null;
+    stats.set(row.assignedWorkerId, { openItems: 0, lastVisitAt: last });
+  }
+  for (const row of open) {
+    if (!row.assignedWorkerId) continue;
+    const current = stats.get(row.assignedWorkerId) ?? { openItems: 0, lastVisitAt: null };
+    stats.set(row.assignedWorkerId, { ...current, openItems: row._count._all });
+  }
+  return stats;
+}
+
 export async function createMaintenanceWorker(input: {
   name: string;
   phone?: string | null;

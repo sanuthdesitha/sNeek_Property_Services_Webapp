@@ -23,6 +23,9 @@ import { AlertTriangle, Camera, Loader2, ShieldCheck, Undo2, Wrench } from "luci
 import { EAlert, EBadge, EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaGallery } from "@/components/shared/media-gallery";
+import { EConfirmDialog } from "@/components/v2/ui/confirm-dialog";
+import { REASON_CHOICES } from "@/lib/confirmations/reasons";
+import { sensitiveVerificationText, type SensitiveCredentialsInput } from "@/lib/security/pin-rules";
 
 type Audience = "ADMIN" | "CLIENT";
 
@@ -138,51 +141,49 @@ function formatDate(value: string | null): string {
 /**
  * Send the report back to the cleaner.
  *
- * The reason is mandatory and shown to them verbatim — a void with no usable
- * reason just produces the same report again. The mode is an explicit choice
- * rather than a default because the two are not interchangeable: one preserves
- * the evidence for editing, the other archives it and starts over.
+ * Tier C (board "Confirmations and deletes", 2026-11-14): the person's own PIN,
+ * verified by the damage route, and a required reason as a quick pick (or
+ * "Other…" with any text, no minimum length). The cleaner sees the reason. The
+ * mode stays an explicit choice because the two are not interchangeable: one
+ * preserves the evidence for editing, the other archives it and starts over.
  */
 function VoidPanel({
   busy,
   onVoid,
 }: {
   busy: boolean;
-  onVoid: (mode: string, reason: string) => void;
+  onVoid: (mode: string, reason: string, security: SensitiveCredentialsInput | undefined) => Promise<boolean>;
 }) {
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState<string>("KEEP_AND_REOPEN");
-  const [reason, setReason] = React.useState("");
-
-  const tooShort = reason.trim().length < 10;
-
-  if (!open) {
-    return (
-      <ECard>
-        <ECardBody className="flex flex-wrap items-center gap-2 pt-6">
-          <Undo2 className="h-4 w-4 text-[hsl(var(--e-muted-foreground))]" />
-          <span className="text-[0.8125rem]">
-            Something wrong with this report? Send it back to the cleaner.
-          </span>
-          <EButton size="sm" variant="outline" className="ml-auto" onClick={() => setOpen(true)}>
-            Void submission
-          </EButton>
-        </ECardBody>
-      </ECard>
-    );
-  }
 
   return (
     <ECard>
-      <ECardBody className="space-y-3 pt-6">
-        <p className="text-[0.9375rem] font-[600]">Void this submission</p>
-        <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-          Nothing is deleted. The report is archived, un-released from the client, and returned to
-          the cleaner with your reason.
-        </p>
-
+      <ECardBody className="flex flex-wrap items-center gap-2 pt-6">
+        <Undo2 className="h-4 w-4 text-[hsl(var(--e-muted-foreground))]" />
+        <span className="text-[0.8125rem]">
+          Something wrong with this report? Send it back to the cleaner.
+        </span>
+        <EButton size="sm" variant="outline" className="ml-auto" onClick={() => setOpen(true)}>
+          Void submission
+        </EButton>
+      </ECardBody>
+      <EConfirmDialog
+        open={open}
+        tier="sensitive"
+        title="Void this submission?"
+        description="Nothing is deleted. The report is archived, taken back from the client and returned to the cleaner with your reason."
+        reason={{ label: "Reason (the cleaner sees this)", choices: REASON_CHOICES.damageVoid }}
+        confirmLabel="Send back to cleaner"
+        busy={busy}
+        onClose={() => !busy && setOpen(false)}
+        onConfirm={async ({ reason, credentials }) => {
+          if (!reason) return;
+          if (await onVoid(mode, reason, credentials)) setOpen(false);
+        }}
+      >
         <EField label="What should happen to the answers">
-          <ESelect value={mode} onChange={(e) => setMode(e.target.value)}>
+          <ESelect value={mode} disabled={busy} onChange={(e) => setMode(e.target.value)}>
             {VOID_MODES.map((m) => (
               <option key={m.value} value={m.value}>
                 {m.label} — {m.hint}
@@ -190,36 +191,7 @@ function VoidPanel({
             ))}
           </ESelect>
         </EField>
-
-        <EField label="Reason (the cleaner sees this)">
-          <ETextarea
-            rows={3}
-            value={reason}
-            placeholder="e.g. The close-up photos are too blurry to show the crack — please retake them."
-            onChange={(e) => setReason(e.target.value)}
-          />
-        </EField>
-
-        <div className="flex justify-end gap-2">
-          <EButton variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={busy}>
-            Cancel
-          </EButton>
-          <EButton
-            variant="danger"
-            size="sm"
-            disabled={busy || tooShort}
-            onClick={() => onVoid(mode, reason.trim())}
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Send back to cleaner
-          </EButton>
-        </div>
-        {tooShort ? (
-          <p className="text-right text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-            Give at least a sentence of reason.
-          </p>
-        ) : null}
-      </ECardBody>
+      </EConfirmDialog>
     </ECard>
   );
 }
@@ -308,7 +280,7 @@ export function DamageInvestigation({
     load();
   }, [load]);
 
-  async function patch(body: unknown) {
+  async function patch(body: unknown): Promise<boolean> {
     setBusy(true);
     setError(null);
     try {
@@ -318,10 +290,12 @@ export function DamageInvestigation({
         body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Could not update the report.");
+      if (!res.ok) throw new Error(data.error ? sensitiveVerificationText(data.error) : "Could not update the report.");
       setReport(data.report);
+      return true;
     } catch (err: any) {
       setError(err.message);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -425,7 +399,7 @@ export function DamageInvestigation({
       {error ? <EAlert tone="danger">{error}</EAlert> : null}
 
       {isAdmin && report.status !== "DRAFT" ? (
-        <VoidPanel busy={busy} onVoid={(mode, reason) => patch({ action: "VOID", mode, reason })} />
+        <VoidPanel busy={busy} onVoid={(mode, reason, security) => patch({ action: "VOID", mode, reason, security: security ?? {} })} />
       ) : null}
 
       {!isAdmin && !report.acknowledgedAt ? (

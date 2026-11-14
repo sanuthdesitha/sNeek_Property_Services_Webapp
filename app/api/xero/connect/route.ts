@@ -15,8 +15,7 @@ export async function GET(req: NextRequest) {
     const state = randomBytes(16).toString("hex");
 
     const authUrl = await getXeroAuthUrl(redirectUri, state);
-    console.log("[xero] Auth URL:", authUrl);
-    console.log("[xero] Redirect URI:", redirectUri);
+    // Not logged: the URL carries the one-time OAuth state value.
 
     const response = NextResponse.json({ authUrl });
     response.cookies.set("xero_oauth_state", state, {

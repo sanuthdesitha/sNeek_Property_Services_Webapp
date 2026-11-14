@@ -206,6 +206,7 @@ export async function notifyQaResultToCleaner(input: {
     await deliverNotificationToRecipients({
       recipients,
       category: "jobs",
+      typeKey: "job.qa_and_accountability",
       jobId: input.jobId,
       // Point at the quality hub, where the feedback (and now the report
       // download) lives. The old link went to a v1 path these cleaners no

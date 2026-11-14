@@ -23,6 +23,8 @@ import { cn } from "@/lib/utils";
 import { EAlert, EButton } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
 import { ERowMenu } from "@/components/v2/ui/row-menu";
+import { EConfirmModal } from "@/components/v2/admin/estate-kit";
+import { sensitiveVerificationText } from "@/lib/security/pin-rules";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
 import { EFilterBar, type EActiveFilter } from "@/components/v2/ui/filter-bar";
 
@@ -85,6 +87,8 @@ export function AssistantsTab({ canManage, canResend, clients, initialSearch }: 
   const [notice, setNotice] = useState<Notice>(null);
   const [revoking, setRevoking] = useState<RevokeTarget | null>(null);
   const [moving, setMoving] = useState<{ member: AssistantMember; team: AssistantTeam } | null>(null);
+  // Remove from team: tier C, the person's own PIN verified by the members route.
+  const [removing, setRemoving] = useState<{ member: AssistantMember; team: AssistantTeam } | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams({ tab: "assistants" });
@@ -146,7 +150,7 @@ export function AssistantsTab({ canManage, canResend, clients, initialSearch }: 
           { key: "copy", label: "Copy invite link", disabled: !canResend || busy || !pending, hint: "Only while a valid invitation link exists.", onSelect: async () => { setBusy(true); setNotice(await copyInvitationLink(member.id)); setBusy(false); } },
           { key: "revoke", label: "Revoke invite", disabled: !canResend || busy || !invitationPending(member.status), hint: canResend ? "Only for an invitation not yet accepted or withdrawn." : "Same rights as resending an invitation.", onSelect: () => setRevoking({ userId: member.id, label: member.name ?? member.email }) },
           { key: "move", label: "Move to team…", disabled: !canManage || busy, hint: "Administrators only.", onSelect: () => setMoving({ member, team: owner }) },
-          { key: "remove", label: "Remove from team", danger: true, separated: true, disabled: !canManage || busy, hint: "Administrators only.", onSelect: () => { if (window.confirm(`Remove ${member.name ?? member.email} from ${owner.name}? Their login is switched off.`)) void act(() => postJson(`/api/admin/va-teams/${owner.id}/members/${member.id}`, undefined, "DELETE"), "Removed from the team; the login is switched off."); } },
+          { key: "remove", label: "Remove from team", danger: true, separated: true, disabled: !canManage || busy, hint: "Administrators only.", onSelect: () => setRemoving({ member, team: owner }) },
         ]}
       />
     );
@@ -228,6 +232,29 @@ export function AssistantsTab({ canManage, canResend, clients, initialSearch }: 
           onDone={(outcome) => { setRevoking(null); setNotice(outcome); read.reload(); }}
         />
       ) : null}
+      <EConfirmModal
+        open={Boolean(removing)}
+        onClose={() => !busy && setRemoving(null)}
+        title={removing ? `Remove ${removing.member.name ?? removing.member.email} from ${removing.team.name}?` : "Remove from team?"}
+        description="Their login is switched off and they lose access to the client's properties."
+        confirmLabel="Remove from team"
+        requireSecurity
+        loading={busy}
+        onConfirm={async (credentials) => {
+          const target = removing;
+          if (!target) return;
+          setBusy(true);
+          const error = await postJson(`/api/admin/va-teams/${target.team.id}/members/${target.member.id}`, { security: credentials ?? {} }, "DELETE");
+          setBusy(false);
+          if (error) {
+            setNotice({ ok: false, message: sensitiveVerificationText(error) });
+            return;
+          }
+          setRemoving(null);
+          setNotice({ ok: true, message: "Removed from the team; the login is switched off." });
+          read.reload();
+        }}
+      />
       {moving ? (
         <MoveTeamDialog
           key={`${moving.team.id}:${moving.member.id}`}

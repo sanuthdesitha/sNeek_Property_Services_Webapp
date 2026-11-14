@@ -31,6 +31,7 @@ export type WorkQueueKind =
   | "case-open"
   | "case-stale"
   | "lost-item"
+  | "maintenance-unassigned"
   | "lead-new"
   | "invoices-draft"
   | "invoices-outstanding"
@@ -40,7 +41,8 @@ export type WorkQueueKind =
   | "qa-outcome"
   | "qa-rework"
   | "document-expiring"
-  | "low-stock";
+  | "low-stock"
+  | "sending-paused";
 
 /** An inline action. Request actions call an existing endpoint unchanged. */
 export type WorkQueueAction =

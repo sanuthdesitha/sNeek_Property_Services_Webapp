@@ -108,7 +108,7 @@ export function OwnPinSection({ timeZone = "Australia/Sydney" }: { timeZone?: st
   const pin = load.kind === "ready" ? load.pin : null;
 
   return (
-    <ECard>
+    <ECard id="own-pin" className="scroll-mt-24">
       <ECardBody className="space-y-4">
         <div className="flex items-start gap-3">
           <KeyRound className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />

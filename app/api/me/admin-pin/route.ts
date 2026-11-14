@@ -10,12 +10,17 @@ import {
   setAdminPin,
 } from "@/lib/security/admin-verification";
 import { rateLimit } from "@/lib/security/rate-limit";
+import { getAppSettings } from "@/lib/settings";
 import { PIN_LOCK_MINUTES } from "@/lib/security/pin-rules";
 
 /**
  * The signed-in person's OWN sensitive-action PIN.
  *
- *   GET    → { hasPin, updatedAt, lockedUntil, resetByAdministrator, userId } (never the PIN)
+ *   GET    → { hasPin, updatedAt, lockedUntil, resetByAdministrator, userId, attemptsLeft, timezone } (never the PIN)
+ *            attemptsLeft: wrong tries left before the lock, so a prompt can
+ *            say "3 tries left" after a refusal. While testing as someone else
+ *            the 403 carries code ACTUAL_ACTOR_REQUIRED so the prompt shows
+ *            "Not available" instead of a field.
  *   POST   { currentPassword, pin }  → set or change it
  *   DELETE { currentPassword }       → remove it (the next sensitive action asks for a new one)
  *
@@ -29,7 +34,7 @@ import { PIN_LOCK_MINUTES } from "@/lib/security/pin-rules";
 const CHANGE_LIMIT = { limit: 5, windowMs: PIN_LOCK_MINUTES * 60_000 };
 
 class PinRouteError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(message: string, readonly status: number, readonly code?: string) {
     super(message);
   }
 }
@@ -44,12 +49,12 @@ async function ownAccount(): Promise<string> {
   if (!roles.includes(Role.ADMIN) && !roles.includes(Role.OPS_MANAGER)) throw new PinRouteError("FORBIDDEN", 403);
   const refusal = await actualActorRefusal(session.user.id);
   if (refusal === "UNAUTHORIZED") throw new PinRouteError("UNAUTHORIZED", 401);
-  if (refusal) throw new PinRouteError("Stop testing as someone else to change your own PIN.", 403);
+  if (refusal) throw new PinRouteError("Stop testing as someone else to change your own PIN.", 403, "ACTUAL_ACTOR_REQUIRED");
   return session.user.id;
 }
 
 function failure(err: unknown, fallback: string) {
-  if (err instanceof PinRouteError) return NextResponse.json({ error: err.message }, { status: err.status });
+  if (err instanceof PinRouteError) return NextResponse.json(err.code ? { error: err.message, code: err.code } : { error: err.message }, { status: err.status });
   if (err instanceof SensitiveVerificationError) {
     return NextResponse.json({ error: err.message, code: err.code }, { status: err.code === "PIN_LOCKED" ? 429 : 400 });
   }
@@ -71,7 +76,14 @@ export async function GET() {
   try {
     const userId = await ownAccount();
     // `userId` lets a page lock remember an unlock for this person only.
-    return NextResponse.json({ ...(await getAdminPinState(userId)), userId });
+    // The organisation timezone lets a prompt say when a lock ends ("Try again at 14:52").
+    let timezone = "Australia/Sydney";
+    try {
+      timezone = (await getAppSettings()).timezone || timezone;
+    } catch {
+      // Settings unreadable: the default organisation timezone.
+    }
+    return NextResponse.json({ ...(await getAdminPinState(userId)), userId, timezone });
   } catch (err) {
     return failure(err, "Could not load your PIN.");
   }

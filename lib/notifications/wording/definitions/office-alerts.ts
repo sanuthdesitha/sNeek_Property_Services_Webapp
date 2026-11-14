@@ -1,4 +1,4 @@
-/** Wording for office.reports_generated, office.ical_alerts, agent.action_request and leads.alerts. */
+/** Wording for office.reports_generated, office.ical_alerts, agent.action_request, xero.reconnect_needed and leads.alerts. */
 import { editable, inbox, line, part } from "./build";
 
 const ICAL_EMAIL = `
@@ -88,4 +88,8 @@ export const LEAD_ALERTS_WORDING = editable("leads.alerts", [
 
 export const AGENT_REQUEST_WORDING = editable("agent.action_request", [
   inbox("waiting", "Request waiting", "Agent request waiting: {{agentName}}", "{{agentName}} asks to: {{summary}} Nothing changes until someone approves it in Approvals, Agent requests.", { required: ["agentName", "summary"], note: "Inbox only, to the people who could approve it." }),
+]);
+
+export const XERO_RECONNECT_WORDING = editable("xero.reconnect_needed", [
+  inbox("needed", "Reconnect needed", "Xero needs reconnecting: {{tenantName}}", "{{reason}} Invoices and bills cannot reach Xero until an administrator reconnects it in Settings, Xero. Failed pushes can then be retried.", { required: ["reason"], note: "Inbox only, to administrators, once per outage." }),
 ]);

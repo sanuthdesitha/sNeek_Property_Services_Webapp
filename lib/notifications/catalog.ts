@@ -14,6 +14,7 @@ import { ACTION_NOTIFICATION_TYPES } from "./catalog-actions";
 import { JOB_NOTIFICATION_TYPES } from "./catalog-jobs";
 import { OFFICE_NOTIFICATION_TYPES } from "./catalog-office";
 import { PEOPLE_NOTIFICATION_TYPES } from "./catalog-people";
+import { SAFEGUARD_NOTIFICATION_TYPES } from "./catalog-safeguards";
 import type { NotificationTypeEntry } from "./catalog-types";
 
 export * from "./catalog-types";
@@ -23,6 +24,7 @@ export const NOTIFICATION_CATALOG: readonly NotificationTypeEntry[] = [
   ...OFFICE_NOTIFICATION_TYPES,
   ...PEOPLE_NOTIFICATION_TYPES,
   ...ACTION_NOTIFICATION_TYPES,
+  ...SAFEGUARD_NOTIFICATION_TYPES,
 ];
 
 /**

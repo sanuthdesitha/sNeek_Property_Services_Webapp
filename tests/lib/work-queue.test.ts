@@ -7,6 +7,9 @@ const m = vi.hoisted(() => ({
   continuations: vi.fn(),
   shopping: vi.fn(),
   receivables: vi.fn(),
+  maintenanceCount: vi.fn(),
+  maintenanceFind: vi.fn(),
+  safeguards: vi.fn(async () => ({ emergencyStop: false, paused: 0 })),
   ok: (value: unknown) => vi.fn(async () => value),
 }));
 
@@ -33,6 +36,10 @@ vi.mock("@/lib/db", () => ({
       count: vi.fn(async () => 1),
       findMany: vi.fn(async () => [{ id: "lf1", itemName: "watch", guestName: "Priya Shah", guestContact: "priya@example.com", createdAt: new Date("2026-11-11T00:00:00Z"), propertyId: "p1" }]),
     },
+    propertyMaintenanceItem: {
+      count: m.maintenanceCount,
+      findMany: m.maintenanceFind,
+    },
     property: { findMany: vi.fn(async () => [{ id: "p1", name: "The Bondi Studio" }]) },
     user: { findMany: vi.fn(async () => [{ id: "u1", name: "Jane C." }]) },
     qaAssignment: { count: vi.fn(async () => 5) },
@@ -44,6 +51,7 @@ vi.mock("@/lib/dashboard/immediate-attention", () => ({ getAdminAttentionSummary
 vi.mock("@/lib/jobs/continuation-requests", () => ({ listContinuationRequests: m.continuations }));
 vi.mock("@/lib/inventory/shopping-runs", () => ({ listShoppingRunsForAdmin: m.shopping }));
 vi.mock("@/lib/finance/receivables", () => ({ getOutstandingReceivables: m.receivables }));
+vi.mock("@/lib/notifications/safeguards/overview", () => ({ safeguardAttention: m.safeguards }));
 
 import { buildWorkQueue } from "@/lib/dashboard/work-queue";
 import type { WorkQueueKind } from "@/lib/dashboard/work-queue-types";
@@ -71,6 +79,10 @@ beforeEach(() => {
     { id: "r2", name: "Done", cleanerReimbursementStatus: "READY", totals: { reimbursableCleanerAmount: 5 }, payment: {} },
   ]);
   m.receivables.mockReset().mockResolvedValue({ outstandingCount: 3, outstandingAud: 9260 });
+  m.maintenanceCount.mockReset().mockResolvedValue(1);
+  m.maintenanceFind.mockReset().mockResolvedValue([
+    { id: "mi1", title: "Smoke alarm chirping", priority: "URGENT", createdAt: new Date("2026-11-07T02:00:00Z"), property: { name: "Glebe House" } },
+  ]);
 });
 
 const LEGACY_KINDS: WorkQueueKind[] = [
@@ -109,6 +121,26 @@ describe("buildWorkQueue", () => {
     expect(lost?.href).toMatch(/^\/v2\/admin\/lost-found\?stage=new&open=/);
   });
 
+  it("lists maintenance items nobody has been on for more than two days, linked to the item (owner default 2026-11-14)", async () => {
+    const queue = await buildWorkQueue(ADMIN, { now: NOW });
+    const row = queue.items.find((item) => item.kind === "maintenance-unassigned");
+    expect(row).toMatchObject({ category: "dispatch", urgency: "now", href: "/v2/admin/maintenance?assigned=none&open=mi1" });
+    expect(row?.title).toContain("Smoke alarm chirping");
+    expect(row?.actions).toEqual([{ kind: "link", label: "Assign", href: "/v2/admin/maintenance?assigned=none&open=mi1", primary: true }]);
+    const where = m.maintenanceCount.mock.calls[0][0].where;
+    // Open items only, no visit worker, nobody active in the roster, reported before the two-day cutoff.
+    expect(where.status.in).toEqual(["OPEN", "ACKNOWLEDGED", "IN_PROGRESS", "ORDERED"]);
+    expect(where.assignedWorkerId).toBeNull();
+    expect(where.roleAssignments).toEqual({ none: { removedAt: null } });
+    expect(where.createdAt.lt.toISOString()).toBe("2026-11-09T02:00:00.000Z");
+  });
+
+  it("hides maintenance rows from a manager whose Maintenance pack is off", async () => {
+    const { allOpsLevels } = await import("@/lib/rbac/ops-catalog");
+    const queue = await buildWorkQueue({ levels: { ...allOpsLevels("manage"), maintenance: "off" }, readOnly: false }, { now: NOW });
+    expect(queue.items.some((item) => item.kind === "maintenance-unassigned")).toBe(false);
+  });
+
   it("offers Send reminder for an expiring document beside Open account", async () => {
     const queue = await buildWorkQueue(ADMIN, { now: NOW });
     const doc = queue.items.find((row) => row.kind === "document-expiring");
@@ -142,6 +174,22 @@ describe("buildWorkQueue", () => {
     expect(queue.items.some((row) => row.kind === "continuation")).toBe(true);
     expect(queue.items.some((row) => row.kind === "clock-adjustment")).toBe(false);
     expect(JSON.stringify(queue)).not.toContain("private database detail");
+  });
+
+  it("puts a sending-safeguards card first when the emergency stop is on or sending is paused, only for viewers with the notifications pack", async () => {
+    m.safeguards.mockResolvedValueOnce({ emergencyStop: true, paused: 2 });
+    const stopped = await buildWorkQueue(ADMIN, { now: NOW });
+    const card = stopped.items.find((row) => row.kind === "sending-paused");
+    expect(card).toMatchObject({ urgency: "now", href: "/v2/admin/notifications/safeguards" });
+    expect(card?.title).toMatch(/Emergency stop is on/);
+    m.safeguards.mockResolvedValueOnce({ emergencyStop: false, paused: 3 });
+    expect((await buildWorkQueue(ADMIN, { now: NOW })).items.find((row) => row.kind === "sending-paused")?.title).toBe("3 sending pauses active");
+    m.safeguards.mockResolvedValueOnce({ emergencyStop: false, paused: 0 });
+    expect((await buildWorkQueue(ADMIN, { now: NOW })).items.some((row) => row.kind === "sending-paused")).toBe(false);
+    const { allOpsLevels } = await import("@/lib/rbac/ops-catalog");
+    m.safeguards.mockResolvedValueOnce({ emergencyStop: true, paused: 0 });
+    const manager = await buildWorkQueue({ levels: { ...allOpsLevels("manage"), communications: "off" }, readOnly: false }, { now: NOW });
+    expect(manager.items.some((row) => row.kind === "sending-paused")).toBe(false);
   });
 
   it("omits money rows for a manager without finance", async () => {

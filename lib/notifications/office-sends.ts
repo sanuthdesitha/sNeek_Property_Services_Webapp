@@ -72,6 +72,11 @@ export type OfficeSendInput = {
 
 const displayName = (recipient: OfficeRecipient) => recipient.name ?? recipient.email ?? "Recipient";
 
+/** Type, subject entity and account for the sending safeguards (direct sends). */
+function officeSafeguard(input: OfficeSendInput, recipient: OfficeRecipient) {
+  return { typeKey: input.typeKey, eventKey: input.eventKey, entityKey: `${input.entity.type}:${input.entity.id}`, recipientUserId: recipient.id };
+}
+
 type Planned = { recipient: OfficeRecipient; inboxIntentId?: string; inboxOnly?: boolean; directWebPush: boolean; directEmail: boolean; outcomes: RecipientOutcome[] };
 
 function baseEnvelope(input: OfficeSendInput, recipient: OfficeRecipient) {
@@ -156,7 +161,7 @@ async function sendDirectWebPush(input: OfficeSendInput, recipient: OfficeRecipi
   if (!(await directAllowed(input, recipient, "web"))) return { ...base, state: "skipped", errorCode: "recipient_preference" };
   const claimed = await dispatchNotificationOnce({ event: `${input.eventId}:WEB_PUSH`, day: "office", recipientId: recipient.id, jobId: input.jobId ?? undefined }, async () => {
     // Best-effort, as before: the provider gives no receipt we can record here.
-    await sendWebPushToUser(recipient.id, { title: input.subject, body: input.body, url: input.url ?? "/", tag: `${input.eventKey}-${input.entity.id}` });
+    await sendWebPushToUser(recipient.id, { title: input.subject, body: input.body, url: input.url ?? "/", tag: `${input.eventKey}-${input.entity.id}` }, officeSafeguard(input, recipient));
   });
   return { ...base, state: claimed ? "requested" : "already_requested" };
 }
@@ -168,9 +173,9 @@ async function sendDirectEmail(input: OfficeSendInput, recipient: OfficeRecipien
   if (!(await directAllowed(input, recipient, "email"))) return { ...base, state: "skipped", errorCode: "recipient_preference" };
   let outcome: RecipientOutcome = { ...base, state: "already_requested" };
   await dispatchNotificationOnce({ event: `${input.eventId}:EMAIL`, day: "office", recipientId: recipient.id, jobId: input.jobId ?? undefined }, async () => {
-    const result = await sendEmailDetailed({ kind: input.emailKind, to: recipient.email!, subject: content.subject, html: content.html });
+    const result = await sendEmailDetailed({ kind: input.emailKind, to: recipient.email!, subject: content.subject, html: content.html, safeguard: officeSafeguard(input, recipient) });
     const accepted = result.ok && Boolean(result.externalId);
-    outcome = { ...base, state: result.skipped ? "skipped" : result.ok ? "provider_accepted" : "failed", errorCode: result.ok ? null : result.skipped ? "email_preference_or_suppression" : "email_rejected" };
+    outcome = { ...base, state: result.skipped ? "skipped" : result.ok ? "provider_accepted" : "failed", errorCode: result.ok ? null : result.suppressed ? `safeguard_${result.suppressed.reason.toLowerCase()}` : result.skipped ? "email_preference_or_suppression" : "email_rejected" };
     // Record the direct send so the delivery log shows it; the provider webhook
     // later updates deliveryStatus by externalId (delivered / bounced / opened).
     await db.notification.create({ data: {

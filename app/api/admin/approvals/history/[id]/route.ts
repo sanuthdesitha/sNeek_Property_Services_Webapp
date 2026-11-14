@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { REASON_REQUIRED_MESSAGE, requiredReason } from "@/lib/confirmations/reasons";
 import { PayAdjustmentStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
@@ -62,6 +63,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = bodySchema.parse(await req.json().catch(() => ({})));
+    // Changing a decided amount and deleting a decision record keep their
+    // reason in the history (quick pick or "Other…" text; no minimum length,
+    // board "Confirmations and deletes", 2026-11-14).
+    const reasonMissing = (body.action === "edit" || body.action === "delete") && !requiredReason(body.note);
+    if (reasonMissing && body.action === "edit") {
+      return NextResponse.json({ error: REASON_REQUIRED_MESSAGE, code: "REASON_REQUIRED" }, { status: 400 });
+    }
     // Deleting removes the record of who approved what and for how much: an
     // ADMINISTRATOR only (owner decision 2026-11-13; an operations manager can
     // change or reverse a decision but not delete its record), then the
@@ -69,6 +77,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (body.action === "delete") {
       if (!isAdministrator({ id: session.user.id, role: String(session.user.role), heldRoles: (session.user.heldRoles ?? []).map(String) })) {
         return NextResponse.json({ error: "Only an administrator can delete a decision record." }, { status: 403 });
+      }
+      if (reasonMissing) {
+        return NextResponse.json({ error: REASON_REQUIRED_MESSAGE, code: "REASON_REQUIRED" }, { status: 400 });
       }
       try {
         await verifySensitiveAction(session.user.id, body.security);

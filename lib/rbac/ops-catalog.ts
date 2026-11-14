@@ -470,6 +470,9 @@ const SETTINGS_TABS: Record<string, OpsFeature | "owner"> = {
   integrations: "integrations",
   "ical-sync": "integrations",
   ollama: "ai",
+  // The old Settings › AI tab redirects to the AI configuration page
+  // (/v2/admin/ai); operations managers read it with the AI tools pack.
+  ai: "ai",
   roles: "owner",
   // Settings > Access and permissions (its own page, 2026-11 redesign).
   access: "owner",

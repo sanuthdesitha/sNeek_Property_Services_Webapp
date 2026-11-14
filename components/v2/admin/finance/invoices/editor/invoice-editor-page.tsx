@@ -35,7 +35,8 @@ import { EditorLines } from "./editor-lines";
 import { EditorChecks } from "./editor-checks";
 import { HistoryCard, SendCard, XeroCard, type SendChoices } from "./editor-panels";
 import { useXeroRefresh } from "./use-xero-refresh";
-import { RegroupLineDialog, RemoveLineDialog } from "./editor-line-dialogs";
+import { RegroupLineDialog, RemoveLineDialog, lineCanBeRestored } from "./editor-line-dialogs";
+import { undoToast } from "@/components/v2/ui/undo-toast";
 import { ClientReferenceField, CreditLinks, EditorFooterActions } from "./editor-extras";
 import { lineSections, pdfGroupsLines, propertyGroupedOrder } from "./line-sections";
 import { EMPTY_NEW_LINE, validateNewLine } from "./line-drafts";
@@ -99,6 +100,21 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
   function addJobs(jobIds: string[]): Promise<boolean> {
     // Not repeatable after a lost answer: the jobs may already be on the invoice.
     return editor.perform("Add finished jobs", (token) => addJobsRequest(row.id, jobIds, token), { repeatable: false });
+  }
+
+  /** Undo after removing a plain manual line from a draft: the same charge is added again. */
+  function offerLineUndo(line: EditorLine) {
+    undoToast({
+      title: "Line removed",
+      description: line.description,
+      onUndo: () => {
+        void editor.mutate(
+          "Undo remove line",
+          { addLine: { description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, category: line.category } },
+          { repeatable: false },
+        );
+      },
+    });
   }
 
   function addLine() {
@@ -405,13 +421,20 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
       {addingJobs ? <AddJobsDialog suggestions={suggestions} busy={frozen} onAdd={addJobs} onClose={() => setAddingJobs(false)} /> : null}
       <RemoveLineDialog
         line={removing}
+        draft={row.status === "DRAFT"}
         busy={saving}
         onClose={() => setRemoving(null)}
-        onConfirm={(line, security) =>
-          // The PIN travels with the removal and is verified by the server.
+        onConfirm={(line, security) => {
+          // Past DRAFT the PIN travels with the removal and is verified by the server.
           // Closed either way, so a refusal is read in the banner, not behind the modal.
-          void editor.mutate("Remove line", { removeLineId: line.id, security }, { repeatable: false }).finally(() => setRemoving(null))
-        }
+          const draft = row.status === "DRAFT";
+          void editor
+            .mutate("Remove line", draft ? { removeLineId: line.id } : { removeLineId: line.id, security }, { repeatable: false })
+            .then((removed) => {
+              if (removed && draft && lineCanBeRestored(line)) offerLineUndo(line);
+            })
+            .finally(() => setRemoving(null));
+        }}
       />
       <RegroupLineDialog
         line={regrouping}

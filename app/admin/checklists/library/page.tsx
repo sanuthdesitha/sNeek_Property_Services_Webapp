@@ -20,6 +20,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
+import { sensitiveVerificationText, type SensitiveCredentialsInput } from "@/lib/security/pin-rules";
 import { BookOpen, ChevronDown, ChevronRight, Loader2, Plus, Trash2 } from "lucide-react";
 
 interface FeatureDef {
@@ -109,16 +111,29 @@ export default function ChecklistLibraryPage() {
     return true;
   };
 
-  const deleteModule = async (module: LibraryModule) => {
-    if (!window.confirm(`Delete "${module.title}" and its ${module.items.length} item(s)? Properties keep their generated forms.`)) return;
-    const res = await fetch(`/api/admin/checklist-library/${module.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      toast({ title: "Delete failed", description: body.error, variant: "destructive" });
-      return;
+  // Tier C since 2026-11-14: the module route verifies the person's own PIN
+  // (password while they have none), collected by the shared credential field.
+  const [moduleToDelete, setModuleToDelete] = useState<LibraryModule | null>(null);
+  const [deletingModule, setDeletingModule] = useState(false);
+  const deleteModule = async (module: LibraryModule, security?: SensitiveCredentialsInput) => {
+    setDeletingModule(true);
+    try {
+      const res = await fetch(`/api/admin/checklist-library/${module.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: security ?? {} }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast({ title: "Delete failed", description: body.error ? sensitiveVerificationText(body.error) : undefined, variant: "destructive" });
+        return;
+      }
+      setModuleToDelete(null);
+      toast({ title: "Module deleted" });
+      await load();
+    } finally {
+      setDeletingModule(false);
     }
-    toast({ title: "Module deleted" });
-    await load();
   };
 
   const createModule = async () => {
@@ -200,6 +215,17 @@ export default function ChecklistLibraryPage() {
 
   return (
     <div className="space-y-4">
+      <TwoStepConfirmDialog
+        open={Boolean(moduleToDelete)}
+        onOpenChange={(open) => { if (!open && !deletingModule) setModuleToDelete(null); }}
+        title={moduleToDelete ? `Delete "${moduleToDelete.title}"?` : "Delete module?"}
+        description={moduleToDelete ? `The module and its ${moduleToDelete.items.length} item(s) are removed; properties keep their generated forms.` : undefined}
+        confirmLabel="Delete module"
+        cancelLabel="Cancel"
+        requireSecurityVerification
+        loading={deletingModule}
+        onConfirm={(security) => { if (moduleToDelete) void deleteModule(moduleToDelete, security); }}
+      />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold flex items-center gap-2">
@@ -275,7 +301,7 @@ export default function ChecklistLibraryPage() {
                     checked={module.isActive}
                     onCheckedChange={(checked) => patchModule(module.id, { isActive: checked === true })}
                   />
-                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => deleteModule(module)}>
+                  <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={`Delete ${module.title}`} onClick={() => setModuleToDelete(module)}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </CardHeader>

@@ -7,8 +7,8 @@
  * the cleaner requested and not yet paid, for the owner to review; read only).
  * Each row's "more" menu offers Change amount, Reverse and Delete only
  * as the server's capability map allows, with the server's reason when not.
- * Delete (administrators only, as the server decides) asks for a typed DELETE
- * and the administrator's own PIN, verified by the server.
+ * Delete (administrators only, as the server decides) is tier C: a required
+ * quick-pick reason and the administrator's own PIN, both checked by the server.
  */
 import * as React from "react";
 import { toast } from "@/hooks/use-toast";
@@ -20,6 +20,7 @@ import { ERowMenu } from "@/components/v2/ui/row-menu";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EConfirmModal } from "@/components/v2/admin/estate-kit";
+import { REASON_CHOICES } from "@/lib/confirmations/reasons";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
 import { cn } from "@/lib/utils";
 import { APPROVAL_QUEUES, isApprovalsQueueKey } from "@/lib/admin/approvals/queues";
@@ -274,16 +275,16 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
       <EConfirmModal
         open={Boolean(deleteRow)}
         onClose={() => setDeleteRow(null)}
-        title="Delete this approval record"
-        description="The decision, who made it and the amount attached to it are removed from the history for good. Enter your own PIN to continue."
+        title="Delete this approval record?"
+        description="The decision, who made it and its amount come out of the history. This cannot be undone."
         confirmLabel="Delete record"
-        confirmPhrase="DELETE"
         requireSecurity
+        reason={{ label: "Reason", choices: REASON_CHOICES.approvalRecordDelete }}
         loading={Boolean(acting)}
-        onConfirm={async (credentials) => {
+        onConfirm={async (credentials, reason) => {
           const row = deleteRow;
           if (!row) return;
-          if (await act(row, "delete", { security: credentials })) setDeleteRow(null);
+          if (await act(row, "delete", { security: credentials, note: reason })) setDeleteRow(null);
         }}
       />
     </div>

@@ -28,8 +28,6 @@ import { ProfilePermissionsSection } from "@/components/v2/admin/settings/profil
 import { IntegrationsSection } from "@/components/v2/admin/settings/integrations-section";
 import { IcalSection } from "@/components/v2/admin/settings/ical-section";
 import { GatewaysSection } from "@/components/v2/admin/settings/gateways-section";
-import { OllamaSection } from "@/components/v2/admin/settings/ollama-section";
-import { AiSection } from "@/components/v2/admin/settings/ai-section";
 import { XeroSection } from "@/components/v2/admin/settings/xero-section";
 import { FinanceNotificationsSection } from "@/components/v2/admin/settings/finance-notifications-section";
 import { OverviewSection } from "@/components/v2/admin/settings/overview-section";
@@ -65,6 +63,9 @@ export default async function SettingsPage({
   if (searchParams.tab === "roles") redirect("/v2/admin/settings/access");
   // Scheduling rules live on their own page; a tab link opens it.
   if (searchParams.tab === "scheduling-rules") redirect("/v2/admin/settings/scheduling-rules");
+  // AI lives on one page (2026-11-15 rebuild); the old AI and Ollama tabs open its sections.
+  if (searchParams.tab === "ai") redirect("/v2/admin/ai");
+  if (searchParams.tab === "ollama") redirect("/v2/admin/ai?section=ollama");
   // A person granted "Edit access and permissions" also sees that destination.
   const canEditAccess = !isAdmin && (await can(session, "access.edit_permissions"));
   const availableTabs = availableSettings(isAdmin, canEditAccess ? ["roles"] : []);
@@ -150,8 +151,6 @@ export default async function SettingsPage({
         </section>
       ) : null}
 
-      {activeTab === "ollama" && isAdmin ? <OllamaSection /> : null}
-      {activeTab === "ai" && isAdmin ? <AiSection /> : null}
       {activeTab === "overview" ? (
         <OverviewSection
           settings={{

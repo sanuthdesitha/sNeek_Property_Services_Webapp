@@ -54,6 +54,12 @@ export function caseHref(caseId: string): string {
 }
 export const LAUNDRY_HREF = "/v2/admin/laundry";
 export const LOST_FOUND_HREF = "/v2/admin/lost-found";
+/** Maintenance, open items nobody is on (the list's "Assigned to: Nobody" filter). */
+export const MAINTENANCE_NOBODY_HREF = "/v2/admin/maintenance?assigned=none";
+
+export function maintenanceItemHref(itemId: string): string {
+  return `/v2/admin/maintenance?assigned=none&open=${encodeURIComponent(itemId)}`;
+}
 export const INVENTORY_HREF = "/v2/admin/inventory";
 export const QUOTES_HREF = "/v2/admin/quotes";
 export const LIVE_OPS_HREF = "/v2/admin/ops";

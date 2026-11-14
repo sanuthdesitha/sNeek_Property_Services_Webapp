@@ -515,7 +515,7 @@ export function EmailCampaignsManager({
         </ECard>
       </div>
 
-      <EConfirmModal open={Boolean(sendConfirmId)} onClose={() => setSendConfirmId(null)} title="Send to one recipient"
+      <EConfirmModal open={Boolean(sendConfirmId)} onClose={() => setSendConfirmId(null)} title="Send to one recipient" tier="ordinary"
         description={`Send this campaign only to ${campaigns.find(row => row.id === sendConfirmId)?.audience?.filters?.email ?? ""}? Eligibility and preferences are checked again when sending.`}
         confirmLabel="Send to this recipient" loading={Boolean(sendingId)} onConfirm={() => { if (sendConfirmId) void sendCampaign(sendConfirmId, true); }} />
       <EConfirmModal

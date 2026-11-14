@@ -73,6 +73,20 @@ async function countItems(): Promise<WorkQueueItem[]> {
   ];
 }
 
+/**
+ * Sending safeguards: the emergency stop is on, or a type, person or job is
+ * paused (lib/notifications/safeguards). Opens the Sending safeguards screen.
+ */
+export async function sendingSafeguardItems(): Promise<WorkQueueItem[]> {
+  const { safeguardAttention } = await import("@/lib/notifications/safeguards/overview");
+  const state = await safeguardAttention();
+  const href = "/v2/admin/notifications/safeguards";
+  if (state.emergencyStop) {
+    return aggregate({ kind: "sending-paused", count: 1, title: "Emergency stop is on: no email, SMS or push is being sent", detail: `Only security messages go out; inbox notices continue.${state.paused ? ` ${plural(state.paused, "pause")} also active.` : ""}`, href, action: "Open sending safeguards" });
+  }
+  return aggregate({ kind: "sending-paused", count: state.paused, title: `${plural(state.paused, "sending pause")} active`, detail: "Email, SMS and push are paused for a type, person or job until someone resumes them.", href, action: "Review pauses" });
+}
+
 type Named<T> = { name: string; run: () => Promise<T> };
 
 async function settle<T>(task: Named<T>, unavailable: string[]): Promise<T | null> {
@@ -88,7 +102,7 @@ export async function buildWorkQueue(viewer: CommandViewer, options: { now?: Dat
   const now = options.now ?? new Date();
   const ctx: sources.QueueContext = { now, todayKey: sydneyTodayKey(now), timeZone: options.timeZone ?? "Australia/Sydney" };
   const unavailable: string[] = [];
-  const [summary, soon, laundry, continuations, stale, leads, docs, shopping, lost, counts] = await Promise.all([
+  const [summary, soon, laundry, continuations, stale, leads, docs, shopping, lost, maintenance, counts, sending] = await Promise.all([
     settle({ name: "Approval and case counts", run: getAdminAttentionSummary }, unavailable),
     settle({ name: "Unassigned jobs", run: () => sources.unassignedSoonItems(ctx) }, unavailable),
     settle({ name: "Laundry exceptions", run: () => sources.laundryExceptionItems(ctx) }, unavailable),
@@ -98,15 +112,19 @@ export async function buildWorkQueue(viewer: CommandViewer, options: { now?: Dat
     settle({ name: "Expiring documents", run: () => sources.expiringDocumentItems(ctx) }, unavailable),
     settle({ name: "Shopping reimbursements", run: sources.shoppingReimbursementItems }, unavailable),
     settle({ name: "Lost and found", run: () => sources.lostItemItems(ctx) }, unavailable),
+    settle({ name: "Maintenance", run: () => sources.unassignedMaintenanceItems(ctx) }, unavailable),
     settle({ name: "Quality, invoice and stock counts", run: countItems }, unavailable),
+    settle({ name: "Sending safeguards", run: sendingSafeguardItems }, unavailable),
   ]);
   const items: WorkQueueItem[] = [
+    ...(sending ?? []),
     ...(soon?.items ?? []),
     ...(continuations ?? []),
     ...(laundry?.items ?? []),
     ...(summary ? summaryItems(summary, { unassignedSoonTotal: soon?.total ?? 0, flaggedInWindow: laundry?.flaggedInWindow ?? 0 }) : []),
     ...(stale ?? []),
     ...(lost ?? []),
+    ...(maintenance ?? []),
     ...(leads ?? []),
     ...(shopping ?? []),
     ...(counts ?? []),

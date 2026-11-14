@@ -7,14 +7,18 @@ import {
   isChannelAllowed,
   type NotificationAudience,
 } from "@/lib/notifications/audience-controls";
+import { guardOutbound, recordOutboundOutcome, type SafeguardMeta } from "@/lib/notifications/safeguards/gate";
+import { notSentText, type SuppressionReason } from "@/lib/notifications/safeguards/config";
 
-export type SmsSendStatus = "sent" | "disabled" | "not_configured" | "failed";
+/** "suppressed": not sent by the sending safeguards (never a delivery). */
+export type SmsSendStatus = "sent" | "disabled" | "not_configured" | "failed" | "suppressed";
 
 export interface SmsSendResult {
   ok: boolean;
   status: SmsSendStatus;
   provider: SmsProvider;
   error?: string;
+  suppressed?: { reason: SuppressionReason; held: boolean };
 }
 
 // Hard cap on outbound SMS length. GSM-7 concatenated messages carry ~153 chars
@@ -213,7 +217,8 @@ async function resolveAudienceForPhone(to: string): Promise<NotificationAudience
 export async function sendSmsDetailed(
   to: string,
   body: string,
-  audience?: NotificationAudience
+  audience?: NotificationAudience,
+  safeguard?: SafeguardMeta
 ): Promise<SmsSendResult> {
   const { provider } = await getSmsProviderState();
 
@@ -235,18 +240,32 @@ export async function sendSmsDetailed(
 
   const clamped = clampSmsBody(body);
 
-  if (provider === "cellcast") {
-    return sendViaCellcast(to, clamped);
+  // The sending safeguards (lib/notifications/safeguards/gate.ts).
+  const decision = await guardOutbound({
+    transport: "SMS", recipient: to, meta: safeguard ?? null, content: clamped,
+    holdPayload: { transport: "SMS", to, body: clamped },
+  });
+  if (!decision.allowed) {
+    return { ok: false, status: "suppressed", provider, error: notSentText(decision.reason), suppressed: { reason: decision.reason, held: decision.held } };
   }
 
-  return sendViaTwilio(to, clamped);
+  // Non-production only: SNEEK_OUTBOUND_SANDBOX_SMS=off records the decision but sends nothing.
+  if (process.env.SNEEK_OUTBOUND_SANDBOX_SMS?.trim().toLowerCase() === "off") {
+    await recordOutboundOutcome(decision.eventId, "NOT_ACCEPTED");
+    return { ok: false, status: "disabled", provider, error: "SMS sandbox: not sent outside production." };
+  }
+
+  const result = provider === "cellcast" ? await sendViaCellcast(to, clamped) : await sendViaTwilio(to, clamped);
+  await recordOutboundOutcome(decision.eventId, result.ok ? "ACCEPTED" : result.status === "failed" ? "UNCERTAIN" : "NOT_ACCEPTED");
+  return result;
 }
 
 export async function sendSms(
   to: string,
   body: string,
-  audience?: NotificationAudience
+  audience?: NotificationAudience,
+  safeguard?: SafeguardMeta
 ): Promise<boolean> {
-  const result = await sendSmsDetailed(to, body, audience);
+  const result = await sendSmsDetailed(to, body, audience, safeguard);
   return result.ok;
 }
