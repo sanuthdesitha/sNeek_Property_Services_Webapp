@@ -51,7 +51,9 @@ const CONFIRMATION_POLICIES: Record<ConfirmationActionKey, ConfirmationPolicy> =
   deleteSubscriptionPlan: { tier: "routine" },
   deleteBlogPost: { tier: "routine" },
   deleteInvoice: { tier: "routine" },
-  deleteUserAccount: { tier: "highRisk", confirmPhrase: "DELETE" },
+  // The typed phrase was removed on 2026-11-14 ("simpler confirmations"); the
+  // dialog no longer reads confirmPhrase. High risk still means the own PIN.
+  deleteUserAccount: { tier: "highRisk" },
 };
 
 export function getConfirmationPolicy(actionKey?: ConfirmationActionKey): ConfirmationPolicy | null {
