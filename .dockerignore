@@ -19,3 +19,4 @@ yarn-debug.log*
 yarn-error.log*
 .next-audit
 .next-audit.__build
+.next-*

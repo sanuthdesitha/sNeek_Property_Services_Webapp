@@ -76,3 +76,4 @@ prisma/migrations/*.sql.bak
 /models/
 /.next-audit/
 /.next-audit.__build/
+/.next-*/
