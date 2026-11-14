@@ -126,7 +126,7 @@ export async function sendAccountEmail(actor: AccountEmailActor, userId: string,
   } else if (type === "PASSWORD_RESET") {
     // Issuing deletes the previous reset token for this address.
     const raw = await issueRecoveryToken("pwreset", to);
-    const content = passwordResetEmail({ name: target.name, link: passwordResetLink(to, raw), sentByOffice: true });
+    const content = passwordResetEmail({ name: target.name, email: to, link: passwordResetLink(to, raw), sentByOffice: true });
     recorded = await recordAccountEmail({ ...base, send: { to, subject: content.subject, html: content.html, transactional: true, critical: true } });
   } else {
     // The code service replaces the previous code and applies its own cool-down too.
@@ -186,6 +186,7 @@ function historyEntry(row: AuditRow, names: Map<string, string>, email: string):
       if (after.activationMode !== "ADMIN_CREATED_INVITE") return null;
       return entry("Invitation to set a password (account created)", legacyState(after.invitationEmailSent), by(row.userId), typeof after.email === "string" ? after.email : email);
     case "RESET_USER_PASSWORD":
+      if (after.mode === "RESET_LINK") return entry("Password reset link (administrator reset)", legacyState(after.emailSent), by(row.userId), email, "A single-use link that works for 30 minutes.");
       return entry("Temporary password (administrator reset)", legacyState(after.emailSent), by(row.userId), email, "The password itself is never shown here.");
     case "ACCEPT_INVITATION":
       return entry("Invitation accepted", "NOT_RECORDED", "The person", null, "Not an email: the person set their password.");

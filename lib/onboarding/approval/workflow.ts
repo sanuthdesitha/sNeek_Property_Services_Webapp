@@ -16,6 +16,7 @@ import { featuresFromAppliances, sanitizeFeatures } from "@/lib/checklists/featu
 import { ensurePropertyDefaultStock } from "@/lib/inventory/default-items";
 import { logger } from "@/lib/logger";
 import { partnerTimesForNewRun } from "@/lib/laundry/partner-schedule-server";
+import { applyOnboardingStockList, type OnboardingStockActivationRow } from "@/lib/onboarding/workspace/stock-activation";
 
 interface ApproveInput {
   surveyId: string;
@@ -25,6 +26,19 @@ interface ApproveInput {
   createJobsForTypes?: string[];
   /** When false, no Job drafts are created (property/integration/laundry only). */
   createInitialJobs?: boolean;
+  /**
+   * Onboarding workspace (2026-11-16): runs inside the approval transaction
+   * after everything above is created and before the survey is stamped
+   * APPROVED, so a failure rolls the whole activation back. Absent for every
+   * older caller, whose behaviour is unchanged.
+   */
+  afterPropertyCreated?: (tx: Prisma.TransactionClient, created: { propertyId: string; clientId: string }) => Promise<void>;
+  /**
+   * Onboarding workspace stock list: when stock tracking is on and this list
+   * is given, these rows (with their par and reorder levels) are created
+   * instead of the whole default set. Absent: the default set, as before.
+   */
+  stockList?: OnboardingStockActivationRow[];
 }
 
 export interface ApproveResult {
@@ -568,7 +582,15 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
   // only the admin create-property POST ever seeded. An approved survey that
   // opted into restocking therefore produced a property whose supplies screen
   // was empty. Seeding is idempotent, so a re-approval is a no-op.
-  if (inventoryEnabled) {
+  if (inventoryEnabled && input.stockList && input.stockList.length > 0) {
+    try {
+      const outcome = await applyOnboardingStockList(result.propertyId, input.stockList);
+      coverageWarnings.push(...outcome.warnings);
+    } catch (err) {
+      logger.error({ err, surveyId: survey.id, propertyId: result.propertyId }, "Onboarding stock list could not be created");
+      coverageWarnings.push("The stock list could not be created. Add the items from the property's Stock tab.");
+    }
+  } else if (inventoryEnabled) {
     try {
       const { created } = await ensurePropertyDefaultStock(result.propertyId);
       logger.info(
@@ -775,6 +797,10 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
         },
       });
       laundryTaskId = laundryTask.id;
+    }
+
+    if (input.afterPropertyCreated) {
+      await input.afterPropertyCreated(tx, { propertyId: property.id, clientId });
     }
 
     // 6. Stamp the survey APPROVED with the created ids (idempotency record).

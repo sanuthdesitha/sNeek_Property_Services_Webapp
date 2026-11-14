@@ -32,6 +32,8 @@ export type EActionDialogProps = {
   footer?: React.ReactNode;
   /** Replaces the footer row's layout classes (the confirm dialog stacks its buttons on a phone). */
   footerClassName?: string;
+  /** A wider panel from 640px up, for a read-only preview (photos, a rendered record). Phones keep the sheet. */
+  wide?: boolean;
 };
 
 const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -48,7 +50,7 @@ function initialFocus(root: HTMLElement): HTMLElement {
   return items.find((element) => !element.hasAttribute("data-dialog-close")) ?? items[0] ?? root;
 }
 
-export function EActionDialog({ open, title, eyebrow, description, busy = false, onClose, children, footer, footerClassName }: EActionDialogProps) {
+export function EActionDialog({ open, title, eyebrow, description, busy = false, onClose, children, footer, footerClassName, wide = false }: EActionDialogProps) {
   const titleId = React.useId();
   const descriptionId = React.useId();
   const panelRef = React.useRef<HTMLDivElement>(null);
@@ -140,7 +142,7 @@ export function EActionDialog({ open, title, eyebrow, description, busy = false,
           aria-busy={busy}
           tabIndex={-1}
           onKeyDown={onKeyDown}
-          className={cn("relative z-10 my-8 w-full max-w-md rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-3)] focus:outline-none", PHONE_SHEET_PANEL_CLASS)}
+          className={cn("relative z-10 my-8 w-full rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-3)] focus:outline-none", wide ? "max-w-4xl" : "max-w-md", PHONE_SHEET_PANEL_CLASS)}
         >
           <span aria-hidden className={PHONE_SHEET_GRAB_CLASS} />
           <div className="flex items-start justify-between gap-3 border-b border-[hsl(var(--e-border))] px-5 py-3.5">

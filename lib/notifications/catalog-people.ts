@@ -229,6 +229,6 @@ export const PEOPLE_NOTIFICATION_TYPES: NotificationTypeEntry[] = [
     switches: [{ kind: "NONE" }],
     template: { kind: "NONE" },
     preferences: "IGNORES",
-    producers: ["app/api/admin/notifications/test/route.ts", "app/api/push/test/route.ts", "lib/notifications/test-send.ts"],
+    producers: ["app/api/admin/notifications/test/route.ts", "app/api/push/test/route.ts", "lib/notifications/test-send.ts", "lib/email-design/test-send.ts"],
   },
 ];

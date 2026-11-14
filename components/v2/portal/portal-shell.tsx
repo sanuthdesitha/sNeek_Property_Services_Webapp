@@ -25,6 +25,9 @@ import { ChevronDown, LogOut, Menu, Search, Star, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { hasPhoneMoreSheet, mobileTabs, phoneSheetTabs } from "@/lib/navigation/mobile-tabs";
 import { PhoneMoreTab } from "@/components/v2/portal/phone-more-sheet";
+import { TutorialProvider } from "@/components/v2/tutorials/tutorial-provider";
+import { HelpControls } from "@/components/v2/tutorials/help-panel";
+import type { TourTargetProps } from "@/lib/tutorials/targets";
 
 export interface NavItem {
   href: string;
@@ -48,6 +51,8 @@ export interface NavItem {
   mobileOnly?: boolean;
   /** Further paths that keep this entry's phone tab lit (a tab's sub-pages). */
   tabActivePrefixes?: string[];
+  /** A registered tour target on this entry's rail link and phone tab (lib/tutorials/targets.ts). */
+  tour?: TourTargetProps;
 }
 
 export function PortalShell({
@@ -239,6 +244,7 @@ export function PortalShell({
                 return (
                   <div key={item.href} className="flex items-center gap-0.5">
                   <Link
+                    {...item.tour}
                     href={item.href}
                     aria-current={active ? "page" : undefined}
                     title={item.label}
@@ -313,6 +319,7 @@ export function PortalShell({
   );
 
   return (
+    <TutorialProvider portal={accent}>
     <div className="min-h-screen bg-[hsl(var(--e-background))]">
       {/* Desktop rail — truly fixed so it never scrolls with the page */}
       <aside className="fixed left-0 top-0 z-40 hidden h-screen w-60 flex-shrink-0 border-r border-[hsl(var(--e-border))] bg-[hsl(var(--e-sidebar-bg))] lg:flex lg:flex-col">
@@ -350,6 +357,7 @@ export function PortalShell({
             {roleLabel || accent} / <span className="font-medium text-[hsl(var(--e-foreground))]">{nav.find((item) => item.href === bestMatchHref)?.label || "Details"}</span>
           </p>
           <div className="ml-auto flex items-center gap-1">
+            <HelpControls pageLabel={nav.find((item) => item.href === bestMatchHref)?.label || roleLabel || "This page"} />
             {headerActions}
             <PortalSearch accent={accent} nav={nav} />
             <NotificationInbox accent={accent} />
@@ -374,6 +382,7 @@ export function PortalShell({
         </nav>
       </div>
     </div>
+    </TutorialProvider>
   );
 
   /** One phone tab link (shared by both phone bars). */
@@ -382,6 +391,7 @@ export function PortalShell({
     const Icon = item.icon;
     return (
       <Link
+        {...item.tour}
         key={item.href}
         href={item.href}
         aria-current={active ? "page" : undefined}

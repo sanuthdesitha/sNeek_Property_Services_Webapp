@@ -142,6 +142,8 @@ export type ClientInvoiceEditorData = {
   clientNote: string | null;
   /** Set when the started-work snapshot cannot be read: read only, approval refused. */
   startedWorkUnreadable: string | null;
+  /** Jobs the office left off this draft at creation because they had no rate ("not billed: no rate"). */
+  notBilled?: Array<{ jobId: string; jobNumber: string | null; propertyName: string | null; scheduledDate: string | null }>;
   lines: EditorLine[];
   clientProperties: Array<{ id: string; name: string; suburb: string | null }>;
   editLock: InvoiceEditLock;

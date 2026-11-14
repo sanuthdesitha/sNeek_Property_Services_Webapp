@@ -46,7 +46,7 @@ export const SETTINGS_GROUPS = [
     key: "system",
     label: "System",
     shortLabel: "System",
-    description: "The settings audit trail.",
+    description: "The settings audit trail, and tutorials and What's new.",
   },
 ] as const;
 
@@ -76,6 +76,18 @@ export const SETTINGS_DESTINATIONS = [
     description: "Choose the default portal appearance.",
     group: "brand",
     adminOnly: true,
+  },
+  {
+    // The look every email uses (email design system, 2026-11): logo, brand
+    // colour (contrast-checked), button shape, sender, reply-to, footer line.
+    // Reads: ADMIN and ops managers with the notifications pack; changes:
+    // ADMIN only, publishing with their own PIN.
+    key: "email-look",
+    label: "Email look",
+    description: "Logo, brand colour, button shape, sender name, reply-to and the footer line on every email.",
+    group: "brand",
+    adminOnly: false,
+    href: "/v2/admin/notifications/email-look",
   },
   {
     key: "public-widgets",
@@ -314,6 +326,16 @@ export const SETTINGS_DESTINATIONS = [
     group: "ai",
     adminOnly: true,
     href: "/v2/admin/ai?section=ollama",
+  },
+  {
+    // Tutorials (2026-11-16, board "Tutorials settings"). Operations managers
+    // view with the Settings pack; only administrators edit (server-enforced).
+    key: "tutorials",
+    label: "Tutorials and What's new",
+    description: "Welcome screens, page tours, practice walkthroughs and What's new for every role: wording, order, switches, people and release notes.",
+    group: "system",
+    adminOnly: false,
+    href: "/v2/admin/settings/tutorials",
   },
   {
     key: "audit",

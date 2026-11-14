@@ -5,6 +5,7 @@
  * (date + time window, type, duration, pay when present) and a READ FIRST
  * preview so the cleaner knows what they're taking on before accepting.
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import * as React from "react";
 import Link from "next/link";
 import { Megaphone, CheckCircle2, ChevronRight } from "lucide-react";
@@ -67,7 +68,9 @@ export function StageAccept({ api }: { api: WorkspaceApi }) {
                 instructions appear once you accept.
               </p>
             </div>
-            <JobOfferActions jobId={job.id} size="md" onDone={() => api.load()} />
+            <div {...tourTarget("cleaner.offer.accept")}>
+              <JobOfferActions jobId={job.id} size="md" onDone={() => api.load()} />
+            </div>
           </ECardBody>
         </ECard>
       ) : null}
@@ -96,7 +99,7 @@ export function StageAccept({ api }: { api: WorkspaceApi }) {
               <p className="flex items-center gap-1.5 text-[0.8125rem] text-[hsl(var(--e-success))]">
                 <CheckCircle2 className="h-4 w-4" /> You accepted this job.
               </p>
-              <EButton variant="primary" asChild className="w-full"><Link href={`/v2/cleaner/route?jobId=${encodeURIComponent(api.job.id)}`}>Start driving</Link></EButton>
+              <EButton variant="primary" asChild className="w-full"><Link {...tourTarget("cleaner.job.startDriving")} href={`/v2/cleaner/route?jobId=${encodeURIComponent(api.job.id)}`}>Start driving</Link></EButton>
               <EButton variant="gold" className="w-full" onClick={() => api.setActiveStage(2)}>
                 Continue to Get there <ChevronRight className="h-4 w-4" />
               </EButton>

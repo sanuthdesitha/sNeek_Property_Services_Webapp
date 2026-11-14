@@ -11,6 +11,7 @@
  * stage only re-homes the presentation and computes section progress to hand
  * FormRenderer (which stays behavior-compatible: the new props default off).
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import * as React from "react";
 import { UrgentStockWorkspace } from "@/components/inventory/urgent-stock-workspace";
 import { ListChecks, ClipboardCheck, Camera, CheckCircle2, AlertTriangle, Images } from "lucide-react";
@@ -87,7 +88,7 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
 
       {/* Admin / carry-forward checklist */}
       {jobTasks.length > 0 ? (
-        <ECard>
+        <ECard {...tourTarget("cleaner.job.checklistItem")}>
           <ECardBody className="space-y-4 pt-6">
             <p className="e-eyebrow flex items-center gap-1.5">
               <ListChecks className="h-3.5 w-3.5" /> Checklist ({jobTasks.length})
@@ -207,6 +208,7 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
             canUseNoPhoto={api.canUseNoPhoto}
             enforceExtendedRules={api.enforceExtendedRules}
             effectsJobId={api.jobId}
+            mode={api.formMode}
             stockUpdateMode={api.payload?.stockUpdateMode}
             propertyId={api.payload?.job?.propertyId}
           />

@@ -91,5 +91,5 @@ export const AGENT_REQUEST_WORDING = editable("agent.action_request", [
 ]);
 
 export const XERO_RECONNECT_WORDING = editable("xero.reconnect_needed", [
-  inbox("needed", "Reconnect needed", "Xero needs reconnecting: {{tenantName}}", "{{reason}} Invoices and bills cannot reach Xero until an administrator reconnects it in Settings, Xero. Failed pushes can then be retried.", { required: ["reason"], note: "Inbox only, to administrators, once per outage." }),
+  inbox("needed", "Reconnect needed", "Xero needs reconnecting: {{tenantName}}", "{{reason}} Invoices and bills cannot reach Xero until an administrator reconnects it in Settings, Xero. Failed pushes can then be retried.", { required: ["reason"], note: "Inbox notice to administrators, once per outage. The email that goes with it is the block design \"Xero needs reconnecting\" (Email designs)." }),
 ]);

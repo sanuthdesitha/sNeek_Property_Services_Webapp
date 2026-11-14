@@ -454,7 +454,7 @@ export function UsersManager({ canManage, embedded = false }: { canManage: boole
           variant: "destructive",
         });
       } else {
-        toast({ title: "Temporary password sent", description: "The user received a reset email." });
+        toast({ title: "Reset link sent", description: "The email provider accepted a one-time reset link (delivery is not confirmed)." });
       }
       setResetTarget(null);
     } catch (err: any) {

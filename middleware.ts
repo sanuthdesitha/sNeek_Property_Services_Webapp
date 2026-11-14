@@ -302,6 +302,8 @@ const normalMiddleware = withAuth(portalMiddleware, {
           pathname.startsWith("/apply/") ||
           pathname.startsWith("/quiz/") ||
           pathname.startsWith("/amenities/") ||
+          // Client onboarding link (2026-11-16): token-gated, no login; the API resolves the token.
+          pathname.startsWith("/onboarding-link/") ||
           pathname.startsWith("/accept-invite/") ||
           // Public report verification — anyone holding a report code may check it.
           pathname === "/verify" ||

@@ -1,0 +1,433 @@
+/**
+ * The 30 shared templates (lib/email-templates.ts), as blocks. Version 1 keeps
+ * each template's current words; the only visible change is the layout. The
+ * button is the one every shared template carried (the sender's link and
+ * label, otherwise the portal). Plain module.
+ */
+import { actionButton, callout, design, details, doc, heading, lineItems, note, paragraph, v } from "./build";
+import type { EmailDesignDefinition } from "../types";
+
+const NAME = v("userName", "Person's name", "Jane", { fallback: "there" });
+const PROPERTY = v("propertyName", "Property name", "The Bondi Studio", { keep: true });
+const JOB_NUMBER = v("jobNumber", "Job number", "J-1042");
+const JOB_TYPE = v("jobType", "Job type", "Airbnb turnover");
+const WHEN = v("when", "When", "Thu 12 Nov, 10:00 am", { keep: true });
+const TIMING = v("timingFlags", "Timing notes", "Guests arrive 3:00 pm");
+const JOB_URL = v("jobUrl", "Job link", "https://app.sneek.example/v2/cleaner/jobs/J-1042", { format: "url" });
+const CLEAN_DATE = v("cleanDate", "Clean date", "Thu 12 Nov");
+const CLIENT = v("clientName", "Client name", "Priya", { fallback: "there" });
+
+export const TEMPLATE_DESIGNS: readonly EmailDesignDefinition[] = [
+  design({
+    key: "signupOtp", templateKey: "signupOtp", label: "Sign-up code", group: "accounts", typeKey: "account.security", audience: "Person signing up",
+    trigger: "Someone signs up or asks for a new sign-up code.", security: true, whyLine: "", preferences: "none",
+    mustStay: ["Code", "Expiry", "Whole body fixed"], source: "template signupOtp",
+    variables: [v("code", "Sign-up code", "482913", { format: "code", required: true }), v("expiryMinutes", "Minutes it works", "10", { required: true }), v("email", "Email address", "jane.doe@example.com")],
+    defaults: doc("Verify your {{companyName}} account", "Your one-time code works for {{expiryMinutes}} minutes.", [
+      heading("Verify your email address", { lock: "fixed" }),
+      paragraph("Use the one-time code below to complete your account verification. Do not share this code with anyone.", { lock: "fixed" }),
+      { type: "code", source: "code", lock: "fixed" },
+      paragraph("Valid for {{expiryMinutes}} minutes.", { lock: "fixed" }),
+      note("If you did not request this, you can safely ignore this email. Your account will not be affected.", { lock: "fixed" }),
+    ]),
+  }),
+  design({
+    key: "resetPassword", templateKey: "resetPassword", label: "Password reset (link)", group: "accounts", typeKey: "account.security", audience: "Any person",
+    trigger: "Someone asks to reset their password, or the office or an administrator sends a reset link.", security: true, whyLine: "", preferences: "none",
+    mustStay: ["Reset link", "Expiry", "Whole body fixed"], source: "template resetPassword (sent a temporary password before 2026-11-16) and the self-service reset email",
+    variables: [
+      NAME,
+      v("resetUrl", "Reset link", "https://app.sneek.example/reset-password?token=…", { format: "url", required: true }),
+      v("expiryMinutes", "Minutes it works", "30", { required: true }),
+      v("email", "Email address", "priya.n@example.com", { required: true }),
+      v("reasonLine", "Why it was sent", "We received a request to reset your password."),
+    ],
+    defaults: doc("Reset your {{companyName}} password", "This link works once, for {{expiryMinutes}} minutes.", [
+      heading("Reset your password", { lock: "fixed" }),
+      paragraph("Hi {{userName}}, {{reasonLine}} Choose a new password for **{{email}}** with the button below.", { lock: "fixed" }),
+      { type: "button", label: "Choose a new password", link: "resetUrl", lock: "fixed" },
+      paragraph("This link works once and expires in {{expiryMinutes}} minutes.", { lock: "fixed" }),
+      note("Didn't ask for this? Your password hasn't changed and you can ignore this email.", { lock: "fixed" }),
+    ]),
+  }),
+  design({
+    key: "welcomeAccount", templateKey: "welcomeAccount", label: "Welcome, account ready", group: "accounts", typeKey: "account.invitations", audience: "New client or person",
+    trigger: "A client account is created or a sign-up is verified.", security: false, whyLine: "You got this because an account was opened for this address.", preferences: "none", action: true,
+    mustStay: ["Login email", "Temporary password when one was set"], source: "template welcomeAccount",
+    variables: [NAME, v("role", "Role", "Client"), v("email", "Login email", "priya.n@example.com", { keep: true }), v("tempPassword", "Temporary password", "Sw1ft-Otter-42", { keep: true }), v("welcomeNote", "Welcome note", "")],
+    defaults: doc("Welcome to {{companyName}} — your account is ready", "Sign in to get started.", [
+      heading("Welcome, {{userName}}!"),
+      paragraph("Your {{companyName}} account is activated and ready. Sign in using the credentials below to get started."),
+      details([["Role", "{{role}}"], ["Login email", "{{email}}"], ["Temporary password", "{{tempPassword}}"]], { lock: "required" }),
+      paragraph("{{welcomeNote}}", { showIf: "welcomeNote" }),
+      callout("note", "Sign in and update your password from your profile settings — temporary passwords expire.", { showIf: "tempPassword" }),
+      actionButton("Sign in"),
+      note("Complete your profile after signing in so notifications, invoices, and job assignments reach you correctly."),
+    ]),
+  }),
+  design({
+    key: "accountInvite", templateKey: "accountInvite", label: "Portal account invitation", group: "accounts", typeKey: "account.invitations", audience: "Invited person",
+    trigger: "The office invites a client or staff member to the portal.", security: false, whyLine: "You got this because sNeek invited this address to an account.", preferences: "none", action: true,
+    mustStay: ["Login email", "Temporary password or set-password link"], source: "template accountInvite",
+    variables: [NAME, v("role", "Role", "Cleaner"), v("email", "Login email", "jane.doe@example.com", { keep: true }), v("tempPassword", "Temporary password", "", { keep: true }), v("welcomeNote", "Welcome note", "")],
+    defaults: doc("You've been invited to {{companyName}}", "Your portal account is ready.", [
+      heading("Your portal account is ready"),
+      paragraph("Hello {{userName}}, an account has been created for you on **{{companyName}}**. Use the details below to sign in."),
+      details([["Role", "{{role}}"], ["Login email", "{{email}}"], ["Temporary password", "{{tempPassword}}"]], { lock: "required" }),
+      paragraph("{{welcomeNote}}", { showIf: "welcomeNote" }),
+      callout("action", "Change your password immediately after your first sign-in.", { showIf: "tempPassword" }),
+      actionButton("Set my password"),
+    ]),
+  }),
+  design({
+    key: "newProfileCreated", templateKey: "newProfileCreated", label: "New profile created", group: "office", typeKey: "office.new_profile", audience: "Office",
+    trigger: "A profile is created through a non-admin flow.", security: false, whyLine: "You got this because you manage accounts at sNeek.", preferences: "staff", action: true,
+    mustStay: ["Name", "Email"], source: "template newProfileCreated",
+    variables: [v("userName", "Name", "Jane Doe", { keep: true }), v("email", "Email", "jane.doe@example.com", { keep: true }), v("role", "Role", "Cleaner"), v("createdVia", "Created via", "Sign-up form"), v("createdAt", "Created at", "12 Nov 2026, 9:14 am")],
+    defaults: doc("{{companyName}}: New profile created - {{userName}}", "{{role}} · {{createdVia}}", [
+      heading("New profile created"),
+      paragraph("A new user profile was created through a non-admin flow."),
+      details([["Name", "{{userName}}"], ["Email", "{{email}}"], ["Role", "{{role}}"], ["Created via", "{{createdVia}}"], ["Created at", "{{createdAt}}"]]),
+      actionButton("Open account"),
+    ]),
+  }),
+  design({
+    key: "jobReminder24h", templateKey: "jobReminder24h", label: "Job reminder (24 hours)", group: "cleaners", typeKey: "job.reminder.scheduled", audience: "Cleaner (client contact has its own wording)",
+    trigger: "About 24 hours before a job (and the 2-hour reminder) by the reminder schedule.", security: false, whyLine: "You got this because you accepted this job.", preferences: "cleaner", action: true,
+    mustStay: ["When", "Property"], source: "template jobReminder24h",
+    variables: [NAME, JOB_TYPE, PROPERTY, v("propertyAddress", "Property address", "4/22 Campbell Pde, Bondi Beach"), WHEN, TIMING, JOB_NUMBER, JOB_URL],
+    defaults: doc("Tomorrow: {{jobType}} at {{propertyName}} ({{jobNumber}})", "{{when}} · {{propertyAddress}}", [
+      heading("Job reminder — tomorrow"),
+      paragraph("Hello {{userName}}, this is your 24-hour reminder for the job below. Please review all details and prepare before arrival."),
+      details([["Job #", "{{jobNumber}}"], ["Service", "{{jobType}}"], ["Property", "{{propertyName}}"], ["Address", "{{propertyAddress}}"], ["Scheduled", "{{when}}"]], { lock: "required" }),
+      paragraph("**Timing notes:** {{timingFlags}}", { showIf: "timingFlags" }),
+      actionButton("Open job"),
+      note("Check access instructions, equipment requirements, stock levels, and any special notes before attending the property. Open the job in your portal for full details."),
+    ], "jobNumber"),
+  }),
+  design({
+    key: "jobAssigned", templateKey: "jobAssigned", label: "Job offer / assigned", group: "cleaners", typeKey: "job.offer", audience: "Cleaner",
+    trigger: "The office assigns or offers a job to a cleaner.", security: false, whyLine: "You got this because you're on sNeek's cleaning team.", preferences: "cleaner", action: true,
+    mustStay: ["When", "Property"], source: "template jobAssigned",
+    variables: [NAME, JOB_TYPE, PROPERTY, WHEN, TIMING, JOB_NUMBER, JOB_URL],
+    defaults: doc("Job assigned — {{propertyName}} ({{jobNumber}})", "{{jobType}} · {{when}}", [
+      heading("New job assigned"),
+      paragraph("Hello {{userName}}, you have been assigned to the job below. Open it in the Cleaner Portal to confirm and view all access details."),
+      details([["Job #", "{{jobNumber}}"], ["Service", "{{jobType}}"], ["Property", "{{propertyName}}"], ["Scheduled", "{{when}}"], ["Timing notes", "{{timingFlags}}"]], { lock: "required" }),
+      actionButton("Open job"),
+    ], "jobNumber"),
+  }),
+  design({
+    key: "jobRemoved", templateKey: "jobRemoved", label: "Job removed", group: "cleaners", typeKey: "job.offer", audience: "Cleaner",
+    trigger: "A cleaner is removed from a job.", security: false, whyLine: "You got this because this job was on your schedule.", preferences: "cleaner", action: true,
+    mustStay: ["Job", "Property"], source: "template jobRemoved",
+    variables: [NAME, JOB_TYPE, PROPERTY, WHEN, TIMING, JOB_NUMBER, JOB_URL],
+    defaults: doc("Job removed from your schedule ({{jobNumber}})", "{{propertyName}} · {{when}}", [
+      heading("Job removed"),
+      paragraph("Hello {{userName}}, you have been removed from the following job. No further action is required from you."),
+      details([["Job #", "{{jobNumber}}"], ["Service", "{{jobType}}"], ["Property", "{{propertyName}}"], ["Was scheduled", "{{when}}"]], { lock: "required" }),
+      actionButton("Open portal"),
+      note("If you believe this was an error, please contact your scheduler."),
+    ], "jobNumber"),
+  }),
+  design({
+    key: "laundryReady", templateKey: "laundryReady", label: "Laundry ready for pickup", group: "laundry", typeKey: "laundry.updates", audience: "Laundry partner",
+    trigger: "The cleaner confirms the laundry is bagged and ready.", security: false, whyLine: "You got this because you collect laundry for this property.", preferences: "laundry", action: true,
+    mustStay: ["Property", "Pickup date"], source: "template laundryReady",
+    variables: [PROPERTY, JOB_NUMBER, CLEAN_DATE, v("scheduledPickupDate", "Pickup date", "Thu 12 Nov, 2:30 pm", { keep: true }), v("scheduledDropoffDate", "Drop-off date", "Sat 14 Nov, 10:00 am"), v("bagLocation", "Bag location", "Hallway cupboard"), v("laundryPhotoUrl", "Laundry photo link", "", { format: "url" })],
+    defaults: doc("Laundry ready for pickup — {{propertyName}} ({{jobNumber}})", "Pickup {{scheduledPickupDate}} · {{bagLocation}}", [
+      heading("Laundry ready for pickup"),
+      paragraph("The cleaner has confirmed laundry is bagged and ready for collection at the property below."),
+      details([["Job #", "{{jobNumber}}"], ["Property", "{{propertyName}}"], ["Clean date", "{{cleanDate}}"], ["Pickup date", "{{scheduledPickupDate}}"], ["Drop-off date", "{{scheduledDropoffDate}}"], ["Bag location", "{{bagLocation}}"]], { lock: "required" }),
+      actionButton("Open laundry portal"),
+      note("Open the Laundry Portal to confirm pickup and log the bag count."),
+    ], "jobNumber"),
+  }),
+  design({
+    key: "laundrySkipRequested", templateKey: "laundrySkipRequested", label: "Laundry skip requested", group: "laundry", typeKey: "laundry.updates", audience: "Office and laundry",
+    trigger: "A cleaner's laundry update asks for the pickup to be skipped or reviewed.", security: false, whyLine: "You got this because you manage laundry for this property.", preferences: "staff", action: true,
+    mustStay: ["Property", "Outcome"], source: "template laundrySkipRequested",
+    variables: [PROPERTY, JOB_NUMBER, CLEAN_DATE, v("laundryOutcome", "Outcome", "No laundry this clean", { keep: true }), v("reasonCode", "Reason", "Guests stayed on"), v("reasonNote", "Cleaner note", "Owner asked to keep linen", { format: "multiline" })],
+    defaults: doc("{{companyName}}: Laundry skip requested - {{propertyName}} ({{jobNumber}})", "{{laundryOutcome}} · {{reasonCode}}", [
+      heading("Laundry pickup change requested"),
+      paragraph("A cleaner submitted a laundry update that requires the pickup to be skipped or reviewed."),
+      details([["Job number", "{{jobNumber}}"], ["Property", "{{propertyName}}"], ["Clean date", "{{cleanDate}}"], ["Outcome", "{{laundryOutcome}}"], ["Reason", "{{reasonCode}}"], ["Cleaner note", "{{reasonNote}}"]], { lock: "required" }),
+      actionButton("Open laundry portal"),
+    ], "jobNumber"),
+  }),
+  design({
+    key: "laundrySkipApproved", templateKey: "laundrySkipApproved", label: "Laundry instruction updated", group: "laundry", typeKey: "laundry.updates", audience: "Laundry partner and cleaner",
+    trigger: "The office reviews a laundry skip request.", security: false, whyLine: "You got this because you handle laundry for this property.", preferences: "laundry", action: true,
+    mustStay: ["Property", "Decision"], source: "template laundrySkipApproved",
+    variables: [PROPERTY, JOB_NUMBER, CLEAN_DATE, v("decision", "Decision", "Skip approved", { keep: true }), v("reasonNote", "Note", "No pickup this week", { format: "multiline" })],
+    defaults: doc("{{companyName}}: Laundry instruction updated - {{propertyName}} ({{jobNumber}})", "{{decision}}", [
+      heading("Laundry instruction updated"),
+      paragraph("The laundry booking instruction was reviewed and updated by admin."),
+      details([["Job number", "{{jobNumber}}"], ["Property", "{{propertyName}}"], ["Clean date", "{{cleanDate}}"], ["Decision", "{{decision}}"], ["Note", "{{reasonNote}}"]], { lock: "required" }),
+      actionButton("Open portal"),
+    ], "jobNumber"),
+  }),
+  design({
+    key: "cleaningReportShared", templateKey: "cleaningReportShared", label: "Cleaning report shared", group: "clients", typeKey: "client.documents", audience: "Client",
+    trigger: "The office shares a cleaning report with the client.", security: false, whyLine: "You got this because you're the main contact for this property.", preferences: "client", action: true,
+    mustStay: ["Property", "Report"], source: "template cleaningReportShared",
+    variables: [CLIENT, JOB_NUMBER, PROPERTY, JOB_TYPE, CLEAN_DATE, v("reportLink", "Report link", "https://app.sneek.example/r/J-1042", { format: "url" })],
+    defaults: doc("Cleaning report ready — {{propertyName}} ({{cleanDate}})", "Your {{jobType}} report is attached.", [
+      heading("Your cleaning report is ready"),
+      paragraph("Hello {{clientName}}, your **{{jobType}}** report for **{{propertyName}}** has been completed and is attached to this email."),
+      details([["Job #", "{{jobNumber}}"], ["Property", "{{propertyName}}"], ["Service date", "{{cleanDate}}"]], { lock: "required" }),
+      actionButton("Open report"),
+      note("The PDF report is attached. You can also open the Client Portal to review your full service history, download past reports, and track upcoming services."),
+    ], "jobNumber"),
+  }),
+  design({
+    key: "reportVisibilityChanged", templateKey: "reportVisibilityChanged", label: "Report visibility updated", group: "clients", typeKey: "client.documents", audience: "Client or office",
+    trigger: "A report's visibility changes.", security: false, whyLine: "You got this because you can see reports for this property.", preferences: "client", action: true,
+    mustStay: ["Property", "New state"], source: "template reportVisibilityChanged",
+    variables: [PROPERTY, JOB_NUMBER, v("visibilityAudience", "Audience", "Client"), v("visibilityState", "New state", "Visible", { keep: true }), v("visibilityNote", "Note", "")],
+    defaults: doc("{{companyName}}: Report visibility updated for {{propertyName}}", "{{visibilityAudience}}: {{visibilityState}}", [
+      heading("Report visibility updated"),
+      paragraph("The visibility of a report has changed."),
+      details([["Job number", "{{jobNumber}}"], ["Property", "{{propertyName}}"], ["Audience", "{{visibilityAudience}}"], ["New state", "{{visibilityState}}"], ["Note", "{{visibilityNote}}"]], { lock: "required" }),
+      actionButton("Open portal"),
+    ], "jobNumber"),
+  }),
+  design({
+    key: "laundryReport", templateKey: "laundryReport", label: "Laundry report", group: "laundry", typeKey: "laundry.report_email", audience: "Laundry partner or office",
+    trigger: "The office emails a laundry report.", security: false, whyLine: "You got this because sNeek sent you this laundry report.", preferences: "none", action: true,
+    mustStay: ["Report period"], source: "template laundryReport",
+    variables: [v("recipientName", "Recipient", "Linen Lab team", { fallback: "there" }), v("reportLabel", "Report period", "1–7 Nov 2026", { keep: true }), PROPERTY],
+    defaults: doc("{{companyName}} - Laundry Report - {{reportLabel}}", "The report is attached.", [
+      heading("Laundry report attached"),
+      paragraph("Hello {{recipientName}},"),
+      paragraph("Please find the attached laundry report for **{{reportLabel}}**."),
+      details([["Property", "{{propertyName}}"]]),
+      actionButton("Open portal"),
+    ]),
+  }),
+  design({
+    key: "cleanerInvoice", templateKey: "cleanerInvoice", label: "Cleaner invoice (to accounts)", group: "cleaners", typeKey: "job.cleaner_invoice", audience: "Accounts",
+    trigger: "A cleaner sends their invoice.", security: false, whyLine: "You got this because you receive cleaner invoices for sNeek.", preferences: "none", action: true,
+    mustStay: ["Cleaner", "Jobs included"], source: "template cleanerInvoice",
+    variables: [v("cleanerName", "Cleaner", "Jane Doe", { keep: true }), v("jobCount", "Jobs included", "6")],
+    defaults: doc("{{companyName}} - Cleaner Invoice {{cleanerName}}", "{{jobCount}} jobs included. PDF attached.", [
+      heading("Cleaner invoice attached"),
+      paragraph("Hello,"),
+      paragraph("Please find the attached cleaner invoice for **{{cleanerName}}**."),
+      details([["Total jobs included", "{{jobCount}}"]]),
+      actionButton("Open portal"),
+    ]),
+  }),
+  design({
+    key: "clientInvoiceIssued", templateKey: "clientInvoiceIssued", label: "Invoice to client", group: "clients", typeKey: "client.documents", audience: "Client accounts contact",
+    trigger: "An invoice or credit note is sent to the client (PDF attached).", security: false, whyLine: "You got this because you're the accounts contact for this client.", preferences: "client", action: true,
+    mustStay: ["Tax invoice wording", "Invoice number", "ABN", "Total", "Billing period"], source: "lib/billing/client-invoice-send.ts and template clientInvoiceIssued",
+    allowedBlocks: ["heading", "paragraph", "details", "lineItems", "callout", "button", "divider", "signature", "note"],
+    variables: [CLIENT, v("invoiceNumber", "Invoice number", "INV-2311", { required: true }), v("periodLabel", "Billing period", "October 2026", { keep: true }), v("totalAmount", "Amount due", "$742.50", { required: true }), v("invoiceLines", "Invoice lines", "", { format: "rows" })],
+    defaults: doc("Invoice {{invoiceNumber}} from {{companyName}}", "Amount due {{totalAmount}}. The PDF is attached.", [
+      heading("Invoice ready"),
+      paragraph("Hello {{clientName}}, your invoice is attached to this email. Please review and arrange payment at your earliest convenience."),
+      lineItems("invoiceLines"),
+      details([["Invoice #", "{{invoiceNumber}}"], ["Billing period", "{{periodLabel}}"], ["Amount due", "**{{totalAmount}}**"]], { lock: "required" }),
+      actionButton("View invoice"),
+      note("Open the Client Portal to view your invoice history and download a PDF copy. If you have questions about this invoice, please reply to this email."),
+    ], "invoiceNumber"),
+  }),
+  design({
+    key: "lostFoundAlert", templateKey: "lostFoundAlert", label: "Lost and found case opened", group: "office", typeKey: "office.lost_found_report", audience: "Office",
+    trigger: "A cleaner reports a lost item.", security: false, whyLine: "You got this because you handle lost and found at sNeek.", preferences: "staff", action: true,
+    mustStay: ["Property", "Item"], source: "template lostFoundAlert",
+    variables: [v("cleanerName", "Cleaner", "Jane Doe"), PROPERTY, v("itemName", "Item", "Black wallet", { keep: true }), v("location", "Where it was found", "Under the bed"), v("notes", "Notes", "", { format: "multiline" }), v("caseLink", "Case link", "", { format: "url" })],
+    defaults: doc("{{companyName}} - Lost & Found Case Opened", "{{itemName}} at {{propertyName}}", [
+      heading("Lost and found case opened"),
+      paragraph("A new lost and found case has been submitted by **{{cleanerName}}**."),
+      details([["Property", "{{propertyName}}"], ["Item", "{{itemName}}"], ["Location found", "{{location}}"], ["Notes", "{{notes}}"]], { lock: "required" }),
+      actionButton("Open case"),
+    ]),
+  }),
+  design({
+    key: "extraPayRequest", templateKey: "extraPayRequest", label: "Extra pay request (to office)", group: "office", typeKey: "office.cleaner_requests", audience: "Office",
+    trigger: "A cleaner submits an extra pay request.", security: false, whyLine: "You got this because you review cleaner pay requests.", preferences: "staff", action: true,
+    mustStay: ["Cleaner", "Requested amount"], source: "template extraPayRequest",
+    variables: [v("cleanerName", "Cleaner", "Jane Doe", { keep: true }), PROPERTY, JOB_NUMBER, JOB_TYPE, v("requestType", "Request type", "Extra time"), v("requestedAmount", "Requested amount", "$36.50", { keep: true }), v("cleanerNote", "Note", "Late check-out", { format: "multiline" })],
+    defaults: doc("Pay request submitted — {{propertyName}} ({{jobNumber}})", "{{cleanerName}} asked for {{requestedAmount}}.", [
+      heading("Extra pay request submitted"),
+      paragraph("A cleaner has submitted an extra pay request that requires admin review and approval."),
+      details([["Cleaner", "{{cleanerName}}"], ["Property", "{{propertyName}}"], ["Job #", "{{jobNumber}}"], ["Service", "{{jobType}}"], ["Request type", "{{requestType}}"], ["Requested amount", "**{{requestedAmount}}**"], ["Note", "{{cleanerNote}}"]], { lock: "required" }),
+      actionButton("Review pay request"),
+    ], "jobNumber"),
+  }),
+  design({
+    key: "caseCreated", templateKey: "caseCreated", label: "Case created", group: "office", typeKey: "office.cases", audience: "Office (and client or cleaner when shared)",
+    trigger: "A case is opened.", security: false, whyLine: "You got this because you follow cases at sNeek.", preferences: "staff", action: true,
+    mustStay: ["Case title", "Type"], source: "template caseCreated",
+    variables: [v("caseTitle", "Case title", "Broken lamp in bedroom", { keep: true }), v("caseType", "Case type", "Damage"), PROPERTY, JOB_NUMBER, v("status", "Status", "Open"), v("priority", "Priority", "High")],
+    defaults: doc("New case opened — {{caseTitle}}", "{{caseType}} · {{propertyName}}", [
+      heading("New case opened"),
+      paragraph("A new case has been opened and requires attention. Open the Admin Portal to review and assign next steps."),
+      details([["Type", "{{caseType}}"], ["Title", "{{caseTitle}}"], ["Property", "{{propertyName}}"], ["Job #", "{{jobNumber}}"], ["Status", "{{status}}"], ["Priority", "{{priority}}"]], { lock: "required" }),
+      actionButton("Open case"),
+    ]),
+  }),
+  design({
+    key: "caseUpdated", templateKey: "caseUpdated", label: "Case updated", group: "office", typeKey: "office.cases", audience: "Office (and client or cleaner when shared)",
+    trigger: "A case changes status or gets an update.", security: false, whyLine: "You got this because you follow this case.", preferences: "staff", action: true,
+    mustStay: ["Case title", "New status"], source: "template caseUpdated",
+    variables: [v("caseTitle", "Case title", "Broken lamp in bedroom", { keep: true }), v("caseType", "Case type", "Damage"), v("status", "New status", "Resolved", { keep: true }), v("updateNote", "Update note", "Replaced by the owner", { format: "multiline" })],
+    defaults: doc("Case updated — {{caseTitle}} ({{status}})", "{{updateNote}}", [
+      heading("Case updated"),
+      paragraph("An existing case has been updated. Please review the change below."),
+      details([["Type", "{{caseType}}"], ["Title", "{{caseTitle}}"], ["New status", "{{status}}"], ["Update note", "{{updateNote}}"]], { lock: "required" }),
+      actionButton("Open case"),
+    ]),
+  }),
+  design({
+    key: "shoppingRunSubmitted", templateKey: "shoppingRunSubmitted", label: "Shopping run submitted", group: "office", typeKey: "stock.shopping_and_orders", audience: "Office",
+    trigger: "A shopping run is submitted for review.", security: false, whyLine: "You got this because you review shopping runs.", preferences: "staff", action: true,
+    mustStay: ["Run", "Actual amount"], source: "template shoppingRunSubmitted",
+    variables: [v("runTitle", "Run", "Bondi restock", { keep: true }), v("submittedBy", "Submitted by", "Jane Doe"), v("paidBy", "Paid by", "Cleaner"), v("actualAmount", "Actual amount", "$84.20", { keep: true }), v("propertyNames", "Properties", "The Bondi Studio")],
+    defaults: doc("{{companyName}}: Shopping run submitted - {{runTitle}}", "{{actualAmount}} paid by {{paidBy}}", [
+      heading("Shopping run submitted"),
+      paragraph("A shopping run is ready for review."),
+      details([["Run", "{{runTitle}}"], ["Submitted by", "{{submittedBy}}"], ["Paid by", "{{paidBy}}"], ["Actual amount", "{{actualAmount}}"], ["Properties", "{{propertyNames}}"]], { lock: "required" }),
+      actionButton("Open shopping runs"),
+    ]),
+  }),
+  design({
+    key: "shoppingReimbursementToClient", templateKey: "shoppingReimbursementToClient", label: "Shopping reimbursement to client", group: "clients", typeKey: "stock.shopping_and_orders", audience: "Client",
+    trigger: "An approved shopping reimbursement is sent to the client.", security: false, whyLine: "You got this because these purchases were for your properties.", preferences: "client", action: true,
+    mustStay: ["Run", "Amount"], source: "template shoppingReimbursementToClient",
+    variables: [CLIENT, v("runTitle", "Run", "Bondi restock", { keep: true }), v("actualAmount", "Amount", "$84.20", { keep: true }), v("propertyNames", "Properties", "The Bondi Studio")],
+    defaults: doc("{{companyName}}: Shopping reimbursement - {{runTitle}}", "{{actualAmount}} for {{propertyNames}}", [
+      heading("Shopping reimbursement"),
+      paragraph("Hello {{clientName}},"),
+      paragraph("Please review the approved shopping reimbursement for your properties."),
+      details([["Run", "{{runTitle}}"], ["Properties", "{{propertyNames}}"], ["Amount", "{{actualAmount}}"]], { lock: "required" }),
+      actionButton("Open portal"),
+    ]),
+  }),
+  design({
+    key: "stockRunRequested", templateKey: "stockRunRequested", label: "Stock count requested", group: "office", typeKey: "stock.shopping_and_orders", audience: "Office or cleaner",
+    trigger: "A stock count run is requested.", security: false, whyLine: "You got this because you count stock for this property.", preferences: "staff", action: true,
+    mustStay: ["Property"], source: "template stockRunRequested",
+    variables: [PROPERTY, v("requestedBy", "Requested by", "Hannah Lee")],
+    defaults: doc("{{companyName}}: Stock count requested - {{propertyName}}", "Requested by {{requestedBy}}", [
+      heading("Stock count requested"),
+      paragraph("A stock count run was requested for **{{propertyName}}**."),
+      details([["Requested by", "{{requestedBy}}"]]),
+      actionButton("Open stock counts"),
+    ]),
+  }),
+  design({
+    key: "stockRunSubmitted", templateKey: "stockRunSubmitted", label: "Stock count submitted", group: "office", typeKey: "stock.shopping_and_orders", audience: "Office",
+    trigger: "A stock count run is submitted.", security: false, whyLine: "You got this because you review stock counts.", preferences: "staff", action: true,
+    mustStay: ["Property"], source: "template stockRunSubmitted",
+    variables: [PROPERTY, v("submittedBy", "Submitted by", "Jane Doe"), v("lineCount", "Lines counted", "24")],
+    defaults: doc("{{companyName}}: Stock count submitted - {{propertyName}}", "{{lineCount}} lines counted", [
+      heading("Stock count submitted"),
+      paragraph("A stock count run was submitted for **{{propertyName}}**."),
+      details([["Submitted by", "{{submittedBy}}"], ["Lines counted", "{{lineCount}}"]]),
+      actionButton("Review stock run"),
+    ]),
+  }),
+  design({
+    key: "adminAttentionSummary", templateKey: "adminAttentionSummary", label: "Admin attention summary", group: "office", typeKey: "office.sla_and_summaries", audience: "Administrators and operations managers",
+    trigger: "Daily, when items need the office's attention.", security: false, whyLine: "You got this because you manage the office's daily queue.", preferences: "staff", action: true,
+    allowedBlocks: ["heading", "paragraph", "details", "lineItems", "callout", "button", "divider", "signature", "note"],
+    mustStay: ["Item count"], source: "template adminAttentionSummary",
+    variables: [
+      v("recipientName", "Recipient", "Hannah", { fallback: "there" }), v("dateLabel", "Date", "Thu 12 Nov"), v("attentionCount", "Items needing attention", "9", { keep: true }), v("approvalCount", "Approvals and reviews", "4"),
+      v("breakdownHtml", "Breakdown", "<ul><li>4 pay requests</li><li>2 open cases</li></ul>", { format: "built", textTwin: "breakdownText" }), v("breakdownText", "Breakdown (text)", "4 pay requests; 2 open cases"),
+    ],
+    defaults: doc("{{companyName}}: Admin attention summary - {{dateLabel}}", "{{attentionCount}} items need attention today.", [
+      heading("Admin attention summary"),
+      paragraph("Hello {{recipientName}},"),
+      paragraph("There are **{{attentionCount}}** admin items requiring attention today."),
+      details([["Approvals / review items", "{{approvalCount}}"]]),
+      lineItems("breakdownHtml"),
+      paragraph("Please review the admin dashboard and clear the highest-priority items first."),
+      actionButton("Open admin dashboard"),
+    ]),
+  }),
+  design({
+    key: "tomorrowJobsSummary", templateKey: "tomorrowJobsSummary", label: "Tomorrow's jobs summary", group: "cleaners", typeKey: "office.sla_and_summaries", audience: "Cleaners and office (own wording each)",
+    trigger: "Once a day, the evening before, for people with jobs tomorrow.", security: false, whyLine: "You got this because you have jobs tomorrow. Daily summaries can be turned off.", preferences: "cleaner", action: true,
+    allowedBlocks: ["heading", "paragraph", "details", "lineItems", "callout", "button", "divider", "signature", "note"],
+    mustStay: ["Date", "Job list"], source: "template tomorrowJobsSummary (list built in lib/ops/tomorrow-prep.ts)",
+    variables: [
+      v("recipientName", "Recipient", "Jane", { fallback: "there" }), v("roleLabel", "Role", "cleaners"), v("dateLabel", "Date", "Friday 13 November", { keep: true }), v("jobCount", "Total jobs", "3"),
+      v("summaryHtml", "Job list", "<ol><li>8:30 am · Glebe House · Turnover</li><li>1:00 pm · Manly Loft · Deep clean</li></ol>", { format: "built", textTwin: "summaryText", keep: true }), v("summaryText", "Job list (text)", "8:30 am Glebe House; 1:00 pm Manly Loft"),
+    ],
+    defaults: doc("{{companyName}}: Tomorrow's jobs for {{roleLabel}} - {{dateLabel}}", "{{jobCount}} jobs on {{dateLabel}}.", [
+      heading("Tomorrow's job summary"),
+      paragraph("Hello {{recipientName}},"),
+      paragraph("Here is your ordered summary for **{{dateLabel}}**."),
+      details([["Total jobs", "{{jobCount}}"]]),
+      lineItems("summaryHtml", { lock: "required" }),
+      actionButton("Open cleaner jobs"),
+    ]),
+  }),
+  design({
+    key: "tomorrowLaundrySummary", templateKey: "tomorrowLaundrySummary", label: "Tomorrow's laundry schedule", group: "laundry", typeKey: "office.sla_and_summaries", audience: "Laundry partner",
+    trigger: "Once a day, the evening before, for laundry tasks tomorrow.", security: false, whyLine: "You got this because you have laundry tasks tomorrow.", preferences: "laundry", action: true,
+    allowedBlocks: ["heading", "paragraph", "details", "lineItems", "callout", "button", "divider", "signature", "note"],
+    mustStay: ["Date", "Task list"], source: "template tomorrowLaundrySummary (list built in lib/ops/tomorrow-prep.ts)",
+    variables: [
+      v("recipientName", "Recipient", "Linen Lab team", { fallback: "there" }), v("dateLabel", "Date", "Friday 13 November", { keep: true }), v("taskCount", "Total tasks", "4"),
+      v("summaryHtml", "Task list", "<ol><li>Pickup · The Bondi Studio · 2:30 pm</li></ol>", { format: "built", textTwin: "summaryText", keep: true }), v("summaryText", "Task list (text)", "Pickup The Bondi Studio 2:30 pm"),
+    ],
+    defaults: doc("{{companyName}}: Tomorrow's laundry schedule - {{dateLabel}}", "{{taskCount}} tasks on {{dateLabel}}.", [
+      heading("Tomorrow's laundry schedule"),
+      paragraph("Hello {{recipientName}},"),
+      paragraph("Here is your laundry pickup and drop-off summary for **{{dateLabel}}**."),
+      details([["Total tasks", "{{taskCount}}"]]),
+      lineItems("summaryHtml", { lock: "required" }),
+      actionButton("Open laundry portal"),
+    ]),
+  }),
+  design({
+    key: "criticalInventoryTomorrow", templateKey: "criticalInventoryTomorrow", label: "Critical stock for tomorrow", group: "office", typeKey: "stock.alerts", audience: "Office and cleaners",
+    trigger: "Daily, when properties with jobs tomorrow have critical stock shortages.", security: false, whyLine: "You got this because you handle stock for these properties.", preferences: "staff", action: true,
+    allowedBlocks: ["heading", "paragraph", "details", "lineItems", "callout", "button", "divider", "signature", "note"],
+    mustStay: ["Date", "Stock list"], source: "template criticalInventoryTomorrow (list built in lib/ops/tomorrow-prep.ts)",
+    variables: [
+      v("recipientName", "Recipient", "Hannah", { fallback: "there" }), v("roleLabel", "Role", "Admin"), v("dateLabel", "Date", "Friday 13 November", { keep: true }), v("propertyCount", "Properties affected", "2"), v("itemCount", "Items affected", "5"),
+      v("inventoryHtml", "Stock list", "<ul><li>The Bondi Studio: toilet paper (0 left)</li></ul>", { format: "built", textTwin: "inventoryText", keep: true }), v("inventoryText", "Stock list (text)", "The Bondi Studio: toilet paper (0 left)"),
+    ],
+    defaults: doc("{{companyName}}: Critical inventory alert for {{dateLabel}}", "{{itemCount}} items short at {{propertyCount}} properties.", [
+      heading("Critical inventory alert"),
+      paragraph("Hello {{recipientName}},"),
+      paragraph("These properties scheduled for **{{dateLabel}}** have critical stock shortages."),
+      details([["Properties affected", "{{propertyCount}}"], ["Items affected", "{{itemCount}}"]]),
+      lineItems("inventoryHtml", { lock: "required" }),
+      actionButton("Open inventory"),
+    ]),
+  }),
+  design({
+    key: "quoteApprovalRequest", templateKey: "quoteApprovalRequest", label: "Quote ready for approval (office)", group: "office", typeKey: "client.approvals", audience: "Office",
+    trigger: "A quote needs approval before it goes to the client.", security: false, whyLine: "You got this because you approve quotes.", preferences: "staff", action: true,
+    mustStay: ["Client", "Total"], source: "template quoteApprovalRequest",
+    variables: [v("clientName", "Client", "Tom Becker", { keep: true }), v("serviceType", "Service", "Move-out deep clean"), v("quoteTotal", "Total", "$440.00", { keep: true })],
+    defaults: doc("Quote ready for approval — {{clientName}} ({{serviceType}})", "Total {{quoteTotal}}", [
+      heading("Quote pending approval"),
+      paragraph("A new quote is ready for your review and approval before it is sent to the client."),
+      details([["Client", "{{clientName}}"], ["Service", "{{serviceType}}"], ["Total", "**{{quoteTotal}}**"]], { lock: "required" }),
+      actionButton("Open quote"),
+    ]),
+  }),
+  design({
+    key: "quoteSentToClient", templateKey: "quoteSentToClient", label: "Quote to client", group: "clients", typeKey: "client.documents", audience: "Prospective or existing client",
+    trigger: "The office sends a quote to the client.", security: false, whyLine: "You got this because you asked sNeek for a quote.", preferences: "client", action: true,
+    allowedBlocks: ["heading", "paragraph", "details", "lineItems", "callout", "button", "divider", "signature", "note"],
+    mustStay: ["Quote total", "Valid until"], source: "app/api/admin/quotes/[id]/send and template quoteSentToClient",
+    variables: [CLIENT, v("serviceType", "Service", "Move-out deep clean"), v("quoteTotal", "Quote total", "$440.00", { required: true }), v("validUntil", "Valid until", "Fri 27 Nov", { keep: true }), v("quoteLines", "Quote lines", "", { format: "rows" })],
+    defaults: doc("Your {{companyName}} quote is ready", "{{serviceType}}, {{quoteTotal}}. Valid until {{validUntil}}.", [
+      heading("Your quote is ready"),
+      paragraph("Hello {{clientName}}, we've prepared a quote for your requested service. Please review the details below and accept or request changes through the Client Portal."),
+      lineItems("quoteLines"),
+      details([["Service", "{{serviceType}}"], ["Quote total", "**{{quoteTotal}}**"], ["Valid until", "{{validUntil}}"]], { lock: "required" }),
+      actionButton("View and approve quote"),
+      note("Accept the quote online using the button above to confirm your booking. The quote will expire on **{{validUntil}}** — please respond before then to secure your preferred date."),
+    ]),
+  }),
+];

@@ -1,5 +1,6 @@
 "use client";
 
+import { tourTarget } from "@/lib/tutorials/targets";
 import { useRestorableState } from "@/hooks/use-restorable-state";
 
 /**
@@ -260,12 +261,13 @@ export function PayRequestsPanel({
             );
           })}
         </div>
-        <EButton variant="gold" size="sm" onClick={() => setModalOpen(true)}>
+        <EButton {...tourTarget("cleaner.payRequests.new")} variant="gold" size="sm" onClick={() => setModalOpen(true)}>
           <Plus className="h-4 w-4" /> New request
         </EButton>
       </div>
 
       {/* List */}
+      <div {...tourTarget("cleaner.payRequests.list")}>
       {loading ? (
         <ECard>
           <ECardBody className="py-8 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
@@ -373,6 +375,7 @@ export function PayRequestsPanel({
           })}
         </div>
       )}
+      </div>
 
       {/* New request modal */}
       <EModal

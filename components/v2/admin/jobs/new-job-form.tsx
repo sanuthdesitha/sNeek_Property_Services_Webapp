@@ -10,6 +10,7 @@
  * attachments (POST /api/uploads/direct, carried on the job payload) are
  * ported natively via the sibling job-templates-panel / job-attachments-input.
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -560,6 +561,7 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
               </div>
             </EField>
 
+            <div {...tourTarget("admin.jobs.create.service")}>
             <EField label="Job type" hint="Cleaner forms resolve by job type first, then any property-specific override.">
               <ESelect value={form.jobType} onChange={(e) => setForm((p) => ({ ...p, jobType: e.target.value as JobType }))}>
                 {JOB_TYPES.map((t) => (
@@ -567,6 +569,7 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
                 ))}
               </ESelect>
             </EField>
+            </div>
 
             {!isAirbnb ? (
               <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
@@ -594,6 +597,7 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
             ) : null}
 
             {usesExistingProperty ? (
+              <div {...tourTarget("admin.jobs.create.property")}>
               <EField label="Property">
                 <ESelect value={form.propertyId} onChange={(e) => setForm((p) => ({ ...p, propertyId: e.target.value }))}>
                   <option value="">Select property</option>
@@ -602,6 +606,7 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
                   ))}
                 </ESelect>
               </EField>
+              </div>
             ) : (
               <div className="space-y-4 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-4">
                 <div className="grid gap-4 md:grid-cols-2">
@@ -672,7 +677,7 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
               </div>
             ) : null}
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <div {...tourTarget("admin.jobs.create.when")} className="grid gap-4 md:grid-cols-2">
               <EField label="Scheduled date"><EInput type="date" value={form.scheduledDate} onChange={(e) => setForm((p) => ({ ...p, scheduledDate: e.target.value }))} /></EField>
               <EField
                 label="Fixed / allocated pay hours"
@@ -688,9 +693,11 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
               <EField label="End time"><EInput type="time" value={form.endTime} onChange={(e) => setForm((p) => ({ ...p, endTime: e.target.value }))} /></EField>
             </div>
 
-            <EField label="Assign cleaners" hint={`${selectedCleaners.length} selected`}>
-              <Checklist options={cleanerOptions} selected={selectedCleaners} onChange={setSelectedCleaners} emptyText="No cleaner accounts." />
-            </EField>
+            <div {...tourTarget("admin.jobs.create.cleaner")}>
+              <EField label="Assign cleaners" hint={`${selectedCleaners.length} selected`}>
+                <Checklist options={cleanerOptions} selected={selectedCleaners} onChange={setSelectedCleaners} emptyText="No cleaner accounts." />
+              </EField>
+            </div>
           </Section>
 
           {isAirbnb ? (
@@ -824,7 +831,7 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
               <p>{selectedCleaners.length} assignee(s)</p>
             </div>
             <div className="grid gap-2">
-              <EButton onClick={() => submitJobs(form.isDraft)} disabled={saving}>
+              <EButton {...tourTarget("admin.jobs.create.submit")} onClick={() => submitJobs(form.isDraft)} disabled={saving}>
                 {saving ? "Saving…" : plannedCount > 1 ? "Create planned jobs" : "Create job"}
               </EButton>
               <EButton variant="outline" onClick={() => submitJobs(true)} disabled={saving}>Save as draft</EButton>

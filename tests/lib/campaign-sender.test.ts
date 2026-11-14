@@ -33,6 +33,7 @@ vi.mock("@/lib/notifications/sms", () => ({
 
 vi.mock("@/lib/email/suppression", () => ({
   isSuppressed: vi.fn(async () => false),
+  isMarketingSuppressed: vi.fn(async () => false),
 }));
 
 vi.mock("@/lib/messages/variables", () => ({

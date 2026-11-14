@@ -1,0 +1,82 @@
+{
+  "welcome.admin": {
+    "version": 1,
+    "fingerprint": "ac4fbd6cb729596a"
+  },
+  "welcome.ops": {
+    "version": 1,
+    "fingerprint": "58e3444e9ab93fa4"
+  },
+  "welcome.cleaner": {
+    "version": 1,
+    "fingerprint": "0aa21d058f53790f"
+  },
+  "welcome.client": {
+    "version": 1,
+    "fingerprint": "43783eaed151d7ac"
+  },
+  "welcome.va": {
+    "version": 1,
+    "fingerprint": "929779138a5eb5cd"
+  },
+  "welcome.laundry": {
+    "version": 1,
+    "fingerprint": "388f8473d21b43ed"
+  },
+  "welcome.qa": {
+    "version": 1,
+    "fingerprint": "dafda6c527af9023"
+  },
+  "welcome.maintenance": {
+    "version": 1,
+    "fingerprint": "606343b9d1491773"
+  },
+  "admin.command": {
+    "version": 1,
+    "fingerprint": "719dbaa739576659"
+  },
+  "admin.jobs": {
+    "version": 1,
+    "fingerprint": "36ba525fc3272225"
+  },
+  "admin.jobs.create": {
+    "version": 1,
+    "fingerprint": "fe1a59b91f67e297"
+  },
+  "admin.finance.send": {
+    "version": 1,
+    "fingerprint": "81aab80ee0720bc8"
+  },
+  "admin.approvals": {
+    "version": 1,
+    "fingerprint": "6923fb3fa708cd91"
+  },
+  "cleaner.today": {
+    "version": 1,
+    "fingerprint": "09dfc930586a1f2e"
+  },
+  "cleaner.job.practice": {
+    "version": 1,
+    "fingerprint": "49e8d0877ae95081"
+  },
+  "cleaner.payRequests": {
+    "version": 1,
+    "fingerprint": "749678adf2b0d30f"
+  },
+  "client.approvals": {
+    "version": 1,
+    "fingerprint": "0784bd99fe4b5d03"
+  },
+  "client.report": {
+    "version": 1,
+    "fingerprint": "f9e50cabdeb2ae19"
+  },
+  "laundry.today": {
+    "version": 1,
+    "fingerprint": "20fdbaae12e7b608"
+  },
+  "laundry.pickup.practice": {
+    "version": 1,
+    "fingerprint": "4580b1c85b4616a2"
+  }
+}

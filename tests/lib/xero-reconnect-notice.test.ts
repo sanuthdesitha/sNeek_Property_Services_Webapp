@@ -1,7 +1,8 @@
 // @vitest-environment node
 /**
- * "Xero needs reconnecting": INBOX only through the intent pipeline, to
- * active administrators (scope STAFF_MEMBER per person), one event per outage.
+ * "Xero needs reconnecting": inbox notice plus email (owner default
+ * 2026-11-16), transports explicit, to active administrators (scope
+ * STAFF_MEMBER per person), one event per outage.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,17 +24,22 @@ beforeEach(() => {
 });
 
 describe("Xero reconnect notice", () => {
-  it("goes to administrators' inbox only, once per outage, with the reason", async () => {
+  it("goes to administrators' inbox and email (explicit transports), once per outage, with the reason", async () => {
     await sendXeroReconnectNotice({ connectionId: "conn-1", tenantName: "Fixture Org", reason: "Xero refused to renew the sign-in.", needsReconnectAt: at });
     expect(m.users.mock.calls[0][0]).toMatchObject({ where: { isActive: true, role: "ADMIN" } });
     expect(m.send).toHaveBeenCalledTimes(1);
     const input = m.send.mock.calls[0][0];
     expect(input).toMatchObject({
       typeKey: "xero.reconnect_needed", eventKey: "xero.reconnect_needed", eventId: `xero-reconnect:conn-1:${at.toISOString()}`,
-      transports: ["INBOX"], scopeType: "STAFF_MEMBER", severity: "ACTION", category: "billing", url: XERO_SETTINGS_URL, actorId: null,
+      transports: ["INBOX", "EMAIL"], scopeType: "STAFF_MEMBER", severity: "ACTION", category: "billing", url: XERO_SETTINGS_URL, actorId: null,
     });
     expect(input.scopeId({ id: "admin-1" })).toBe("admin-1");
-    expect(input.email).toBeUndefined();
+    const email = input.email({ id: "admin-1" });
+    expect(email.subject).toBe("Xero needs reconnecting");
+    expect(email.html).toContain("Xero refused to renew the sign-in.");
+    expect(email.html).toContain("Fixture Org");
+    expect(input.transports).not.toContain("SMS");
+    expect(input.transports).not.toContain("PUSH");
     expect(input.subject).toBe("Xero needs reconnecting: Fixture Org");
     expect(input.body).toContain("Xero refused to renew the sign-in.");
   });
@@ -44,8 +50,8 @@ describe("Xero reconnect notice", () => {
     expect(m.send).not.toHaveBeenCalled();
   });
 
-  it("is in the catalog as inbox-only pipeline, with editable wording", () => {
-    expect(catalogEntry("xero.reconnect_needed")).toMatchObject({ transports: ["INBOX"], defaultTransports: ["INBOX"], path: "PIPELINE", producers: ["lib/xero/reconnect-notice.ts"], eventKeys: ["xero.reconnect_needed"] });
+  it("is in the catalog as inbox and email, with editable wording", () => {
+    expect(catalogEntry("xero.reconnect_needed")).toMatchObject({ transports: ["INBOX", "EMAIL"], defaultTransports: ["INBOX", "EMAIL"], path: "PIPELINE_WITH_FALLBACK", producers: ["lib/xero/reconnect-notice.ts"], eventKeys: ["xero.reconnect_needed"] });
     expect(wordingDefinition("xero.reconnect_needed")?.status).toBe("EDITABLE");
   });
 });

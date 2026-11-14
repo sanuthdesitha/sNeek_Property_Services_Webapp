@@ -17,6 +17,7 @@ export type JobMenuActionKey =
   | "skip"
   | "send-reminder"
   | "save-template"
+  | "duplicate"
   | "download-report"
   | "open-live-ops"
   | "edit-clock"
@@ -112,6 +113,10 @@ export function moreMenuFor(input: JobMenuInput): JobMenuEntry[] {
       disabledReason: viewOnly ?? input.reminder.reason,
     }),
     entry("save-template", "Save job as template", "job", { disabledReason: viewOnly }),
+    entry("duplicate", "Duplicate", "job", {
+      disabledReason: viewOnly,
+      href: `/v2/admin/jobs/new?duplicate=${encodeURIComponent(input.jobId)}`,
+    }),
     entry("download-report", "Download report", "job", { disabledReason: noReport }),
     entry("open-live-ops", "Open in Live ops", "job", { href: "/v2/admin/ops" }),
   ];

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { tourTarget } from "@/lib/tutorials/targets";
 import { useSession } from "next-auth/react";
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
 import {
@@ -99,7 +100,10 @@ export default function V2ClientLayout({ children }: { children: React.ReactNode
   }, [identity, gateStatus, isVa, confirmedVaGate, confirmedClientGate]);
 
   const nav = React.useMemo(
-    () => (viewer ? withAttentionBadges(buildNav(viewer), badgeCounts(counts)) : []),
+    () => (viewer ? withAttentionBadges(buildNav(viewer), badgeCounts(counts)) : []).map((item) =>
+      // The Approvals tab is a registered tour target (client.approvals tour, step 1).
+      item.href === APPROVALS ? { ...item, tour: tourTarget("client.tabs.approvals") } : item,
+    ),
     [viewer, counts],
   );
   const showMessages = nav.some((item) => item.href === MESSAGES);

@@ -8,6 +8,7 @@
  * (they stay hidden otherwise, to keep the cards clean); "Cancel" hides them
  * and clears the selection, like the bulk bar's Clear.
  */
+import type { TourTargetProps } from "@/lib/tutorials/targets";
 import * as React from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import type { EDataColumn, SortDirection, TableSort } from "./data-table";
@@ -34,11 +35,13 @@ type PhoneTableBarProps<TRow, TSort extends string> = {
   /** Present when the table has selection. */
   onSelectMode?: (on: boolean) => void;
   selectionDisabled?: boolean;
+  /** A registered tour target for the "Select" button (lib/tutorials/targets.ts). */
+  selectTourTarget?: TourTargetProps;
 };
 
 const CONTROL = "rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]";
 
-export function PhoneTableBar<TRow, TSort extends string>({ columns, sort, onSortChange, label, selecting, onSelectMode, selectionDisabled }: PhoneTableBarProps<TRow, TSort>) {
+export function PhoneTableBar<TRow, TSort extends string>({ columns, sort, onSortChange, label, selecting, onSelectMode, selectionDisabled, selectTourTarget }: PhoneTableBarProps<TRow, TSort>) {
   const id = React.useId();
   const sortable = onSortChange ? columns.filter((column) => column.sortKey && headerText(column.header)) : [];
   if (sortable.length === 0 && !onSelectMode) return null;
@@ -86,6 +89,7 @@ export function PhoneTableBar<TRow, TSort extends string>({ columns, sort, onSor
       )}
       {onSelectMode ? (
         <button
+          {...selectTourTarget}
           type="button"
           disabled={selectionDisabled && !selecting}
           onClick={() => onSelectMode(!selecting)}

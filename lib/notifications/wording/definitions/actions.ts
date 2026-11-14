@@ -82,4 +82,15 @@ export const ACTION_WORDING: readonly TypeWordingDefinition[] = [
     linePart("note-line", "Office note line", "INBOX", " Note from the office: \"{{note}}\"", ["note"], "Added only when the office writes a note."),
     storePart("cleaner", "Cleaner", "EMAIL", { subject: "Can you buy {{itemName}} for {{propertyName}}?", body: "<p>{{messageText}}</p>" }, ["itemName", "propertyName", "messageText"], ["messageText"], { note: EMAIL_FROM_INBOX }),
   ]),
+  editable("client.damage_released", [
+    storePart("client", "Client", "INBOX", {
+      title: "A damage report for {{propertyName}} is ready",
+      body: "Our cleaner recorded {{itemCount}} after the clean on {{cleanDate}}. Please review and acknowledge it in your portal.",
+    }, ["propertyName", "itemCount", "cleanDate"], ["propertyName"], { note: "The Damage report page shows this wording in \"Tell the client\" before release." }),
+    storePart("client", "Client", "EMAIL", {
+      subject: "A damage report for {{propertyName}} is ready",
+      body: "<p>Hi {{recipientName}},</p><p>{{messageText}}</p>",
+    }, ["recipientName", "propertyName", "messageText"], ["messageText"], { note: EMAIL_FROM_INBOX }),
+    storePart("client", "Client", "SMS", { body: "sNeek: a damage report for {{propertyName}} is ready ({{itemCount}}). Please review it in your portal." }, ["propertyName", "itemCount"], ["propertyName"]),
+  ]),
 ];

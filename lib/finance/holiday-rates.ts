@@ -13,6 +13,8 @@ import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 type Tx = Prisma.TransactionClient;
 const POLICY = "holiday_rates_v1:policy", CALENDAR = "holiday_rates_v1:calendar:";
 const snapshotKey = (jobId: string) => `holiday_rates_v1:job:${jobId}`;
+/** Where a job's holiday-rate snapshot is stored (read-only use: the New invoice preview labels the charge). */
+export const holidayRateSnapshotKey = snapshotKey;
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 function digest(value: unknown): string {
   const normalize = (input: any): any => Array.isArray(input) ? input.map(normalize) : input && typeof input === "object" ? Object.fromEntries(Object.keys(input).sort().map(key => [key, normalize(input[key])])) : input;

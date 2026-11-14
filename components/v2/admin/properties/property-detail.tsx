@@ -12,7 +12,7 @@
  */
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { NotebookPen } from "lucide-react";
+import { NotebookPen, Repeat } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { useRestorableState } from "@/hooks/use-restorable-state";
 import { EButton, EEmptyState } from "@/components/v2/ui/primitives";
@@ -23,6 +23,7 @@ import { NfcTagsCard } from "./nfc-tags-card";
 import { PropertyDeepCleanPlanning } from "./property-deep-clean-planning";
 import { PropertyCadenceLedger } from "./property-cadence-ledger";
 import { PropertyJobsHistory } from "./property-jobs-history";
+import { RecurringRulesList } from "@/components/v2/admin/jobs/recurring-rules-list";
 import { PropertyBillingRates } from "./property-billing-rates";
 import { PropertyChecklistProfile, PropertyFormOverrides } from "./property-checklist-profile";
 import { PropertyAccessGuideEditor } from "./property-access-guide-editor";
@@ -136,6 +137,9 @@ export function PropertyDetail({ propertyId, timeZone = "Australia/Sydney", init
         {tab === "jobs" ? (
           <div className="space-y-4">
             <PropertyCadenceLedger propertyId={propertyId} />
+            <OperationsDisclosure title="Recurring rules" description="Repeating jobs the nightly generation creates for this property. Rules are made on New job → Repeats; this list changes nothing." icon={<Repeat />}>
+              <RecurringRulesList propertyId={propertyId} showCreateLink />
+            </OperationsDisclosure>
             <PropertyJobsHistory propertyId={propertyId} />
           </div>
         ) : null}

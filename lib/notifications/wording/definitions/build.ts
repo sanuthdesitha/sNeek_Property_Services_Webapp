@@ -42,7 +42,7 @@ export function emailTemplatePart(id: string, label: string, key: AppEmailTempla
     required,
     source: { kind: "EMAIL_TEMPLATE", key },
     get note() {
-      return note ?? `Shared email template "${EMAIL_TEMPLATE_DEFINITIONS[key]?.label ?? key}" (also listed in Forms, Messages).`;
+      return note ?? `Shared email template "${EMAIL_TEMPLATE_DEFINITIONS[key]?.label ?? key}": now an email design on the block layout. Edit its words, blocks and preview in "Email design" under this type's details; raw HTML is not saved here (Reset still puts the standard back).`;
     },
   };
 }

@@ -23,13 +23,15 @@ vi.mock("@/lib/notifications/email", () => ({ sendEmail: vi.fn(async () => ({ ok
 vi.mock("@/lib/auth/account-state", () => ({ upsertAuthUserState: vi.fn() }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({}) }));
 vi.mock("@/lib/email-templates", () => ({ renderEmailTemplate: () => ({ subject: "s", html: "h" }) }));
+// 2026-11-16: the administrator's reset sends a one-time link (lib/auth/recovery.ts).
+vi.mock("@/lib/auth/recovery", () => ({ issueRecoveryToken: vi.fn(async () => "raw-reset"), RECOVERY_TTL_MINUTES: 30, appBaseUrl: () => "https://app.invalid" }));
 vi.mock("@/lib/db", () => {
   const tx = { user: { update: m.update }, session: { deleteMany: vi.fn() }, trustedDevice: { deleteMany: vi.fn() } };
   return {
     db: {
       user: { findUnique: async ({ where }: { where: { id: string } }) => m.rows.get(where.id) ?? null, update: m.update },
       trustedDevice: { deleteMany: vi.fn() },
-      auditLog: { create: m.audit },
+      auditLog: { create: m.audit, count: vi.fn(async () => 0) },
       $transaction: async (work: unknown) => (typeof work === "function" ? (work as (client: typeof tx) => unknown)(tx) : Promise.all(work as unknown[])),
     },
   };

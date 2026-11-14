@@ -5,6 +5,7 @@ import { getTransactionAppSettings, saveAppSettings } from "@/lib/settings";
 import { checkWording, wordingHash, type WordingProblem } from "./template";
 import { isTemplatePart, templateDefaults, templateLimitProblem, templateLive, templatePatch, templateStoredFields } from "./template-sources";
 import { wordingDefinition, wordingPart } from "./registry";
+import { emailDesign } from "@/lib/email-design/registry";
 import { entryKey, partFields, type WordingFields, type WordingPartDefinition, type WordingTransport } from "./types";
 
 /**
@@ -98,6 +99,17 @@ export class WordingInvalidError extends Error {
   constructor(readonly problems: WordingProblem[]) { super(problems.map((problem) => problem.message).join(" ")); }
 }
 
+/**
+ * A shared email template that moved onto the block layout (email design
+ * system, 2026-11-16): its words are edited in its email design, never as raw
+ * HTML here. Reset and restoring version 1 stay allowed (they put the standard
+ * template back, which the block design then renders).
+ */
+export class WordingMovedToDesignError extends Error {
+  readonly status = 409;
+  constructor() { super("This email is now edited as blocks: open its Email design (under the type's details). Raw HTML can no longer be saved here; Reset is still allowed."); }
+}
+
 export class WordingNotFoundError extends Error {
   readonly status = 404;
   constructor(message = "This notification has no editable wording for that part.") { super(message); }
@@ -139,6 +151,7 @@ function nextFields(input: SaveWordingInput, part: WordingPartDefinition, histor
 export async function saveWording(input: SaveWordingInput): Promise<SaveWordingResult> {
   const part = wordingPart(input.typeKey, input.partId, input.transport);
   if (!part || wordingDefinition(input.typeKey)?.status === "IN_CODE") throw new WordingNotFoundError();
+  if (part.source.kind === "EMAIL_TEMPLATE" && emailDesign(part.source.key) && (input.kind === "EDIT" || (input.kind === "RESTORE" && input.restoreVersion !== 1))) throw new WordingMovedToDesignError();
   const key = wordingRowKey(input.typeKey);
   const entry = entryKey(part.id, part.transport);
   return db.$transaction(async (tx) => {

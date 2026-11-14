@@ -7,6 +7,7 @@
  * adjustments themselves, and the saved laundry update. Laundry says "saved",
  * never "delivered". Nothing here edits anything.
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import * as React from "react";
 import Link from "next/link";
 import { CheckCircle2, HandCoins, Info } from "lucide-react";
@@ -125,7 +126,7 @@ export function SubmittedSummary({ api }: { api: WorkspaceApi }) {
           <Link href="/v2/cleaner">Back to Today</Link>
         </EButton>
         <EButton asChild variant="outline" className="min-h-11 w-full">
-          <Link href={`/v2/cleaner/pay-requests?jobId=${api.jobId}`}>
+          <Link {...tourTarget("cleaner.job.extraPay")} href={`/v2/cleaner/pay-requests?jobId=${api.jobId}`}>
             <HandCoins className="h-3.5 w-3.5" aria-hidden /> Request extra pay for this job
           </Link>
         </EButton>

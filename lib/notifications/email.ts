@@ -1,9 +1,8 @@
 import { Resend } from "resend";
 import { logger } from "@/lib/logger";
 import { getAppSettings } from "@/lib/settings";
-import { resolveAppUrl } from "@/lib/app-url";
-import { wrapEmailHtml } from "@/lib/email-templates";
-import { isSuppressed } from "@/lib/email/suppression";
+import { isMarketingSuppressed, isSuppressed } from "@/lib/email/suppression";
+import { prepareOutgoingEmail, senderAddress } from "@/lib/email-design/send-render";
 import {
   isAudienceKindAllowed,
   isAutoEmailAllowed,
@@ -32,22 +31,6 @@ function getResendClient() {
   }
 
   return resendClient;
-}
-
-function absolutizeInlineLinks(html: string) {
-  return html.replace(/(href|src)="(\/[^\"]*)"/gi, (_, attr: string, value: string) => {
-    return `${attr}="${resolveAppUrl(value)}"`;
-  });
-}
-
-async function prepareHtml(payloadHtml: string) {
-  const trimmed = payloadHtml.trim();
-  const settings = await getAppSettings();
-  const brandedHtml = /^<!doctype html>/i.test(trimmed)
-    ? trimmed
-    : wrapEmailHtml(settings, trimmed, null);
-
-  return absolutizeInlineLinks(brandedHtml);
 }
 
 export interface EmailPayload {
@@ -89,6 +72,15 @@ export interface EmailPayload {
    * identified by its subject or kind (lib/notifications/safeguards).
    */
   safeguard?: SafeguardMeta;
+  /** Plain-text part. Omitted: generated from the same blocks as the HTML (lib/email-design). */
+  text?: string;
+  /**
+   * Campaign (marketing) email: put on the base layout with the campaign
+   * footer, a signed one-click unsubscribe link and List-Unsubscribe headers,
+   * and refused for addresses that opted out of campaigns. Never set it on
+   * operational or security mail.
+   */
+  marketing?: boolean;
   attachments?: Array<{
     filename: string;
     content: string | Buffer;
@@ -317,21 +309,48 @@ export async function sendEmailDetailed(
       }
     }
 
+    // Campaign email also stops for addresses that unsubscribed from campaigns
+    // (that opt-out never stops operational or security email).
+    if (payload.marketing) {
+      const recipients = Array.isArray(payload.to) ? payload.to : [payload.to];
+      const checks = await Promise.all(recipients.map((r) => isMarketingSuppressed(r)));
+      const remaining = recipients.filter((_, i) => !checks[i]);
+      if (remaining.length === 0) return { ok: false, skipped: true, error: "unsubscribed_from_campaigns" };
+      payload = { ...payload, to: remaining };
+    }
+
+    // Render at send time (published design and Email look, Company details,
+    // plain-text part). A design with an empty required value is refused here,
+    // never sent with a blank (lib/email-design).
+    const prepared = await prepareOutgoingEmail({
+      to: Array.isArray(payload.to) ? payload.to : [payload.to],
+      subject: payload.subject,
+      html: payload.html,
+      critical: payload.critical,
+      marketing: payload.marketing,
+    });
+    if (prepared.missing.length > 0) {
+      logger.warn({ subject: payload.subject, design: prepared.designKey, missing: prepared.missing }, "Email not sent: required values are missing");
+      return { ok: false, error: `Not sent: required values are missing (${prepared.missing.join(", ")}).`, acceptance: "NOT_ACCEPTED", retryable: false };
+    }
+
     // The sending safeguards: caps, duplicates, pauses, emergency stop, quiet hours.
     const gate = await applySendingSafeguards(payload, Array.isArray(payload.to) ? payload.to : [payload.to]);
     if (gate.kind === "suppressed") return gate.result;
     eventIds = gate.eventIds;
-    const target = applySandbox(payload, gate.to);
-
-    const html = await prepareHtml(payload.html);
+    const target = applySandbox({ ...payload, subject: prepared.subject }, gate.to);
+    const replyTo = payload.replyTo ?? (prepared.security ? undefined : prepared.theme.replyTo || prepared.settings.accountsEmail || undefined);
+    const headers = Object.keys(prepared.headers).length ? prepared.headers : undefined;
 
     dispatchStarted = true;
     const response = await resend.emails.send({
-      from: payload.from ?? FROM,
+      from: payload.from ?? senderAddress(FROM, prepared.theme.senderName),
       to: target.to,
       subject: target.subject,
-      html,
-      replyTo: payload.replyTo,
+      html: prepared.html,
+      text: payload.text ?? prepared.text,
+      replyTo,
+      ...(headers ? { headers } : {}),
       attachments: payload.attachments,
     });
     if (response.error) {

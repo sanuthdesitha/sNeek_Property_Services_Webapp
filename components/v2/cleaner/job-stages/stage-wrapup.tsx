@@ -14,6 +14,7 @@
  * (a single controlled FormRenderer instance) so its field ids, state and
  * validation are untouched.
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import * as React from "react";
 import { Forward, HandCoins, Plus, Trash2, Camera, CheckCircle2, AlertTriangle, Loader2, Package, Square } from "lucide-react";
 import Link from "next/link";
@@ -242,6 +243,7 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
           (admin-allowlisted only) is the secondary choice beside it. */}
       <StickyActionBar>
         <EButton
+          {...tourTarget("cleaner.job.submit")}
           variant="gold"
           className="min-h-11 w-full"
           disabled={submitDisabled}

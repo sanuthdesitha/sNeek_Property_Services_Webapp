@@ -4,8 +4,8 @@
  * Phones only (below 640px): "New invoice" as a bottom sheet (board "Admin
  * phone: Invoice editor", New invoice). The same three choices as the desktop
  * header's "New invoice ▾" menu: From finished jobs, Blank invoice and Credit
- * note. Continue opens the same dialog the menu opens; nothing is created
- * until that dialog is completed. A credit note is refused here, with the
+ * note. Continue opens the New invoice panel on that choice; nothing is created
+ * until that panel is completed. A credit note is refused here, with the
  * same words, when the viewer lacks the void and credit notes capability.
  */
 import { useState } from "react";

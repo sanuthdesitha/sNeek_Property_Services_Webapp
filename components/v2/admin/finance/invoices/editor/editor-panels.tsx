@@ -7,6 +7,7 @@
  * could work (otherwise disabled with the reason), "Push to Xero when sent"
  * runs the existing idempotent push after a successful send.
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import { formatInTimeZone } from "date-fns-tz";
 import { EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
@@ -115,7 +116,7 @@ export function SendCard({
             hint={inXero ? "Already in Xero." : "Runs the usual push after the email is accepted. A failed push never undoes the send; it is shown and kept for Retry."}
             onChange={(value) => onChoices({ ...choices, pushToXero: value })}
           />
-          <EButton type="button" size="sm" variant="outline" disabled={disabled} onClick={onSend} title={disabledReason ?? undefined}>
+          <EButton {...tourTarget("admin.finance.invoice.send")} type="button" size="sm" variant="outline" disabled={disabled} onClick={onSend} title={disabledReason ?? undefined}>
             {resend ? "Review and re-send…" : "Review and send…"}
           </EButton>
           {disabledReason ? <p className={MUTED}>{disabledReason}</p> : null}

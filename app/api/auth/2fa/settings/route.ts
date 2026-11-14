@@ -4,6 +4,8 @@ import QRCode from "qrcode";
 import { db } from "@/lib/db";
 import { requireSession } from "@/lib/auth/session";
 import { sendEmail } from "@/lib/notifications/email";
+import { getAppSettings } from "@/lib/settings";
+import { buildDesignedEmail } from "@/lib/email-design/build-email";
 import {
   countBackupCodes,
   generateBackupCodes,
@@ -65,10 +67,12 @@ export async function POST(req: NextRequest) {
 
   // EMAIL: send a verification code to confirm deliverability.
   const code = await issueEmailTwoFaCode(user.email);
+  // Fixed security email (design "twoFactorConfirmCode").
+  const content = buildDesignedEmail(await getAppSettings(), "twoFactorConfirmCode", { code, expiryMinutes: "10" });
   await sendEmail({
     to: user.email,
-    subject: "Confirm two-step verification",
-    html: `<p>Your verification code is <strong style="font-size:22px;letter-spacing:2px">${code}</strong></p><p>It expires in 10 minutes.</p>`,
+    subject: content.subject,
+    html: content.html,
     transactional: true,
     // 2FA enrolment verification code — must never be silenced by audience controls.
     critical: true,

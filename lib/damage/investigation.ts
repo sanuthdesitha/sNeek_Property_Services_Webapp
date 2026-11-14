@@ -34,6 +34,13 @@ export interface DamageInvestigationPhoto {
   section: string;
   /** True when the displayed image carries the cleaner's markup. */
   annotated: boolean;
+  /**
+   * ADMIN only (null for CLIENT): the photo exactly as uploaded, and the
+   * flattened marked-up copy when one exists. The original is never
+   * overwritten: markup lives in its own key (`flatKey`).
+   */
+  originalUrl: string | null;
+  markedUpUrl: string | null;
 }
 
 export interface DamageInvestigationTransition {
@@ -105,7 +112,7 @@ export interface DamageInvestigation {
 }
 
 /** Everything both audiences need, fetched once. */
-const INVESTIGATION_INCLUDE = {
+export const INVESTIGATION_INCLUDE = {
   reportedBy: { select: { name: true, email: true } },
   reviewedBy: { select: { name: true, email: true } },
   property: { select: { id: true, name: true } },
@@ -174,6 +181,8 @@ export function toInvestigationViewModel(
       caption: photo.caption ?? null,
       section: photo.section,
       annotated: Boolean(photo.flatKey || photo.annotatedKey),
+      originalUrl: isAdmin ? resolveKeyUrl(photo.s3Key) : null,
+      markedUpUrl: isAdmin && photo.flatKey ? resolveKeyUrl(photo.flatKey) : null,
     })),
     caseId: item.case?.id ?? null,
     caseState: item.case?.state ?? null,

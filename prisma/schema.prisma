@@ -996,6 +996,9 @@ model User {
   adminNotes          String?   @db.Text
   /// This person's own sensitive-action PIN (ADMIN / OPS_MANAGER), hashed.
   securityPin         UserSecurityPin?
+  /// In-app tutorials (2026-11-16): per-person progress and preference.
+  tourProgress        TourProgress[]
+  tourPreference      UserTourPreference?
 
   @@index([emailStatus])
   @@index([lastSeenAt])
@@ -5156,6 +5159,19 @@ model PropertyOnboardingSurvey {
   accessDetails   OnboardingAccessDetail[]
   jobTypeAnswers  OnboardingJobTypeAnswer[]
 
+  // Onboarding workspace (2026-11-16). `revision` goes up by one on every saved
+  // change, office or client, and is the stale-save check. `workspace` holds the
+  // structured sections the survey had no columns for (rooms and beds, access
+  // entries with encrypted codes, stock list, reference photos, rates, house
+  // rules, clock-in radius); shape in lib/onboarding/workspace/types.ts.
+  revision        Int                        @default(0)
+  workspace       Json?
+  lastSavedAt     DateTime?
+  lastSavedById   String?
+  lastSavedSource OnboardingSourceType?
+  answerRevisions OnboardingAnswerRevision[]
+  clientLinks     OnboardingClientLink[]
+
   @@index([status, createdAt])
   @@index([sourceType, status])
   @@index([existingClientId])
@@ -5213,6 +5229,53 @@ model OnboardingAccessDetail {
   survey PropertyOnboardingSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
 
   @@index([surveyId])
+}
+
+/// Who changed which onboarding answers, and whether the office or the client
+/// did (source ADMIN_CREATED = office, CLIENT_SUBMITTED = the client's link).
+/// Secrets are never stored here: an access code change is recorded as
+/// "[encrypted]".
+model OnboardingAnswerRevision {
+  id           String               @id @default(cuid())
+  surveyId     String
+  revision     Int
+  section      String
+  fields       String[]             @default([])
+  source       OnboardingSourceType
+  actorUserId  String?
+  clientLinkId String?
+  changes      Json
+  createdAt    DateTime             @default(now())
+
+  survey PropertyOnboardingSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@unique([surveyId, revision])
+  @@index([surveyId, createdAt])
+}
+
+/// A no-login link that lets the client fill the sections the office chose.
+/// Only the SHA-256 of the token is stored; the address is kept masked.
+model OnboardingClientLink {
+  id              String    @id @default(cuid())
+  surveyId        String
+  tokenHash       String    @unique
+  sections        String[]
+  transport       String
+  recipientMasked String
+  expiresAt       DateTime
+  createdById     String
+  createdAt       DateTime  @default(now())
+  revokedAt       DateTime?
+  revokedById     String?
+  firstOpenedAt   DateTime?
+  lastOpenedAt    DateTime?
+  finishedAt      DateTime?
+  deliveryState   String?
+  deliveryError   String?
+
+  survey PropertyOnboardingSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@index([surveyId, createdAt])
 }
 
 model OnboardingJobTypeAnswer {
@@ -5835,4 +5898,73 @@ model OutboundSafeguardIncident {
 
   @@index([status, scopeKind, scopeKey])
   @@index([createdAt])
+}
+
+/// In-app tutorials (2026-11-16, boards "Tutorials", "Tutorial settings").
+/// One row per person and tour. Replaces the single `tutorialSeen` flag in the
+/// shared AuthUserState settings row (still read only so existing people do not
+/// see a welcome again). Recorded for the person actually signed in, never
+/// while testing as someone else.
+model TourProgress {
+  id           String             @id @default(cuid())
+  userId       String
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Registry key, e.g. "admin.jobs" (lib/tutorials/registry.ts).
+  tourKey      String
+  /// Effective version the row refers to (code version * 1000 + admin revision).
+  version      Int
+  status       TourProgressStatus @default(NOT_STARTED)
+  seenSteps    String[]           @default([])
+  /// Steps whose control was not on screen when the tour reached them.
+  missingSteps String[]           @default([])
+  currentStep  Int                @default(0)
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@unique([userId, tourKey])
+  @@index([tourKey, status])
+}
+
+enum TourProgressStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  DONE
+  SKIPPED
+  DISMISSED
+}
+
+/// A person's own tutorial switches: Show tours, and Don't show again per tour.
+model UserTourPreference {
+  userId        String   @id
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  toursOn       Boolean  @default(true)
+  dontShowAgain String[] @default([])
+  updatedById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/// Administrator settings: tours on/off per ROLE, and per TOUR its status
+/// (LIVE/DRAFT/PAUSED), What's new revision and wording/order overrides.
+model TourSetting {
+  id          String           @id @default(cuid())
+  scope       TourSettingScope
+  /// ROLE: a Role name. TOUR: a registry key.
+  key         String
+  toursOn     Boolean?
+  status      String?
+  revision    Int              @default(0)
+  overrides   Json?
+  updatedById String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([scope, key])
+}
+
+enum TourSettingScope {
+  ROLE
+  TOUR
 }

@@ -6,6 +6,7 @@
  * listed alongside and open the existing quote flow. Decisions and safeguards
  * live in `useClientApprovals` (same endpoints as before).
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import { useSession } from "next-auth/react";
 import { Info, Loader2, RotateCw } from "lucide-react";
 import { EBadge, EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
@@ -123,9 +124,17 @@ function SessionApprovalsBoard({ view = "waiting", quotes = [] }: ClientApproval
       {hasSnapshot && view === "waiting" ? (
         <section aria-label="Waiting for your decision" className="space-y-3">
           {!verified ? <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Waiting count unverified.</p> : null}
-          {pending.map((row) => <ApprovalCard key={row.id} row={row} approvals={approvals} />)}
+          {pending.map((row, index) => (
+            <div key={row.id} {...(index === 0 ? tourTarget("client.approvals.card") : {})}>
+              <ApprovalCard row={row} approvals={approvals} />
+            </div>
+          ))}
           {quotes === null ? <EInlineNotice tone="danger">Quotes waiting for a decision could not be loaded. Open My quotes to check.</EInlineNotice> : null}
-          {quoteList.map((quote) => <QuoteDecisionCard key={quote.id} quote={quote} />)}
+          {quoteList.map((quote, index) => (
+            <div key={quote.id} {...(index === 0 ? tourTarget("client.approvals.quote") : {})}>
+              <QuoteDecisionCard quote={quote} />
+            </div>
+          ))}
           {verified && pending.length === 0 && quoteList.length === 0 ? (
             <EEmptyState eyebrow="All clear" title="Nothing awaiting approval" description="Optional extras and quotes appear here before anything is billed to your account." />
           ) : null}

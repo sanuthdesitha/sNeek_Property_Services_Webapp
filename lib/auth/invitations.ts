@@ -5,18 +5,9 @@ import { logger } from "@/lib/logger";
 import { resolveAppUrl } from "@/lib/app-url";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { getAppSettings } from "@/lib/settings";
+import { buildDesignedEmail } from "@/lib/email-design/build-email";
 
 export const INVITATION_LIFETIME_DAYS = 7;
-
-/** Values interpolated into invite HTML are data, never markup. */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 export function generateInvitationToken(): string {
   // 24 bytes => 32-char base64url string.
@@ -79,36 +70,20 @@ export async function sendInvitationEmail(params: {
 }): Promise<InvitationEmailResult> {
   try {
     const settings = await getAppSettings();
-    const greeting = params.name ? `Hi ${escapeHtml(params.name)},` : "Hi,";
-    const expiresLabel = params.expiresAt.toLocaleDateString("en-AU", {
+    const expiresLabel = new Intl.DateTimeFormat("en-AU", {
+      timeZone: settings.timezone || "Australia/Sydney",
       day: "numeric",
       month: "long",
       year: "numeric",
-    });
+    }).format(params.expiresAt);
     const roleLabel = params.role.replace(/_/g, " ").toLowerCase();
-    const subject = `You're invited to ${settings.companyName}`;
-    const html = `
-      <h2 style="margin:0 0 16px;font-size:20px;">Welcome to ${escapeHtml(settings.companyName)}</h2>
-      <p style="margin:0 0 12px;">${greeting}</p>
-      <p style="margin:0 0 12px;">
-        An administrator has created a ${roleLabel} account for you. Click the
-        button below to set your password and finish signing in.
-      </p>
-      <p style="margin:24px 0;text-align:center;">
-        <a href="${params.url}"
-           style="display:inline-block;padding:12px 22px;border-radius:6px;background:#0f172a;color:#fff;font-weight:600;text-decoration:none;">
-          Accept invitation
-        </a>
-      </p>
-      <p style="margin:0 0 12px;font-size:13px;color:#475569;">
-        Or paste this link into your browser:
-        <br />
-        <span style="word-break:break-all;">${params.url}</span>
-      </p>
-      <p style="margin:0;font-size:13px;color:#475569;">
-        This invitation expires on ${expiresLabel}.
-      </p>
-    `;
+    // Fixed account email (design "accountInvitationLink"): link and expiry locked, values escaped.
+    const { subject, html } = buildDesignedEmail(settings, "accountInvitationLink", {
+      userName: params.name ?? "",
+      roleLabel,
+      inviteUrl: params.url,
+      expiresLabel,
+    });
 
     const sent = await sendEmailDetailed({ to: params.to, subject, html, transactional: true, critical: true });
     return { ok: sent.ok, error: sent.ok ? undefined : sent.error, acceptance: sent.acceptance ?? (sent.ok ? "ACCEPTED" : "NOT_ACCEPTED"), skipped: sent.skipped === true, externalId: sent.externalId ?? null };

@@ -24,13 +24,15 @@ type CommsCenterProps = {
   companyName?: string;
   /** `?type=` deep link to a notification type on Types and wording. */
   initialType?: string | null;
+  /** `?email=` deep link to one email's editor on Types and wording. */
+  initialEmail?: string | null;
 };
 
-export function CommsCenter({ tab, isAdmin, readOnly, settings, timeZone = "Australia/Sydney", companyName = "sNeek Property Services", initialType = null }: CommsCenterProps) {
+export function CommsCenter({ tab, isAdmin, readOnly, settings, timeZone = "Australia/Sydney", companyName = "sNeek Property Services", initialType = null, initialEmail = null }: CommsCenterProps) {
   const { toast, push } = useEstateToast();
   return (
     <div className="space-y-6">
-      {tab === "types" ? <TypesTab isAdmin={isAdmin} readOnly={readOnly} timeZone={timeZone} companyName={companyName} initialType={initialType} /> : null}
+      {tab === "types" ? <TypesTab isAdmin={isAdmin} readOnly={readOnly} timeZone={timeZone} companyName={companyName} initialType={initialType} initialEmail={initialEmail} /> : null}
       {tab === "log" ? <DeliveryLogTab readOnly={readOnly} onToast={push} timeZone={timeZone} /> : null}
       {tab === "health" ? <HealthTab isAdmin={isAdmin} onToast={push} timeZone={timeZone} /> : null}
       {tab === "preferences" ? <PreferencesTab isAdmin={isAdmin} settings={settings} onToast={push} timeZone={timeZone} /> : null}

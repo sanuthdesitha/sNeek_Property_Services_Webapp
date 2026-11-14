@@ -1,4 +1,7 @@
 import { resolveAppUrl } from "@/lib/app-url";
+import { businessFromSettings, composeDesign, composeLegacyBody, withSpec } from "@/lib/email-design/compose";
+import { emailDesign } from "@/lib/email-design/registry";
+import { DEFAULT_EMAIL_THEME } from "@/lib/email-design/theme";
 
 export type AppEmailTemplateKey =
   | "signupOtp"
@@ -826,93 +829,43 @@ export function sanitizeEmailTemplates(input: unknown, fallback: AppEmailTemplat
   return next;
 }
 
-export function wrapEmailHtml(settings: { companyName: string; logoUrl: string }, innerHtml: string, actionLink?: { url: string; label: string } | null) {
-  const companyName = escapeHtml(settings.companyName);
+/**
+ * An HTML body on the one base layout (email design system, 2026-11). Kept
+ * for the callers that build their own body (maintenance assignment, quote
+ * extras); the send path renders it again with the published Email look and
+ * Company details (lib/email-design/send-render.ts).
+ */
+export function wrapEmailHtml(settings: { companyName: string; logoUrl: string } & Partial<EmailLayoutSettings>, innerHtml: string, actionLink?: { url: string; label: string } | null) {
+  const subject = settings.companyName || "sNeek Property Services";
+  const legacy = composeLegacyBody(innerHtml, {
+    theme: DEFAULT_EMAIL_THEME,
+    business: businessFromSettings(settings),
+    appUrl: resolveAppUrl("/"),
+    mode: "send",
+    subject,
+    action: actionLink ?? null,
+  });
+  return withSpec({ subject, html: legacy.html }, { kind: "legacy", key: "", values: {}, body: innerHtml, action: actionLink ?? null });
+}
 
-  // Clean, box-free mark on the ivory header band — a premium letterhead look
-  // that matches every PDF document. Falls back to a spaced wordmark.
-  const logoInner = settings.logoUrl
-    ? `<img src="${escapeAttribute(settings.logoUrl)}" alt="${companyName}" style="max-height:52px;max-width:200px;display:block;height:auto;width:auto;object-fit:contain;border:0;" />`
-    : `<div style="font-family:${SERIF_STACK};font-size:20px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.charcoal};">${companyName}</div>`;
+/** Company details the layout's footer reads (all optional for older callers). */
+type EmailLayoutSettings = {
+  companyPhone: string;
+  logoDarkBgUrl: string;
+  accountsEmail: string;
+  timezone: string;
+  invoicing: { abn?: string; companyAddress?: string };
+};
 
-  const logoChip = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;"><tr><td style="padding:2px 0;">${logoInner}</td></tr></table>`;
+function normalizeTemplateText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
 
-  const actionButtonHtml = actionLink
-    ? `
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:32px auto 8px auto;">
-        <tr>
-          <td style="border-radius:999px;background:${BRAND.teal};">
-            <a href="${escapeAttribute(actionLink.url)}" target="_blank" rel="noopener noreferrer"
-              style="display:inline-block;padding:14px 34px;font-family:${SANS_STACK};font-size:13.5px;font-weight:600;color:#ffffff;text-decoration:none;letter-spacing:0.04em;text-transform:uppercase;">
-              ${escapeHtml(actionLink.label)}
-            </a>
-          </td>
-        </tr>
-      </table>
-    `
-    : "";
-
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="x-apple-disable-message-reformatting" />
-    <title>${companyName}</title>
-    <style>
-      @media only screen and (max-width: 640px) {
-        .wrapper { padding: 16px 10px !important; }
-        .card { border-radius: 14px !important; }
-        .header { padding: 30px 22px !important; }
-        .body { padding: 30px 24px !important; }
-        .h2 { font-size: 23px !important; }
-      }
-    </style>
-  </head>
-  <body style="margin:0;padding:0;background:${BRAND.ivory};font-family:${SANS_STACK};color:${BRAND.ink};-webkit-text-size-adjust:100%;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="wrapper" style="padding:40px 16px;background:${BRAND.ivory};">
-      <tr>
-        <td align="center">
-
-          <!-- Card -->
-          <table role="presentation" class="card" width="600" cellpadding="0" cellspacing="0" border="0"
-            style="width:600px;max-width:100%;border-radius:18px;overflow:hidden;box-shadow:0 6px 40px rgba(35,33,28,0.08);border:1px solid ${BRAND.line};background:#ffffff;">
-
-            <!-- Header (light ivory band, centred logo chip) -->
-            <tr>
-              <td class="header" align="center" style="padding:38px 32px 30px;background:${BRAND.ivorySoft};border-bottom:1px solid ${BRAND.line};">
-                ${logoChip}
-                <div style="margin-top:18px;font-family:${SERIF_STACK};font-size:23px;font-weight:600;color:${BRAND.charcoal};letter-spacing:0.01em;line-height:1.2;">${companyName}</div>
-                <div style="margin-top:8px;height:1px;width:46px;background:${BRAND.gold};margin-left:auto;margin-right:auto;"></div>
-              </td>
-            </tr>
-
-            <!-- Body -->
-            <tr>
-              <td class="body" style="padding:40px 44px;background:#ffffff;">
-                <div style="font-family:${SANS_STACK};font-size:15px;line-height:1.78;color:${BRAND.ink};">
-                  ${innerHtml}
-                </div>
-                ${actionButtonHtml}
-              </td>
-            </tr>
-
-            <!-- Footer (minimal) -->
-            <tr>
-              <td align="center" style="padding:26px 32px 30px;background:${BRAND.ivorySoft};border-top:1px solid ${BRAND.line};">
-                <div style="font-family:${SERIF_STACK};font-size:14px;font-weight:600;color:${BRAND.charcoal};letter-spacing:0.02em;">${companyName}</div>
-                <div style="margin-top:8px;font-family:${SANS_STACK};font-size:11.5px;color:${BRAND.muted};line-height:1.6;">An automated message — no reply is required.</div>
-              </td>
-            </tr>
-
-          </table>
-          <!-- /Card -->
-
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>`;
+/** True when an admin changed this shared template's raw HTML or subject (in Forms or the wording editor). */
+export function isCustomizedEmailTemplate(key: AppEmailTemplateKey, template: EmailTemplateConfig | undefined): boolean {
+  if (!template) return false;
+  const standard = getDefaultEmailTemplates()[key];
+  return normalizeTemplateText(template.html) !== normalizeTemplateText(standard.html) || normalizeTemplateText(template.subject) !== normalizeTemplateText(standard.subject);
 }
 
 /**
@@ -958,15 +911,33 @@ export function renderEmailTemplate(
     accountsEmail?: string;
     timezone?: string;
     emailTemplates: AppEmailTemplates;
-  },
+  } & Partial<EmailLayoutSettings>,
   key: AppEmailTemplateKey,
   variables: Record<string, unknown>
-) {
+): { subject: string; html: string; text: string } {
   const template = settings.emailTemplates[key] ?? getDefaultEmailTemplates()[key];
   const mergedVariables = normalizeTemplateVariables({
     ...buildCommonEmailVariables(settings),
     ...Object.fromEntries(Object.entries(variables).map(([name, value]) => [name, String(value ?? "")])),
   });
+  const actionLink = inferActionLink(mergedVariables);
+  const definition = emailDesign(key);
+  const business = businessFromSettings(settings);
+  const appUrl = resolveAppUrl("/");
+
+  // The email design system: the template is a block design (version 1 = the
+  // words above). A raw-HTML edit an admin made keeps rendering (below) until
+  // a block version is published; security emails never use raw HTML.
+  if (definition && (definition.security || !isCustomizedEmailTemplate(key, settings.emailTemplates[key]))) {
+    const explicitLabel = typeof variables.actionLabel === "string" ? variables.actionLabel.trim() : "";
+    const values: Record<string, string> = {
+      ...mergedVariables,
+      actionUrl: actionLink?.url ?? "",
+      actionLabel: explicitLabel && explicitLabel !== "Open details" ? explicitLabel : "",
+    };
+    const rendered = composeDesign(definition, definition.defaults, values, { theme: DEFAULT_EMAIL_THEME, business, appUrl, mode: "send", settings });
+    return { subject: rendered.subject, html: withSpec(rendered, { kind: "design", key, values }), text: rendered.text };
+  }
 
   // Variable VALUES are data, never markup: a cleaner's note or a client's
   // name typed as an <img onerror=…> payload must render as text in the
@@ -996,16 +967,13 @@ export function renderEmailTemplate(
       )
     );
   }
-  const actionLink = inferActionLink(mergedVariables);
-  const shouldRenderActionButton = actionLink && !innerHtml.includes(actionLink.url);
-
-  const html = wrapEmailHtml(
-    settings,
-    innerHtml,
-    shouldRenderActionButton ? actionLink : null
-  );
-
-  return { subject, html };
+  const action = actionLink && !innerHtml.includes(actionLink.url) ? actionLink : null;
+  const legacy = composeLegacyBody(innerHtml, { theme: DEFAULT_EMAIL_THEME, business, appUrl, mode: "send", subject, action });
+  return {
+    subject,
+    html: withSpec({ subject, html: legacy.html }, { kind: "legacy", key, values: mergedVariables, body: innerHtml, action }),
+    text: legacy.text,
+  };
 }
 
 /**
@@ -1036,49 +1004,45 @@ export interface BulkAssignedEmailTexts {
 }
 
 export function buildBulkAssignedEmail(
-  settings: { companyName: string; logoUrl: string },
+  settings: { companyName: string; logoUrl: string } & Partial<EmailLayoutSettings>,
   params: {
     userName: string;
     jobs: BulkAssignedJobLine[];
     actionUrl?: string | null;
   },
   texts?: BulkAssignedEmailTexts
-): { subject: string; html: string } {
+): { subject: string; html: string; text: string } {
   const companyName = settings.companyName || "sNeek Property Services";
   const count = params.jobs.length;
   const jobWord = count === 1 ? "job" : "jobs";
   const headingHtml = texts?.headingHtml ?? `You've been assigned ${count} ${jobWord}`;
   const introHtml = texts?.introHtml ?? `Hello ${escapeHtml(params.userName)}, the following ${jobWord} ${count === 1 ? "has" : "have"} been added to your schedule. Open the Cleaner Portal to confirm ${count === 1 ? "it" : "each one"} and view full access details.`;
   const outroHtml = texts?.outroHtml ?? `Please review and confirm ${count === 1 ? "this offer" : "each offer"} at your earliest convenience.`;
-
-  const jobCards = params.jobs
-    .map(
-      (job) => `
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:12px 0;background:${BRAND.ivory};border:1px solid ${BRAND.line};border-radius:14px;">
-        <tr>
-          <td style="padding:16px 20px;">
-            <div style="font-family:${SANS_STACK};font-size:10.5px;font-weight:700;color:${BRAND.muted};text-transform:uppercase;letter-spacing:0.14em;">${escapeHtml(job.jobReference)}</div>
-            <div style="margin-top:6px;font-family:${SERIF_STACK};font-size:18px;font-weight:600;color:${BRAND.charcoal};line-height:1.3;">${escapeHtml(job.propertyName)}</div>
-            <div style="margin-top:6px;font-family:${SANS_STACK};font-size:13.5px;color:${BRAND.ink};">${escapeHtml(job.jobType)}</div>
-            <div style="margin-top:4px;font-family:${SANS_STACK};font-size:13px;color:${BRAND.muted};">${escapeHtml(job.when)}</div>
-          </td>
-        </tr>
-      </table>`
-    )
-    .join("");
-
-  const innerHtml = `<h2 style="margin:0 0 14px;font-family:${SERIF_STACK};font-size:26px;font-weight:600;color:${BRAND.charcoal};letter-spacing:0.01em;line-height:1.25;">${headingHtml}</h2>
-<p style="margin:0 0 8px;color:${BRAND.ink};">${introHtml}</p>
-${jobCards}
-<p style="margin:18px 0 0;font-size:13px;color:${BRAND.muted};">${outroHtml}</p>`;
-
-  const actionLink =
-    params.actionUrl && /^(https?:\/\/)/i.test(params.actionUrl.trim())
-      ? { url: params.actionUrl.trim(), label: texts?.buttonLabel ?? (count === 1 ? "Open job" : "Open my jobs") }
-      : null;
-
-  return {
-    subject: texts?.subject ?? `${count} new ${jobWord} assigned — ${companyName}`,
-    html: wrapEmailHtml(settings, innerHtml, actionLink),
+  // Each job's facts, escaped here (the design shows this list as built content).
+  const jobsList = `<ol style="margin:0;padding-left:20px">${params.jobs
+    .map((job) => `<li style="margin:0 0 8px"><strong>${escapeHtml(job.propertyName)}</strong><br>${escapeHtml(job.jobType)} · ${escapeHtml(job.when)}<br><span style="font-size:12.5px">${escapeHtml(job.jobReference)}</span></li>`)
+    .join("")}</ol>`;
+  const jobsText = params.jobs.map((job) => `- ${job.propertyName}: ${job.jobType}, ${job.when} (${job.jobReference})`).join("\n");
+  const actionUrl = params.actionUrl && /^(https?:\/\/)/i.test(params.actionUrl.trim()) ? params.actionUrl.trim() : "";
+  const subject = texts?.subject ?? `${count} new ${jobWord} assigned — ${companyName}`;
+  const definition = emailDesign("jobAssignedBulk")!;
+  const values: Record<string, string> = {
+    headingText: headingHtml,
+    introText: introHtml,
+    jobsList,
+    jobsText,
+    outroText: outroHtml,
+    actionUrl,
+    buttonLabel: texts?.buttonLabel ?? (count === 1 ? "Open job" : "Open my jobs"),
+    jobCount: String(count),
+    bulkSubject: subject,
   };
+  const rendered = composeDesign(definition, definition.defaults, values, {
+    theme: DEFAULT_EMAIL_THEME,
+    business: businessFromSettings(settings),
+    appUrl: resolveAppUrl("/"),
+    mode: "send",
+    settings,
+  });
+  return { subject, html: withSpec({ subject, html: rendered.html }, { kind: "design", key: "jobAssignedBulk", values }), text: rendered.text };
 }

@@ -75,6 +75,14 @@ export const REASON_CHOICES = {
     { id: "duplicate", label: "Duplicate report" },
     OTHER,
   ],
+  // Property onboarding reject (2026-11-16): the onboarding keeps the reason.
+  onboardingReject: [
+    { id: "client-withdrew", label: "Client withdrew" },
+    { id: "outside-area", label: "Outside our service area" },
+    { id: "duplicate", label: "Duplicate onboarding" },
+    { id: "not-a-fit", label: "Not a fit for our services" },
+    OTHER,
+  ],
 } as const satisfies Record<string, readonly ReasonChoice[]>;
 
 export type ReasonListKey = keyof typeof REASON_CHOICES;

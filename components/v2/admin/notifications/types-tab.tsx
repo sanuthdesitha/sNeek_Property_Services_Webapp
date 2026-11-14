@@ -10,6 +10,10 @@ import { sendJson, useNotificationRead } from "./use-notification-read";
 import { TypeDetails } from "./type-details";
 import { TypeList } from "./type-list";
 import { WordingWorkspace, type WordingPhoneScreen } from "./wording-workspace";
+import { emailDesign } from "@/lib/email-design/registry";
+import type { DesignListResponse } from "@/lib/email-design/view-types";
+import { EmailDesignEditor } from "./email/email-design-editor";
+import { EmailDesignsCard } from "./email/email-designs-card";
 
 type SummaryResponse = { summaries: WordingSummary[]; canEdit: boolean; editReason: string | null };
 
@@ -31,7 +35,28 @@ type Props = {
   timeZone: string;
   companyName: string;
   initialType: string | null;
+  /** `?email=`: open that email's editor (block layout) for its type. */
+  initialEmail?: string | null;
 };
+
+function parseDesignList(body: unknown): DesignListResponse {
+  const value = body as Partial<DesignListResponse> | null;
+  if (!value || !Array.isArray(value.items) || !value.access) throw new Error("bad list");
+  return value as DesignListResponse;
+}
+
+function setQuery(updates: Record<string, string | null>): void {
+  try {
+    const url = new URL(window.location.href);
+    for (const [name, value] of Object.entries(updates)) {
+      if (value) url.searchParams.set(name, value);
+      else url.searchParams.delete(name);
+    }
+    window.history.replaceState(window.history.state, "", url.toString());
+  } catch {
+    // The address bar is a convenience; selection works without it.
+  }
+}
 
 /**
  * "Types and wording" (approved board 2026-11): every type grouped by who
@@ -41,13 +66,16 @@ type Props = {
  * is decided by the server (ADMIN, or an operations manager with the
  * notifications pack at Manage).
  */
-export function TypesTab({ isAdmin, readOnly, timeZone, companyName, initialType }: Props) {
+export function TypesTab({ isAdmin, readOnly, timeZone, companyName, initialType, initialEmail = null }: Props) {
   const catalogRead = useNotificationRead("/api/admin/notifications/catalog", parseCatalog, "Could not load notification types.");
   const summaryRead = useNotificationRead("/api/admin/notifications/wording", parseSummaries, "Could not load the wording status.");
+  const designListRead = useNotificationRead("/api/admin/notifications/email-designs", parseDesignList, "Email design states could not be loaded.");
+  const designItems = React.useMemo(() => new Map((designListRead.data?.items ?? []).map((item) => [item.key, item])), [designListRead.data]);
+  const [emailKey, setEmailKey] = React.useState<string | null>(initialEmail && emailDesign(initialEmail) ? initialEmail : null);
   const [catalogOverride, setCatalogOverride] = React.useState<CatalogResponse | null>(null);
   const catalog = catalogOverride ?? catalogRead.data;
   React.useEffect(() => setCatalogOverride(null), [catalogRead.data]);
-  const [selectedKey, setSelectedKey] = React.useState<string | null>(initialType);
+  const [selectedKey, setSelectedKey] = React.useState<string | null>(initialType ?? (initialEmail ? emailDesign(initialEmail)?.typeKey ?? null : null));
   const [switching, setSwitching] = React.useState(false);
   const [switchError, setSwitchError] = React.useState<string | null>(null);
   const workspaceRef = React.useRef<HTMLDivElement>(null);
@@ -98,6 +126,27 @@ export function TypesTab({ isAdmin, readOnly, timeZone, companyName, initialType
     setCatalogOverride(result.body as CatalogResponse);
   }
 
+  function openEmail(key: string) {
+    const design = emailDesign(key);
+    if (!design) return;
+    setEmailKey(key);
+    setSelectedKey(design.typeKey);
+    setQuery({ type: design.typeKey, email: key });
+    window.scrollTo?.({ top: 0 });
+  }
+
+  function closeEmail() {
+    setEmailKey(null);
+    setQuery({ email: null });
+    designListRead.reload();
+  }
+
+  if (emailKey) {
+    const design = emailDesign(emailKey);
+    const typeName = (catalog?.types ?? []).find((type) => type.key === design?.typeKey)?.name ?? null;
+    return <EmailDesignEditor key={emailKey} designKey={emailKey} timeZone={timeZone} typeName={typeName} onBack={closeEmail} onChoose={openEmail} />;
+  }
+
   if (catalogRead.loading && !catalog) return <p role="status">Loading notification types…</p>;
   if (!catalog) {
     return <EAlert tone="danger" title="Notification types not loaded">{catalogRead.error ?? "Could not load notification types."} <button type="button" className="underline" onClick={catalogRead.reload}>Retry</button></EAlert>;
@@ -133,7 +182,12 @@ export function TypesTab({ isAdmin, readOnly, timeZone, companyName, initialType
               onSaved={summaryRead.reload}
               phoneScreen={phone && phoneScreen !== "list" ? phoneScreen : undefined}
               onPhoneScreen={phoneTo}
-              details={<TypeDetails type={selected} summary={summaries.get(selected.key)} controlsUpdatedAt={catalog.controlsUpdatedAt} canSwitch={canSwitch} switchNote={switchNote} saving={switching} error={switchError} onSave={(body) => void saveSwitch(body)} timeZone={timeZone} />}
+              details={
+                <>
+                  <TypeDetails type={selected} summary={summaries.get(selected.key)} controlsUpdatedAt={catalog.controlsUpdatedAt} canSwitch={canSwitch} switchNote={switchNote} saving={switching} error={switchError} onSave={(body) => void saveSwitch(body)} timeZone={timeZone} />
+                  <EmailDesignsCard typeKey={selected.key} items={designItems} listError={designListRead.error} onOpen={openEmail} />
+                </>
+              }
             />
           ) : <p className="text-sm">No notification types.</p>}
         </div>

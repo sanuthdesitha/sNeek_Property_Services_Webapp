@@ -5,6 +5,7 @@
  * visible action (Assign, when nobody is on the job) and a "more" menu.
  * Clicking a row (or its property name, for keyboards) opens the peek panel.
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import { useMemo } from "react";
 import { formatInTimeZone } from "date-fns-tz";
 import { EDataTable, type EDataColumn, type TableSort } from "@/components/v2/ui/data-table";
@@ -151,6 +152,7 @@ export function JobsTable(props: JobsTableProps) {
         onChange: props.onSelectionChange,
         rowLabel: (job) => `Select ${job.property?.name ?? "job"}`,
         disabled: props.selectionDisabled,
+        tourTarget: tourTarget("admin.jobs.bulk"),
       }}
       onRowClick={onOpen}
       activeRowKey={props.activeJobId}

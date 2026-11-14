@@ -1,0 +1,40 @@
+/** Catalog entries for property onboarding (2026-11-16). Data only; see catalog.ts. */
+import type { NotificationTypeEntry } from "./catalog-types";
+
+export const ONBOARDING_NOTIFICATION_TYPES: NotificationTypeEntry[] = [
+  {
+    key: "onboarding.client_link",
+    name: "Onboarding link to the client",
+    group: "Clients",
+    trigger: "The office (an administrator, or an operations manager with the Property onboarding pack) sends a client the link to fill their part of an onboarding (Send link to client…).",
+    audience: "The email address or phone number the office types in the dialog (a new client has no login yet).",
+    audienceKeys: ["CLIENT", "PUBLIC"],
+    initiator: "OFFICE_MANUAL",
+    transports: ["EMAIL", "SMS"],
+    defaultTransports: ["EMAIL"],
+    path: "DIRECT",
+    switches: [{ kind: "SMS_PROVIDER" }],
+    template: { kind: "NONE" },
+    preferences: "EMAIL_GATES_ONLY",
+    producers: ["lib/onboarding/workspace/client-link.ts", "lib/notifications/external-recipient.ts"],
+    notes: "Email or SMS is chosen explicitly in the dialog, never both by default. Sent through the shared external-recipient path (email/SMS chokepoints, rate limits, one send per key, masked audit). Provider accepted is not delivered. The link carries a token whose hash only is stored; it expires (7 days by default) and can be revoked.",
+  },
+  {
+    key: "onboarding.client_finished",
+    name: "Client finished their onboarding part",
+    group: "Office alerts",
+    trigger: "A client presses \"I'm finished\" on their onboarding link.",
+    audience: "Active administrators and operations managers (scope STAFF_MEMBER, re-checked at dispatch).",
+    audienceKeys: ["STAFF_ADMIN"],
+    initiator: "AUTOMATIC",
+    transports: ["INBOX"],
+    defaultTransports: ["INBOX"],
+    path: "PIPELINE",
+    eventKeys: ["onboarding.client_finished"],
+    switches: [{ kind: "TYPE_CONTROL" }],
+    template: { kind: "NONE" },
+    preferences: "IGNORES",
+    producers: ["lib/onboarding/workspace/client-link-notice.ts"],
+    notes: "Inbox only (owner default, pending confirmation): never an email, SMS or device push. Once per link. It activates nothing; the office reviews the answers and any codes the client typed.",
+  },
+];

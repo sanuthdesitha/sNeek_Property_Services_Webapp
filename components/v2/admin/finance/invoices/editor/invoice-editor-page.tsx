@@ -13,6 +13,7 @@
  * with Move up / Move down, an Add line sheet and a total bar whose button
  * follows the stage. See editor-phone.tsx. From 640px up nothing changes.
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
@@ -20,6 +21,7 @@ import { EButton } from "@/components/v2/ui/primitives";
 import { ESectionSwitcher } from "@/components/v2/ui/phone-bars";
 import { useIsPhone } from "@/components/v2/ui/use-phone";
 import { EStageBar } from "@/components/v2/ui/stage-bar";
+import { EToneNotice } from "@/components/v2/ui/tone-band";
 import { clientInvoiceStages } from "@/lib/billing/client-invoice-stage";
 import type { ClientInvoiceEditorData, EditorLine } from "@/lib/billing/client-invoice-editor-types";
 import { StartedWorkReviewPanel } from "../../started-work-review";
@@ -229,8 +231,10 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
         voidCreditRefusal={data.canVoidCredit === false ? VOID_CREDIT_REFUSAL : null}
       />
       <CreditLinks data={data} />
-      <EStageBar label="Invoice stages" stages={stages.stages} terminal={stages.terminal} className="max-sm:hidden" />
-      {phone ? <PhoneStageLine stages={stages.stages} terminal={stages.terminal} /> : null}
+      <div {...tourTarget("admin.finance.invoice.status")} className="min-w-0">
+        <EStageBar label="Invoice stages" stages={stages.stages} terminal={stages.terminal} className="max-sm:hidden" />
+        {phone ? <PhoneStageLine stages={stages.stages} terminal={stages.terminal} /> : null}
+      </div>
       {phone ? <ESectionSwitcher
         label="Invoice sections"
         sections={[
@@ -260,6 +264,19 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
           {data.startedWorkUnreadable}
         </p>
       ) : null}
+      {data.notBilled && data.notBilled.length > 0 ? (
+        <EToneNotice tone="info" className="p-3" title={`Not billed: no rate (${data.notBilled.length})`}>
+          Left off this draft when it was created because no client rate or fixed price was set:{" "}
+          {data.notBilled.map((job, index) => (
+            <span key={job.jobId}>
+              {index > 0 ? ", " : ""}
+              <a href={`/v2/admin/jobs/${encodeURIComponent(job.jobId)}`} className="underline underline-offset-2">{job.jobNumber ?? "job"}</a>
+              {job.propertyName ? ` (${job.propertyName})` : ""}
+            </span>
+          ))}
+          . They stay unbilled until a rate is set and they are added or invoiced again.
+        </EToneNotice>
+      ) : null}
       {data.totalsMismatch ? (
         <p role="alert" className="rounded-[var(--e-radius)] border border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] px-3 py-2 text-[0.8125rem] font-[550] text-[hsl(var(--e-danger))]">
           This invoice&rsquo;s stored total does not match its lines. Do not send it. Edit any line or the GST switch to recalculate, then check again.
@@ -282,7 +299,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
               />
             </div>
           ) : null}
-          <section id="invoice-lines" aria-label="Invoice lines" className="scroll-mt-32 overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
+          <section {...tourTarget("admin.finance.invoice.lines")} id="invoice-lines" aria-label="Invoice lines" className="scroll-mt-32 overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
             {phone ? (
               <PhoneHeaderFacts summary={fieldsSummary}>
                 <EditorFields
@@ -370,7 +387,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
           <div id="invoice-checks" className="scroll-mt-32">
             <EditorChecks checks={data.checks} />
           </div>
-          <div id="invoice-send" className="scroll-mt-32">
+          <div {...tourTarget("admin.finance.invoice.preview")} id="invoice-send" className="scroll-mt-32">
             <SendCard
               data={data}
               to={sendTo}

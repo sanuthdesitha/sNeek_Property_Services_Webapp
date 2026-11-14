@@ -1,18 +1,23 @@
 import "server-only";
 /**
  * "Xero needs reconnecting" (2026-11-15; catalog `xero.reconnect_needed`): an
- * INBOX-only notice, through the notification intent pipeline, to active
- * administrators (Xero is managed in an admin-only settings page). Scope
- * STAFF_MEMBER per administrator, so a role change before dispatch skips the
- * delivery. Never an email, SMS or device push. Sent once per outage: the
- * token service claims `XeroConnection.reconnectNoticeAt` before calling
- * this, and the event id names the outage. Queued is not delivered.
+ * inbox notice and (owner default 2026-11-16, pending confirmation) an email,
+ * both through the existing office-send path, to active administrators (Xero
+ * is managed in an admin-only settings page). Transports are explicit: INBOX
+ * and EMAIL; never SMS or device push. Scope STAFF_MEMBER per administrator,
+ * so a role change before dispatch skips the delivery. Sent once per outage:
+ * the token service claims `XeroConnection.reconnectNoticeAt` before calling
+ * this, the event id names the outage, and a direct email is claimed once per
+ * event and person (dispatchNotificationOnce). Queued is not delivered.
  */
 import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { sendOfficeNotification, type OfficeRecipient, type RecipientOutcome } from "@/lib/notifications/office-sends";
 import { getNotificationTypeControls, typeRespectsPreferences } from "@/lib/notifications/type-controls";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { buildDesignedEmail } from "@/lib/email-design/build-email";
+import { resolveAppUrl } from "@/lib/app-url";
+import { getAppSettings } from "@/lib/settings";
 import type { XeroReconnectNoticeInput } from "./token-service";
 
 export const XERO_RECONNECT_NOTICE_TYPE = "xero.reconnect_needed";
@@ -32,6 +37,7 @@ export async function sendXeroReconnectNotice(input: XeroReconnectNoticeInput): 
   const wording = await loadNotificationWording(typeKey);
   const inbox = wording.render("needed", "INBOX", { tenantName: input.tenantName, reason: input.reason });
   const controls = await getNotificationTypeControls();
+  const email = buildDesignedEmail(await getAppSettings(), "xeroReconnect", { tenantName: input.tenantName ?? "", reason: input.reason, settingsUrl: resolveAppUrl(XERO_SETTINGS_URL) });
   return sendOfficeNotification({
     typeKey,
     eventKey: typeKey,
@@ -46,7 +52,8 @@ export async function sendXeroReconnectNotice(input: XeroReconnectNoticeInput): 
     subject: inbox.title,
     body: inbox.body,
     url: XERO_SETTINGS_URL,
-    transports: ["INBOX"],
+    transports: ["INBOX", "EMAIL"],
+    email: () => ({ subject: email.subject, html: email.html }),
     recipients,
     respectsPreferences: typeRespectsPreferences(controls, typeKey),
     disabledTransports: controls.disabledTransports[typeKey] ?? [],

@@ -5,9 +5,9 @@
  * "Billing schedule" (the draft cadence settings) and "New invoice".
  *
  * The schedule opens in a dialog that stays mounted once opened, so unsaved
- * ticks survive closing it. "New invoice" offers the generator (from finished
- * jobs), a blank invoice and a credit note; each opens its dialog on the
- * client-invoice tab.
+ * ticks survive closing it. "New invoice" offers from finished jobs, a blank
+ * invoice and a credit note; each opens the New invoice panel
+ * (/v2/admin/finance/invoices/new) on that choice.
  */
 import * as React from "react";
 import { useRouter } from "next/navigation";
@@ -17,6 +17,7 @@ import { EPill } from "@/components/v2/ui/pill";
 import { ERowMenu } from "@/components/v2/ui/row-menu";
 import { InvoiceCadenceSettings } from "./invoice-cadence";
 import { InvoiceSavedItems } from "./invoice-saved-items";
+import { newInvoicePath } from "./invoices/new-invoice/new-invoice-format";
 
 export type XeroConnectionSummary =
   /** lastSyncAt: the last successful whole Xero status check, or null when none is stored. */
@@ -181,17 +182,17 @@ export function MoneyHeaderActions({
               {
                 key: "jobs",
                 label: "From finished jobs",
-                onSelect: () => router.push("/v2/admin/finance?tab=invoices&new=jobs", { scroll: false }),
+                onSelect: () => router.push(newInvoicePath("jobs")),
               },
               {
                 key: "blank",
                 label: "Blank invoice",
-                onSelect: () => router.push("/v2/admin/finance?tab=invoices&new=blank", { scroll: false }),
+                onSelect: () => router.push(newInvoicePath("blank")),
               },
               {
                 key: "credit",
                 label: "Credit note",
-                onSelect: () => router.push("/v2/admin/finance?tab=invoices&new=credit", { scroll: false }),
+                onSelect: () => router.push(newInvoicePath("credit")),
               },
             ]}
           />

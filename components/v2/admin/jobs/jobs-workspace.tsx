@@ -11,6 +11,7 @@
  * (`jobs-table`), board (`jobs-board`), bulk (`jobs-bulk`), peek
  * (`job-peek-panel`). State lives in the URL (`use-jobs-workspace-state`).
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "@/hooks/use-toast";
@@ -164,8 +165,10 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
           onSaveView={() => { setCreateRequest((value) => value + 1); }}
           canSave={canSaveView}
         />
-        <JobsFilterBar state={state} update={update} reference={reference} optionsOpen={optionsOpen} onToggleOptions={() => setOptionsOpen((open) => !open)}
-          resultLabel={list.status === "success" ? `Show ${list.pagination.totalCount} job${list.pagination.totalCount === 1 ? "" : "s"}` : undefined} />
+        <div {...tourTarget("admin.jobs.filters")} className="min-w-0">
+          <JobsFilterBar state={state} update={update} reference={reference} optionsOpen={optionsOpen} onToggleOptions={() => setOptionsOpen((open) => !open)}
+            resultLabel={list.status === "success" ? `Show ${list.pagination.totalCount} job${list.pagination.totalCount === 1 ? "" : "s"}` : undefined} />
+        </div>
         <JobsViewOptions
           open={optionsOpen}
           onClose={() => setOptionsOpen(false)}
@@ -210,7 +213,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
             <EButton variant="outline" onClick={list.reload}>Retry</EButton>
           </ECard>
         ) : (
-          <ECard className="overflow-hidden">
+          <ECard {...tourTarget("admin.jobs.row")} className="overflow-hidden">
             <JobsTable
               jobs={loading ? [] : list.jobs}
               columns={state.columns}
@@ -250,7 +253,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
         {/* Phones: New job in thumb reach; the bulk bar takes its place while rows are selected. */}
         {showPageHeader ? (
           <EPhoneActionBar label="Jobs actions" hidden={selectedIds.length > 0}
-            primary={<EButton asChild><Link href="/v2/admin/jobs/new">New job</Link></EButton>} />
+            primary={<EButton asChild><Link {...tourTarget("admin.jobs.new")} href="/v2/admin/jobs/new">New job</Link></EButton>} />
         ) : null}
       </div>
 

@@ -12,6 +12,7 @@
  * Every decision goes to the same route and body as before the redesign; see
  * panel/* and lib/admin/approvals/*.
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import * as React from "react";
 import { ChevronDown, RefreshCw } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
@@ -120,7 +121,7 @@ export function ApprovalsWorkspace({ timezone = DEFAULT_TIMEZONE }: { timezone?:
 
   const waitingCount = total ?? 0;
   const tabs = (
-    <div role="tablist" aria-label="Approvals" className="inline-flex max-w-full gap-1 overflow-x-auto rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1">
+    <div {...tourTarget("admin.approvals.decided")} role="tablist" aria-label="Approvals" className="inline-flex max-w-full gap-1 overflow-x-auto rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1">
       {(["waiting", "decided", "agents"] as const).map((key) => (
         <button
           key={key}
@@ -175,12 +176,13 @@ export function ApprovalsWorkspace({ timezone = DEFAULT_TIMEZONE }: { timezone?:
         <ApprovalsHistory timezone={timezone} />
       ) : (
         <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
-          <div className="hidden w-[212px] shrink-0 rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-3 lg:block">
+          <div {...tourTarget("admin.approvals.queues")} className="hidden w-[212px] shrink-0 rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-3 lg:block">
             <QueueNav counts={data?.counts ?? null} active={queue} onSelect={selectQueue} />
           </div>
           {phone ? (
             <>
               <button
+                {...tourTarget("admin.approvals.queues")}
                 type="button"
                 aria-haspopup="dialog"
                 aria-expanded={queueSheetOpen}
@@ -201,7 +203,7 @@ export function ApprovalsWorkspace({ timezone = DEFAULT_TIMEZONE }: { timezone?:
               </EBottomSheet>
             </>
           ) : null}
-          <label className="flex flex-col gap-1 lg:hidden max-sm:hidden">
+          <label {...tourTarget("admin.approvals.queues")} className="flex flex-col gap-1 lg:hidden max-sm:hidden">
             <span className="text-[0.75rem] font-[550]">Queue</span>
             <select
               value={queue}
@@ -214,7 +216,7 @@ export function ApprovalsWorkspace({ timezone = DEFAULT_TIMEZONE }: { timezone?:
               ))}
             </select>
           </label>
-          <section aria-label={queue === "all" ? "All waiting" : APPROVAL_QUEUES[queue].label} className="flex min-w-0 flex-1 flex-col gap-3">
+          <section {...tourTarget("admin.approvals.list")} aria-label={queue === "all" ? "All waiting" : APPROVAL_QUEUES[queue].label} className="flex min-w-0 flex-1 flex-col gap-3">
             {urlReady ? (
               <QueueTable
                 queue={queue}

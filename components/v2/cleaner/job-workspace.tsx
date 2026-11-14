@@ -1711,7 +1711,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
 
   return (
     <EvidenceContext.Provider value={evidenceScope}>
-    <div className="space-y-5">
+    {/* data-tour-busy: no tour starts or continues while this cleaner's clock runs (tutorials). */}
+    <div className="space-y-5" data-tour-busy={timeState?.isRunning ? "clock" : undefined}>
       {locationGate.element}
       {/* The header carries Back (to Today), the title and Property info (board "One job, four moments"). */}
       <JobHeader api={api} />

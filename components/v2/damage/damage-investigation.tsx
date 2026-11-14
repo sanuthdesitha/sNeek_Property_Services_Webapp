@@ -76,6 +76,8 @@ type VoidRecord = {
   voidedAt: string;
 };
 
+export type DamageInvestigationReport = Report;
+
 type Report = {
   id: string;
   status: string;
@@ -251,15 +253,22 @@ function AcknowledgePanel({ reportId, onDone }: { reportId: string; onDone: () =
 export function DamageInvestigation({
   reportId,
   audience,
+  previewReport,
 }: {
   reportId: string;
   audience: Audience;
+  /**
+   * "Preview as the client" on the admin record page: the CLIENT view model,
+   * already loaded by the office. Rendered read-only: nothing is fetched,
+   * changed or acknowledged.
+   */
+  previewReport?: Report;
 }) {
-  const isAdmin = audience === "ADMIN";
+  const isAdmin = audience === "ADMIN" && !previewReport;
   const endpoint = isAdmin ? `/api/admin/damage/${reportId}` : `/api/client/damage/${reportId}`;
 
-  const [report, setReport] = React.useState<Report | null>(null);
-  const [loading, setLoading] = React.useState(true);
+  const [report, setReport] = React.useState<Report | null>(previewReport ?? null);
+  const [loading, setLoading] = React.useState(!previewReport);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -277,8 +286,9 @@ export function DamageInvestigation({
   }, [endpoint]);
 
   React.useEffect(() => {
+    if (previewReport) return;
     load();
-  }, [load]);
+  }, [load, previewReport]);
 
   async function patch(body: unknown): Promise<boolean> {
     setBusy(true);
@@ -402,8 +412,13 @@ export function DamageInvestigation({
         <VoidPanel busy={busy} onVoid={(mode, reason, security) => patch({ action: "VOID", mode, reason, security: security ?? {} })} />
       ) : null}
 
-      {!isAdmin && !report.acknowledgedAt ? (
+      {!isAdmin && !report.acknowledgedAt && !previewReport ? (
         <AcknowledgePanel reportId={report.id} onDone={load} />
+      ) : null}
+      {previewReport && !report.acknowledgedAt ? (
+        <p className="rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border))] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+          Here the client sees &ldquo;Acknowledge this report&rdquo; and types their name.
+        </p>
       ) : null}
 
       {report.items.map((item, index) => (

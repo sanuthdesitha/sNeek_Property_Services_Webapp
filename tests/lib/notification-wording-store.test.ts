@@ -30,7 +30,8 @@ vi.mock("@/lib/settings", async () => {
   };
 });
 
-import { saveWording, WordingConflictError, WordingInvalidError, wordingRowKey } from "@/lib/notifications/wording/store";
+import { getDefaultEmailTemplates } from "@/lib/email-templates";
+import { saveWording, WordingConflictError, WordingInvalidError, WordingMovedToDesignError, wordingRowKey } from "@/lib/notifications/wording/store";
 import { loadNotificationWording, renderNotificationWording } from "@/lib/notifications/wording/render";
 import { readTypeWording } from "@/lib/notifications/wording/read";
 import { wordingHash } from "@/lib/notifications/wording/template";
@@ -88,16 +89,20 @@ describe("saving versions", () => {
     expect([v5.version, sms.liveSource, sms.versions.map((version) => version.version)]).toEqual([5, "default", [1, 2, 3, 4, 5]]);
   });
 
-  it("an email-template part writes the shared template (Forms sees it) in its own syntax and keeps the history here", async () => {
+  it("an email-template part that moved onto the block layout refuses raw HTML, still sees Forms edits, and can be reset to the standard", async () => {
     const view = await readTypeWording("job.offer");
     const part = view!.parts.find((item) => item.transport === "EMAIL")!;
-    const saved = await saveWording({ typeKey: "job.offer", partId: "cleaner", transport: "EMAIL", kind: "EDIT", fields: { subject: "New job: {{propertyName}}", body: "<p>Hi {{userName}}</p>" }, expectedHash: part.liveHash, actor });
-    expect(m.saveSettings.mock.calls[0][0].emailTemplates.jobAssigned).toEqual({ subject: "New job: {propertyName}", html: "<p>Hi {userName}</p>" });
-    const after = (await readTypeWording("job.offer"))!.parts.find((item) => item.transport === "EMAIL")!;
-    expect([after.liveSource, after.live.subject, after.liveHash]).toEqual(["override", "New job: {{propertyName}}", saved.hash]);
+    // 2026-11-16: the shared templates are email designs; raw HTML is no longer saved through wording.
+    await expect(saveWording({ typeKey: "job.offer", partId: "cleaner", transport: "EMAIL", kind: "EDIT", fields: { subject: "New job: {{propertyName}}", body: "<p>Hi {{userName}}</p>" }, expectedHash: part.liveHash, actor })).rejects.toBeInstanceOf(WordingMovedToDesignError);
+    expect(m.saveSettings).not.toHaveBeenCalled();
     m.settings.emailTemplates = { ...m.settings.emailTemplates, jobAssigned: { subject: "Changed in Forms", html: "<p>x</p>" } };
-    expect((await readTypeWording("job.offer"))!.parts.find((item) => item.transport === "EMAIL")!.liveSource).toBe("forms");
-    await expect(saveWording({ typeKey: "job.offer", partId: "cleaner", transport: "EMAIL", kind: "EDIT", fields: { subject: "Mine", body: "<p>y</p>" }, expectedHash: saved.hash, actor })).rejects.toBeInstanceOf(WordingConflictError);
+    const edited = (await readTypeWording("job.offer"))!.parts.find((item) => item.transport === "EMAIL")!;
+    expect(edited.liveSource).toBe("forms");
+    // Reset writes the standard template back (in the shared template's own syntax), so the block design renders again.
+    const reset = await saveWording({ typeKey: "job.offer", partId: "cleaner", transport: "EMAIL", kind: "RESET", expectedHash: edited.liveHash, actor });
+    expect(reset.version).toBe(2);
+    expect(m.saveSettings.mock.calls[0][0].emailTemplates.jobAssigned).toEqual(getDefaultEmailTemplates().jobAssigned);
+    await expect(saveWording({ typeKey: "job.offer", partId: "cleaner", transport: "EMAIL", kind: "RESET", expectedHash: edited.liveHash, actor })).rejects.toBeInstanceOf(WordingConflictError);
   });
 });
 

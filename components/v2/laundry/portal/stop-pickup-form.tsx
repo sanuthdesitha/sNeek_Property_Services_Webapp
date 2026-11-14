@@ -11,6 +11,7 @@
  * - a 409 or no answer means the outcome is unknown: refresh before trying again.
  * The answers are kept on this phone (per login and stop) until they are sent.
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import * as React from "react";
 import { QrCode } from "lucide-react";
 import { EButton } from "@/components/v2/ui/primitives";
@@ -111,7 +112,7 @@ export function StopPickupForm({ task, expected, baselineId, draftState, onDone,
           <p className="mb-1 text-[0.75rem] font-[550]">Was the linen ready?{readinessRequired ? " (required)" : ""}</p>
           <Segmented value={draft.readiness} disabled={locked} onChange={(readiness) => update({ readiness })} />
         </div>
-        <div className="flex items-center justify-between gap-2">
+        <div {...tourTarget("laundry.stop.count")} className="flex items-center justify-between gap-2">
           <div><p className="text-[0.75rem] font-[550]">Bags picked up</p><p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{expected === null ? "Expected count not recorded" : `Expected ${expected}`}</p></div>
           <Stepper value={draft.bagCount} disabled={locked} onChange={(bagCount) => update({ bagCount })} />
         </div>
@@ -144,10 +145,10 @@ export function StopPickupForm({ task, expected, baselineId, draftState, onDone,
         </div>
       ) : null}
       <div className="sticky bottom-16 z-10 space-y-1.5 border-t border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] py-2.5 lg:static">
-        <EButton className="min-h-12 w-full justify-center text-[0.9375rem]" disabled={locked || photoBusy} onClick={() => void confirm()}>
+        <EButton {...tourTarget("laundry.stop.confirm")} className="min-h-12 w-full justify-center text-[0.9375rem]" disabled={locked || photoBusy} onClick={() => void confirm()}>
           {sending ? "Sending…" : `Confirm pickup · ${draft.bagCount} bag${draft.bagCount === 1 ? "" : "s"}`}
         </EButton>
-        <EButton variant="ghost" className="min-h-11 w-full justify-center" disabled={locked} onClick={onFailedPickup}>Pickup failed, report it</EButton>
+        <EButton {...tourTarget("laundry.stop.failed")} variant="ghost" className="min-h-11 w-full justify-center" disabled={locked} onClick={onFailedPickup}>Pickup failed, report it</EButton>
       </div>
     </div>
   );

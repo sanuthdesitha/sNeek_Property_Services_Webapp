@@ -112,7 +112,8 @@ describe("password reset link and sign-up code", () => {
     expect(m.issueToken).toHaveBeenCalledWith("pwreset", "jane@example.invalid");
     const email = m.sendEmail.mock.calls[0][0];
     expect(email).toMatchObject({ to: "jane@example.invalid", critical: true, transactional: true });
-    expect(email.html).toContain("https://app.invalid/reset-password?email=jane%40example.invalid&token=raw-reset");
+    // The link sits in an escaped href (block design "resetPassword"): & is written &amp; in HTML.
+    expect(email.html.replace(/&amp;/g, "&")).toContain("https://app.invalid/reset-password?email=jane%40example.invalid&token=raw-reset");
     expect(email.html).toContain("Our office sent you a link");
   });
 

@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { renderCampaignContent } from "@/lib/marketing/campaign-render";
 import { getAppSettings } from "@/lib/settings";
-import { isSuppressed } from "@/lib/email/suppression";
+import { isMarketingSuppressed } from "@/lib/email/suppression";
 import { isSegmentId, resolveSegment, type SegmentId } from "@/lib/marketing/segments";
 
 export type { EmailCampaignAudience } from "./campaign-audience";
@@ -131,7 +131,7 @@ export async function dispatchEmailCampaignById(campaignId: string) {
     // Campaigns are non-transactional marketing — bounced / complained /
     // unsubscribed addresses must never be re-emailed. Checked BEFORE the
     // ledger claim so a suppressed address leaves no phantom "contacted" row.
-    if (await isSuppressed(recipient.email)) {
+    if (await isMarketingSuppressed(recipient.email)) {
       suppressedCount += 1;
       continue;
     }
@@ -157,6 +157,8 @@ export async function dispatchEmailCampaignById(campaignId: string) {
       subject: rendered.subject,
       html: rendered.html,
       replyTo: settings.accountsEmail || undefined,
+      // Base layout, campaign footer, one-click unsubscribe (List-Unsubscribe).
+      marketing: true,
     });
     if (result.ok) {
       sent += 1;
