@@ -10,7 +10,7 @@ vi.mock("@/lib/db", () => ({ db: { user: { findUnique: m.user } } }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ timezone: "Australia/Sydney" }) }));
 vi.mock("@/lib/ai/provider/admin", async () => {
   const actual = await vi.importActual<typeof import("@/lib/ai/provider/admin")>("@/lib/ai/provider/admin");
-  return { AiSettingsConflict: actual.AiSettingsConflict, saveAiCredential: m.saveCredential, saveAiRouting: m.saveRouting, getPublicCredentialStates: m.credentials };
+  return { AiSettingsConflict: actual.AiSettingsConflict, AiCloudPhotosConfirmationRequired: actual.AiCloudPhotosConfirmationRequired, saveAiCredential: m.saveCredential, saveAiRouting: m.saveRouting, getPublicCredentialStates: m.credentials };
 });
 // Tier C since 2026-11-14: the route confirms with the shared own-PIN check.
 vi.mock("@/lib/security/admin-verification", async () => {
@@ -103,6 +103,57 @@ describe("/api/admin/ai/settings", () => {
   it("refuses saves while testing as someone", async () => {
     m.session.mockResolvedValue({ ...admin, impersonation: { actorId: "admin-1", mode: "FULL" } });
     expect((await putSettings(put({}))).status).toBe(403); expect(m.saveRouting).not.toHaveBeenCalled();
+  });
+});
+
+// Owner decision 2026-11-14: turning "photos may leave the server" on needs
+// the administrator's own PIN (password only while they have no PIN),
+// verified in the same request; turning it off and other changes do not.
+describe("PUT /api/admin/ai/settings: cloud photo switch", () => {
+  const settingsOf = (routing: typeof DEFAULT_AI_ROUTING) => { const { revision: _r, ...rest } = routing; return rest; };
+  const withPhotos = (on: boolean) => ({ ...DEFAULT_AI_ROUTING, features: { ...DEFAULT_AI_ROUTING.features, photo_compare: { ...DEFAULT_AI_ROUTING.features.photo_compare, allowCloudImages: on } } });
+
+  it("turning it on verifies the PIN with ai.cloud_photos before saving, and never stores the credential", async () => {
+    m.saveRouting.mockResolvedValue(withPhotos(true));
+    const response = await putSettings(put({ expectedRevision: 0, settings: settingsOf(withPhotos(true)), security: { pin: "4826" } }));
+    expect(response.status).toBe(200);
+    expect(m.verify).toHaveBeenCalledWith("admin-1", { pin: "4826" }, "ai.cloud_photos");
+    const [saved, actor, options] = m.saveRouting.mock.calls[0];
+    expect(saved).not.toHaveProperty("security");
+    expect(actor).toBe("admin-1");
+    expect(options).toEqual({ cloudPhotosConfirmed: ["photo_compare"] });
+  });
+  it("a wrong or missing PIN refuses with 423 and saves nothing", async () => {
+    const { SensitiveVerificationError } = await vi.importActual<typeof import("@/lib/security/admin-verification")>("@/lib/security/admin-verification");
+    m.verify.mockRejectedValueOnce(new SensitiveVerificationError("INVALID_SECURITY_VERIFICATION"));
+    const wrong = await putSettings(put({ expectedRevision: 0, settings: settingsOf(withPhotos(true)), security: { pin: "0000" } }));
+    expect(wrong.status).toBe(423);
+    expect(await wrong.json()).toMatchObject({ code: "INVALID_SECURITY_VERIFICATION", needsCredential: true, features: ["photo_compare"] });
+    m.verify.mockRejectedValueOnce(new SensitiveVerificationError("PIN_OR_PASSWORD_REQUIRED"));
+    expect((await putSettings(put({ expectedRevision: 0, settings: settingsOf(withPhotos(true)) }))).status).toBe(423);
+    expect(m.saveRouting).not.toHaveBeenCalled();
+  });
+  it("turning it off, or any other change, needs no PIN", async () => {
+    m.routing.mockResolvedValue(withPhotos(true));
+    m.saveRouting.mockResolvedValue(withPhotos(false));
+    expect((await putSettings(put({ expectedRevision: 0, settings: settingsOf(withPhotos(false)) }))).status).toBe(200);
+    const limit = { ...withPhotos(true), features: { ...withPhotos(true).features, wording: { ...withPhotos(true).features.wording, hourlyLimitPerActor: 45 } } };
+    expect((await putSettings(put({ expectedRevision: 0, settings: settingsOf(limit) }))).status).toBe(200);
+    expect(m.verify).not.toHaveBeenCalled();
+    expect(m.saveRouting.mock.calls.every((call) => JSON.stringify(call[2]) === JSON.stringify({ cloudPhotosConfirmed: [] }))).toBe(true);
+  });
+  it("is refused while testing as someone, before any PIN check", async () => {
+    m.session.mockResolvedValue({ ...admin, impersonation: { actorId: "admin-1", mode: "FULL" } });
+    expect((await putSettings(put({ expectedRevision: 0, settings: settingsOf(withPhotos(true)), security: { pin: "4826" } }))).status).toBe(403);
+    expect(m.verify).not.toHaveBeenCalled();
+    expect(m.saveRouting).not.toHaveBeenCalled();
+  });
+  it("answers 423 when the locked save finds an unconfirmed switch (changed underneath)", async () => {
+    const { AiCloudPhotosConfirmationRequired } = await import("@/lib/ai/provider/admin");
+    m.saveRouting.mockRejectedValue(new AiCloudPhotosConfirmationRequired(["photo_assign"]));
+    const response = await putSettings(put({ expectedRevision: 0, settings: settingsOf(DEFAULT_AI_ROUTING) }));
+    expect(response.status).toBe(423);
+    expect(await response.json()).toMatchObject({ code: "CLOUD_PHOTOS_CONFIRMATION_REQUIRED", needsCredential: true, features: ["photo_assign"] });
   });
 });
 

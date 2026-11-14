@@ -116,6 +116,7 @@ import { readRestorable, writeRestorable } from "@/lib/client/restorable-state";
 import { useSharedEvidenceSync } from "@/hooks/use-shared-evidence-sync";
 import { mergeDraftStates } from "@/lib/cleaner/draft-merge";
 import { useDraftSave } from "@/lib/cleaner/use-draft-save";
+import { cleanerDraftFingerprint, mayMirrorCleanerDraft, mayPersistCleanerDraft, recoveredDraftNeedsSync } from "@/lib/cleaner/draft-autosave-gate";
 import { readCleanerLocalDraft, writeCleanerLocalDraft, clearCleanerLocalDraft, hasLegacyCleanerLocalDraft } from "@/lib/cleaner/local-draft";
 import { DraftSaveStatus } from "@/components/v2/cleaner/draft-save-status";
 import { getAccuratePosition } from "@/lib/geo/get-position";
@@ -364,6 +365,12 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     `v2-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`
   );
   const draftHydratedRef = React.useRef(false);
+  // The form as hydrated, and whether it has changed since (a real edit, or
+  // recovered device work the server lacks). Until then nothing is written,
+  // so opening a job (an offer especially) never stores an empty draft.
+  const draftBaselineRef = React.useRef<string | null>(null);
+  const draftChangedRef = React.useRef(false);
+  const needsAcceptanceRef = React.useRef(true);
   const loadGenerationRef = React.useRef(0);
   /** True after the first successful load — later refreshes must not blank the UI. */
   const hasLoadedOnceRef = React.useRef(false);
@@ -445,6 +452,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     const isCurrent = () => generation === loadGenerationRef.current;
     const clearAccess = (message: string) => {
       draftHydratedRef.current = false;
+      draftBaselineRef.current = null;
+      draftChangedRef.current = false;
       hasLoadedOnceRef.current = false;
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
       draftTimerRef.current = null;
@@ -543,6 +552,9 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
           const recovered = serverState && localState ? mergeDraftStates(serverState, localState) : serverState ?? localState;
           // Server removals and destinations win over stale device recovery.
           const merged = recovered && envelope?.evidenceReceipts ? reconcileEvidenceState(recovered, serverState ?? {}, envelope.evidenceReceipts) : recovered;
+          // Device work the server never received must still reach it.
+          draftChangedRef.current = localState ? recoveredDraftNeedsSync(merged, serverState) : false;
+          draftBaselineRef.current = null;
           if (merged) {
             restoreDraftState(merged);
             setDraftInfo({
@@ -633,6 +645,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   // global status (a job can be ASSIGNED overall while still PENDING for me).
   const responseStatus: string | null = payload?.assignmentState?.responseStatus ?? null;
   const needsAcceptance = responseStatus === "PENDING";
+  needsAcceptanceRef.current = needsAcceptance;
 
   // Laundry is captured on submit only for AIRBNB_TURNOVER jobs on
   // laundry-enabled properties, and never on reworks (reworks reuse the
@@ -887,7 +900,11 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
 
   const flushDraft = React.useCallback(
     (opts?: { keepalive?: boolean }) => {
-      if (!draftHydratedRef.current || locked || draftSubmittedRef.current) return;
+      const gate = {
+        hydrated: draftHydratedRef.current, locked, submitted: draftSubmittedRef.current,
+        needsAcceptance: needsAcceptanceRef.current, changed: draftChangedRef.current,
+      };
+      if (!mayPersistCleanerDraft(gate)) return;
       void saveDraft(jobId, editorSessionIdRef.current, mirrorDraft(), opts?.keepalive === true);
     },
     [jobId, locked, mirrorDraft, saveDraft],
@@ -913,7 +930,18 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   // is best effort and must not be represented as a confirmed server save.
   React.useEffect(() => {
     if (!draftHydratedRef.current || loading || !job || locked || draftSubmittedRef.current) return;
+    // The first pass after hydration records the baseline; only a change from
+    // it (or recovered work the server lacks) starts saving.
+    const fingerprint = cleanerDraftFingerprint(draftStateRef.current());
+    if (draftBaselineRef.current === null) draftBaselineRef.current = fingerprint;
+    if (fingerprint !== draftBaselineRef.current) draftChangedRef.current = true;
+    const gate = {
+      hydrated: true, locked, submitted: false, needsAcceptance, changed: draftChangedRef.current,
+    };
+    if (!mayMirrorCleanerDraft(gate)) return;
     mirrorDraft();
+    // An offer keeps a real change on this device only; it is saved once accepted.
+    if (!mayPersistCleanerDraft(gate)) return;
     markDraftDirty();
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     draftTimerRef.current = setTimeout(() => {
@@ -943,6 +971,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     carryPhotos,
     locked,
     loading,
+    needsAcceptance,
     jobId,
     flushDraft,
     mirrorDraft,

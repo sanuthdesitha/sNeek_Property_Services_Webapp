@@ -97,6 +97,9 @@ export const CAPABILITIES = [
   // Owner decision 2026-11-14: scheduling rules are ADMIN-only until an ADMIN grants this.
   { key: "laundry.void", area: null, label: "Void laundry runs", tier: "grant", canText: "Void skipped, flagged or failed laundry runs and undo voids (asked for their own PIN)", cannotText: "Void laundry runs", enforcedAt: "POST /api/admin/laundry/runs/void and /void/undo (verifySensitiveAction laundry.void)", note: "Administrators only by default (owner default pending confirmation)." },
   { key: "scheduling.rules_edit", area: null, label: "Change the scheduling rules", tier: "grant", canText: "Change, restore or import the laundry and job scheduling rules (asked for their own PIN)", cannotText: "Change the scheduling rules", enforcedAt: "/api/admin/settings/scheduling-rules/* (requireDelegatedAction + verifySensitiveAction scheduling.rules_edit)" },
+  // Owner decision 2026-11-14: Settings, AI stays administrator-only, so this
+  // is never granted in practice; it exists so the PIN check names its action.
+  { key: "ai.cloud_photos", area: null, label: "Allow AI to send photos off this server", tier: "grant", canText: "Allow an AI feature to send photos to a cloud provider (asked for their own PIN)", cannotText: "Allow AI features to send photos off this server", enforcedAt: "PUT /api/admin/ai/settings (requireAiAdmin + verifySensitiveAction ai.cloud_photos when a save turns photo sending on)", note: "Settings, AI is administrator only, so a grant alone does not open it." },
 ] as const satisfies readonly CapabilityDefinition[];
 
 export type CapabilityKey = (typeof CAPABILITIES)[number]["key"];
@@ -135,6 +138,7 @@ export const SENSITIVE_ACTION_CAPABILITY: Readonly<Record<SensitiveAction, Capab
   "scheduling.rules_edit": "scheduling.rules_edit",
   "laundry.void": "laundry.void",
   "cleaner_invoices.delete": "cleaner_invoices.delete",
+  "ai.cloud_photos": "ai.cloud_photos",
 };
 
 /**

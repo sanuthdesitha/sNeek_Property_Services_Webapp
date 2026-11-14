@@ -16,7 +16,7 @@ vi.mock("@/lib/auth/session", () => ({
 vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ timezone: "Australia/Sydney" }) }));
 vi.mock("@/lib/ai/provider/admin", async () => {
   const actual = await vi.importActual<typeof import("@/lib/ai/provider/admin")>("@/lib/ai/provider/admin");
-  return { AiSettingsConflict: actual.AiSettingsConflict, saveAiRouting: m.saveRouting, getPublicCredentialStates: m.credentials };
+  return { AiSettingsConflict: actual.AiSettingsConflict, AiCloudPhotosConfirmationRequired: actual.AiCloudPhotosConfirmationRequired, saveAiRouting: m.saveRouting, getPublicCredentialStates: m.credentials };
 });
 vi.mock("@/lib/ai/provider/routing", () => ({ getAiRouting: m.routing, resolveFeatureRoute: m.resolve }));
 vi.mock("@/lib/ai/provider/usage", () => ({ getMonthlyAiUsage: m.usage }));

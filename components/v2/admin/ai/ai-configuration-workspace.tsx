@@ -13,17 +13,24 @@
  * keeps the draft and offers "Load theirs" or "Put mine on top") and the photo
  * workflow settings. Fields freeze while saving; a failed save keeps the
  * draft. Operations managers read everything with every control disabled.
+ *
+ * A save that turns "photos may leave the server" ON for at least one feature
+ * (owner decision 2026-11-14) first asks for the administrator's own PIN in a
+ * tier C EConfirmDialog (their password while they have no PIN) and sends it
+ * as `security` with the routing; the server verifies it in the same request.
+ * A refused PIN keeps the dialog open with the reason and keeps the draft.
+ * Turning the switch off, and every other change, saves without a PIN.
  */
 import * as React from "react";
 import Link from "next/link";
 import { EAlert, EBadge, EButton, EPageHeader } from "@/components/v2/ui/primitives";
-import { EConfirmDialog } from "@/components/v2/ui/confirm-dialog";
+import { EConfirmDialog, type ConfirmResult } from "@/components/v2/ui/confirm-dialog";
 import { EPhoneActionBar, ESectionSwitcher } from "@/components/v2/ui/phone-bars";
 import { EToneCard } from "@/components/v2/ui/tone-band";
 import { OllamaSection } from "@/components/v2/admin/settings/ollama-section";
 import { PropertyPhotoMemoryPanel } from "@/components/v2/admin/property-photo-memory";
 import {
-  AI_FEATURE_CATALOG, AI_PROVIDER_KINDS, aiRoutingSchema,
+  AI_FEATURE_CATALOG, AI_PROVIDER_KINDS, aiRoutingSchema, cloudImageFeaturesTurnedOn,
   type AiFeature, type AiProviderKind, type AiRoutingSettings,
 } from "@/lib/ai/provider/routing-schema";
 import type { AgreementReport } from "@/lib/ai/photo-review-evaluation";
@@ -55,6 +62,17 @@ export type AiConfigurationProps = {
 type Conflict = { current: AiRoutingSettings; savedBy: { at: string; by: string | null } | null };
 type Notice = { tone: "success" | "danger" | "warning"; text: string };
 type VisionBody = { settings?: unknown; recognitionConfigured?: boolean; error?: string };
+type SensitiveCredentials = NonNullable<ConfirmResult["credentials"]>;
+/** The PIN prompt for a save that turns cloud photo sending on: which features, at which revision. */
+type CloudPhotoConfirm = { features: AiFeature[]; revision: number };
+type RoutingSaveOutcome = "saved" | "conflict";
+
+/** The server refused (or asked for) the PIN for turning cloud photo sending on. Nothing was saved. */
+class CloudPhotoCredentialRefused extends Error {
+  constructor(message: string, readonly features: AiFeature[]) {
+    super(message);
+  }
+}
 
 async function readJson<T>(response: Response): Promise<T> {
   return (await response.json().catch(() => ({}))) as T;
@@ -91,6 +109,8 @@ export function AiConfigurationWorkspace({ canEdit: serverCanEdit, readOnlyReaso
   const [conflict, setConflict] = React.useState<Conflict | null>(null);
   const [keyRequest, setKeyRequest] = React.useState<KeyDialogRequest | null>(null);
   const [photoConfirm, setPhotoConfirm] = React.useState<AiFeature | null>(null);
+  const [cloudConfirm, setCloudConfirm] = React.useState<CloudPhotoConfirm | null>(null);
+  const [cloudError, setCloudError] = React.useState<string | null>(null);
   const [featureSheet, setFeatureSheet] = React.useState<AiFeature | null>(null);
   const [providerSheet, setProviderSheet] = React.useState<AiProviderKind | null>(null);
   const [ollamaOpen, setOllamaOpen] = React.useState(initialSection === "ollama");
@@ -194,20 +214,31 @@ export function AiConfigurationWorkspace({ canEdit: serverCanEdit, readOnlyReaso
     setDraft((old) => ({ ...old, features: { ...old.features, [feature]: { ...old.features[feature], ...patch } } }));
   }, [setDraft]);
 
-  async function saveRouting(useRevision: number): Promise<boolean> {
-    if (!draft) return false;
-    const response = await fetch("/api/admin/ai/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevision: useRevision, settings: draft }) });
-    const body = await readJson<AiScreenState & { error?: string; current?: AiRoutingSettings; savedBy?: Conflict["savedBy"] }>(response);
+  async function saveRouting(useRevision: number, security: SensitiveCredentials | undefined): Promise<RoutingSaveOutcome> {
+    if (!draft) return "conflict";
+    const request = { expectedRevision: useRevision, settings: draft, ...(security ? { security } : {}) };
+    const response = await fetch("/api/admin/ai/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) });
+    const body = await readJson<AiScreenState & { error?: string; current?: AiRoutingSettings; savedBy?: Conflict["savedBy"]; needsCredential?: boolean; features?: AiFeature[] }>(response);
     if (response.status === 409 && body.current) {
       setConflict({ current: body.current, savedBy: body.savedBy ?? null });
-      return false;
+      return "conflict";
+    }
+    if (!response.ok && body.needsCredential) {
+      throw new CloudPhotoCredentialRefused(body.error || "Your PIN was not accepted. Nothing was saved.", Array.isArray(body.features) ? body.features : []);
     }
     if (!response.ok || !body.routing) throw new Error(body.error || "AI settings were not saved.");
     setState(body);
     setDraftState(toRoutingDraft(body.routing));
     setRevision(body.routing.revision);
     setConflict(null);
-    return true;
+    return "saved";
+  }
+
+  /** Features this save would switch to "photos may leave the server", against the routing it is based on. */
+  function cloudPhotosTurnedOn(useRevision: number): AiFeature[] {
+    if (!draft || !state || !routingDirty) return [];
+    const base = conflict && conflict.current.revision === useRevision ? conflict.current : state.routing;
+    return cloudImageFeaturesTurnedOn(base, draft);
   }
 
   async function saveVision(): Promise<void> {
@@ -220,10 +251,17 @@ export function AiConfigurationWorkspace({ canEdit: serverCanEdit, readOnlyReaso
     setVisionDraftState(parsed.data);
   }
 
-  async function save(useRevision = revision) {
+  async function save(useRevision = revision, security?: SensitiveCredentials) {
     if (!canEdit || saving || !dirty) return;
     if (!routingValid || !visionValid) {
       setNotice({ tone: "danger", text: "Check model names, limits (1 to 10,000 an hour), deadlines (10 to 300 seconds), the endpoint address and the photo check numbers." });
+      return;
+    }
+    // Turning cloud photo sending on is confirmed with the person's own PIN first.
+    const turnedOn = cloudPhotosTurnedOn(useRevision);
+    if (turnedOn.length && !security) {
+      setCloudError(null);
+      setCloudConfirm({ features: turnedOn, revision: useRevision });
       return;
     }
     setSaving(true);
@@ -232,7 +270,17 @@ export function AiConfigurationWorkspace({ canEdit: serverCanEdit, readOnlyReaso
     let routingSaved = !routingDirty;
     try {
       if (routingDirty) {
-        try { routingSaved = await saveRouting(useRevision); } catch (error) { problems.push(error instanceof Error ? error.message : "AI settings were not saved."); }
+        try {
+          routingSaved = (await saveRouting(useRevision, security)) === "saved";
+        } catch (error) {
+          if (error instanceof CloudPhotoCredentialRefused) {
+            // Nothing was saved: keep the draft and the PIN prompt, with the reason.
+            setCloudError(error.message);
+            setCloudConfirm((open) => open ?? { features: error.features.length ? error.features : turnedOn, revision: useRevision });
+            return;
+          }
+          problems.push(error instanceof Error ? error.message : "AI settings were not saved.");
+        }
       }
       if (visionDirty) {
         try { await saveVision(); } catch (error) { problems.push(error instanceof Error ? error.message : "Photo check settings were not saved."); }
@@ -240,6 +288,8 @@ export function AiConfigurationWorkspace({ canEdit: serverCanEdit, readOnlyReaso
     } finally {
       setSaving(false);
     }
+    setCloudConfirm(null);
+    setCloudError(null);
     if (problems.length) setNotice({ tone: "danger", text: `${problems.join(" ")} Your changes are kept.` });
     else if (!routingSaved) setNotice({ tone: "warning", text: "Someone saved AI settings after you opened them. Your changes are kept below; choose what to do." });
     else setNotice({ tone: "success", text: "Saved. Changes apply to the next request." });
@@ -331,6 +381,15 @@ export function AiConfigurationWorkspace({ canEdit: serverCanEdit, readOnlyReaso
   const keyUsers = keyRequest ? featuresOn(keyRequest.provider, state, draft, visionDraft).map((feature) => AI_FEATURE_CATALOG[feature].label) : [];
   const confirmRoute = photoConfirm ? effectiveRoute(photoConfirm, state, draft, visionDraft) : null;
   const confirmCompany = confirmRoute && confirmRoute.provider !== "ollama" ? shortProviderName(confirmRoute.provider, draft) : "a cloud provider";
+  /** "Photo comparison (Anthropic) and Photo assignment (OpenAI)" for the PIN prompt. */
+  function cloudPhotoDestinations(features: AiFeature[]): string {
+    const named = features.map((feature) => {
+      const route = effectiveRoute(feature, state!, draft!, visionDraft);
+      const company = route && route.provider !== "ollama" ? shortProviderName(route.provider, draft) : "a cloud provider";
+      return `${AI_FEATURE_CATALOG[feature].label} (${company})`;
+    });
+    return named.length > 1 ? `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}` : named[0] ?? "these features";
+  }
 
   const ollamaSetup = ollamaOpen && canEdit ? (
     <section id="ollama-setup" aria-label="Local Ollama setup" className="min-w-0 scroll-mt-24 space-y-2 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] p-3 sm:p-4">
@@ -412,12 +471,25 @@ export function AiConfigurationWorkspace({ canEdit: serverCanEdit, readOnlyReaso
         open={photoConfirm !== null}
         tier="ordinary"
         title={`Allow photos to go to ${confirmCompany}?`}
-        description={photoConfirm ? `${AI_FEATURE_CATALOG[photoConfirm].label} will send cleaning photos to ${confirmCompany}${confirmRoute && ["anthropic", "openai"].includes(confirmRoute.provider) ? " in the United States" : ""}, with the time and address stamp blacked out. It takes effect when you save changes, and the change is kept in the settings audit.` : undefined}
+        description={photoConfirm ? `${AI_FEATURE_CATALOG[photoConfirm].label} will send cleaning photos to ${confirmCompany}${confirmRoute && ["anthropic", "openai"].includes(confirmRoute.provider) ? " in the United States" : ""}, with the time and address stamp blacked out. It takes effect when you save changes, which asks for your PIN, and the change is kept in the settings audit.` : undefined}
         confirmLabel="Allow photos"
         onClose={() => { setPhotoConfirm(null); reopenSheet(); }}
         onConfirm={() => { if (photoConfirm) updateFeature(photoConfirm, { allowCloudImages: true }); setPhotoConfirm(null); reopenSheet(); }}
       >
         <p className="text-[0.8125rem]">Photos from properties that opted out are never sent. Turning the switch off again keeps photos on this server from the next request.</p>
+      </EConfirmDialog>
+      <EConfirmDialog
+        open={cloudConfirm !== null}
+        tier="sensitive"
+        title="Let photos leave this server?"
+        description={cloudConfirm ? `Saving lets ${cloudPhotoDestinations(cloudConfirm.features)} receive cleaning photos, with the time and address stamp blacked out. Confirm it is you.` : undefined}
+        confirmLabel="Save and allow photos"
+        busy={saving}
+        error={cloudError}
+        onClose={() => { if (!saving) { setCloudConfirm(null); setCloudError(null); } }}
+        onConfirm={(result) => { if (cloudConfirm && result.credentials) return save(cloudConfirm.revision, result.credentials); }}
+      >
+        <p className="text-[0.8125rem]">Your other changes are saved with it. If your PIN is not accepted, nothing is saved and your changes stay on the page. Turning photos off later needs no PIN.</p>
       </EConfirmDialog>
       <OptOutDialog
         open={optOutOpen}
