@@ -81,6 +81,12 @@ export type EDataTableProps<TRow, TSort extends string = string> = {
   activeRowKey?: string | null;
   /** Cell padding, e.g. for a density preference. */
   cellPadding?: string;
+  /**
+   * Flagged rows (tone band, 2026-11): a class for the row's leading cells
+   * (the checkbox cell and the title column), e.g. `toneRowCellClass(tone)`.
+   * Return undefined for a row with nothing to flag. Never a left line.
+   */
+  leadCellClassName?: (row: TRow) => string | undefined;
 };
 
 const INTERACTIVE = "a, button, input, select, textarea, label, [role='menuitem'], [role='checkbox']";
@@ -185,6 +191,7 @@ export function EDataTable<TRow, TSort extends string = string>({
   onRowClick,
   activeRowKey = null,
   cellPadding = "px-3 py-2.5",
+  leadCellClassName,
 }: EDataTableProps<TRow, TSort>) {
   const [phoneSelecting, setPhoneSelecting] = React.useState(false);
   const hasRows = rows.length > 0;
@@ -224,6 +231,7 @@ export function EDataTable<TRow, TSort extends string = string>({
     const id = rowKey(row);
     const checked = selection?.selected.has(id) ?? false;
     const active = activeRowKey !== null && activeRowKey === id;
+    const leadClass = leadCellClassName?.(row);
     return (
       <tr
         key={id}
@@ -241,7 +249,7 @@ export function EDataTable<TRow, TSort extends string = string>({
         )}
       >
         {selection ? (
-          <td className={cn("w-[34px] align-middle max-sm:-order-1 max-sm:w-auto max-sm:!p-0 max-sm:pt-0.5", cellPadding, !showPhoneChecks && "max-sm:hidden")}>
+          <td className={cn("w-[34px] align-middle max-sm:-order-1 max-sm:w-auto max-sm:!p-0 max-sm:pt-0.5", cellPadding, leadClass, !showPhoneChecks && "max-sm:hidden")}>
             <input
               type="checkbox"
               className="h-[15px] w-[15px] accent-[hsl(var(--e-primary))] max-sm:h-6 max-sm:w-6"
@@ -269,6 +277,7 @@ export function EDataTable<TRow, TSort extends string = string>({
                 cellPadding,
                 ALIGN[column.align ?? "left"],
                 column.className,
+                isTitle && leadClass,
                 // Phone: no cell padding, left aligned; title first, then pairs.
                 "max-sm:!w-auto max-sm:min-w-0 max-sm:!p-0 max-sm:!text-left",
                 isTitle && "max-sm:order-first max-sm:flex-1 max-sm:basis-[60%] max-sm:text-[0.9375rem]",

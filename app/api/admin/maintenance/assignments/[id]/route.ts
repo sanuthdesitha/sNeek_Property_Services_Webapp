@@ -44,8 +44,19 @@ const schema = z
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = schema.parse(await req.json().catch(() => ({})));
+
+    // Approving a worker's higher price is for administrators only (owner
+    // default 2026-11-14, pending confirmation). An operations manager still
+    // sees the request and may decline it or set the pay. Checked on the live
+    // session: someone testing as a manager acts with the manager's limits.
+    if (body.action === "APPROVE_PAY_CHANGE" && session.user.role !== Role.ADMIN) {
+      return NextResponse.json(
+        { error: "Only an administrator can approve a higher price." },
+        { status: 403 }
+      );
+    }
 
     const assignment = await db.maintenanceItemAssignment.findUnique({
       where: { id: params.id },

@@ -16,6 +16,10 @@ export const SENSITIVE_ACTIONS = {
   // laundry run and undoing a void are administrator actions with the
   // person's own PIN.
   "laundry.void": "Void laundry runs and undo voids",
+  // Owner default 2026-11-14 ("simpler confirmations", pending owner
+  // confirmation): deleting a cleaner's submitted invoice is tier C, confirmed
+  // with the person's own PIN. Who may delete is unchanged (Payroll at Manage).
+  "cleaner_invoices.delete": "Delete cleaners' submitted invoices",
 } as const;
 export type SensitiveAction = keyof typeof SENSITIVE_ACTIONS;
 export type SensitiveGrants = Partial<Record<SensitiveAction, boolean>>;

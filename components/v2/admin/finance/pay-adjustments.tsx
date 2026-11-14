@@ -1160,7 +1160,7 @@ export function EstatePayAdjustments() {
         open={Boolean(deleteFor)}
         onClose={() => setDeleteFor(null)}
         title="Delete this pay adjustment?"
-        description="This permanently removes the request."
+        description="The request is removed. This cannot be undone."
         confirmLabel="Delete"
         loading={deleting}
         onConfirm={submitDelete}

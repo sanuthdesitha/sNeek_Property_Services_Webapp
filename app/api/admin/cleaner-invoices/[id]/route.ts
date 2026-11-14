@@ -7,6 +7,7 @@ import {
   cleanerInvoicePatchSchema,
   deleteCleanerInvoice,
 } from "@/lib/cleaner/invoice-admin-actions";
+import { routeSecurityRefusal, securityFromBody } from "@/lib/security/route-verification";
 
 /**
  * PATCH { status, … } — approve (ADMIN only), request changes, record payment,
@@ -29,10 +30,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 /**
  * Hard-delete a cleaner invoice submission. Blocked once it's in Xero or paid.
  * Deleting frees the cleaner to resend a corrected invoice for the same period.
+ *
+ * Tier C since 2026-11-14 (owner default, pending owner confirmation): the
+ * body carries `{ security: { pin } }` (or `{ password }` while the person has
+ * no PIN), verified here with verifySensitiveAction("cleaner_invoices.delete")
+ * against the actual signed-in person; refused while testing as someone else.
  */
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const body = await req.json().catch(() => ({}));
+    const refusal = await routeSecurityRefusal(session, securityFromBody(body) ?? null, "cleaner_invoices.delete");
+    if (refusal) return refusal;
     const outcome = await deleteCleanerInvoice(params.id, session.user);
     return NextResponse.json(outcome.body, { status: outcome.status });
   } catch (err: unknown) {

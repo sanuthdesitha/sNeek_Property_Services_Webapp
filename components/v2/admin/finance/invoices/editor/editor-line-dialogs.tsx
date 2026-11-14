@@ -1,41 +1,62 @@
 "use client";
 
 /**
- * Per-line confirmations: removing a line (PIN or password, sent with the
- * removal and verified by the invoice route on the server) and choosing the
- * property a manual line groups under.
+ * Per-line confirmations: removing a line and choosing the property a manual
+ * line groups under.
+ *
+ * Removing a line (board "Confirmations and deletes", owner default
+ * 2026-11-14, pending owner confirmation):
+ *   - DRAFT invoice: tier B, one red button, no PIN. The editor offers Undo for
+ *     a plain manual line (it is added again with the same text, quantity and
+ *     price); a job, discount, shopping or case line is not re-created by Undo.
+ *   - Past DRAFT: tier C as before, the own PIN sent with the removal and
+ *     verified by the invoice route on the server.
  */
 import { useState } from "react";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EConfirmModal, EField, EModal, ESelect } from "@/components/v2/admin/estate-kit";
 import type { ClientInvoiceEditorData, EditorLine } from "@/lib/billing/client-invoice-editor-types";
 
-export type Credentials = { pin?: string; password?: string };
+export type Credentials = { pin?: string; password?: string; newPin?: string };
+
+/** A line Undo can put back exactly: a manual charge with no job, discount, shopping, case or grouping link. */
+export function lineCanBeRestored(line: EditorLine): boolean {
+  return !line.job && !line.discount && !line.shoppingLocked && !line.fromCase && !line.propertyId && !line.note;
+}
 
 export function RemoveLineDialog({
   line,
+  draft,
   busy,
   onClose,
   onConfirm,
 }: {
   line: EditorLine | null;
+  /** True while the invoice is a DRAFT: no PIN (the server checks the status again). */
+  draft: boolean;
   busy: boolean;
   onClose: () => void;
-  /** Sends the removal with the credentials; the server checks them. */
+  /** Sends the removal (with the credentials past DRAFT); the server checks them. */
   onConfirm: (line: EditorLine, credentials: Credentials) => void;
 }) {
   function confirm(credentials?: Credentials) {
     if (!line) return;
     onConfirm(line, credentials ?? {});
   }
+  const label = line?.description ? `"${line.description}"` : "This line";
+  const undoable = line ? draft && lineCanBeRestored(line) : false;
   return (
     <EConfirmModal
       open={Boolean(line)}
       onClose={() => !busy && onClose()}
-      title="Remove this invoice line"
-      description="The charge comes off the invoice and the total is rewritten. Enter your PIN or password to continue."
+      title="Remove this line?"
+      description={
+        draft
+          ? `${label} comes off this draft and the total is worked out again.${undoable ? " You get Undo for 10 seconds." : line?.job ? " Its job can be added again with Add jobs." : ""}`
+          : `${label} comes off the invoice and the total is worked out again.`
+      }
       confirmLabel="Remove line"
-      requireSecurity
+      tier={draft ? "destructive" : "sensitive"}
       loading={busy}
       onConfirm={confirm}
     />

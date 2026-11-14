@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
+import { routeSecurityRefusal, securityFromBody } from "@/lib/security/route-verification";
 import {
   getShoppingRunBillingContextById,
   updateShoppingRunByAdmin,
@@ -82,8 +83,22 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const body = patchSchema.parse(await req.json().catch(() => ({})));
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const raw = await req.json().catch(() => ({}));
+    const body = patchSchema.parse(raw);
+    // Removing a receipt from the payment record is tier C (a receipt is the
+    // proof behind a reimbursement): the person's own PIN, sent as `security`
+    // and verified here (2026-11-14; before, only the browser checked it
+    // through the verify-only endpoint). Adding receipts needs no PIN.
+    if (body.payment?.receipts) {
+      const current = await getShoppingRunBillingContextById(params.id);
+      const kept = new Set(body.payment.receipts.map((receipt) => receipt.key));
+      const removes = (current?.payment?.receipts ?? []).some((receipt) => !kept.has(receipt.key));
+      if (removes) {
+        const refusal = await routeSecurityRefusal(session, securityFromBody(raw) ?? null);
+        if (refusal) return refusal;
+      }
+    }
     const payment: Partial<ShoppingRunPayment> | undefined = body.payment
       ? {
           ...body.payment,

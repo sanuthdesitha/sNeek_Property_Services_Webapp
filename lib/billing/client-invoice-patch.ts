@@ -100,6 +100,13 @@ const patchSchema = z.object({
   reverse: z
     .object({ reason: z.string().trim().max(500).optional().nullable() })
     .optional(),
+  /**
+   * Why an invoice or credit note is voided (quick pick, "Other…" text; owner
+   * default 2026-11-14, pending owner confirmation). The HTTP route requires it
+   * for status VOID; it is written to the CLIENT_INVOICE_VOIDED audit row and
+   * changes nothing on the document or its amounts.
+   */
+  voidReason: z.string().trim().max(2000).optional(),
   dueDate: z.string().optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
   gstEnabled: z.boolean().optional(),
@@ -121,7 +128,7 @@ const patchSchema = z.object({
   clientReference: z.string().trim().max(100).nullable().optional(),
   /** Note to the client printed on the PDF. Content: locked once sent. */
   clientNote: z.string().trim().max(2000).nullable().optional(),
-  /** PIN or password, required to remove a line. Verified, never stored or logged. */
+  /** Own PIN (password while none is set), required to remove a line once the invoice is past DRAFT. Verified, never stored or logged. */
   security: securitySchema,
   removeLineId: z.string().cuid().optional(),
   // Full ordered list of line ids → persisted as sortOrder (group by property + drag).
@@ -151,6 +158,9 @@ function removalRequest(body: unknown): { security: { pin?: string; password?: s
   const parsed = securitySchema.safeParse(raw.security);
   return { security: parsed.success ? parsed.data : undefined };
 }
+
+/** The invoice stopped being a draft between the check and the row lock: its lines now need the PIN. */
+export const DRAFT_LINE_REMOVAL_CHANGED = "This invoice is no longer a draft. Removing a line now needs your PIN; reload and try again.";
 
 /** Thrown inside the transaction so a refused PATCH rolls back earlier line changes. */
 class RefusedInvoicePatch extends Error {
@@ -184,16 +194,29 @@ export async function patchClientInvoice(input: {
   xeroPayment?: XeroPaymentSource;
 }): Promise<InvoiceActionResult> {
   const afterCommit: Array<() => Promise<unknown>> = [];
-  // Removing a line needs the administrator's own PIN or password, checked
-  // here on the server before the row lock is taken (bcrypt is slow).
+  // Removing a line from an invoice that is past DRAFT needs the person's own
+  // PIN, checked here on the server before the row lock is taken (bcrypt is
+  // slow). A DRAFT line is removed without a PIN (owner default 2026-11-14,
+  // pending owner confirmation: tier B with Undo); the draft status is checked
+  // again under the row lock, so an invoice approved in between is refused.
   const removal = removalRequest(input.body);
+  let draftRemovalWithoutPin = false;
   if (removal) {
-    const refusal = await verifyInvoiceSecurity(input.actor, removal.security);
-    if (refusal) return refusal;
+    const current = await db.clientInvoice.findUnique({ where: { id: input.invoiceId }, select: { status: true } });
+    if (current?.status === "DRAFT") {
+      draftRemovalWithoutPin = true;
+    } else {
+      const refusal = await verifyInvoiceSecurity(input.actor, removal.security);
+      if (refusal) return refusal;
+    }
   }
   try {
     const response = await db.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "ClientInvoice" WHERE "id" = ${input.invoiceId} FOR UPDATE`;
+      if (draftRemovalWithoutPin) {
+        const locked = await tx.clientInvoice.findUnique({ where: { id: input.invoiceId }, select: { status: true } });
+        if (locked && locked.status !== "DRAFT") throw new RefusedInvoicePatch(actionResult({ error: DRAFT_LINE_REMOVAL_CHANGED }, 409));
+      }
       // Existing nested line/total blocks share this one transaction.
       const scoped = new Proxy(tx, { get(target, property) {
         if (property === "$transaction") return async (fn: (client: Prisma.TransactionClient) => Promise<unknown>) => fn(tx);
@@ -662,6 +685,24 @@ async function patchLockedInvoice(
               invoiceNumber: existing.invoiceNumber,
               emailed: false,
               note: "Marked sent without email",
+              impersonatedBy: actor.impersonatedBy ?? null,
+            },
+          },
+        });
+      }
+      if (voiding && statusChanges) {
+        await tx.auditLog.create({
+          data: {
+            userId: session.user.id,
+            action: "CLIENT_INVOICE_VOIDED",
+            entity: "ClientInvoice",
+            entityId: params.id,
+            before: { status: existing.status },
+            after: {
+              status: ClientInvoiceStatus.VOID,
+              kind: existing.kind,
+              invoiceNumber: existing.invoiceNumber,
+              reason: body.voidReason || null,
               impersonatedBy: actor.impersonatedBy ?? null,
             },
           },

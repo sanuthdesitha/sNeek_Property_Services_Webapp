@@ -1,190 +1,361 @@
 "use client";
 
 /**
- * The PIN part of every sensitive-action prompt: the person's OWN PIN.
+ * THE ONE CREDENTIAL FIELD of every sensitive (tier C) confirmation
+ * (board "Confirmations and deletes", 2026-11-14).
  *
- * - With a PIN: one field, "Your PIN".
- * - With no PIN yet (never set, or cleared by an administrator): "You have no
- *   PIN yet", their account password once, and the PIN to set (twice). The
- *   server checks the password, stores the PIN and confirms the action.
- * - While the state is loading or could not be read: "Your PIN", with
- *   "I have no PIN yet" to switch to setting one.
+ * Always the person actually signed in, never the account being tested. One
+ * field, five states:
+ *   - has a PIN:        "Your PIN" (number pad on phones, paste allowed, Show);
+ *   - wrong PIN:        "That PIN is not right. 3 tries left." after a refusal;
+ *   - locked:           "Locked", "Too many wrong tries. Try again at 14:52.";
+ *   - no PIN yet:       "Your password", "Your password, this time. Set a PIN
+ *                       so next time is 4 digits." with a link to the profile
+ *                       (owner default 2026-11-14, pending owner confirmation:
+ *                       the password alone confirms while someone has no PIN);
+ *   - testing as someone else: "Not available", "Stop testing as … to do this.
+ *                       It needs your own PIN." No credential can be sent.
+ * While the state is loading or could not be read the field asks for the PIN
+ * and offers "I have no PIN yet" to switch to the password.
  *
- * The state comes from GET /api/me/admin-pin (never the PIN itself). Values are
- * kept while the prompt is open and cleared by the owner when it closes.
+ * The state comes from GET /api/me/admin-pin (never the PIN itself) and is
+ * read again after a refusal (`refresh`), which is how the field learns the
+ * tries left or the lock. The server still decides: this field only collects.
  * Plain inputs (no estate-kit import) so both the Estate and the classic
  * prompts can use it.
  */
 import * as React from "react";
-import { PIN_MAX_DIGITS, newPinProblem, type SensitiveCredentialsInput } from "@/lib/security/pin-rules";
+import { PIN_LOCK_THRESHOLD, PIN_MAX_DIGITS, PIN_MIN_DIGITS, type SensitiveCredentialsInput } from "@/lib/security/pin-rules";
 
-export type OwnPinStatus = "loading" | "has-pin" | "needs-setup" | "unavailable";
+export type OwnPinStatus = "loading" | "has-pin" | "needs-setup" | "unavailable" | "testing";
 
+/** `newPin` / `confirmPin` are kept for older callers; the field no longer asks for them. */
 export type OwnPinValue = { pin: string; password: string; newPin: string; confirmPin: string };
 
 export const EMPTY_OWN_PIN: OwnPinValue = { pin: "", password: "", newPin: "", confirmPin: "" };
 
-type OwnPinStateBody = { hasPin?: boolean; lockedUntil?: string | null; userId?: string };
+/** Where a person sets or changes their own PIN (with their password). */
+export const SET_PIN_HREF = "/v2/admin/profile#own-pin";
 
-/** Reads the signed-in person's PIN state while `active`; aborts a read that is no longer wanted. */
-export type OwnPinStatusState = { status: OwnPinStatus; lockedUntil: string | null; userId: string | null };
+type OwnPinStateBody = { hasPin?: boolean; lockedUntil?: string | null; userId?: string; attemptsLeft?: number; code?: string };
 
-export function useOwnPinStatus(active: boolean): OwnPinStatusState {
-  const [state, setState] = React.useState<OwnPinStatusState>({ status: "loading", lockedUntil: null, userId: null });
+export type OwnPinStatusState = {
+  status: OwnPinStatus;
+  lockedUntil: string | null;
+  userId: string | null;
+  /** Wrong tries left before the lock; null when not known. */
+  attemptsLeft: number | null;
+};
+
+const LOADING_STATE: OwnPinStatusState = { status: "loading", lockedUntil: null, userId: null, attemptsLeft: null };
+const UNAVAILABLE_STATE: OwnPinStatusState = { status: "unavailable", lockedUntil: null, userId: null, attemptsLeft: null };
+
+function stateFromBody(ok: boolean, body: OwnPinStateBody | null): OwnPinStatusState {
+  if (!ok && body?.code === "ACTUAL_ACTOR_REQUIRED") return { status: "testing", lockedUntil: null, userId: null, attemptsLeft: null };
+  if (!ok || !body || typeof body.hasPin !== "boolean") return UNAVAILABLE_STATE;
+  return {
+    status: body.hasPin ? "has-pin" : "needs-setup",
+    lockedUntil: body.lockedUntil ?? null,
+    userId: body.userId ?? null,
+    attemptsLeft: typeof body.attemptsLeft === "number" ? body.attemptsLeft : null,
+  };
+}
+
+/**
+ * Reads the signed-in person's PIN state while `active`; `refresh()` reads it
+ * again (after a refusal). A read that is no longer wanted is aborted, and the
+ * last good state stays on screen while a refresh runs.
+ */
+export function useOwnPinStatus(active: boolean): OwnPinStatusState & { refresh: () => void } {
+  const [state, setState] = React.useState<OwnPinStatusState>(LOADING_STATE);
+  const [nonce, setNonce] = React.useState(0);
   React.useEffect(() => {
     if (!active) return;
     const controller = new AbortController();
-    setState({ status: "loading", lockedUntil: null, userId: null });
+    if (nonce === 0) setState(LOADING_STATE);
     void (async () => {
       try {
         const res = await fetch("/api/me/admin-pin", { cache: "no-store", signal: controller.signal });
         const body = (await res.json().catch(() => null)) as OwnPinStateBody | null;
         if (controller.signal.aborted) return;
-        if (!res.ok || !body || typeof body.hasPin !== "boolean") {
-          setState({ status: "unavailable", lockedUntil: null, userId: null });
-          return;
-        }
-        setState({ status: body.hasPin ? "has-pin" : "needs-setup", lockedUntil: body.lockedUntil ?? null, userId: body.userId ?? null });
+        setState(stateFromBody(res.ok, body));
       } catch {
-        if (!controller.signal.aborted) setState({ status: "unavailable", lockedUntil: null, userId: null });
+        if (!controller.signal.aborted) setState(UNAVAILABLE_STATE);
       }
     })();
     return () => controller.abort();
+  }, [active, nonce]);
+  React.useEffect(() => {
+    if (!active) setNonce(0);
   }, [active]);
-  return state;
+  const refresh = React.useCallback(() => setNonce((value) => value + 1), []);
+  return { ...state, refresh };
 }
 
-/** Which fields the prompt shows: the person's own choice (null = none yet) wins over the loaded state. */
+/** Which field the prompt shows: the person's own choice (null = none yet) wins over the loaded state. */
 export function ownPinMode(status: OwnPinStatus, settingUp: boolean | null): "pin" | "setup" {
   if (settingUp !== null) return settingUp ? "setup" : "pin";
   return status === "needs-setup" ? "setup" : "pin";
 }
 
+function isLockedNow(lockedUntil: string | null | undefined): boolean {
+  return Boolean(lockedUntil && new Date(lockedUntil).getTime() > Date.now());
+}
+
 /**
  * The credentials to send, or a reason the prompt cannot be sent yet.
  * Never mixes a PIN with a password: the server accepts one or the other.
+ * "setup" mode (no PIN yet) sends the account password alone.
  */
 export function ownPinCredentials(value: OwnPinValue, mode: "pin" | "setup"): { credentials: SensitiveCredentialsInput } | { problem: string } {
   if (mode === "pin") {
     const pin = value.pin.trim();
     return pin ? { credentials: { pin } } : { problem: "Enter your PIN." };
   }
-  if (!value.password.trim()) return { problem: "Enter your account password." };
-  const problem = newPinProblem(value.newPin.trim(), value.confirmPin.trim());
-  if (problem) return { problem };
-  return { credentials: { password: value.password, newPin: value.newPin.trim() } };
+  return value.password.trim() ? { credentials: { password: value.password } } : { problem: "Enter your account password." };
 }
 
 const INPUT =
-  "mt-1 h-11 w-full rounded-md border border-[hsl(var(--e-input,var(--input)))] bg-transparent px-3 text-[16px] sm:text-sm disabled:opacity-60";
+  "h-11 w-full min-w-0 rounded-md border border-[hsl(var(--e-input,var(--input)))] bg-transparent px-3 text-[16px] sm:text-sm disabled:opacity-60 " +
+  "focus:outline-none focus:ring-2 focus:ring-[hsl(var(--e-ring,var(--ring)))]";
 const LABEL = "block text-sm font-medium";
 const NOTE = "text-xs text-[hsl(var(--e-muted-foreground,var(--muted-foreground)))]";
+const PROBLEM = "text-xs font-medium text-[hsl(var(--e-danger,var(--destructive)))]";
+const SHOW =
+  "absolute inset-y-0 right-0 min-w-14 rounded-r-md px-3 text-xs font-medium text-[hsl(var(--e-muted-foreground,var(--muted-foreground)))] hover:text-[hsl(var(--e-foreground,var(--foreground)))] disabled:opacity-50";
 
 function digitsOnly(text: string) {
   return text.replace(/\D/g, "").slice(0, PIN_MAX_DIGITS);
 }
 
-export function OwnPinFields({
-  status,
-  lockedUntil,
-  value,
-  onChange,
-  settingUp,
-  onSettingUpChange,
-  disabled = false,
-  autoFocus = false,
-}: {
+function timeOf(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+/** On a phone, keep the field above the keyboard once it opens. */
+function keepVisible(event: React.FocusEvent<HTMLInputElement>) {
+  const target = event.currentTarget;
+  window.setTimeout(() => {
+    if (document.activeElement === target && typeof target.scrollIntoView === "function") target.scrollIntoView({ block: "center" });
+  }, 250);
+}
+
+export type OwnPinFieldsProps = {
   status: OwnPinStatus;
   lockedUntil?: string | null;
+  attemptsLeft?: number | null;
+  /** True after the server refused the last credential (wrong PIN or password). */
+  refused?: boolean;
   value: OwnPinValue;
   onChange: (next: OwnPinValue) => void;
   settingUp: boolean | null;
   onSettingUpChange: (next: boolean) => void;
   disabled?: boolean;
   autoFocus?: boolean;
-}) {
+  /** Enter in the field: lets the dialog confirm. */
+  onSubmit?: () => void;
+  /** Who the person is testing as, when known ("Stop testing as Chloe Martin"). */
+  testingAsName?: string | null;
+};
+
+export function OwnPinFields({
+  status,
+  lockedUntil,
+  attemptsLeft = null,
+  refused = false,
+  value,
+  onChange,
+  settingUp,
+  onSettingUpChange,
+  disabled = false,
+  autoFocus = false,
+  onSubmit,
+  testingAsName = null,
+}: OwnPinFieldsProps) {
   const id = React.useId();
+  const [shown, setShown] = React.useState(false);
   const mode = ownPinMode(status, settingUp);
   const set = (patch: Partial<OwnPinValue>) => onChange({ ...value, ...patch });
-  const locked = lockedUntil ? new Date(lockedUntil) : null;
+  const helpId = `${id}-help`;
+  const inputId = `${id}-credential`;
 
-  return (
-    <div className="space-y-3">
-      {locked && locked.getTime() > Date.now() ? (
-        <p role="alert" className="text-sm text-[hsl(var(--e-danger,var(--destructive)))]">
-          Too many wrong attempts. Try again after {locked.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}, or ask an administrator to reset your PIN.
+  if (status === "testing") {
+    return (
+      <div className="space-y-1">
+        <label className={LABEL} htmlFor={inputId}>Your PIN</label>
+        <input id={inputId} className={INPUT} value="Not available" disabled readOnly aria-describedby={helpId} />
+        <p id={helpId} role="alert" className={PROBLEM}>
+          Stop testing as {testingAsName ?? "someone else"} to do this. It needs your own PIN.
         </p>
-      ) : null}
-      {status === "loading" ? <p className={NOTE} role="status">Checking your PIN…</p> : null}
-      {mode === "pin" ? (
-        <div>
-          <label className={LABEL} htmlFor={`${id}-pin`}>Your PIN</label>
+      </div>
+    );
+  }
+
+  if (isLockedNow(lockedUntil)) {
+    return (
+      <div className="space-y-1">
+        <label className={LABEL} htmlFor={inputId}>{mode === "pin" ? "Your PIN" : "Your password"}</label>
+        <input id={inputId} className={INPUT} value="Locked" disabled readOnly aria-describedby={helpId} />
+        <p id={helpId} role="alert" className={PROBLEM}>
+          Too many wrong tries. Try again at {timeOf(lockedUntil!)}.
+        </p>
+        <p className={NOTE}>Cancel keeps what you entered elsewhere in this window.</p>
+      </div>
+    );
+  }
+
+  const triesLeft = attemptsLeft ?? PIN_LOCK_THRESHOLD;
+  const wrongLine = refused
+    ? `${mode === "pin" ? "That PIN is not right." : "That password is not right."} ${triesLeft === 1 ? "1 try left." : `${triesLeft} tries left.`}`
+    : null;
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter" && onSubmit) {
+      event.preventDefault();
+      onSubmit();
+    }
+  };
+
+  if (mode === "pin") {
+    return (
+      <div className="space-y-1">
+        <label className={LABEL} htmlFor={inputId}>Your PIN</label>
+        <div className="relative">
           <input
-            id={`${id}-pin`}
-            type="password"
+            id={inputId}
+            type={shown ? "text" : "password"}
             inputMode="numeric"
             autoComplete="off"
+            enterKeyHint="done"
             autoFocus={autoFocus}
-            className={INPUT}
+            aria-invalid={refused || undefined}
+            aria-describedby={helpId}
+            maxLength={PIN_MAX_DIGITS}
+            className={`${INPUT} pr-16 tracking-[0.2em]`}
             value={value.pin}
             disabled={disabled}
+            onFocus={keepVisible}
+            onKeyDown={onKeyDown}
             onChange={(event) => set({ pin: digitsOnly(event.target.value) })}
           />
-          <p className={NOTE}>Your own PIN, not anyone else&apos;s.</p>
-          {status !== "has-pin" || settingUp === false ? (
-            <button type="button" className="mt-1 min-h-11 text-sm underline" disabled={disabled} onClick={() => onSettingUpChange(true)}>
-              I have no PIN yet
-            </button>
-          ) : null}
-        </div>
-      ) : (
-        <fieldset className="space-y-3" disabled={disabled}>
-          <legend className="text-sm font-medium">Set your own PIN</legend>
-          <p className={NOTE}>You have no PIN yet. Enter your account password once and choose your PIN. From then on you confirm with your PIN.</p>
-          <div>
-            <label className={LABEL} htmlFor={`${id}-password`}>Account password</label>
-            <input id={`${id}-password`} type="password" autoComplete="current-password" autoFocus={autoFocus} className={INPUT} value={value.password} onChange={(event) => set({ password: event.target.value })} />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className={LABEL} htmlFor={`${id}-new`}>Choose your PIN</label>
-              <input id={`${id}-new`} type="password" inputMode="numeric" autoComplete="new-password" className={INPUT} value={value.newPin} onChange={(event) => set({ newPin: digitsOnly(event.target.value) })} />
-            </div>
-            <div>
-              <label className={LABEL} htmlFor={`${id}-confirm`}>Confirm your PIN</label>
-              <input id={`${id}-confirm`} type="password" inputMode="numeric" autoComplete="new-password" className={INPUT} value={value.confirmPin} onChange={(event) => set({ confirmPin: digitsOnly(event.target.value) })} />
-            </div>
-          </div>
-          <button type="button" className="min-h-11 text-sm underline" onClick={() => onSettingUpChange(false)}>
-            I already have a PIN
+          <button type="button" className={SHOW} disabled={disabled} aria-pressed={shown} aria-label={shown ? "Hide PIN" : "Show PIN"} onClick={() => setShown((prev) => !prev)}>
+            {shown ? "Hide" : "Show"}
           </button>
-        </fieldset>
-      )}
+        </div>
+        <div id={helpId} className="space-y-0.5">
+          {wrongLine ? <p role="alert" className={PROBLEM}>{wrongLine}</p> : null}
+          {status === "loading" ? <p className={NOTE} role="status">Checking your PIN…</p> : null}
+          <p className={NOTE}>
+            {PIN_MIN_DIGITS} to {PIN_MAX_DIGITS} digits, your own. Forgot it?{" "}
+            <a className="underline" href={SET_PIN_HREF}>Change your PIN</a> in your profile with your password.
+          </p>
+        </div>
+        {status !== "has-pin" || settingUp === false ? (
+          <button type="button" className="min-h-11 text-sm underline" disabled={disabled} onClick={() => onSettingUpChange(true)}>
+            I have no PIN yet
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <label className={LABEL} htmlFor={inputId}>Your password</label>
+      <div className="relative">
+        <input
+          id={inputId}
+          type={shown ? "text" : "password"}
+          autoComplete="current-password"
+          enterKeyHint="done"
+          autoFocus={autoFocus}
+          aria-invalid={refused || undefined}
+          aria-describedby={helpId}
+          className={`${INPUT} pr-16`}
+          value={value.password}
+          disabled={disabled}
+          onFocus={keepVisible}
+          onKeyDown={onKeyDown}
+          onChange={(event) => set({ password: event.target.value })}
+        />
+        <button type="button" className={SHOW} disabled={disabled} aria-pressed={shown} aria-label={shown ? "Hide password" : "Show password"} onClick={() => setShown((prev) => !prev)}>
+          {shown ? "Hide" : "Show"}
+        </button>
+      </div>
+      <div id={helpId} className="space-y-0.5">
+        {wrongLine ? <p role="alert" className={PROBLEM}>{wrongLine}</p> : null}
+        <p className={NOTE}>
+          You have no PIN yet, so your account password confirms this time.{" "}
+          <a className="underline" href={SET_PIN_HREF}>Set a PIN</a> so next time is {PIN_MIN_DIGITS} digits.
+        </p>
+      </div>
+      {status !== "needs-setup" ? (
+        <button type="button" className="min-h-11 text-sm underline" disabled={disabled} onClick={() => onSettingUpChange(false)}>
+          I already have a PIN
+        </button>
+      ) : null}
     </div>
   );
 }
 
 /**
- * Everything a prompt needs in one hook: the loaded state, the values (kept
- * while open, cleared when closed) and the credentials to send.
+ * Everything a prompt needs in one hook: the loaded state, the value (kept
+ * while open, cleared when closed), the credentials to send, and
+ * `noteRefusal()` to call after the server refused, which clears the typed
+ * credential and reads the tries left / the lock again.
  */
 export function useOwnPinPrompt(open: boolean) {
-  const { status, lockedUntil, userId } = useOwnPinStatus(open);
+  const { status, lockedUntil, userId, attemptsLeft, refresh } = useOwnPinStatus(open);
   const [value, setValue] = React.useState<OwnPinValue>(EMPTY_OWN_PIN);
   const [settingUp, setSettingUp] = React.useState<boolean | null>(null);
+  const [refused, setRefused] = React.useState(false);
   React.useEffect(() => {
     if (!open) {
       setValue(EMPTY_OWN_PIN);
       setSettingUp(null);
+      setRefused(false);
     }
   }, [open]);
+  const change = React.useCallback((next: OwnPinValue) => {
+    setValue(next);
+    setRefused(false);
+  }, []);
   const mode = ownPinMode(status, settingUp);
-  const result = ownPinCredentials(value, mode);
+  const locked = isLockedNow(lockedUntil);
+  const result = status === "testing" || locked ? { problem: status === "testing" ? "Stop testing as someone else first." : "Locked." } : ownPinCredentials(value, mode);
+  const noteRefusal = React.useCallback(() => {
+    setValue(EMPTY_OWN_PIN);
+    setRefused(true);
+    refresh();
+  }, [refresh]);
+  // After a failure whose cause is not known (the caller showed its own
+  // message): clear the credential, read the state again, and show the
+  // wrong-credential line only if the server counted a wrong try.
+  const triesBefore = React.useRef<number | null>(null);
+  const noteFailure = React.useCallback(() => {
+    triesBefore.current = attemptsLeft ?? PIN_LOCK_THRESHOLD;
+    setValue(EMPTY_OWN_PIN);
+    refresh();
+  }, [attemptsLeft, refresh]);
+  React.useEffect(() => {
+    const before = triesBefore.current;
+    if (before === null) return;
+    if (locked || (attemptsLeft !== null && attemptsLeft < before)) {
+      triesBefore.current = null;
+      setRefused(true);
+    }
+  }, [attemptsLeft, locked]);
   return {
-    fieldProps: { status, lockedUntil, value, onChange: setValue, settingUp, onSettingUpChange: setSettingUp },
+    fieldProps: { status, lockedUntil, attemptsLeft, refused, value, onChange: change, settingUp, onSettingUpChange: setSettingUp },
     userId,
+    status,
+    attemptsLeft,
+    locked,
     credentials: "credentials" in result ? result.credentials : null,
     problem: "problem" in result ? result.problem : null,
     reset: () => setValue(EMPTY_OWN_PIN),
+    refresh,
+    noteRefusal,
+    noteFailure,
   };
 }

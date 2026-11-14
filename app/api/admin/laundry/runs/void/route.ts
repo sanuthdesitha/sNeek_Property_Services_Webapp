@@ -12,7 +12,8 @@ export const dynamic = "force-dynamic";
 const security = z.object({ pin: z.string().max(40).optional(), password: z.string().max(200).optional(), newPin: z.string().max(40).optional() }).strict();
 const bodySchema = z.object({
   items: z.array(z.object({ taskId: z.string().trim().min(1).max(200), expectedUpdatedAt: z.string().datetime() })).min(1).max(50),
-  reason: z.string().trim().min(3).max(2000),
+  // Quick pick or "Other…" text: required, no minimum length (2026-11-14).
+  reason: z.string().trim().min(1).max(2000),
   notifyTeam: z.boolean().optional(),
   security,
 }).strict();

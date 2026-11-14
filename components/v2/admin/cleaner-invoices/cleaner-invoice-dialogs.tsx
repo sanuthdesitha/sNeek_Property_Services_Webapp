@@ -12,6 +12,8 @@ import { CheckCircle2, Loader2, MessageSquareWarning } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EConfirmModal, EField, EInput, EModal, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
+import type { ConfirmTier } from "@/components/v2/ui/confirm-dialog";
+import { sensitiveVerificationText, type SensitiveCredentialsInput } from "@/lib/security/pin-rules";
 import { CLEANER_PAY_METHODS, CLEANER_PAY_METHOD_LABEL, bankFromLineData, fmtDay, money, type CleanerRow } from "./cleaner-invoice-model";
 
 export type CleanerDialog =
@@ -24,7 +26,7 @@ async function send({ url, method, body }: Send): Promise<{ ok: boolean; error?:
   try {
     const response = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
     const json = (await response.json().catch(() => ({}))) as { error?: string };
-    return response.ok ? { ok: true } : { ok: false, error: json.error ?? `Request failed (${response.status}).` };
+    return response.ok ? { ok: true } : { ok: false, error: json.error ? sensitiveVerificationText(json.error) : `Request failed (${response.status}).` };
   } catch {
     return { ok: false, error: "Could not reach the server." };
   }
@@ -161,7 +163,8 @@ function DeliveryDialog({ row, onClose, onDone }: { row: CleanerRow; onClose: ()
       { title: "Delivery review recorded", description: "No email was sent or retried." },
       "Review not saved",
     );
-  const blocked = busy || evidence.trim().length < 10;
+  // Required, with no minimum length (board "Confirmations and deletes", 2026-11-14).
+  const blocked = busy || evidence.trim().length === 0;
   return (
     <EModal open onClose={() => !busy && onClose()} title="Review invoice delivery" size="md">
       <div className="space-y-4">
@@ -178,29 +181,39 @@ function DeliveryDialog({ row, onClose, onDone }: { row: CleanerRow; onClose: ()
   );
 }
 
+/**
+ * Tiers (board "Confirmations and deletes", 2026-11-14): reverse is B (it
+ * removes the invoice from the pay run; the cleaner can resend), delete is C
+ * (own PIN, verified by the DELETE route since 2026-11-14), reject a payment
+ * claim is A.
+ */
 function ConfirmDialog({ dialog, onClose, onDone }: { dialog: Exclude<CleanerDialog, null>; onClose: () => void; onDone: () => void }) {
   const { busy, run } = useRun(onDone, onClose);
   const { row } = dialog;
-  const copy = {
+  type Copy = { tier: ConfirmTier; title: string; description: string; confirm: string; request: (security?: SensitiveCredentialsInput) => Send; success: string };
+  const copy: Copy = {
     reverse: {
+      tier: "destructive" as const,
       title: "Reverse this invoice?",
-      description: `Mark ${row.cleanerName}'s invoice (${money(row.totalAmount)}) as reversed. The cleaner can then resend a corrected invoice.`,
+      description: `${row.cleanerName}'s invoice (${money(row.totalAmount)}) is marked reversed and its work is released; they can resend a corrected one.`,
       confirm: "Reverse invoice",
-      request: { url: `/api/admin/cleaner-invoices/${row.id}`, method: "PATCH", body: { status: "VOID" } } as Send,
+      request: () => ({ url: `/api/admin/cleaner-invoices/${row.id}`, method: "PATCH", body: { status: "VOID" } }) as Send,
       success: "Invoice reversed — the cleaner can resend.",
     },
     delete: {
+      tier: "sensitive" as const,
       title: "Delete this invoice?",
-      description: `Permanently delete ${row.cleanerName}'s invoice (${money(row.totalAmount)}). The cleaner can resend a corrected one.`,
+      description: `${row.cleanerName}'s invoice (${money(row.totalAmount)}) is deleted and its work is released; they can resend a corrected one. This cannot be undone.`,
       confirm: "Delete invoice",
-      request: { url: `/api/admin/cleaner-invoices/${row.id}`, method: "DELETE" } as Send,
+      request: (security?: SensitiveCredentialsInput) => ({ url: `/api/admin/cleaner-invoices/${row.id}`, method: "DELETE", body: { security: security ?? {} } }) as Send,
       success: "Invoice deleted — the cleaner can resend a corrected one.",
     },
     "reject-claim": {
+      tier: "ordinary" as const,
       title: "Reject this payment claim?",
       description: `${row.cleanerName} says this invoice has been paid. Rejecting returns it to ${row.xeroBillId ? "In Xero" : "Submitted (it will need approving again)"} and keeps the claim on record.`,
       confirm: "Reject claim",
-      request: { url: `/api/admin/cleaner-invoices/${row.id}`, method: "PATCH", body: { status: "SUBMITTED" } } as Send,
+      request: () => ({ url: `/api/admin/cleaner-invoices/${row.id}`, method: "PATCH", body: { status: "SUBMITTED" } }) as Send,
       success: "Claim rejected.",
     },
   }[dialog.kind as "reverse" | "delete" | "reject-claim"];
@@ -208,11 +221,12 @@ function ConfirmDialog({ dialog, onClose, onDone }: { dialog: Exclude<CleanerDia
     <EConfirmModal
       open
       onClose={() => !busy && onClose()}
+      tier={copy.tier}
       title={copy.title}
       description={copy.description}
       confirmLabel={copy.confirm}
       loading={busy}
-      onConfirm={() => run(copy.request, { title: copy.success }, "Action failed")}
+      onConfirm={(security) => run(copy.request(security), { title: copy.success }, "Action failed")}
     />
   );
 }

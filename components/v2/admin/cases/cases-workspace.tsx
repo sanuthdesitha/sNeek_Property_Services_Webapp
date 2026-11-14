@@ -361,7 +361,6 @@ export function CasesWorkspace() {
         title="Delete case"
         description="This permanently removes the case, its comments, and attachments. This cannot be undone."
         confirmLabel="Delete case"
-        confirmPhrase="DELETE"
         requireSecurity
         loading={mutations.deleting}
         onConfirm={async (credentials) => {

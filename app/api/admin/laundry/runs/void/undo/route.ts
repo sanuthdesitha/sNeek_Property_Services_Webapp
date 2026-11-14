@@ -12,7 +12,9 @@ export const dynamic = "force-dynamic";
 const bodySchema = z.object({
   taskId: z.string().trim().min(1).max(200),
   expectedUpdatedAt: z.string().datetime(),
-  reason: z.string().trim().max(2000).optional(),
+  // Required since 2026-11-14 (quick pick or "Other…" text, no minimum length):
+  // undoing a void changes counts, the partner portal and reports again.
+  reason: z.string().trim().min(1).max(2000),
   security: z.object({ pin: z.string().max(40).optional(), password: z.string().max(200).optional(), newPin: z.string().max(40).optional() }).strict(),
 }).strict();
 

@@ -31,8 +31,8 @@ export type SecurityCredentials = { pin?: string; password?: string };
 
 /** Words for the server's security refusal codes (same wording as verifyAdminSecurity). */
 export function securityRefusalMessage(error: string | undefined, fallback: string): string {
-  if (error === "INVALID_SECURITY_VERIFICATION") return "That PIN or password was not accepted.";
-  if (error === "PIN_OR_PASSWORD_REQUIRED") return "Enter your PIN or password.";
+  if (error === "INVALID_SECURITY_VERIFICATION") return "That PIN was not accepted.";
+  if (error === "PIN_OR_PASSWORD_REQUIRED") return "Enter your PIN.";
   if (error === "FORBIDDEN") return "You cannot do this here. Stop impersonating and sign in as yourself.";
   return error || fallback;
 }
@@ -58,9 +58,9 @@ export function createCreditNoteRequest(id: string, security?: SensitiveSecurity
 /** Own-PIN credentials as the shared prompt returns them (newPin only while setting one up). */
 export type SensitiveSecurity = { pin?: string; password?: string; newPin?: string };
 
-/** Void an invoice or a credit note: the own PIN goes with it and is verified by the server. */
-export function voidInvoiceRequest(id: string, security?: SensitiveSecurity) {
-  return patchInvoice(id, { status: "VOID", security: security ?? {} });
+/** Void an invoice or a credit note: the reason and the own PIN go with it; the server verifies both. */
+export function voidInvoiceRequest(id: string, security?: SensitiveSecurity, voidReason?: string) {
+  return patchInvoice(id, { status: "VOID", voidReason, security: security ?? {} });
 }
 
 /** Why Void and Issue credit note are unavailable to someone without the capability. */
@@ -106,7 +106,7 @@ export function pushInvoiceToXeroRequest(id: string) {
 
 export function reconcileInvoiceRequest(
   id: string,
-  input: { reason: string; reference: string; security?: { pin?: string; password?: string } },
+  input: { reason: string; reference: string; security?: SensitiveSecurity },
 ) {
   return send(
     `/api/admin/invoices/${id}/reconcile`,

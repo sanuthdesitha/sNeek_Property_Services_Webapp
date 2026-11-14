@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { routeSecurityRefusal, securityFromBody } from "@/lib/security/route-verification";
 
 const updateModuleSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
@@ -51,9 +52,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { moduleId: 
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { moduleId: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: { moduleId: string } }) {
   try {
     const session = await requireRole([Role.ADMIN]);
+    // Tier C (2026-11-14): the administrator's own PIN, sent as `security` and
+    // verified here, not only through the verify-only endpoint beforehand.
+    const refusal = await routeSecurityRefusal(session, securityFromBody(await req.json().catch(() => ({}))) ?? null);
+    if (refusal) return refusal;
     const module = await db.checklistModule.findUnique({
       where: { id: params.moduleId },
       select: { id: true, key: true, title: true },

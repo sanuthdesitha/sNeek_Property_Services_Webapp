@@ -22,14 +22,16 @@ import { PHONE_SHEET_CONTAINER_CLASS, PHONE_SHEET_GRAB_CLASS, PHONE_SHEET_PANEL_
 
 export type EActionDialogProps = {
   open: boolean;
-  title: string;
-  eyebrow?: string;
+  title: React.ReactNode;
+  eyebrow?: React.ReactNode;
   description?: React.ReactNode;
   busy?: boolean;
   onClose: () => void;
   children: React.ReactNode;
   /** Buttons; rendered in a footer row. */
   footer?: React.ReactNode;
+  /** Replaces the footer row's layout classes (the confirm dialog stacks its buttons on a phone). */
+  footerClassName?: string;
 };
 
 const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -38,7 +40,7 @@ function focusables(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((element) => !element.hasAttribute("data-focus-skip"));
 }
 
-export function EActionDialog({ open, title, eyebrow, description, busy = false, onClose, children, footer }: EActionDialogProps) {
+export function EActionDialog({ open, title, eyebrow, description, busy = false, onClose, children, footer, footerClassName }: EActionDialogProps) {
   const titleId = React.useId();
   const descriptionId = React.useId();
   const panelRef = React.useRef<HTMLDivElement>(null);
@@ -131,7 +133,7 @@ export function EActionDialog({ open, title, eyebrow, description, busy = false,
             {description ? <div id={descriptionId} className="text-[hsl(var(--e-text-secondary))]">{description}</div> : null}
             {children}
           </div>
-          {footer ? <div className="flex flex-wrap justify-end gap-2 border-t border-[hsl(var(--e-border))] px-5 py-3 max-sm:sticky max-sm:bottom-0 max-sm:bg-[hsl(var(--e-surface))] max-sm:[&>*]:flex-1">{footer}</div> : null}
+          {footer ? <div className={cn("border-t border-[hsl(var(--e-border))] px-5 py-3 max-sm:sticky max-sm:bottom-0 max-sm:bg-[hsl(var(--e-surface))]", footerClassName ?? "flex flex-wrap justify-end gap-2 max-sm:[&>*]:flex-1")}>{footer}</div> : null}
         </div>
       </div>
     </EstatePortal>

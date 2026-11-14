@@ -31,6 +31,7 @@ export type WorkQueueKind =
   | "case-open"
   | "case-stale"
   | "lost-item"
+  | "maintenance-unassigned"
   | "lead-new"
   | "invoices-draft"
   | "invoices-outstanding"

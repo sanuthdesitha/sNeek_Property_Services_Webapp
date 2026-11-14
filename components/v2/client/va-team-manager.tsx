@@ -339,7 +339,6 @@ function TeamCard({
         title="Remove this team"
         description={`Everyone on ${team.name} loses access to your properties immediately, and the team's permissions and property list go with it.`}
         confirmLabel="Remove team"
-        confirmPhrase="REMOVE"
         loading={busy}
         onConfirm={removeTeam}
       />

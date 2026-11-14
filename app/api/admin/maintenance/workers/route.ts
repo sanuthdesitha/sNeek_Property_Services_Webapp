@@ -2,13 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
-import { createMaintenanceWorker, listMaintenanceWorkers } from "@/lib/maintenance/workers";
+import { createMaintenanceWorker, listMaintenanceWorkers, maintenanceWorkerStats } from "@/lib/maintenance/workers";
 
 export async function GET() {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const workers = await listMaintenanceWorkers();
-    return NextResponse.json({ workers });
+    const [workers, stats] = await Promise.all([listMaintenanceWorkers(), maintenanceWorkerStats()]);
+    return NextResponse.json({
+      workers: workers.map((worker) => ({
+        ...worker,
+        openItems: stats.get(worker.id)?.openItems ?? 0,
+        lastVisitAt: stats.get(worker.id)?.lastVisitAt?.toISOString() ?? null,
+      })),
+    });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

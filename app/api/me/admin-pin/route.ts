@@ -15,7 +15,11 @@ import { PIN_LOCK_MINUTES } from "@/lib/security/pin-rules";
 /**
  * The signed-in person's OWN sensitive-action PIN.
  *
- *   GET    → { hasPin, updatedAt, lockedUntil, resetByAdministrator, userId } (never the PIN)
+ *   GET    → { hasPin, updatedAt, lockedUntil, resetByAdministrator, userId, attemptsLeft } (never the PIN)
+ *            attemptsLeft: wrong tries left before the lock, so a prompt can
+ *            say "3 tries left" after a refusal. While testing as someone else
+ *            the 403 carries code ACTUAL_ACTOR_REQUIRED so the prompt shows
+ *            "Not available" instead of a field.
  *   POST   { currentPassword, pin }  → set or change it
  *   DELETE { currentPassword }       → remove it (the next sensitive action asks for a new one)
  *
@@ -29,7 +33,7 @@ import { PIN_LOCK_MINUTES } from "@/lib/security/pin-rules";
 const CHANGE_LIMIT = { limit: 5, windowMs: PIN_LOCK_MINUTES * 60_000 };
 
 class PinRouteError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(message: string, readonly status: number, readonly code?: string) {
     super(message);
   }
 }
@@ -44,12 +48,12 @@ async function ownAccount(): Promise<string> {
   if (!roles.includes(Role.ADMIN) && !roles.includes(Role.OPS_MANAGER)) throw new PinRouteError("FORBIDDEN", 403);
   const refusal = await actualActorRefusal(session.user.id);
   if (refusal === "UNAUTHORIZED") throw new PinRouteError("UNAUTHORIZED", 401);
-  if (refusal) throw new PinRouteError("Stop testing as someone else to change your own PIN.", 403);
+  if (refusal) throw new PinRouteError("Stop testing as someone else to change your own PIN.", 403, "ACTUAL_ACTOR_REQUIRED");
   return session.user.id;
 }
 
 function failure(err: unknown, fallback: string) {
-  if (err instanceof PinRouteError) return NextResponse.json({ error: err.message }, { status: err.status });
+  if (err instanceof PinRouteError) return NextResponse.json(err.code ? { error: err.message, code: err.code } : { error: err.message }, { status: err.status });
   if (err instanceof SensitiveVerificationError) {
     return NextResponse.json({ error: err.message, code: err.code }, { status: err.code === "PIN_LOCKED" ? 429 : 400 });
   }

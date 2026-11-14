@@ -18,9 +18,9 @@ import {
   EInput,
   ESelect,
   ETextarea,
-  verifyAdminSecurity,
 } from "@/components/v2/admin/estate-kit";
 import { EXTRAS_BY_CATEGORY, EXTRAS_BY_ID } from "@/lib/pricing/extras-catalog";
+import { sensitiveVerificationText } from "@/lib/security/pin-rules";
 
 interface ExtraRow {
   id: string;
@@ -169,17 +169,15 @@ export function JobExtrasPanel({
     if (!row) return;
     setBusy(true);
     try {
-      // The quote-extras route takes no security payload of its own, so the
-      // PIN is checked against the verify endpoint before anything is removed.
-      await verifyAdminSecurity(credentials);
+      // The PIN travels with the removal and is verified by the route itself.
       const res = await fetch(`/api/admin/jobs/${jobId}/quote-extras`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ removeLabels: [row.label] }),
+        body: JSON.stringify({ removeLabels: [row.label], security: credentials ?? {} }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast({ title: "Couldn't remove the extra", description: body.error, variant: "destructive" });
+        toast({ title: "Couldn't remove the extra", description: sensitiveVerificationText(body.error), variant: "destructive" });
         return;
       }
       toast({
@@ -327,7 +325,7 @@ export function JobExtrasPanel({
         title="Remove this extra"
         description={
           removeTarget
-            ? `Removing "${removeTarget.label}" drops it off the cleaner's checklist, lowers the client's fixed price. No client email is sent. Enter your PIN or password to continue.`
+            ? `Removing "${removeTarget.label}" drops it off the cleaner's checklist, lowers the client's fixed price. No client email is sent.`
             : undefined
         }
         confirmLabel="Remove extra"

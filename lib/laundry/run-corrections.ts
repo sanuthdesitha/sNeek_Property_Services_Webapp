@@ -289,7 +289,8 @@ export type VoidInput = { taskId: string; expectedUpdatedAt: string; reason: str
 
 export async function voidLaundryRun(actor: CorrectionActor, input: VoidInput, reports?: EmailedReportScope[], now: Date = new Date()) {
   const reason = input.reason.trim();
-  if (reason.length < 3) throw new RunCorrectionError(400, "REASON_REQUIRED", "Give the reason for the void.");
+  // Required, with no minimum length (quick pick or "Other…" text, 2026-11-14).
+  if (!reason) throw new RunCorrectionError(400, "REASON_REQUIRED", "Give the reason for the void.");
   const scopes = reports ?? (await loadEmailedReportScopes());
   const saved = await db.$transaction(async (tx) => {
     const task = await lockRun(tx, input.taskId);

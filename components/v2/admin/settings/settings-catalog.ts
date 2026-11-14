@@ -38,9 +38,9 @@ export const SETTINGS_GROUPS = [
   },
   {
     key: "ai",
-    label: "AI",
+    label: "Automation and AI",
     shortLabel: "AI",
-    description: "Local or cloud models per feature, photo checks, usage and connection tests.",
+    description: "Where AI runs, what it does, photo checks, what it costs and what leaves this server.",
   },
   {
     key: "system",
@@ -276,26 +276,32 @@ export const SETTINGS_DESTINATIONS = [
     href: "/v2/admin/settings/agents",
   },
   {
+    // One AI page (2026-11-15 rebuild). Operations managers read it with the
+    // "AI tools" pack; only administrators change anything (server-enforced).
     key: "ai",
-    label: "AI providers and models",
-    description: "Choose local or cloud models per feature, store keys encrypted, test each feature and see this month's usage.",
+    label: "AI",
+    description: "Where AI runs, what each feature does, photo checks, usage and cost, privacy. Keys, tests and limits.",
     group: "ai",
-    adminOnly: true,
-  },
-  {
-    key: "ai-workflows",
-    label: "Photo checks and memory",
-    description: "Photo comparison and assignment switches, thresholds and the property photo memory.",
-    group: "ai",
-    adminOnly: true,
+    adminOnly: false,
     href: "/v2/admin/ai",
   },
   {
+    // The old "Photo checks and memory" page is now Section 3 of the AI page.
+    key: "ai-workflows",
+    label: "Photo checks and memory",
+    description: "Confidence bands, deduction points, opted-out properties, agreement with inspectors and the property photo memory.",
+    group: "ai",
+    adminOnly: false,
+    href: "/v2/admin/ai#photo-checks",
+  },
+  {
+    // The old Ollama tab opens the Local Ollama setup on the AI page.
     key: "ollama",
     label: "Ollama",
     description: "Local AI models, connection settings and diagnostics.",
     group: "ai",
     adminOnly: true,
+    href: "/v2/admin/ai?section=ollama",
   },
   {
     key: "audit",

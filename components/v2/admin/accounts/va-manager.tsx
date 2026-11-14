@@ -1,5 +1,6 @@
 "use client";
 
+import { sensitiveVerificationText } from "@/lib/security/pin-rules";
 import * as React from "react";
 import { Loader2, Plus, Trash2, UserPlus } from "lucide-react";
 import {
@@ -9,7 +10,6 @@ import {
   EField,
   ESelect,
   ESwitch,
-  verifyAdminSecurity,
 } from "@/components/v2/admin/estate-kit";
 import {
   EAlert,
@@ -631,13 +631,14 @@ function VaTeamEditor({
     setSaving(true);
     setError(null);
     try {
-      // The members route takes no security payload of its own.
-      await verifyAdminSecurity(credentials);
+      // The PIN travels with the removal and is verified by the members route.
       const res = await fetch(`/api/admin/va-teams/${team.id}/members/${target.id}`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials ?? {} }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body?.error ?? "Could not remove the assistant.");
+      if (!res.ok) throw new Error(body?.error ? sensitiveVerificationText(body.error) : "Could not remove the assistant.");
       setRemoveMemberTarget(null);
       await onChanged();
     } catch (err: any) {
@@ -651,11 +652,14 @@ function VaTeamEditor({
     setSaving(true);
     setError(null);
     try {
-      // The team route takes no security payload of its own.
-      await verifyAdminSecurity(credentials);
-      const res = await fetch(`/api/admin/va-teams/${team.id}`, { method: "DELETE" });
+      // The PIN travels with the delete and is verified by the team route.
+      const res = await fetch(`/api/admin/va-teams/${team.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials ?? {} }),
+      });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body?.error ?? "Could not remove the team.");
+      if (!res.ok) throw new Error(body?.error ? sensitiveVerificationText(body.error) : "Could not remove the team.");
       setDeleteTeamOpen(false);
       await onChanged();
     } catch (err: any) {
@@ -824,7 +828,7 @@ function VaTeamEditor({
         title="Remove assistant"
         description={
           removeMemberTarget
-            ? `${removeMemberTarget.label} loses their login immediately and would have to be invited and onboarded again. Enter your PIN or password to continue.`
+            ? `${removeMemberTarget.label} loses their login immediately and would have to be invited and onboarded again.`
             : undefined
         }
         confirmLabel="Remove assistant"
@@ -837,9 +841,8 @@ function VaTeamEditor({
         open={deleteTeamOpen}
         onClose={() => setDeleteTeamOpen(false)}
         title="Delete assistant team"
-        description={`Every assistant on ${team.name} loses access immediately, along with the team's permissions and property scope. This cannot be undone. Enter your PIN or password to continue.`}
+        description={`Every assistant on ${team.name} loses access immediately, along with the team's permissions and property scope. This cannot be undone.`}
         confirmLabel="Delete team"
-        confirmPhrase="DELETE"
         requireSecurity
         loading={saving}
         onConfirm={deleteTeam}

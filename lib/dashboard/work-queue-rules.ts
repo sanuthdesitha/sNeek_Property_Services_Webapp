@@ -45,6 +45,7 @@ export const KIND_URGENCY: Record<WorkQueueKind, WorkQueueUrgency> = {
   "case-open": "week",
   "case-stale": "today",
   "lost-item": "today",
+  "maintenance-unassigned": "today",
   "lead-new": "today",
   "invoices-draft": "week",
   "invoices-outstanding": "week",
@@ -75,6 +76,7 @@ export const KIND_CATEGORY: Record<WorkQueueKind, WorkQueueCategory> = {
   "case-open": "clients",
   "case-stale": "clients",
   "lost-item": "clients",
+  "maintenance-unassigned": "dispatch",
   "lead-new": "clients",
   "invoices-draft": "money",
   "invoices-outstanding": "money",
@@ -100,6 +102,7 @@ export const KIND_REQUIRES: Partial<Record<WorkQueueKind, OpsFeature[]>> = {
   "shopping-reimbursement": ["inventory", "finance"],
   "document-expiring": ["accounts"],
   "lead-new": ["quotes"],
+  "maintenance-unassigned": ["maintenance"],
 };
 
 export const CATEGORY_LABEL: Record<WorkQueueCategory, string> = {

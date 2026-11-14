@@ -19,6 +19,19 @@ export async function requireAiAdmin(options: { write: boolean }) {
   return session;
 }
 
+/**
+ * Reading the AI configuration: administrators, and operations managers whose
+ * "AI tools" pack is at View or above (the live ops policy is enforced by
+ * `requireRole` through the request path; default pending owner confirmation).
+ * Only an administrator acting as themselves may change anything.
+ */
+export async function requireAiReader() {
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const roles = session.user.heldRoles ?? [session.user.role];
+  const isAdmin = roles.includes(Role.ADMIN);
+  return { session, isAdmin, canEdit: isAdmin && !session.impersonation };
+}
+
 export function aiAdminFailure(error: unknown, fallback: string) {
   if (error instanceof AiAdminError) return NextResponse.json({ error: error.message }, { status: error.status, headers: AI_ADMIN_HEADERS });
   const message = error instanceof Error ? error.message : "";

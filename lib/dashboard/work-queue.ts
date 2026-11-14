@@ -88,7 +88,7 @@ export async function buildWorkQueue(viewer: CommandViewer, options: { now?: Dat
   const now = options.now ?? new Date();
   const ctx: sources.QueueContext = { now, todayKey: sydneyTodayKey(now), timeZone: options.timeZone ?? "Australia/Sydney" };
   const unavailable: string[] = [];
-  const [summary, soon, laundry, continuations, stale, leads, docs, shopping, lost, counts] = await Promise.all([
+  const [summary, soon, laundry, continuations, stale, leads, docs, shopping, lost, maintenance, counts] = await Promise.all([
     settle({ name: "Approval and case counts", run: getAdminAttentionSummary }, unavailable),
     settle({ name: "Unassigned jobs", run: () => sources.unassignedSoonItems(ctx) }, unavailable),
     settle({ name: "Laundry exceptions", run: () => sources.laundryExceptionItems(ctx) }, unavailable),
@@ -98,6 +98,7 @@ export async function buildWorkQueue(viewer: CommandViewer, options: { now?: Dat
     settle({ name: "Expiring documents", run: () => sources.expiringDocumentItems(ctx) }, unavailable),
     settle({ name: "Shopping reimbursements", run: sources.shoppingReimbursementItems }, unavailable),
     settle({ name: "Lost and found", run: () => sources.lostItemItems(ctx) }, unavailable),
+    settle({ name: "Maintenance", run: () => sources.unassignedMaintenanceItems(ctx) }, unavailable),
     settle({ name: "Quality, invoice and stock counts", run: countItems }, unavailable),
   ]);
   const items: WorkQueueItem[] = [
@@ -107,6 +108,7 @@ export async function buildWorkQueue(viewer: CommandViewer, options: { now?: Dat
     ...(summary ? summaryItems(summary, { unassignedSoonTotal: soon?.total ?? 0, flaggedInWindow: laundry?.flaggedInWindow ?? 0 }) : []),
     ...(stale ?? []),
     ...(lost ?? []),
+    ...(maintenance ?? []),
     ...(leads ?? []),
     ...(shopping ?? []),
     ...(counts ?? []),

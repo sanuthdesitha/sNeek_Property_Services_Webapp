@@ -81,6 +81,11 @@ export const CAPABILITIES = [
   // acting person's own PIN on every void and credit-note route.
   { key: "invoices.void_credit", area: "finance", label: "Void and credit notes", tier: "full", sensitiveAction: "invoices.void_credit", canText: "Void invoices and raise credit notes (asked for their own PIN)", cannotText: "Void invoices or raise credit notes", enforcedAt: "PATCH /api/admin/invoices/[id] (status VOID); POST /api/admin/invoices/[id]/credit-note; lib/security/admin-verification.ts (invoices.void_credit)" },
   { key: "invoices.correct", area: "finance", label: "Reconcile Xero corrections", tier: "full", sensitiveAction: "invoices.correct", canText: "Reconcile Xero invoice corrections (asked for their own PIN)", cannotText: "Reconcile Xero corrections", enforcedAt: "lib/security/admin-verification.ts (invoices.correct)" },
+  // Owner default 2026-11-14 (pending owner confirmation): deleting a cleaner's
+  // submitted invoice now asks for the person's own PIN. Who may do it is
+  // unchanged, so it stays at the Manage tier of Payroll (the area the route
+  // already belongs to); the PIN is checked by verifySensitiveAction.
+  { key: "cleaner_invoices.delete", area: "payroll", label: "Delete cleaners' submitted invoices", tier: "manage", sensitiveAction: "cleaner_invoices.delete", canText: "Delete a cleaner's submitted invoice (asked for their own PIN)", cannotText: "Delete cleaners' submitted invoices", enforcedAt: "DELETE /api/admin/cleaner-invoices/[id] (verifySensitiveAction cleaner_invoices.delete)" },
   // Messages and notifications
   { key: "messages.read", area: "communications", label: "Read conversations and the delivery log", tier: "view", canText: "Read conversations and the delivery log", cannotText: "Read conversations", enforcedAt: "Route guard: communications at View (ops-catalog.ts)" },
   { key: "messages.compose_send", area: "communications", label: "Send from the message composer", tier: "manage", canText: "Send email or SMS from the message composer", cannotText: "Send from the message composer", enforcedAt: "POST /api/admin/messages/send" },
@@ -129,6 +134,7 @@ export const SENSITIVE_ACTION_CAPABILITY: Readonly<Record<SensitiveAction, Capab
   "invoices.void_credit": "invoices.void_credit",
   "scheduling.rules_edit": "scheduling.rules_edit",
   "laundry.void": "laundry.void",
+  "cleaner_invoices.delete": "cleaner_invoices.delete",
 };
 
 /**

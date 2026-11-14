@@ -91,9 +91,8 @@ export function JobActionDialogs({ dialog, onClose, jobId, jobLabel, statusLabel
         open={dialog === "delete"}
         onClose={() => (deleting ? undefined : onClose())}
         title="Delete this job?"
-        description="This permanently removes the job and its history. Enter your PIN or password to continue."
+        description="This permanently removes the job and its history."
         confirmLabel="Delete job"
-        confirmPhrase="DELETE"
         requireSecurity
         loading={deleting}
         onConfirm={deleteJob}

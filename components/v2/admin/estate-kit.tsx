@@ -13,7 +13,12 @@ import { cn } from "@/lib/utils";
 import { EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { PHONE_SHEET_CONTAINER_CLASS, PHONE_SHEET_GRAB_CLASS, PHONE_SHEET_PANEL_CLASS } from "@/components/v2/ui/phone";
 import { markFieldControl, useAssociatedField } from "./field-association";
-import { EMPTY_OWN_PIN, OwnPinFields, useOwnPinPrompt } from "@/components/v2/shared/own-pin-fields";
+import {
+  EConfirmDialog,
+  type ConfirmDetailsConfig,
+  type ConfirmReasonConfig,
+  type ConfirmTier,
+} from "@/components/v2/ui/confirm-dialog";
 import { sensitiveVerificationText, type SensitiveCredentialsInput } from "@/lib/security/pin-rules";
 
 /* ── Field styling (mirrors app/v2/login/page.tsx conventions) ─────────── */
@@ -295,16 +300,31 @@ export function EModal({
   );
 }
 
-/* ── Confirm modal (optional confirm phrase + security credentials) ────── */
+/* ── Confirm modal: the three confirmation tiers ───────────────────────── */
+/**
+ * Kept for every existing call site; renders the shared EConfirmDialog
+ * (components/v2/ui/confirm-dialog.tsx, board "Confirmations and deletes").
+ * The tier follows the old options unless `tier` is given:
+ *   requireSecurity → sensitive (C), danger (the default) → destructive (B),
+ *   danger={false} → ordinary (A).
+ * `confirmPhrase` is accepted and ignored: nobody types DELETE, VOID, REMOVE
+ * or DISCARD any more (2026-11-14). `onConfirm` receives the credentials
+ * (sensitive tier) and the composed reason (when `reason` is configured).
+ */
 export function EConfirmModal({
   open,
   onClose,
   title,
   description,
+  children,
   confirmLabel = "Confirm",
-  confirmPhrase,
   requireSecurity = false,
   danger = true,
+  tier,
+  reason,
+  details,
+  error,
+  confirmDisabled,
   loading = false,
   onConfirm,
 }: {
@@ -312,72 +332,39 @@ export function EConfirmModal({
   onClose: () => void;
   title: React.ReactNode;
   description?: React.ReactNode;
+  children?: React.ReactNode;
   confirmLabel?: string;
-  /** When set the user must type this phrase (e.g. "DELETE") to proceed. */
+  /** @deprecated Ignored since 2026-11-14 (no typed confirmation words). */
   confirmPhrase?: string;
-  /** When true the person's OWN PIN is required (or, with none yet, their password and a new PIN) and passed to onConfirm. */
+  /** When true the person's OWN PIN is required (or, with none yet, their password) and passed to onConfirm. */
   requireSecurity?: boolean;
   danger?: boolean;
+  tier?: ConfirmTier;
+  reason?: ConfirmReasonConfig;
+  details?: ConfirmDetailsConfig;
+  error?: React.ReactNode;
+  confirmDisabled?: boolean;
   loading?: boolean;
-  onConfirm: (credentials?: SensitiveCredentialsInput) => void | Promise<void>;
+  onConfirm: (credentials?: SensitiveCredentialsInput, reason?: string) => void | Promise<unknown>;
 }) {
-  const [typed, setTyped] = React.useState("");
-  const ownPin = useOwnPinPrompt(open && requireSecurity);
-
-  React.useEffect(() => {
-    if (!open) setTyped("");
-  }, [open]);
-
-  const phraseOk = !confirmPhrase || typed.trim() === confirmPhrase;
-  const securityOk = !requireSecurity || ownPin.credentials !== null;
-  const canConfirm = phraseOk && securityOk && !loading;
-
+  const resolvedTier: ConfirmTier = tier ?? (requireSecurity ? "sensitive" : danger ? "destructive" : "ordinary");
   return (
-    <EModal open={open} onClose={onClose} title={title} eyebrow="Please confirm">
-      <div className="space-y-4">
-        {description ? (
-          <div className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">{description}</div>
-        ) : null}
-
-        {confirmPhrase ? (
-          <EField label={<>Type <span className="font-semibold text-[hsl(var(--e-danger))]">{confirmPhrase}</span> to continue</>}>
-            <EInput
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-                placeholder={confirmPhrase}
-                aria-label={`Type ${confirmPhrase} to continue`}
-              autoComplete="off"
-            />
-          </EField>
-        ) : null}
-
-        {requireSecurity ? (
-          <div className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
-            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-              Confirm with your PIN.
-            </p>
-            <OwnPinFields {...ownPin.fieldProps} disabled={loading} />
-            {ownPin.problem && ownPin.fieldProps.value !== EMPTY_OWN_PIN ? (
-              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{ownPin.problem}</p>
-            ) : null}
-          </div>
-        ) : null}
-
-        <div className="flex justify-end gap-2 pt-1">
-          <EButton variant="outline" size="sm" onClick={onClose} disabled={loading}>
-            Cancel
-          </EButton>
-          <EButton
-            variant={danger ? "danger" : "primary"}
-            size="sm"
-            disabled={!canConfirm}
-            onClick={() => onConfirm(requireSecurity ? ownPin.credentials ?? undefined : undefined)}
-          >
-            {loading ? "Working…" : confirmLabel}
-          </EButton>
-        </div>
-      </div>
-    </EModal>
+    <EConfirmDialog
+      open={open}
+      onClose={onClose}
+      tier={resolvedTier}
+      title={title}
+      description={description}
+      reason={reason}
+      details={details}
+      error={error}
+      confirmDisabled={confirmDisabled}
+      confirmLabel={confirmLabel}
+      busy={loading}
+      onConfirm={(result) => onConfirm(result.credentials, result.reason)}
+    >
+      {children}
+    </EConfirmDialog>
   );
 }
 
@@ -496,9 +483,9 @@ export function EClassicLink({ href, children }: { href: string; children?: Reac
  * left sitting on screen is a trap for the next person who clicks where the
  * harmless button used to be.
  *
- * Use EConfirmModal instead when the thing being deleted is not trivially
- * recreatable, and EConfirmModal with requireSecurity for anything destroying
- * records that other work depends on.
+ * Use EConfirmModal (tier B, destructive) instead when the thing being
+ * deleted is not trivially recreatable, and EConfirmModal with requireSecurity
+ * (tier C, sensitive) for anything destroying records that other work depends on.
  */
 export function EConfirmButton({
   onConfirm,
@@ -557,13 +544,13 @@ export function EConfirmButton({
 }
 
 /**
- * Server-side check of the PIN/password an EConfirmModal collected.
+ * Verify-only pre-check of the PIN/password an EConfirmModal collected.
  *
- * Most high-risk endpoints (clients, properties, jobs, users) already take a
- * `security` payload and verify it themselves. Some do not, and for those a
- * modal that merely *asks* for a PIN is theatre — anything typed satisfies it.
- * This posts the credentials to the verify-only endpoint first, so the gate is
- * real wherever the delete route has no security payload of its own.
+ * Prefer sending `security` to the action's own route, which verifies it with
+ * verifySensitiveAction in the same request (2026-11-14: every tier C route in
+ * the board's inventory does). This pre-check remains for the few settings
+ * screens owned by other work that still call it; it is not a substitute for a
+ * server check on the action itself.
  *
  * Throws on failure so the caller can abort before deleting anything.
  */

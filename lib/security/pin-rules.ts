@@ -55,7 +55,7 @@ export const SENSITIVE_VERIFICATION_TEXT: Record<SensitiveVerificationCode, stri
   PIN_OR_PASSWORD_REQUIRED: "Enter your PIN.",
   INVALID_SECURITY_VERIFICATION: "That was not accepted. Check your PIN and try again.",
   PIN_REQUIRED: "Enter your own PIN. Your password no longer confirms this. Forgot your PIN? Change it in your profile with your password.",
-  PIN_SETUP_REQUIRED: "You have no PIN yet. Enter your account password once and choose your own PIN.",
+  PIN_SETUP_REQUIRED: "You have no PIN yet. Enter your account password to confirm.",
   PIN_LOCKED: `Too many wrong attempts. Try again in ${PIN_LOCK_MINUTES} minutes, or ask an administrator to reset your PIN.`,
   NEW_PIN_INVALID: `Your PIN must be ${PIN_MIN_DIGITS} to ${PIN_MAX_DIGITS} digits.`,
   ACTUAL_ACTOR_REQUIRED: "Sensitive actions cannot be confirmed while testing as someone else. Stop testing first.",
@@ -79,7 +79,11 @@ export function sensitiveVerificationText(error: unknown): string {
   return (SENSITIVE_VERIFICATION_TEXT as Record<string, string>)[error] ?? error;
 }
 
-/** Credentials a PIN prompt sends: the person's own PIN, or — only while they have none — their password and a new PIN. */
+/**
+ * Credentials a PIN prompt sends: the person's own PIN, or — only while they
+ * have none — their account password (owner default 2026-11-14). `newPin` is
+ * still accepted with the password from older prompts and is then stored.
+ */
 export interface SensitiveCredentialsInput {
   pin?: string;
   password?: string;

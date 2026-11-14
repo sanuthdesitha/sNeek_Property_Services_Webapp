@@ -16,6 +16,7 @@
  *   DELETE /api/admin/checklist-library/items/:itemId
  */
 
+import { sensitiveVerificationText } from "@/lib/security/pin-rules";
 import { useCallback, useEffect, useState } from "react";
 import {
   BookOpen,
@@ -40,7 +41,6 @@ import {
   ESwitch,
   EModal,
   EConfirmModal,
-  verifyAdminSecurity,
 } from "@/components/v2/admin/estate-kit";
 import { TaskImageUpload } from "@/components/v2/admin/forms/management/estate-checklists-workspace";
 
@@ -156,12 +156,15 @@ export function EstateChecklistLibrary() {
     if (!checklistModule) return;
     setDeleting(true);
     try {
-      // The library route takes no security payload of its own.
-      await verifyAdminSecurity(credentials);
-      const res = await fetch(`/api/admin/checklist-library/${checklistModule.id}`, { method: "DELETE" });
+      // The PIN travels with the delete and is verified by the route itself.
+      const res = await fetch(`/api/admin/checklist-library/${checklistModule.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials ?? {} }),
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error ?? "Delete failed.");
+        setError(body.error ? sensitiveVerificationText(body.error) : "Delete failed.");
         return;
       }
       setDeleteModuleTarget(null);
@@ -460,7 +463,7 @@ export function EstateChecklistLibrary() {
         title="Delete library module"
         description={
           deleteModuleTarget
-            ? `"${deleteModuleTarget.title}" and its ${deleteModuleTarget.items.length} item(s) go for good, and every checklist generated from here on loses them. Properties keep the forms already generated. Enter your PIN or password to continue.`
+            ? `"${deleteModuleTarget.title}" and its ${deleteModuleTarget.items.length} item(s) go for good, and every checklist generated from here on loses them. Properties keep the forms already generated.`
             : undefined
         }
         confirmLabel="Delete module"
@@ -475,7 +478,7 @@ export function EstateChecklistLibrary() {
         title="Delete library item"
         description={
           deleteItemTarget
-            ? `"${deleteItemTarget.label}" is removed from the library along with its field type, rules and job types.`
+            ? `"${deleteItemTarget.label}" comes out of the library with its field type, rules and job types. This cannot be undone.`
             : undefined
         }
         confirmLabel="Delete item"
