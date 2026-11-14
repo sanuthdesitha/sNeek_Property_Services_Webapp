@@ -10,6 +10,12 @@ import { resolveNotificationHrefForRole } from "./feed";
 import type { EmailAutoKind } from "./email-kinds";
 import type { NotificationEnvelope, DeliveryAttemptOutcome } from "./intent-contract";
 import { authorizeEntityRecipient, isSupportedEntityScope } from "./recipient-scopes";
+import type { SafeguardMeta } from "./safeguards/gate";
+
+/** What the sending safeguards need from an envelope (type by event key, subject entity, recipient). */
+function safeguardMeta(envelope: NotificationEnvelope): SafeguardMeta {
+  return { eventKey: envelope.eventKey, entityKey: `${envelope.entity.type}:${envelope.entity.id}`, recipientUserId: envelope.recipient.userId };
+}
 
 export function enabledIntentProviderTransports() {
   return (process.env.SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS ?? "").split(",").map(value => value.trim()).filter(value => ["EMAIL", "SMS", "WEB_PUSH"].includes(value));
@@ -53,7 +59,8 @@ export async function deliverProviderIntent(envelope: NotificationEnvelope): Pro
     if (envelope.transport === "EMAIL") {
       if (!user.email) return { kind: "NOT_ACCEPTED", retryable: false, errorCode: "missing_email" };
       dispatchStarted = true;
-      const result = await sendEmailDetailed({ to: user.email, subject: envelope.subject ?? "Notification", html: envelope.emailHtml ?? `<p>${htmlEscape(envelope.body).replace(/\n/g, "<br>")}</p>`, kind: envelope.emailKind ?? emailKinds[envelope.category], audience });
+      const result = await sendEmailDetailed({ to: user.email, subject: envelope.subject ?? "Notification", html: envelope.emailHtml ?? `<p>${htmlEscape(envelope.body).replace(/\n/g, "<br>")}</p>`, kind: envelope.emailKind ?? emailKinds[envelope.category], audience, safeguard: safeguardMeta(envelope) });
+      if (result.suppressed) return { kind: "SKIPPED", errorCode: `safeguard_${result.suppressed.reason.toLowerCase()}` };
       if (result.skipped) return { kind: "SKIPPED", errorCode: "email_preference_or_suppression" };
       if (result.ok && result.externalId) return { kind: "ACCEPTED", providerReference: result.externalId };
       if (result.acceptance === "NOT_ACCEPTED") return { kind: "NOT_ACCEPTED", retryable: Boolean(result.retryable), errorCode: "email_rejected" };
@@ -62,7 +69,8 @@ export async function deliverProviderIntent(envelope: NotificationEnvelope): Pro
     if (envelope.transport === "SMS") {
       if (!user.phone) return { kind: "NOT_ACCEPTED", retryable: false, errorCode: "missing_phone" };
       dispatchStarted = true;
-      const result = await sendSmsDetailed(user.phone, envelope.body, audience);
+      const result = await sendSmsDetailed(user.phone, envelope.body, audience, safeguardMeta(envelope));
+      if (result.status === "suppressed") return { kind: "SKIPPED", errorCode: `safeguard_${(result.suppressed?.reason ?? "SAFEGUARD_UNAVAILABLE").toLowerCase()}` };
       if (result.status === "disabled") return { kind: "SKIPPED", errorCode: "sms_disabled" };
       if (result.status === "not_configured") return { kind: "NOT_ACCEPTED", retryable: false, errorCode: "sms_not_configured" };
       if (result.ok) return { kind: "ACCEPTED" };
@@ -73,7 +81,9 @@ export async function deliverProviderIntent(envelope: NotificationEnvelope): Pro
     if (!subscription) return { kind: "SKIPPED", errorCode: "subscription_unavailable" };
     dispatchStarted = true;
     const result = await sendWebPush(subscription, { title: envelope.subject ?? "Notification", body: envelope.body,
-      url: envelope.url ?? resolveNotificationHrefForRole({ jobId: envelope.jobId, subject: envelope.subject, body: envelope.body }, user.role), tag: `event-${envelope.eventId}` });
+      url: envelope.url ?? resolveNotificationHrefForRole({ jobId: envelope.jobId, subject: envelope.subject, body: envelope.body }, user.role), tag: `event-${envelope.eventId}` },
+      { userId: user.id, meta: safeguardMeta(envelope), deviceKey: subscription.id });
+    if (result.suppressed) return { kind: "SKIPPED", errorCode: "safeguard_not_sent" };
     if (result.ok) return { kind: "ACCEPTED" };
     if (result.gone) {
       await db.pushSubscription.deleteMany({ where: { id: subscription.id, userId: user.id, endpoint: subscription.endpoint } });

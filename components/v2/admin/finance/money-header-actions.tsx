@@ -40,7 +40,7 @@ export function XeroConnectionBadge({ xero }: { xero: XeroConnectionSummary }) {
   if (xero.state === "lapsed") {
     return (
       <a href={XERO_SETTINGS_HREF} className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-[hsl(var(--e-ring))]">
-        <EPill tone="warn">Xero sign-in lapsed — reconnect</EPill>
+        <EPill tone="warn">Xero needs reconnecting</EPill>
       </a>
     );
   }
@@ -52,7 +52,7 @@ export function XeroConnectionBadge({ xero }: { xero: XeroConnectionSummary }) {
         </EPill>
         {xero.renewable === false ? (
           <a href={XERO_SETTINGS_HREF} className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-[hsl(var(--e-ring))]">
-            <EPill tone="warn">Reconnect once to keep it signed in</EPill>
+            <EPill tone="warn">Reconnect once to keep it connected</EPill>
           </a>
         ) : null}
       </span>

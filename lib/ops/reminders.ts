@@ -5,7 +5,7 @@ import { renderEmailTemplate } from "@/lib/email-templates";
 import { getJobReference } from "@/lib/jobs/job-number";
 import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
 import { logger } from "@/lib/logger";
-import { sendEmail, sendEmailDetailed } from "@/lib/notifications/email";
+import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { getAppSettings } from "@/lib/settings";
@@ -86,6 +86,27 @@ async function findNextScheduledDate(now: Date) {
     orderBy: { scheduledDate: "asc" },
   });
   return nextJob?.scheduledDate ?? null;
+}
+
+type ReminderFlag = "reminder24hSent" | "reminder2hSent";
+
+/** Atomically claim a job's reminder (false -> true). Only the claimer sends. */
+async function claimReminder(jobId: string, flag: ReminderFlag): Promise<boolean> {
+  const claimed = await db.job.updateMany({ where: { id: jobId, [flag]: false }, data: { [flag]: true } });
+  return claimed.count === 1;
+}
+
+async function releaseReminder(jobId: string, flag: ReminderFlag) {
+  await db.job.updateMany({ where: { id: jobId, [flag]: true }, data: { [flag]: false } });
+}
+
+/**
+ * Did this email reach the provider (or the safeguards decided it)? A send
+ * the provider may have taken, or one the safeguards held or dropped, must
+ * not be tried again on the next tick.
+ */
+function emailReachedProvider(result: { ok: boolean; acceptance?: string; suppressed?: unknown }): boolean {
+  return result.ok || result.acceptance === "UNKNOWN" || Boolean(result.suppressed);
 }
 
 export async function dispatchJobReminders(options: DispatchJobRemindersOptions = {}) {
@@ -174,8 +195,13 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
       summary.longCandidates = effectiveJobsLong.length;
 
       for (const job of effectiveJobsLong) {
+        // Claim BEFORE sending: a sweep that sent and then failed to record it
+        // (or a provider answer that was not a clear yes) used to leave the job
+        // unflagged, and every 30-minute tick emailed the cleaners again.
+        if (!options.force && !(await claimReminder(job.id, "reminder24hSent"))) continue;
         const timingText = getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)).join(" | ") || "No special timing notes";
         let delivered = false;
+        let reachedProvider = false;
         const jobRef = getJobReference(job);
         for (const assignment of job.assignments) {
           const displayName = assignment.user.name ?? assignment.user.email ?? "Team member";
@@ -204,12 +230,15 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
             actionUrl: "/cleaner/jobs",
             actionLabel: "Open jobs",
           });
-          const ok = await sendEmail({ kind: "job_reminder",
+          const result = await sendEmailDetailed({ kind: "job_reminder",
             to: assignment.user.email,
             subject: emailTemplate.subject,
             html: emailTemplate.html,
+            safeguard: { typeKey: SCHEDULED_REMINDER_TYPE_KEY, entityKey: `Job:${job.id}` },
           });
+          const ok = result.ok;
           delivered = delivered || ok;
+          reachedProvider = reachedProvider || emailReachedProvider(result);
           summary.recipients.push({
             jobId: job.id,
             jobNumber: jobRef,
@@ -217,13 +246,18 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
             recipient: displayName,
             contact: assignment.user.email,
             channel: "email",
-            status: ok ? "sent" : "failed",
-            error: ok ? undefined : "Email provider rejected the send",
+            status: ok ? "sent" : result.skipped ? "skipped" : "failed",
+            error: ok ? undefined : result.error ?? "Email provider rejected the send",
           });
+        }
+        if (!options.force && !reachedProvider) {
+          // Nothing reached a provider (switched off, no key, refused before
+          // sending): release the claim so a later tick may try, as before.
+          await releaseReminder(job.id, "reminder24hSent");
         }
         if (delivered) {
           summary.longSent += 1;
-          await db.job.update({ where: { id: job.id }, data: { reminder24hSent: true } });
+          if (options.force) await db.job.update({ where: { id: job.id }, data: { reminder24hSent: true } });
           // Client-facing pre-clean reminder — one send per job, tied to the same
           // 24h pass + reminder24hSent gate as the cleaner reminder so it never
           // spams. Best-effort auto send (gated + never throws).
@@ -300,8 +334,10 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
       const smsWording = await loadNotificationWording(SCHEDULED_REMINDER_TYPE_KEY);
 
       for (const job of effectiveJobsShort) {
+        if (!options.force && !(await claimReminder(job.id, "reminder2hSent"))) continue;
         const timingText = getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)).join(" | ");
         let delivered = false;
+        let reachedProvider = false;
         const jobRefShort = getJobReference(job);
         for (const assignment of job.assignments) {
           const displayName = assignment.user.name ?? assignment.user.phone ?? "Team member";
@@ -319,8 +355,9 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
             });
             continue;
           }
-          const result = await sendSmsDetailed(assignment.user.phone, scheduledReminderSms(smsWording, job, timingText));
+          const result = await sendSmsDetailed(assignment.user.phone, scheduledReminderSms(smsWording, job, timingText), undefined, { typeKey: SCHEDULED_REMINDER_TYPE_KEY, entityKey: `Job:${job.id}` });
           delivered = delivered || result.ok;
+          reachedProvider = reachedProvider || result.ok || result.status === "failed" || result.status === "suppressed";
           if (!result.ok) {
             summary.shortFailed += 1;
           }
@@ -335,9 +372,10 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
             error: result.ok ? undefined : result.error ?? "SMS provider rejected the send",
           });
         }
+        if (!options.force && !reachedProvider) await releaseReminder(job.id, "reminder2hSent");
         if (delivered) {
           summary.shortSent += 1;
-          await db.job.update({ where: { id: job.id }, data: { reminder2hSent: true } });
+          if (options.force) await db.job.update({ where: { id: job.id }, data: { reminder2hSent: true } });
         }
       }
     }

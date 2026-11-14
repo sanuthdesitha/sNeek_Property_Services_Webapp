@@ -15,6 +15,7 @@ import { EConfirmDialog } from "@/components/v2/ui/confirm-dialog";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EToneNotice } from "@/components/v2/ui/tone-band";
 import { REASON_CHOICES } from "@/lib/confirmations/reasons";
+import { sensitiveVerificationText } from "@/lib/security/pin-rules";
 import { requestUndoVoid, requestVoid, RunRequestError, type RunOutcome, type RunVersion } from "./run-requests";
 
 export type VoidRun = RunVersion & { name: string; status: string };
@@ -71,7 +72,7 @@ export function RunVoidDialog({ runs, nextCleanNote, emailedReport, onClose, onD
       const outcomes = await requestVoid(runs.map(({ taskId, expectedUpdatedAt }) => ({ taskId, expectedUpdatedAt })), reason, notifyTeam, credentials);
       onDone(outcomes);
     } catch (cause) {
-      setError(cause instanceof RunRequestError ? `Not voided. ${cause.message}` : "Not voided. Your answers are kept; try again.");
+      setError(cause instanceof RunRequestError ? `Not voided. ${sensitiveVerificationText(cause.message)}` : "Not voided. Your answers are kept; try again.");
     } finally {
       setBusy(false);
     }
@@ -143,7 +144,7 @@ export function RunUndoVoidDialog({ run, previousState, onClose, onDone }: {
           await requestUndoVoid({ taskId: run.taskId, expectedUpdatedAt: run.expectedUpdatedAt }, reason, credentials);
           onDone();
         } catch (cause) {
-          setError(cause instanceof RunRequestError ? `Not undone. ${cause.message}` : "Not undone. Try again.");
+          setError(cause instanceof RunRequestError ? `Not undone. ${sensitiveVerificationText(cause.message)}` : "Not undone. Try again.");
         } finally {
           setBusy(false);
         }

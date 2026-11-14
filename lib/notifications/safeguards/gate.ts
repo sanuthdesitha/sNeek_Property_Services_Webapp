@@ -31,7 +31,7 @@ import { readSafeguardSettings } from "./store";
 export type SafeguardMeta = {
   typeKey?: string | null;
   eventKey?: string | null;
-  /** The subject entity, e.g. "job:<id>", "Job:<id>", "LaundryTask:<id>". */
+  /** The subject entity as "<Type>:<id>", e.g. "Job:<id>", "LaundryTask:<id>". */
   entityKey?: string | null;
   recipientUserId?: string | null;
   messageClass?: "SECURITY" | null;

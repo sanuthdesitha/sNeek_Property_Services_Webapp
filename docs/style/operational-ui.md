@@ -239,7 +239,7 @@ These match the approved concept (`table.t`, `.chip`, `.bulk`, `.b`) using Estat
 - Keep loading, error, empty and stale apart: no rows + loading is a status, no rows + error is an alert with retry, rows + error is a stale banner over the last good rows. Never show rows from a different filter as if they answered the current one.
 - List routes read `page`, `pageSize`, `sort`, `dir` through `parseListQuery`, refuse unknown sort columns with 400, and return `listResponse` plus real grouped counts. Chips show a count only when the server sent one.
 - Filters: `EFilterChips` for the single-choice status row; `EFilterPopover` for client, period and similar filters, so an active filter stays visible on its chip. Keep filter, sort and page in the URL beside `tab`, and reset selection when the filter set changes.
-- One primary action per row, chosen from the record's state; every other existing action goes in `ERowMenu`. Corrections and destructive actions sit after a separator and keep their own confirmation, PIN and typed-phrase rules. The menu is keyboard operable (arrows, Home/End, Escape returns focus) and renders in `EstatePortal` so a scrolling table cannot clip it.
+- One primary action per row, chosen from the record's state; every other existing action goes in `ERowMenu`. Corrections and destructive actions sit after a separator and open their own confirmation tier (see "Confirmations" below). The menu is keyboard operable (arrows, Home/End, Escape returns focus) and renders in `EstatePortal` so a scrolling table cannot clip it.
 - `EBulkBar` (dark, `--e-sidebar-*` tokens) appears only with a selection, says how many and of what, and offers `EBulkButton` actions. A bulk action is one request to a server endpoint that answers per row (done / refused with reason / no change); show those results and keep refused rows selected. Never loop single requests from the browser.
 - `EPill` is the status badge: written text always, tone from status, unknown states neutral.
 - A disabled menu item that is planned says so (`hint: "Coming in a later step"`) rather than disappearing silently.
@@ -280,7 +280,7 @@ Phone means below 640px: Tailwind `max-sm:` for phone-only styles, `sm:` for eve
 
 **What every shared primitive already does on a phone (no page change needed).**
 - `EButton` (sm, md, icon), `ERowMenu` triggers, filter chips and bulk buttons are 44px tall.
-- `EActionDialog`, `EModal` (estate-kit, so `EConfirmModal` too) and the Jobs `JobDialog` are bottom sheets with the same labelled, focus-trapped semantics, a grab handle, a sticky footer and the PIN or confirm steps unchanged.
+- `EActionDialog` (so `EConfirmDialog` and `EConfirmModal` too), `EModal` and the Jobs `JobDialog` are bottom sheets with the same labelled, focus-trapped semantics, a grab handle and a sticky footer; a confirmation stacks Cancel above a full-width confirm button.
 - `ESidePanel` is a full-screen sheet: back arrow on the left (same accessible name as the close button), its own scroll, the page behind locked, and focus and scroll position restored on close. `?open=` is unchanged.
 - `EBulkBar` docks above the tab bar with the count, the first two actions (`phoneActions` to change), "More" for the rest and Clear. Put the most used actions first. Every action stays mounted, so an action that owns a dialog keeps working.
 - `EDataTable` stacked cards hide row checkboxes until "Select" (beside "Sort by"); "Cancel" hides them and clears the selection. Select-all and selection semantics are unchanged. Mark the column that names the record `phoneTitle: true` when it is not the first column.
@@ -303,3 +303,16 @@ Phone means below 640px: Tailwind `max-sm:` for phone-only styles, `sm:` for eve
 - Status-tinted cards in v2 use `statusTintStyle` (tint only); `statusBlockStyle` adds the classic coloured inline-start edge and is for the classic pages only.
 
 **Rules.** Nothing scrolls sideways except deliberate carousels (tab rows, chip rows, the section switcher). Inputs in sheets use 16px text. Keep one page h1; sheets use their own h2 title. Check 390px and 1280px in light and dark before delivery, including the docked bars over the last list item.
+
+## Confirmations: three tiers, no typed words (2026-11-14, board "Confirmations and deletes")
+
+Every confirm or delete prompt is one of three tiers, from the shared `EConfirmDialog` (`components/v2/ui/confirm-dialog.tsx`; `EConfirmModal` renders it). Do not build another confirm dialog, and never ask anyone to type a word (DELETE, VOID, REMOVE, DISCARD): `confirmPhrase` is ignored.
+
+- **A, ordinary** (`tier="ordinary"`): one sentence and a confirm button that names the action. Focus starts on it; Enter confirms, Escape cancels. For reversible steps (reverse to draft, mark as sent, recall, reopen, key lost mode, withdraw a request).
+- **B, removes something** (`tier="destructive"`): one line saying exactly what is removed and one red button. Focus starts on Cancel. Offer Undo with `undoToast` (10 seconds) only where nothing has left the screen yet or the removal can be put back exactly (a draft's questions, entries, a plain draft invoice line); otherwise the line ends "This cannot be undone".
+- **C, sensitive** (`tier="sensitive"`): one or two plain lines and ONE credential field: the signed-in person's own PIN, or their account password while they have no PIN (with "Set a PIN"). Its states are has PIN, wrong PIN with tries left, locked until a time in the organisation timezone, no PIN yet, and not available while testing as someone else. The route verifies `security` with `verifySensitiveAction` (or `routeSecurityRefusal`) in the same request; a browser-only check against the verify endpoint is not a confirmation. Which actions are tier C is decided by `SENSITIVE_ACTIONS` and the board, not by the component. Clients, cleaners, laundry and QA portals use A and B only.
+- **Reasons** only where the record keeps a history someone else reads later (voids, credit-note voids, the reconciled Xero void, laundry void and undo void, a decided pay amount, deleting an approval record, a damage void): `reason={{ choices: REASON_CHOICES.x }}` from `lib/confirmations/reasons.ts` (plain module, fixed in the product). Quick picks plus "Other…" with any non-empty text; never a minimum length. The server requires the same reason.
+- **Extra optional fields** go under `details` ("Add details: …"), collapsed and kept mounted. A field the server requires stays visible (the Xero correction reference).
+- **Failures** keep the dialog open with the reason, details and any form, clear the credential and say "It was not recorded" (or the action's equivalent) with the server's reason in words, never a raw code. Fields, reason and credential freeze while saving.
+- Phone: a bottom sheet, Cancel as a text button above the full-width confirm, 44px targets, 16px inputs, the credential field kept above the keyboard.
+

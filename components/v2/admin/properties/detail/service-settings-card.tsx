@@ -75,9 +75,9 @@ export function ServiceSettingsCard({ property, save }: { property: PropertyReco
       <EConfirmModal
         open={confirmKeyLost}
         onClose={() => setConfirmKeyLost(false)}
-        title="Enable key lost mode"
+        title="Turn on key lost mode?"
         tier="ordinary"
-        description="The laundry driver can't enter this property alone. While this is on, laundry pickup and drop-off are both scheduled on the cleaning day itself, after the clean starts — 12:30 when the job has a late checkout, otherwise 10:00. Saving reschedules upcoming laundry immediately."
+        description="The laundry driver can't enter alone, so pickup and drop-off move to the cleaning day after the clean starts (12:30 with a late checkout, otherwise 10:00). Upcoming laundry is rescheduled straight away."
         confirmLabel="Enable"
         onConfirm={() => {
           setConfirmKeyLost(false);

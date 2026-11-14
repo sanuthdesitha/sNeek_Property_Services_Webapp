@@ -4,6 +4,7 @@ import { getAppSettings, type NotificationCategory } from "@/lib/settings";
 import { getUserNotificationPreferences } from "./preferences";
 import { audienceForRole, isChannelAllowed } from "./audience-controls";
 import { isNotificationVisibleToRole, resolveNotificationHrefForRole } from "@/lib/notifications/feed";
+import { guardOutbound, recordOutboundOutcome } from "@/lib/notifications/safeguards/gate";
 
 const EXPO_PUSH_API_URL =
   process.env.EXPO_PUSH_API_URL?.trim() || "https://exp.host/--/api/v2/push/send";
@@ -142,8 +143,19 @@ export async function deliverMobilePushNotification(
       data: { path: message.href, url: message.url, jobId: notification.jobId, notificationId: notification.id },
     }));
     if (!messages.length) return "SKIPPED";
+    // The sending safeguards: one decision per person (the inbox row stays).
+    const decision = await guardOutbound({
+      transport: "MOBILE_PUSH", recipient: user.id,
+      meta: { recipientUserId: user.id, entityKey: notification.jobId ? `Job:${notification.jobId}` : null },
+      hints: { category }, subject: message.title, content: message.body,
+    });
+    if (!decision.allowed) return "SKIPPED";
     providerCalled = true;
-    const results = await sendExpoPushMessages(messages);
+    const results = await sendExpoPushMessages(messages).catch(async (error: unknown) => {
+      await recordOutboundOutcome(decision.eventId, "UNCERTAIN");
+      throw error;
+    });
+    await recordOutboundOutcome(decision.eventId, results.length === messages.length && results.every((row: any) => row?.status === "ok") ? "ACCEPTED" : "UNCERTAIN");
     const invalidTokens = results.flatMap((row: any, index: number) =>
       (row?.details?.error ?? row?.error) === "DeviceNotRegistered" ? [messages[index]?.to ?? ""] : []);
     await disableInvalidExpoTokens(prisma, invalidTokens.filter(Boolean));

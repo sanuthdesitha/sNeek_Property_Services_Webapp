@@ -10,12 +10,13 @@ import {
   setAdminPin,
 } from "@/lib/security/admin-verification";
 import { rateLimit } from "@/lib/security/rate-limit";
+import { getAppSettings } from "@/lib/settings";
 import { PIN_LOCK_MINUTES } from "@/lib/security/pin-rules";
 
 /**
  * The signed-in person's OWN sensitive-action PIN.
  *
- *   GET    → { hasPin, updatedAt, lockedUntil, resetByAdministrator, userId, attemptsLeft } (never the PIN)
+ *   GET    → { hasPin, updatedAt, lockedUntil, resetByAdministrator, userId, attemptsLeft, timezone } (never the PIN)
  *            attemptsLeft: wrong tries left before the lock, so a prompt can
  *            say "3 tries left" after a refusal. While testing as someone else
  *            the 403 carries code ACTUAL_ACTOR_REQUIRED so the prompt shows
@@ -75,7 +76,14 @@ export async function GET() {
   try {
     const userId = await ownAccount();
     // `userId` lets a page lock remember an unlock for this person only.
-    return NextResponse.json({ ...(await getAdminPinState(userId)), userId });
+    // The organisation timezone lets a prompt say when a lock ends ("Try again at 14:52").
+    let timezone = "Australia/Sydney";
+    try {
+      timezone = (await getAppSettings()).timezone || timezone;
+    } catch {
+      // Settings unreadable: the default organisation timezone.
+    }
+    return NextResponse.json({ ...(await getAdminPinState(userId)), userId, timezone });
   } catch (err) {
     return failure(err, "Could not load your PIN.");
   }

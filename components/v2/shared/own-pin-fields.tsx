@@ -37,7 +37,7 @@ export const EMPTY_OWN_PIN: OwnPinValue = { pin: "", password: "", newPin: "", c
 /** Where a person sets or changes their own PIN (with their password). */
 export const SET_PIN_HREF = "/v2/admin/profile#own-pin";
 
-type OwnPinStateBody = { hasPin?: boolean; lockedUntil?: string | null; userId?: string; attemptsLeft?: number; code?: string };
+type OwnPinStateBody = { hasPin?: boolean; lockedUntil?: string | null; userId?: string; attemptsLeft?: number; timezone?: string; code?: string };
 
 export type OwnPinStatusState = {
   status: OwnPinStatus;
@@ -45,19 +45,23 @@ export type OwnPinStatusState = {
   userId: string | null;
   /** Wrong tries left before the lock; null when not known. */
   attemptsLeft: number | null;
+  /** The organisation timezone the lock time is shown in. */
+  timezone: string;
 };
 
-const LOADING_STATE: OwnPinStatusState = { status: "loading", lockedUntil: null, userId: null, attemptsLeft: null };
-const UNAVAILABLE_STATE: OwnPinStatusState = { status: "unavailable", lockedUntil: null, userId: null, attemptsLeft: null };
+const DEFAULT_TIMEZONE = "Australia/Sydney";
+const LOADING_STATE: OwnPinStatusState = { status: "loading", lockedUntil: null, userId: null, attemptsLeft: null, timezone: DEFAULT_TIMEZONE };
+const UNAVAILABLE_STATE: OwnPinStatusState = { status: "unavailable", lockedUntil: null, userId: null, attemptsLeft: null, timezone: DEFAULT_TIMEZONE };
 
 function stateFromBody(ok: boolean, body: OwnPinStateBody | null): OwnPinStatusState {
-  if (!ok && body?.code === "ACTUAL_ACTOR_REQUIRED") return { status: "testing", lockedUntil: null, userId: null, attemptsLeft: null };
+  if (!ok && body?.code === "ACTUAL_ACTOR_REQUIRED") return { ...UNAVAILABLE_STATE, status: "testing" };
   if (!ok || !body || typeof body.hasPin !== "boolean") return UNAVAILABLE_STATE;
   return {
     status: body.hasPin ? "has-pin" : "needs-setup",
     lockedUntil: body.lockedUntil ?? null,
     userId: body.userId ?? null,
     attemptsLeft: typeof body.attemptsLeft === "number" ? body.attemptsLeft : null,
+    timezone: typeof body.timezone === "string" && body.timezone ? body.timezone : DEFAULT_TIMEZONE,
   };
 }
 
@@ -128,8 +132,13 @@ function digitsOnly(text: string) {
   return text.replace(/\D/g, "").slice(0, PIN_MAX_DIGITS);
 }
 
-function timeOf(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+/** A clock time in the organisation timezone ("14:52"). */
+function timeOf(iso: string, timezone: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-AU", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
+  } catch {
+    return new Intl.DateTimeFormat("en-AU", { timeZone: DEFAULT_TIMEZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
+  }
 }
 
 /** On a phone, keep the field above the keyboard once it opens. */
@@ -144,6 +153,8 @@ export type OwnPinFieldsProps = {
   status: OwnPinStatus;
   lockedUntil?: string | null;
   attemptsLeft?: number | null;
+  /** The organisation timezone for the lock time. */
+  timezone?: string;
   /** True after the server refused the last credential (wrong PIN or password). */
   refused?: boolean;
   value: OwnPinValue;
@@ -162,6 +173,7 @@ export function OwnPinFields({
   status,
   lockedUntil,
   attemptsLeft = null,
+  timezone = DEFAULT_TIMEZONE,
   refused = false,
   value,
   onChange,
@@ -197,9 +209,9 @@ export function OwnPinFields({
         <label className={LABEL} htmlFor={inputId}>{mode === "pin" ? "Your PIN" : "Your password"}</label>
         <input id={inputId} className={INPUT} value="Locked" disabled readOnly aria-describedby={helpId} />
         <p id={helpId} role="alert" className={PROBLEM}>
-          Too many wrong tries. Try again at {timeOf(lockedUntil!)}.
+          Too many wrong tries. Try again at {timeOf(lockedUntil!, timezone)}.
         </p>
-        <p className={NOTE}>Cancel keeps what you entered elsewhere in this window.</p>
+        <p className={NOTE}>The button stays off; Cancel keeps what you entered.</p>
       </div>
     );
   }
@@ -305,7 +317,7 @@ export function OwnPinFields({
  * credential and reads the tries left / the lock again.
  */
 export function useOwnPinPrompt(open: boolean) {
-  const { status, lockedUntil, userId, attemptsLeft, refresh } = useOwnPinStatus(open);
+  const { status, lockedUntil, userId, attemptsLeft, timezone, refresh } = useOwnPinStatus(open);
   const [value, setValue] = React.useState<OwnPinValue>(EMPTY_OWN_PIN);
   const [settingUp, setSettingUp] = React.useState<boolean | null>(null);
   const [refused, setRefused] = React.useState(false);
@@ -346,7 +358,7 @@ export function useOwnPinPrompt(open: boolean) {
     }
   }, [attemptsLeft, locked]);
   return {
-    fieldProps: { status, lockedUntil, attemptsLeft, refused, value, onChange: change, settingUp, onSettingUpChange: setSettingUp },
+    fieldProps: { status, lockedUntil, attemptsLeft, timezone, refused, value, onChange: change, settingUp, onSettingUpChange: setSettingUp },
     userId,
     status,
     attemptsLeft,

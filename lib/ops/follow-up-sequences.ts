@@ -1,7 +1,8 @@
 import PgBoss from "pg-boss";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
-import { sendEmailDetailed } from "@/lib/notifications/email";
+import { sendEmailDetailed, type EmailSendResult } from "@/lib/notifications/email";
+import { dispatchNotificationOnce } from "@/lib/notifications/dispatch-once";
 import { buildRatingToken } from "@/lib/client/ratings";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getAppSettings } from "@/lib/settings";
@@ -112,9 +113,11 @@ export async function scheduleJobFollowUps(jobId: string) {
     const oneDay = new Date(base.getTime() + 24 * 60 * 60 * 1000);
     const threeDays = new Date(base.getTime() + 3 * 24 * 60 * 60 * 1000);
     const fourteenDays = new Date(base.getTime() + 14 * 24 * 60 * 60 * 1000);
-    await boss.send("follow-up-1d", { jobId }, { startAfter: oneDay.toISOString() });
-    await boss.send("follow-up-3d", { jobId }, { startAfter: threeDays.toISOString() });
-    await boss.send("follow-up-14d", { jobId }, { startAfter: fourteenDays.toISOString() });
+    // One queued follow-up per job and step (a job that passes QA twice used
+    // to queue, and send, every step twice). The send itself is also claimed once.
+    await boss.send("follow-up-1d", { jobId }, { startAfter: oneDay.toISOString(), singletonKey: `follow-up-1d:${jobId}` });
+    await boss.send("follow-up-3d", { jobId }, { startAfter: threeDays.toISOString(), singletonKey: `follow-up-3d:${jobId}` });
+    await boss.send("follow-up-14d", { jobId }, { startAfter: fourteenDays.toISOString(), singletonKey: `follow-up-14d:${jobId}` });
     return { scheduled: true };
   } finally {
     await boss.stop();
@@ -132,16 +135,21 @@ export async function dispatchJobFollowUp(jobId: string, step: FollowUpStep) {
   if (!recipient) return { sent: false, reason: "missing_recipient" as const };
 
   const content = buildStepContent(step, job, recipient.name, await loadNotificationWording("client.post_job"));
-  const result = await sendEmailDetailed({ kind: "follow_up",
-    to: recipient.email,
-    subject: content.subject,
-    html: content.html,
-    replyTo: settings.accountsEmail || undefined,
+  const attempt: { result: EmailSendResult | null } = { result: null };
+  const claimed = await dispatchNotificationOnce({ event: `client.follow_up.${step}`, day: "once", recipientId: job.id, jobId: job.id }, async () => {
+    attempt.result = await sendEmailDetailed({ kind: "follow_up",
+      to: recipient.email,
+      subject: content.subject,
+      html: content.html,
+      replyTo: settings.accountsEmail || undefined,
+      safeguard: { typeKey: "client.post_job", entityKey: `Job:${job.id}` },
+    });
   });
-
-  if (!result.ok) {
-    logger.error({ jobId, step, recipient: recipient.email, error: result.error }, "Follow-up email failed");
-    return { sent: false, reason: "send_failed" as const, error: result.error };
+  const sent = attempt.result;
+  if (!claimed || !sent) return { sent: false, reason: "already_sent" as const };
+  if (!sent.ok) {
+    logger.error({ jobId, step, error: sent.error }, "Follow-up email failed");
+    return { sent: false, reason: "send_failed" as const, error: sent.error };
   }
 
   return { sent: true };

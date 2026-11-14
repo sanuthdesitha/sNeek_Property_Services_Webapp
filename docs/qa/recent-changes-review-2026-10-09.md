@@ -1981,3 +1981,92 @@ Owner request: "Fix all the backends now, redo the small UIs missed." Method: pr
 
 **Inspected in Chromium** (dev server on 3061 against `sneek_ui`, read only; `.next-maint` deleted, the `tsconfig.json` include line it added removed): list, filter sheet (390), side panel, item page, assign sheet and People and trades at 390px and 1280px in light and dark. One h1 and one main landmark on both pages, no horizontal page overflow. The demo data has four open items, one worker, no photos, no events and no price requests, so the price-request band, photo galleries and long histories were checked in component tests, not on screen. Not verified: email or portal notice delivery, CSV download in a browser, bulk Undo against a live database, OPS_MANAGER in the browser.
 
+
+
+## Simpler confirmations: three tiers, no typed words (2026-11-14)
+
+**What changed.** Board "Confirmations and deletes" built across the app (see SYSTEM.md "Simpler confirmations"). Shared pieces: `components/v2/ui/confirm-dialog.tsx` (`EConfirmDialog`, tiers ordinary / destructive / sensitive, reason, Add details, error, phone sheet), `components/v2/ui/reason-picker.tsx`, `components/v2/ui/undo-toast.tsx`, `components/v2/shared/own-pin-fields.tsx` (the one credential field, five states), `lib/confirmations/reasons.ts` (plain module), `lib/security/route-verification.ts`. `EConfirmModal` keeps its props and renders the new dialog; `confirmPhrase` is ignored. No schema change, no migration.
+
+**Defaults applied, pending owner confirmation.** (1) With no PIN the account password alone confirms; never when a PIN exists; lockout, Test-as refusal and rate limits unchanged; `SENSITIVE_ACTION_CONFIRMED` audit names the credential. (2) Invoice and credit-note void require a quick-pick reason (`voidReason`, `CLIENT_INVOICE_VOIDED` audit; no record or amount changes). (3) Draft invoice line removal: no PIN, tier B, Undo for plain manual lines; past DRAFT unchanged; the draft status is rechecked under the row lock. (4) Cleaner submitted-invoice delete is tier C (`cleaner_invoices.delete`, Payroll Manage tier so rights are unchanged). (5) Quick picks fixed in the product.
+
+**Server rule changes.** Reasons without minimums: reconcile (min 10 → 1), laundry void (3 → 1), damage void (10 → 1), delivery review evidence (10 → 1), draft evidence review (10 → 1). Newly required: invoice/credit-note `voidReason`, laundry undo-void `reason`, approvals history `note` for edit and delete. PIN now verified by the action's route: quote extras DELETE, checklist module DELETE, shopping-run PATCH that removes a receipt, va-teams team DELETE and member DELETE, cleaner invoice DELETE (new), damage VOID (new). AI credentials route: `security: { pin } | { password }` through `verifySensitiveAction` (legacy top-level `password` read as `security.password`). `GET /api/me/admin-pin` adds `attemptsLeft`, `timezone`, and `code: ACTUAL_ACTOR_REQUIRED` on its testing refusal. The Xero reconcile route still requires the correction reference (3+ characters), so the dialog keeps it visible and required.
+
+**Inventory (board rows → final state).**
+
+| Dialog | Final | Notes |
+|---|---|---|
+| Reconcile Xero invoice | Done, C + reason | Quick pick; reference stays visible and required (server requires it); note under Add details; no VOID |
+| Void invoice / Void credit note | Done, C + reason | Separate choice lists; reason sent and audited |
+| Issue credit note (draft) | Done, C | Via `EConfirmModal requireSecurity` |
+| Delete invoice | Done, C | Copy shortened |
+| Remove invoice line | Done, B (draft) / C (issued) | Undo only for plain manual draft lines |
+| Reverse to draft, Mark as sent, Mark as paid | Done, A | |
+| Cleaner invoice: reverse | Done, B | Optional reason to the cleaner NOT added: the route has no field for it (would change what the action stores) |
+| Cleaner invoice: delete | Done, C | New server check |
+| Cleaner invoice: reject claim | Done, A | |
+| Cleaner invoice: review delivery | Done, required, no minimum | |
+| Pay adjustment: recall, reopen | Done, A | Reopen has no reason field today; none added |
+| Pay adjustment: delete | Done, B | "C once approved" NOT done: would add a new PIN rule and sensitive key |
+| Approvals: change decided amount | Done, A + reason | Server now requires the note |
+| Approvals: delete decided record | Done, C + reason | No DELETE word |
+| Agent request approve/reject | Done (shared field) | Own dialog; credential field states come from the shared field |
+| Delete job | Done, C | No DELETE word |
+| Reset job | Done (shared field) | Own dialog keeps its choices |
+| Remove job extra | Done, C | PIN now verified by the extras route |
+| Delete job template | Done, B | |
+| Draft evidence review | Done, A, reason required no minimum | Browser confirm replaced |
+| Deactivate property | Done, C | |
+| Key lost mode | Done, A | |
+| Delete client | Done, C | No DELETE word |
+| Mark clients inactive (bulk) | Done (shared field) | |
+| Maintenance resolve / dismiss | Not done | Maintenance pages belong to another agent |
+| Delete case | Done, C | No DELETE word |
+| Void laundry run(s), Undo void | Done, C + reason | Effects under a disclosure; emailed-report refusal replaces the button |
+| Decide skip or delete request | Unchanged | A choice dialog, already one step |
+| Delete laundry partner | Done, B | |
+| Void damage submission | Done, C + reason | New server PIN check; mode stays a choice |
+| Reset password, Reset 2FA, Reset someone's PIN | Done, C | |
+| Delete account (person page, accounts menu) | Done, C | No DELETE word |
+| Remove assistant (Assistants tab and team manager) | Done, C | Browser confirm replaced; members route verifies the PIN |
+| Delete assistant team | Done, C | No DELETE word; team route verifies the PIN |
+| Access review and save, scheduling rules, agents, pricing page lock | Done via the shared field | Settings files not edited (another agent) |
+| Delete payment gateway | Partly | Shared dialog and field apply; the gateway route still relies on the verify-endpoint pre-check (settings file not mine to edit) |
+| AI provider key add/replace/remove | Server done | Request shape above; client is the AI page agent's `ai-key-dialog.tsx` |
+| Clear notification logs | Done, B | "This cannot be undone" |
+| Delete form template | Done, C | |
+| Delete checklist library module | Done, C | PIN now verified by the route; classic `/admin/checklists/library` delete will be refused until it sends a PIN |
+| Delete checklist library item | Done, B, no Undo | Undo not safe: the server deletes at once and the editor does not hold every field to recreate it |
+| Delete forms group | Done, B | |
+| Form builder delete question(s), section | Done, B + Undo | Undo steps the document back while still the last change |
+| Form builder discard / replace draft | Done, B | |
+| QA template delete / reset to default | Done, B / A | |
+| Message template delete | Done, B | |
+| Hiring delete section, question | Done, B + Undo | |
+| Campaign, plan, email campaign, blog post, report(s), automation rule delete | Done, B | Through `EConfirmModal` |
+| Email campaign send to one | Done, A | |
+| Shopping run remove receipt | Done, C | PIN now verified by the shopping-run route |
+| Delete stock supplier | Done, B | |
+| Withdraw pay request, Set these to zero | Done, A | |
+| Discard stock count (cleaner, client) | Done, B | Client DISCARD word removed |
+| Delete chat message, Remove passkey | Done, B | |
+| QA remove damage entry, flagged area | Done, B + Undo | |
+| Client remove assistant team | Done, B | REMOVE word removed |
+| Client remove assistant | Done, B | |
+
+**Not in scope / not done.** Classic pages using `components/shared/two-step-confirm-dialog.tsx` (classic jobs, laundry, properties, clients, users, cases, quotes, notifications, reports) keep their typed phrase; they share only the credential field, so their no-PIN path now asks for the password alone. `window.confirm` prompts outside the inventory (job manage, payroll process, pricing editor, lost-and-found guest, cleaner portal) and minimum-length rules outside the listed dialogs (cancel job 3, property photo memory 3, laundry Change state 3, started-work review 10, QA early start 10) are unchanged.
+
+**Tests.** New: `tests/db/confirmation-credential-rule.test.ts` (5, PostgreSQL 55439), `tests/api/simpler-confirmations-routes.test.ts` (22), `tests/components/confirm-tiers.test.tsx` (16). Changed on purpose: `tests/db/own-pin-and-quote-number.test.ts` (password alone now confirms with no PIN), `tests/db/laundry-run-void.test.ts` (undo void needs a reason), `tests/api/ai-settings-routes.test.ts` (own-PIN credential instead of a bcrypt password check), `tests/api/approvals-history-delete-pin.test.ts` (reason sent; new reason tests), `tests/api/cleaner-invoice-admin-transitions.test.ts` (delete sends the PIN; new PIN tests), `tests/api/cleaner-invoice-delivery-review.test.ts` and `tests/components/cleaner-invoice-delivery-review.test.tsx` (no minimum), `tests/api/invoice-step-c-patch.test.ts` (draft removal without PIN, APPROVED with PIN, race, void audit), `tests/api/invoice-void-credit-sensitive.test.ts` (voidReason), `tests/api/quote-extras-finance-guards.test.ts` (PIN on the route), `tests/api/own-pin-routes.test.ts` (timezone, testing code), `tests/components/own-pin-prompts.test.tsx`, `accounts-person-panel.test.tsx`, `access-permissions.test.tsx` (password alone), `account-actions-menu.test.tsx` (no DELETE word), `checklist-library-save.test.tsx` and `job-extras-save-messaging.test.tsx` (PIN sent with the action, no verify pre-check), `draft-evidence-review.test.tsx` (dialog instead of browser confirm), `owner-decisions-1113-dialogs.test.tsx` (void needs a reason).
+
+## Xero stays connected (2026-11-15)
+
+Owner report: "it only connects for 30 mins from xero." Section: `docs/SYSTEM.md` › "Xero connection stays connected (2026-11-15)".
+
+**Cause, proved before the fix** (`tests/lib/xero-token-lifecycle.test.ts` first block, run against the old `lib/xero/client.ts`: 3 of 3 failed — two concurrent calls made 2 token exchanges; a 503 renewal returned "No active Xero connection" and stored "SIGN_IN_LAPSED"; a 401 was thrown, not renewed and retried). Also: connections made before `offline_access` (2026-11-11) have no refresh token; no keep-alive for the 60-day unused expiry; tokens plaintext; status said "Connected" for a lapsed connection.
+
+**Fix.** `lib/xero/token-service.ts` (single-flight lease + compare-and-set on `tokenVersion`, encrypted persist before use, transient vs terminal classification, tenant check), `lib/xero/keepalive.ts` + worker job `xero-token-keepalive` (daily 03:47 Sydney), `lib/xero/connection-status.ts`, `lib/xero/reconnect-notice.ts` (catalog `xero.reconnect_needed`, inbox only, administrators, once per outage), `lib/xero/credentials.ts`; `lib/xero/client.ts` routes every call through one `xeroCall` (401 → renew once → retry once). Settings › Xero card `components/v2/admin/settings/xero-connection-card.tsx`. Migration `20261115050000_xero_token_lifecycle`. Not changed: push payloads, money arithmetic, issued/paid records; failed pushes stay retryable through the existing Retry paths with their idempotency keys.
+
+**Verification.**
+- `npx prisma migrate deploy` on fresh `xero_token_fresh` and `xero_token_fresh2`, on a database at the previous migration with a legacy no-refresh-token row and a renewable row (`xero_token_backfill`: backfill gave NEEDS_RECONNECT/NO_REFRESH_TOKEN and CONNECTED with `connectedAt`/`lastRefreshedAt` copied), and on `sneek_ui`; repeated: "No pending migrations to apply"; `prisma migrate diff --from-url … --to-schema-datamodel prisma/schema.prisma --exit-code` exit 0 on each. Note: deploy also applied another agent's pending `20261115060000_sending_safeguards` to `sneek_ui`.
+- Tests (Xero mocked; no credentials here): `tests/lib/xero-token-lifecycle.test.ts` 19, `tests/db/xero-token-refresh.test.ts` 4 (PostgreSQL 55439, fresh database, two Prisma clients as two processes, `--no-file-parallelism`), `tests/lib/xero-reconnect-notice.test.ts` 3, `tests/components/xero-connection-card.test.tsx` 5, `tests/lib/xero-connect-exchange.test.ts` 3; existing Xero/finance/notification/worker suites (35 files, 356 tests) pass except `notification-catalog` "lists every file that sends a notification", which fails on `lib/maintenance/assign-notice.ts` (another agent's in-progress file, not this change). Changed on purpose: `tests/lib/finance-decisions-rules.test.ts` (sign-in wording and the NEEDS_RECONNECT rule), `tests/lib/xero-read-transport.test.ts` (mock gains `updateMany`/notice).
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: clean on the final run (an earlier run showed one error in `lib/ops/tomorrow-prep.ts` from another agent's in-progress work, since resolved).
+- Not done: production build (not requested), browser inspection of the settings card at 390/1280 light/dark (jsdom component tests only), anything against real Xero.

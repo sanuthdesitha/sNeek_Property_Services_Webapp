@@ -32,8 +32,8 @@ export async function loadSettingsHomeState(options: { isAdmin: boolean }): Prom
 
   if (health.status === "fulfilled") {
     const xero = health.value.xero;
-    if (options.isAdmin && xero?.signIn === "lapsed") states.xero = { tone: "bad", text: "Reconnect", detail: xero.message ?? "Xero sign-in lapsed." };
-    else if (options.isAdmin && xero?.signIn === "no-refresh-token") states.xero = { tone: "warn", text: "Reconnect once", detail: xero.message ?? "Reconnect Xero once to keep it signed in." };
+    if (options.isAdmin && xero?.signIn === "lapsed") states.xero = { tone: "bad", text: "Reconnect", detail: xero.message ?? "Xero needs reconnecting." };
+    else if (options.isAdmin && xero?.signIn === "no-refresh-token") states.xero = { tone: "warn", text: "Reconnect once", detail: xero.message ?? "Reconnect Xero once to keep it connected." };
     const sms = health.value.transports.find((transport) => transport.transport === "SMS");
     if (sms && sms.failures24h > 0) {
       states["notification-tools"] = { tone: "bad", text: "SMS failing", detail: `${sms.failures24h} SMS failure${sms.failures24h === 1 ? "" : "s"} in 24 h` };

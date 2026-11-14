@@ -330,7 +330,7 @@ export async function queueClientPostJobAutomations(jobId: string, triggerType?:
         rule.delayMinutes > 0
           ? { startAfter: new Date(Date.now() + rule.delayMinutes * 60_000).toISOString() }
           : {};
-      await boss.send("post-job-followup", { jobId, ruleId: rule.id }, options);
+      await boss.send("post-job-followup", { jobId, ruleId: rule.id }, { ...options, singletonKey: `post-job-followup:${jobId}:${rule.id}` });
     }
   } finally {
     await boss.stop();
@@ -339,8 +339,17 @@ export async function queueClientPostJobAutomations(jobId: string, triggerType?:
   return { queued: rules.length, skipped: [] as string[] };
 }
 
+/**
+ * The worker's queued rule: sent once per job and rule. The same rule queued
+ * twice for a job (the job completed twice) used to send twice.
+ */
 export async function dispatchClientPostJobAutomationRule(input: { jobId: string; ruleId: string }) {
-  return dispatchClientPostJobAutomations(input.jobId, undefined, input.ruleId);
+  const { dispatchNotificationOnce } = await import("./dispatch-once");
+  const box: { result: Awaited<ReturnType<typeof dispatchClientPostJobAutomations>> | null } = { result: null };
+  const claimed = await dispatchNotificationOnce({ event: `client.automation.${input.ruleId}`, day: "once", recipientId: input.jobId, jobId: input.jobId }, async () => {
+    box.result = await dispatchClientPostJobAutomations(input.jobId, undefined, input.ruleId);
+  });
+  return claimed && box.result ? box.result : { sent: 0, skipped: ["already_dispatched"] };
 }
 
 export async function dispatchClientPostJobAutomations(jobId: string, triggerType?: string, ruleId?: string) {
