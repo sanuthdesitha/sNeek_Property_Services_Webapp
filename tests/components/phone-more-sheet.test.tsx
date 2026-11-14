@@ -9,7 +9,7 @@ import { phoneMoreSections, phoneSheetTabs } from "@/lib/navigation/mobile-tabs"
  * replaces the drawer below 640px and must offer exactly what the rail offers.
  */
 const identity = vi.hoisted(() => ({ role: "ADMIN" as string, pathname: "/v2/admin/cases", denied: [] as string[] }));
-vi.mock("next/navigation", () => ({ usePathname: () => identity.pathname, useSearchParams: () => new URLSearchParams() }));
+vi.mock("next/navigation", () => ({ usePathname: () => identity.pathname, useSearchParams: () => new URLSearchParams(), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn() }) }));
 vi.mock("next-auth/react", () => ({ useSession: () => ({ data: { user: { id: "u1", name: "Office", role: identity.role } } }), signOut: vi.fn() }));
 vi.mock("@/components/look-switch-link", () => ({ LookSwitchLink: () => null }));
 vi.mock("@/components/v2/portal/role-switcher", () => ({ RoleSwitcher: () => null }));
