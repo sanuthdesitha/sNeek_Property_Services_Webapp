@@ -3,8 +3,9 @@
 /**
  * The small admin Maintenance dialogs, all on the shared EActionDialog (a
  * bottom sheet on a phone):
- *  - StatusNoteDialog: "Mark resolved…" and "Dismiss…", an ordinary confirm
- *    with one optional note that goes on every item's history;
+ *  - StatusNoteDialog: "Mark resolved…" and "Dismiss…", a tier A confirm on
+ *    the shared EConfirmDialog with one optional note that goes on every
+ *    item's history (single and bulk);
  *  - PriceDialog: send or update the client price;
  *  - LinkJobDialog: put the item on a job at the same property (the existing
  *    attach, which also adds the job task);
@@ -23,6 +24,7 @@ import {
 } from "@prisma/client";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EActionDialog } from "@/components/v2/ui/action-dialog";
+import { EConfirmDialog } from "@/components/v2/ui/confirm-dialog";
 import { EField, EInput, ESelect, ESwitch, ETextarea } from "@/components/v2/admin/estate-kit";
 import { ACTION_LABELS, CATEGORY_LABELS, PRIORITY_LABELS } from "@/lib/maintenance/labels";
 import { patchMaintenanceItem } from "./maintenance-api";
@@ -86,35 +88,29 @@ export function StatusNoteDialog({
     }
   }
 
+  // Tier A (board "Confirmations and deletes"): one sentence, an optional note, the button.
   return (
-    <EActionDialog
+    <EConfirmDialog
       open
+      tier="ordinary"
       busy={busy}
       onClose={onClose}
-      title={resolving ? `Mark resolved: ${subject}` : `Dismiss: ${subject}`}
+      title={resolving ? `Mark ${subject} resolved?` : `Dismiss ${subject}?`}
       description={
         resolving
           ? "The item closes as resolved. It can be reopened by changing its status again."
           : "The item is dismissed, not deleted: the client and any linked case keep their history, and it can be reopened."
       }
-      footer={
-        <>
-          <EButton variant="outline" onClick={onClose} disabled={busy}>
-            Cancel
-          </EButton>
-          <EButton onClick={() => void confirm()} disabled={busy}>
-            {busy ? "Saving…" : resolving ? "Mark resolved" : "Dismiss"}
-          </EButton>
-        </>
-      }
+      confirmLabel={resolving ? "Mark resolved" : "Dismiss"}
+      error={error}
+      onConfirm={() => confirm()}
     >
       <fieldset disabled={busy} className="space-y-2">
         <EField label="Note for the history, optional" hint={request.count > 1 ? "The same note goes on every item's history." : undefined}>
           <ETextarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} maxLength={4000} className="max-sm:text-base" />
         </EField>
       </fieldset>
-      <ErrorLine message={error} />
-    </EActionDialog>
+    </EConfirmDialog>
   );
 }
 

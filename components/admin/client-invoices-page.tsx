@@ -49,6 +49,9 @@ import { toast } from "@/hooks/use-toast";
 import { downloadFromApi } from "@/lib/client/download";
 import { cn } from "@/lib/utils";
 import { useBasicConfirmDialog } from "@/components/shared/use-basic-confirm";
+import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
+import { REASON_CHOICES } from "@/lib/confirmations/reasons";
+import { sensitiveVerificationText, type SensitiveCredentialsInput } from "@/lib/security/pin-rules";
 
 // ── types ──────────────────────────────────────────────────────────────────────
 
@@ -220,6 +223,10 @@ function SortableLineRow({
 
 export function ClientInvoicesPage() {
   const { confirm, dialog } = useBasicConfirmDialog();
+  // Void and delete are sensitive (own PIN, verified by the invoice route); a
+  // void also keeps a quick-pick reason (2026-11-14, simpler confirmations).
+  const [secureAction, setSecureAction] = useState<{ kind: "void" | "delete"; id: string; label: string; creditNote: boolean } | null>(null);
+  const [secureBusy, setSecureBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<Client[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
@@ -326,7 +333,7 @@ export function ClientInvoicesPage() {
     });
     const body = await res.json().catch(() => ({}));
     setBusy(null);
-    if (!res.ok) { toast({ title: "Failed", description: body.error, variant: "destructive" }); return false; }
+    if (!res.ok) { toast({ title: "Failed", description: body.error ? sensitiveVerificationText(body.error) : undefined, variant: "destructive" }); return false; }
     toast({ title: successMsg });
     await load();
     if (selected?.id === id) await loadInvoice(id);
@@ -363,7 +370,10 @@ export function ClientInvoicesPage() {
     const notes: string[] = [];
     if (next === "SENT") notes.push("This marks it Sent WITHOUT emailing the client — use “Send to client” to actually email it.");
     if (next === "PAID") notes.push("This marks the invoice PAID and stamps the payment date; make sure payment was actually received.");
-    if (next === "VOID") notes.push("Voiding cancels the invoice.");
+    if (next === "VOID") {
+      setSecureAction({ kind: "void", id: selected.id, label: selected.invoiceNumber, creditNote: (selected as { kind?: string }).kind === "CREDIT_NOTE" });
+      return;
+    }
     if ((cur === "PAID" || cur === "SENT") && (next === "DRAFT" || next === "APPROVED")) {
       notes.push(`Moving back from ${STATUS_CONFIG[cur].label} to ${STATUS_CONFIG[next].label} is a manual correction.`);
     }
@@ -459,14 +469,33 @@ export function ClientInvoicesPage() {
     await loadInvoice(selected.id);
   }
 
-  async function deleteInvoice(id: string) {
+  async function deleteInvoice(id: string, security?: SensitiveCredentialsInput): Promise<boolean> {
     setBusy(`delete-${id}`);
-    const res = await fetch(`/api/admin/invoices/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/admin/invoices/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ security: security ?? {} }),
+    });
+    const body = await res.json().catch(() => ({}));
     setBusy(null);
-    if (!res.ok) { toast({ title: "Delete failed", variant: "destructive" }); return; }
+    if (!res.ok) { toast({ title: "Delete failed", description: body.error ? sensitiveVerificationText(body.error) : undefined, variant: "destructive" }); return false; }
     toast({ title: "Invoice deleted" });
     if (selected?.id === id) setSelected(null);
     await load();
+    return true;
+  }
+
+  async function runSecureAction(security?: SensitiveCredentialsInput, reason?: string) {
+    if (!secureAction) return;
+    setSecureBusy(true);
+    try {
+      const done = secureAction.kind === "delete"
+        ? await deleteInvoice(secureAction.id, security)
+        : await patch(secureAction.id, { status: "VOID", voidReason: reason, security: security ?? {} }, "Invoice voided");
+      if (done) setSecureAction(null);
+    } finally {
+      setSecureBusy(false);
+    }
   }
 
   async function saveLine(invoiceId: string, lineId: string) {
@@ -505,6 +534,20 @@ export function ClientInvoicesPage() {
   return (
     <div className="space-y-6">
       {dialog}
+      <TwoStepConfirmDialog
+        open={Boolean(secureAction)}
+        onOpenChange={(open) => { if (!open && !secureBusy) setSecureAction(null); }}
+        title={secureAction ? `${secureAction.kind === "void" ? "Void" : "Delete"} ${secureAction.label}?` : "Confirm"}
+        description={secureAction?.kind === "void"
+          ? "It stops counting as owed and its work can go on a new invoice. The number is not reused."
+          : "The draft and its lines are removed. This cannot be undone."}
+        confirmLabel={secureAction?.kind === "void" ? "Void invoice" : "Delete invoice"}
+        cancelLabel="Cancel"
+        requireSecurityVerification
+        reasonChoices={secureAction?.kind === "void" ? (secureAction.creditNote ? REASON_CHOICES.creditNoteVoid : REASON_CHOICES.invoiceVoid) : undefined}
+        loading={secureBusy}
+        onConfirm={(security, reason) => void runSecureAction(security, reason)}
+      />
       <PageHeader
         icon={<Wallet />}
         title="Invoices"
@@ -636,7 +679,7 @@ export function ClientInvoicesPage() {
                     )}
                     {selected.status !== "VOID" && selected.status !== "PAID" && (
                       <Button size="sm" variant="outline" className="text-destructive hover:text-destructive"
-                        onClick={() => patch(selected.id, { status: "VOID" }, "Invoice voided")} disabled={busy === selected.id}>
+                        onClick={() => setSecureAction({ kind: "void", id: selected.id, label: selected.invoiceNumber, creditNote: (selected as { kind?: string }).kind === "CREDIT_NOTE" })} disabled={busy === selected.id}>
                         Void
                       </Button>
                     )}
@@ -667,16 +710,7 @@ export function ClientInvoicesPage() {
                       </Button>
                     )}
                     <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive"
-                      onClick={async () => {
-                        const approved = await confirm({
-                          title: "Delete invoice",
-                          description: "This will permanently remove the invoice record.",
-                          confirmLabel: "Delete invoice",
-                          actionKey: "deleteInvoice",
-                        });
-                        if (!approved) return;
-                        deleteInvoice(selected.id);
-                      }}>
+                      onClick={() => setSecureAction({ kind: "delete", id: selected.id, label: selected.invoiceNumber, creditNote: false })}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>

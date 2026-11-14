@@ -34,6 +34,7 @@ const m = vi.hoisted(() => ({
   runUpdate: vi.fn(),
   damageVoid: vi.fn(),
   damageRead: vi.fn(),
+  gatewayDelete: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -53,6 +54,7 @@ vi.mock("@/lib/laundry/run-corrections", async () => {
 vi.mock("@/lib/db", () => ({
   db: {
     checklistModule: { findUnique: m.moduleFind, delete: m.moduleDelete },
+    paymentGateway: { delete: m.gatewayDelete },
     vaTeam: { findUnique: m.teamFind },
     auditLog: { create: m.audit },
     $transaction: async (work: (tx: unknown) => unknown) => work({ $queryRaw: vi.fn() }),
@@ -72,6 +74,7 @@ import { DELETE as deleteTeam } from "@/app/api/admin/va-teams/[id]/route";
 import { DELETE as removeMember } from "@/app/api/admin/va-teams/[id]/members/[userId]/route";
 import { PATCH as patchRun } from "@/app/api/admin/inventory/shopping-runs/[id]/route";
 import { PATCH as patchDamage } from "@/app/api/admin/damage/[reportId]/route";
+import { DELETE as deleteGateway } from "@/app/api/admin/payment-gateways/[id]/route";
 import { SensitiveVerificationError } from "@/lib/security/admin-verification";
 
 const admin = { user: { id: "admin", role: "ADMIN" } };
@@ -156,6 +159,11 @@ describe("tier C routes that now verify the PIN themselves", () => {
       name: "remove a shopping receipt",
       run: (security) => patchRun(json("http://local/run", "PATCH", { payment: { receipts: [receipt("a")] }, security }), { params: { id: "run" } }),
       changed: () => m.runUpdate,
+    },
+    {
+      name: "delete a payment gateway",
+      run: (security) => deleteGateway(json("http://local/g", "DELETE", { security }), { params: { id: "gw" } }),
+      changed: () => m.gatewayDelete,
     },
     {
       name: "void a damage submission",

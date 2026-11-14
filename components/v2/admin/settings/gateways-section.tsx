@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { EBadge, EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelectNative, EToggle, ESaveStatus, ESectionHeading, useSaveStatus } from "./estate-form";
-import { EConfirmModal, verifyAdminSecurity } from "@/components/v2/admin/estate-kit";
+import { EConfirmModal } from "@/components/v2/admin/estate-kit";
+import { sensitiveVerificationText } from "@/lib/security/pin-rules";
 
 type Gateway = {
   id: string;
@@ -106,17 +107,20 @@ export function GatewaysSection() {
     }
   }
 
-  async function remove(credentials?: { pin?: string; password?: string }) {
+  async function remove(credentials?: { pin?: string; password?: string; newPin?: string }) {
     const gw = removeTarget;
     if (!gw) return;
     setRemoving(true);
     try {
-      // The gateway route takes no security payload of its own, so the PIN is
-      // checked against the verify endpoint before the row goes.
-      await verifyAdminSecurity(credentials);
-      const res = await fetch(`/api/admin/payment-gateways/${gw.id}`, { method: "DELETE" });
+      // The PIN travels with the delete and the gateway route verifies it.
+      const res = await fetch(`/api/admin/payment-gateways/${gw.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials ?? {} }),
+      });
       if (!res.ok) {
-        flash("error", "Delete failed.");
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        flash("error", body.error ? sensitiveVerificationText(body.error) : "Delete failed.");
         return;
       }
       setRemoveTarget(null);

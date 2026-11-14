@@ -129,7 +129,9 @@ describe("Maintenance list, desktop", () => {
     const bar = screen.getByRole("region", { name: "Bulk actions" });
     for (const label of ["Acknowledge", "Mark in progress", "Mark ordered", "Mark resolved…", "Dismiss…", "Assign…"]) expect(within(bar).getByRole("button", { name: label })).toBeInTheDocument();
     fireEvent.click(within(bar).getByRole("button", { name: "Dismiss…" }));
-    const dialog = screen.getByRole("dialog", { name: /Dismiss: Smoke alarm chirping/ });
+    // 2026-11-14: the shared tier A confirmation; the title is a question.
+    const dialog = screen.getByRole("dialog", { name: /Dismiss Smoke alarm chirping\?/ });
+    expect(dialog).toHaveTextContent("Please confirm");
     expect(within(dialog).getByLabelText("Note for the history, optional")).toBeInTheDocument();
   });
 

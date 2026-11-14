@@ -301,7 +301,7 @@ export default function ChecklistLibraryPage() {
                     checked={module.isActive}
                     onCheckedChange={(checked) => patchModule(module.id, { isActive: checked === true })}
                   />
-                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setModuleToDelete(module)}>
+                  <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={`Delete ${module.title}`} onClick={() => setModuleToDelete(module)}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </CardHeader>
