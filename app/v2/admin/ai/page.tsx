@@ -16,7 +16,7 @@ export const metadata = { title: "AI configuration | Estate admin" };
  * `requireRole`) may open it; only an administrator acting as themselves can
  * change anything, and every write route re-checks that.
  */
-export default async function AiConfigurationPage({ searchParams }: { searchParams?: { section?: string } } = {}) {
+export default async function AiConfigurationPage({ searchParams }: { searchParams?: { section?: string } }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   const isAdmin = (session.user.heldRoles ?? [session.user.role]).includes(Role.ADMIN);
   const canEdit = isAdmin && !session.impersonation;

@@ -110,11 +110,20 @@ export function MaintenancePhoneList({
               )}
               {!selecting ? (
                 <div className="space-y-2 border-t border-[hsl(var(--e-border))] px-3 py-2.5 first:border-t-0">
-                  <CardFacts row={row} timeZone={timeZone} />
-                  <div className="flex gap-2">
-                    {showAssign ? <EButton size="sm" variant="outline" className="flex-1" onClick={() => onAssign(row)}>Assign…</EButton> : null}
-                    <EButton size="icon" variant="outline" aria-label={`More for ${row.title}`} className={cn(!showAssign && "ml-auto")} onClick={() => setMenuRow(row)}>⋯</EButton>
-                  </div>
+                  {showAssign ? (
+                    <>
+                      <CardFacts row={row} timeZone={timeZone} />
+                      <div className="flex gap-2">
+                        <EButton size="sm" variant="outline" className="flex-1" onClick={() => onAssign(row)}>Assign…</EButton>
+                        <EButton size="icon" variant="outline" aria-label={`More for ${row.title}`} onClick={() => setMenuRow(row)}>⋯</EButton>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex items-start gap-2">
+                      <div className="min-w-0 flex-1"><CardFacts row={row} timeZone={timeZone} /></div>
+                      <EButton size="icon" variant="ghost" aria-label={`More for ${row.title}`} className="-mr-1.5 -mt-1.5 shrink-0" onClick={() => setMenuRow(row)}>⋯</EButton>
+                    </div>
+                  )}
                 </div>
               ) : null}
             </li>

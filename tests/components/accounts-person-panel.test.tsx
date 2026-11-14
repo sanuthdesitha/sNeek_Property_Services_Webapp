@@ -116,23 +116,24 @@ describe("the person panel", () => {
     expect(JSON.parse(String(init.body)).security).toEqual({ pin: "1234" });
   });
 
-  it("asks a viewer with no PIN yet for their password and a new PIN, and sends them together", async () => {
+  // Changed 2026-11-14 (owner default, pending confirmation): with no PIN yet the
+  // account password alone confirms; the prompt links to "Set a PIN".
+  it("asks a viewer with no PIN yet for their password alone, with a Set a PIN link", async () => {
     fetchMock.mockImplementation((url: string) => jsonResponse(url === "/api/me/admin-pin" ? { hasPin: false, lockedUntil: null, userId: "admin-1" } : { ok: true }));
     const { container } = render(<PersonActions profile={profile()} caps={ADMIN} onChanged={vi.fn()} onDeleted={vi.fn()} />);
     fireEvent.click(within(container).getByRole("button", { name: /More actions/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Reset 2FA" }));
     const dialog = await screen.findByRole("dialog");
     await within(dialog).findByText(/You have no PIN yet/);
+    expect(within(dialog).getByRole("link", { name: "Set a PIN" })).toHaveAttribute("href", "/v2/admin/profile#own-pin");
+    expect(within(dialog).queryByLabelText("Choose your PIN")).toBeNull();
     const confirm = within(dialog).getByRole("button", { name: "Reset 2FA" });
-    fireEvent.change(within(dialog).getByLabelText("Account password"), { target: { value: "secret-pass" } });
-    fireEvent.change(within(dialog).getByLabelText("Choose your PIN"), { target: { value: "4826" } });
-    fireEvent.change(within(dialog).getByLabelText("Confirm your PIN"), { target: { value: "4827" } });
     expect(confirm).toBeDisabled();
-    fireEvent.change(within(dialog).getByLabelText("Confirm your PIN"), { target: { value: "4826" } });
+    fireEvent.change(within(dialog).getByLabelText("Your password"), { target: { value: "secret-pass" } });
     fireEvent.click(confirm);
     await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === "/api/admin/users/p1/disable-2fa")).toBe(true));
     const [, init] = fetchMock.mock.calls.find(([url]) => url === "/api/admin/users/p1/disable-2fa")!;
-    expect(JSON.parse(String(init.body)).security).toEqual({ password: "secret-pass", newPin: "4826" });
+    expect(JSON.parse(String(init.body)).security).toEqual({ password: "secret-pass" });
   });
 
   it("offers an administrator Reset PIN only on an administrator or operations manager, sent with the viewer's own PIN", async () => {

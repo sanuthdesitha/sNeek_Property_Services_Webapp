@@ -135,7 +135,9 @@ function TestCell({ page, feature, withButton = true }: { page: AiPage; feature:
   return (
     <div className="flex min-w-0 flex-col items-start gap-1">
       <AiResultText tone={view.tone}>{view.running ? <AiSpinner /> : null}{view.text}</AiResultText>
-      {view.detail && view.tone === "bad" ? <span className={cn("text-[0.6875rem] [overflow-wrap:anywhere]", AI_MUTED)}>{view.detail}</span> : null}
+      {view.detail && view.tone === "bad" ? (withButton
+        ? <span className={cn("max-w-[9rem] text-[0.6875rem]", AI_MUTED)} title={view.detail}>{view.detail.length > 60 ? `${view.detail.slice(0, 57)}…` : view.detail}</span>
+        : <span className={cn("text-[0.6875rem] [overflow-wrap:anywhere]", AI_MUTED)}>{view.detail}</span>) : null}
       {withButton ? (
         <EButton
           type="button"
@@ -426,8 +428,8 @@ export function FeatureSheet({ page, feature, onClose, onCheckPhotoModel, photoC
         <label className="block">
           <span className={AI_LABEL}>Cloud deadline (seconds)</span>
           <input type="number" inputMode="numeric" min={10} max={300} step={1} className={cn(AI_FIELD, "tabular-nums")} value={settings.timeoutSeconds} disabled={page.locked} onChange={(event) => page.updateFeature(feature, { timeoutSeconds: Number(event.target.value) })} />
-          <span className={cn("mt-1 block text-[0.75rem]", AI_MUTED)}>10 to 300. Local Ollama uses its own deadline.</span>
         </label>
+        <p className={cn("-mt-2 text-[0.75rem]", AI_MUTED)}>10 to 300. Local Ollama uses its own deadline.</p>
         <div className="flex min-h-11 items-center justify-between gap-3 border-t border-[hsl(var(--e-border))]"><span>Last test</span><TestCell page={page} feature={feature} withButton={false} /></div>
         <div className="flex min-h-11 items-center justify-between gap-3 border-t border-[hsl(var(--e-border))]"><span>This month</span><span className={cn("text-right text-[0.8125rem]", AI_MUTED)}>{month.requests}{month.cost ? ` · ${month.cost}` : ""}</span></div>
       </fieldset>

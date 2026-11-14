@@ -477,6 +477,19 @@ async function main() {
     }));
   }
 
+  // Daily Xero keep-alive (2026-11-15): renews the sign-in so an idle
+  // connection never reaches Xero's 60-day unused refresh-token expiry, checks
+  // the organisation is still connected, and retries an unsent reconnect
+  // notice. Never pushes or reads financial documents.
+  if (jobEnabled("xero-token-keepalive")) {
+    await boss.schedule("xero-token-keepalive", "47 3 * * *", {}, { tz: TZ });
+    await boss.work("xero-token-keepalive", safeHandler("xero-token-keepalive", async () => {
+      const { runXeroKeepAlive } = await import("@/lib/xero/keepalive");
+      const result = await runXeroKeepAlive();
+      logger.info({ ...result }, "[xero-token-keepalive] done");
+    }));
+  }
+
   // Monthly Insights email (owner decision 2026-11-11). Checks hourly, off the
   // hour; sends the previous month's summary once the configured day and hour
   // (organisation timezone) is reached. Off by default; a stored marker per

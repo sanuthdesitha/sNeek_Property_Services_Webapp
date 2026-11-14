@@ -5012,6 +5012,28 @@ model XeroConnection {
   lastSyncError String?   @db.Text
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+
+  // Token lifecycle (2026-11-15, lib/xero/token-service.ts). accessToken and
+  // refreshToken are stored encrypted (enc:v1, lib/security/encryption.ts);
+  // rows written before this change are plaintext until their next refresh.
+  /// Incremented by every persisted refresh; refreshes compare-and-set on it.
+  tokenVersion         Int       @default(0)
+  /// CONNECTED or NEEDS_RECONNECT. Never set back to CONNECTED except by a successful refresh or a reconnect.
+  status               String    @default("CONNECTED")
+  /// NO_REFRESH_TOKEN, REFRESH_REJECTED, APP_CREDENTIALS_REJECTED or TENANT_REMOVED while NEEDS_RECONNECT.
+  statusReasonCode     String?
+  statusReason         String?   @db.Text
+  needsReconnectAt     DateTime?
+  reconnectNoticeAt    DateTime?
+  connectedAt          DateTime  @default(now())
+  lastRefreshedAt      DateTime?
+  lastRefreshAttemptAt DateTime?
+  /// The last transient refresh failure (network, 5xx, 429); cleared by a successful refresh.
+  lastRefreshError     String?   @db.Text
+  lastTenantCheckAt    DateTime?
+  /// Single-flight lease across web replicas and the worker.
+  refreshLockId        String?
+  refreshLockUntil     DateTime?
 }
 
 model NotificationTemplate {
@@ -5755,4 +5777,62 @@ model ShoppingClientCharge {
   @@unique([shoppingRunId, sourceKey])
   @@index([clientId, status, invoiceId])
   @@index([propertyId])
+}
+
+/// Sending safeguards (2026-11-15): one row per outbound email, SMS, browser
+/// push or phone push that reached its transport chokepoint, with the guard's
+/// decision. The per-person caps, duplicate suppression, quiet-hours holds and
+/// the circuit breaker count these rows, so the counters are shared by every
+/// web replica and the worker. A suppressed row is never a delivery: `outcome`
+/// stays empty. Held rows carry the payload until released once or expired.
+model OutboundMessageEvent {
+  id              String    @id @default(cuid())
+  createdAt       DateTime  @default(now())
+  transport       String
+  recipientKey    String
+  recipientUserId String?
+  typeKey         String
+  entityKey       String?
+  contentHash     String
+  messageClass    String
+  decision        String
+  reason          String?
+  outcome         String?
+  subject         String?
+  heldPayload     Json?
+  releasedAt      DateTime?
+
+  @@index([transport, recipientKey, createdAt])
+  @@index([recipientKey, contentHash, createdAt])
+  @@index([typeKey, createdAt])
+  @@index([entityKey, createdAt])
+  @@index([decision, createdAt])
+  @@index([createdAt])
+}
+
+/// Sending safeguards: a paused notification type, person or subject (an
+/// automatic circuit-breaker trip or an administrator's pause), and worker
+/// jobs that keep failing. ACTIVE pausing rows stop email, SMS and push for
+/// their scope (the inbox copy is kept) until an administrator resumes them.
+model OutboundSafeguardIncident {
+  id               String    @id @default(cuid())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  kind             String
+  scopeKind        String
+  scopeKey         String
+  label            String
+  status           String    @default("ACTIVE")
+  pausesSending    Boolean   @default(true)
+  attemptCount     Int       @default(0)
+  sampleRecipients Json?
+  detail           Json?
+  createdById      String?
+  alertedAt        DateTime?
+  resolvedAt       DateTime?
+  resolvedById     String?
+  resolutionNote   String?
+
+  @@index([status, scopeKind, scopeKey])
+  @@index([createdAt])
 }

@@ -49,9 +49,10 @@ function tileSpecs(tiles: MaintenanceTiles | null): TileSpec[] {
   ];
 }
 
-export function MaintenanceTilesRow({ tiles, view, onApply }: { tiles: MaintenanceTiles | null; view: MaintenanceView; onApply: (patch: Partial<MaintenanceView>) => void }) {
+export function MaintenanceTilesRow({ tiles, view, onApply, compact = false }: { tiles: MaintenanceTiles | null; view: MaintenanceView; onApply: (patch: Partial<MaintenanceView>) => void; compact?: boolean }) {
   return (
-    <div role="group" aria-label="Summary, each tile filters the list" className="grid grid-cols-3 gap-2 sm:grid-cols-3 sm:gap-2.5 lg:grid-cols-6">
+    // `compact`: the side panel is open beside the list, so three tiles a row.
+    <div role="group" aria-label="Summary, each tile filters the list" className={cn("grid grid-cols-3 gap-2 sm:gap-2.5", compact ? "2xl:grid-cols-6" : "lg:grid-cols-6")}>
       {tileSpecs(tiles).map((tile) => {
         const on = matches(view, TILE_FILTERS[tile.key]);
         return (
@@ -95,7 +96,8 @@ export function MaintenanceStatusBar({ counts, active, onChange }: { counts: Mai
       role="group"
       aria-label="Status"
       className={cn(
-        "flex overflow-hidden rounded-[10px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]",
+        // Scrolls inside itself when the list is narrow (side panel open); never the page.
+        "flex overflow-x-auto rounded-[10px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] [scrollbar-width:thin]",
         "max-sm:-mx-1 max-sm:gap-1.5 max-sm:overflow-x-auto max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:px-1 max-sm:pb-0.5 max-sm:[scrollbar-width:none]",
       )}
     >
@@ -110,7 +112,7 @@ export function MaintenanceStatusBar({ counts, active, onChange }: { counts: Mai
             onClick={() => onChange(segment.key)}
             className={cn(
               // Desktop: the board's segmented bar.
-              "flex flex-1 items-baseline justify-between gap-1.5 px-2.5 py-1.5 text-left text-[0.75rem] text-[hsl(var(--e-text-secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[hsl(var(--e-ring))] sm:min-h-9",
+              "flex flex-1 shrink-0 items-baseline justify-between gap-1.5 whitespace-nowrap px-2.5 py-1.5 text-left text-[0.75rem] text-[hsl(var(--e-text-secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[hsl(var(--e-ring))] sm:min-h-9",
               index > 0 && "sm:border-l sm:border-[hsl(var(--e-border))]",
               segment.end && !pressed && "sm:bg-[hsl(var(--e-surface-raised))]",
               pressed && "sm:bg-[hsl(var(--e-primary-soft))] sm:font-[600] sm:text-[hsl(var(--e-primary))]",

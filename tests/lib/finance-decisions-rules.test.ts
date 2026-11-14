@@ -62,12 +62,14 @@ describe("Xero stays signed in", () => {
     const now = new Date("2026-11-12T00:00:00Z");
     const later = new Date("2026-11-12T00:20:00Z");
     const earlier = new Date("2026-11-11T23:00:00Z");
-    expect(xeroSignInState({ refreshToken: "", expiresAt: later, lastSyncError: null }, now)).toBe("no-refresh-token");
-    expect(xeroSignInState({ refreshToken: "", expiresAt: earlier, lastSyncError: null }, now)).toBe("lapsed");
-    expect(xeroSignInState({ refreshToken: "r", expiresAt: earlier, lastSyncError: null }, now)).toBe("ok");
-    expect(xeroSignInState({ refreshToken: "r", expiresAt: earlier, lastSyncError: "SIGN_IN_LAPSED: refresh refused (400)" }, now)).toBe("lapsed");
-    expect(xeroSignInMessage("lapsed")).toBe("Xero sign-in lapsed — reconnect");
-    expect(xeroSignInMessage("no-refresh-token")).toBe("Reconnect Xero once to keep it signed in");
+    expect(xeroSignInState({ refreshToken: "", expiresAt: later }, now)).toBe("no-refresh-token");
+    expect(xeroSignInState({ refreshToken: "", expiresAt: earlier }, now)).toBe("lapsed");
+    // An expired access token with a refresh token is renewed on the next call: not lapsed.
+    expect(xeroSignInState({ refreshToken: "r", expiresAt: earlier, status: "CONNECTED" }, now)).toBe("ok");
+    // Only a terminal refusal (stored as NEEDS_RECONNECT) is a lapse.
+    expect(xeroSignInState({ refreshToken: "r", expiresAt: later, status: "NEEDS_RECONNECT" }, now)).toBe("lapsed");
+    expect(xeroSignInMessage("lapsed")).toBe("Xero needs reconnecting");
+    expect(xeroSignInMessage("no-refresh-token")).toBe("Reconnect Xero once to keep it connected");
     expect(xeroSignInMessage("ok")).toBeNull();
   });
 });

@@ -98,6 +98,12 @@ export function AiConfigurationWorkspace({ canEdit: serverCanEdit, readOnlyReaso
   const [optOutOpen, setOptOutOpen] = React.useState(false);
   const [showAll, setShowAll] = React.useState(false);
   const [photoCheck, setPhotoCheck] = React.useState<string | null>(null);
+  const [sheetReturn, setSheetReturn] = React.useState<{ provider?: AiProviderKind; feature?: AiFeature } | null>(null);
+  function reopenSheet() {
+    if (sheetReturn?.provider) setProviderSheet(sheetReturn.provider);
+    if (sheetReturn?.feature) setFeatureSheet(sheetReturn.feature);
+    setSheetReturn(null);
+  }
   const { tests, run } = useFeatureTests();
 
   const loadSettings = React.useCallback(async () => {
@@ -310,8 +316,10 @@ export function AiConfigurationWorkspace({ canEdit: serverCanEdit, readOnlyReaso
     state, draft, vision, visionDraft, statuses, canEdit, locked, dirty, timezone, tests,
     updateFeature, setDraft, setVisionDraft,
     runTest: (feature) => void run(feature),
-    openKey: (provider, mode, choose) => setKeyRequest({ provider, mode, choose }),
-    askAllowPhotos: (feature) => setPhotoConfirm(feature),
+    // A sheet is a modal of its own (focus stays inside it): close it while a
+    // confirmation is open, and bring it back when the confirmation closes.
+    openKey: (provider, mode, choose) => { setSheetReturn(providerSheet ? { provider: providerSheet } : featureSheet ? { feature: featureSheet } : null); setProviderSheet(null); setFeatureSheet(null); setKeyRequest({ provider, mode, choose }); },
+    askAllowPhotos: (feature) => { setSheetReturn(featureSheet ? { feature: featureSheet } : providerSheet ? { provider: providerSheet } : null); setFeatureSheet(null); setProviderSheet(null); setPhotoConfirm(feature); },
     openFeature: (feature) => setFeatureSheet(feature),
     openProvider: (kind) => setProviderSheet(kind),
     openOllamaSetup,
@@ -391,11 +399,12 @@ export function AiConfigurationWorkspace({ canEdit: serverCanEdit, readOnlyReaso
         credential={keyCredential}
         usedBy={keyUsers}
         encryptionReady={state.encryptionReady}
-        onClose={() => setKeyRequest(null)}
+        onClose={() => { setKeyRequest(null); reopenSheet(); }}
         onChooseProvider={(provider: SecretProvider) => setKeyRequest((old) => (old ? { ...old, provider } : old))}
         onSaved={(credentials, mode) => {
           setState((old) => (old ? { ...old, credentials } : old));
           setKeyRequest(null);
+          reopenSheet();
           setNotice({ tone: "success", text: mode === "remove" ? "Key removed. Features using it now say AI is unavailable until you choose another provider." : "Key saved. Saving does not test it: use Test connection." });
         }}
       />
@@ -405,8 +414,8 @@ export function AiConfigurationWorkspace({ canEdit: serverCanEdit, readOnlyReaso
         title={`Allow photos to go to ${confirmCompany}?`}
         description={photoConfirm ? `${AI_FEATURE_CATALOG[photoConfirm].label} will send cleaning photos to ${confirmCompany}${confirmRoute && ["anthropic", "openai"].includes(confirmRoute.provider) ? " in the United States" : ""}, with the time and address stamp blacked out. It takes effect when you save changes, and the change is kept in the settings audit.` : undefined}
         confirmLabel="Allow photos"
-        onClose={() => setPhotoConfirm(null)}
-        onConfirm={() => { if (photoConfirm) updateFeature(photoConfirm, { allowCloudImages: true }); setPhotoConfirm(null); }}
+        onClose={() => { setPhotoConfirm(null); reopenSheet(); }}
+        onConfirm={() => { if (photoConfirm) updateFeature(photoConfirm, { allowCloudImages: true }); setPhotoConfirm(null); reopenSheet(); }}
       >
         <p className="text-[0.8125rem]">Photos from properties that opted out are never sent. Turning the switch off again keeps photos on this server from the next request.</p>
       </EConfirmDialog>

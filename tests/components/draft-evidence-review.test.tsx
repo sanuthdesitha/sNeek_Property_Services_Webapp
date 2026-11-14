@@ -1,14 +1,16 @@
 import React from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DraftEvidenceReview } from "@/components/v2/admin/jobs/draft-evidence-review";
 const row = { key: "forms/old-job/capture/cleaner/photo.jpg", name: "Old photo", previewUrl: "/fixture.jpg", version: "a".repeat(64), removed: false, issues: ["Stored under another job"], source: { jobId: "old-job", captureId: "capture", userId: "cleaner", legacy: false }, locations: [{ type: "bulkPool" }], receipts: [{ id: "capture", formRevision: "old-version", draftIdentity: "old-context" }] };
 let fetcher: ReturnType<typeof vi.fn>;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const review = (locked = false) => ({ jobId: "job", locked, rows: [row], history: [] });
-beforeEach(() => { fetcher = vi.fn(async () => json(review())); vi.stubGlobal("fetch", fetcher); vi.spyOn(window, "confirm").mockReturnValue(true); });
+beforeEach(() => { fetcher = vi.fn(async () => json(review())); vi.stubGlobal("fetch", fetcher); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+// Changed 2026-11-14 (simpler confirmations): the browser confirm became the shared tier A dialog.
+async function confirmDiscard() { const dialog = await screen.findByRole("dialog"); fireEvent.click(within(dialog).getByRole("button", { name: "Discard" })); }
 async function open() { render(<DraftEvidenceReview jobId="job" />); await screen.findByText("1 active · 1 need review"); fireEvent.click(screen.getByRole("button", { name: /Draft evidence review/ })); }
 function select() { fireEvent.click(screen.getByRole("checkbox", { name: "Select Old photo", exact: true })); fireEvent.change(screen.getByRole("textbox"), { target: { value: "Wrong historical job evidence" } }); }
 it("starts compact, requires selection, reason and confirmation", async () => {
@@ -17,9 +19,14 @@ it("starts compact, requires selection, reason and confirmation", async () => {
  fireEvent.click(screen.getByRole("button", { name: /Draft evidence review/ }));
  fireEvent.click(screen.getByRole("checkbox", { name: "Select Old photo", exact: true }));
  expect(screen.getByRole("button", { name: "Discard 1 selected" })).toBeDisabled();
+ // A reason is required but has no minimum length (2026-11-14).
+ fireEvent.change(screen.getByRole("textbox"), { target: { value: "x" } });
+ expect(screen.getByRole("button", { name: "Discard 1 selected" })).toBeEnabled();
  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Wrong historical job evidence" } });
- vi.mocked(window.confirm).mockReturnValue(false);
  fireEvent.click(screen.getByRole("button", { name: "Discard 1 selected" }));
+ const dialog = await screen.findByRole("dialog");
+ expect(dialog).toHaveTextContent("Wrong historical job evidence");
+ fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
  expect(fetcher).toHaveBeenCalledTimes(1);
  expect(screen.getByRole("checkbox", { name: "Select Old photo", exact: true })).toBeChecked();
 });
@@ -27,7 +34,7 @@ it("prevents repeated requests and rejects an incorrect acknowledgement", async 
  let resolve!: (response: Response) => void;
  fetcher.mockImplementation(async (_url, options) => options?.method === "POST" ? new Promise(r => { resolve = r; }) : json(review()));
  await open(); select(); const button = screen.getByRole("button", { name: "Discard 1 selected" });
- fireEvent.click(button); fireEvent.click(button);
+ fireEvent.click(button); await confirmDiscard(); fireEvent.click(button);
  expect(fetcher.mock.calls.filter(call => call[1]?.method === "POST")).toHaveLength(1);
  await act(async () => resolve(json({ ok: true, key: "wrong", discardedReference: true })));
  expect(await screen.findByRole("alert")).toHaveTextContent("not confirmed");
@@ -58,11 +65,12 @@ it("shares a reason, stops at partial failure, retains remaining selection and r
  fireEvent.click(screen.getByRole("checkbox",{name:"Select all on this page (2)"}));
  fireEvent.change(screen.getByRole("textbox"),{target:{value:"Wrong historical job evidence"}});
  fireEvent.click(screen.getByRole("button",{name:"Discard 2 selected"}));
+ expect(await screen.findByRole("dialog")).toHaveTextContent("Different account context");
+ await confirmDiscard();
  expect(await screen.findByRole("alert")).toHaveTextContent("1 of 2 confirmed");
  const posts=fetcher.mock.calls.filter(call=>call[1]?.method==="POST").map(call=>JSON.parse(call[1].body));
  expect(posts.map(p=>p.reason)).toEqual(["Wrong historical job evidence","Wrong historical job evidence"]);
  expect(posts.map(p=>p.version)).toEqual([row.version,second.version]);
- expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("Different account context"));
  expect(screen.getByRole("checkbox",{name:"Select Second",exact:true})).toBeChecked();
  fireEvent.click(screen.getByRole("button",{name:"Refresh"}));
  await waitFor(()=>expect(screen.queryByRole("textbox")).toBeNull());
@@ -88,7 +96,8 @@ it("stops after the in-flight reference and leaves later selections untouched", 
  fireEvent.click(screen.getByRole("checkbox",{name:"Select all on this page (2)"}));
  fireEvent.change(screen.getByRole("textbox"),{target:{value:"Wrong historical job evidence"}});
  fireEvent.click(screen.getByRole("button",{name:"Discard 2 selected"}));
- fireEvent.click(screen.getByRole("button",{name:"Stop after current"}));
+ await confirmDiscard();
+ fireEvent.click(await screen.findByRole("button",{name:"Stop after current"}));
  await act(async()=>resolve(json({ok:true,key:row.key,discardedReference:true})));
  expect(fetcher.mock.calls.filter(call=>call[1]?.method==="POST")).toHaveLength(1);
  expect(screen.getByRole("checkbox",{name:"Select Second",exact:true})).toBeChecked();
@@ -100,7 +109,7 @@ it("reloads confirmed removals and the audit history, retaining removed items as
   if(options?.method==="POST"){removed=true;return json({ok:true,key:row.key,discardedReference:true});}
   return json({...review(),rows:[{...row,removed}],history:removed?[{id:"audit",action:"OFFICE_DISCARD_DRAFT_REFERENCE",user:{name:"Office User"},createdAt:"2026-10-07T00:00:00Z",after:{reason:"Wrong historical job evidence"}}]:[]});
  });
- await open();select();fireEvent.click(screen.getByRole("button",{name:"Discard 1 selected"}));
+ await open();select();fireEvent.click(screen.getByRole("button",{name:"Discard 1 selected"}));await confirmDiscard();
  await screen.findByText("Resolution history (latest 50)");
  expect(screen.queryByRole("textbox")).toBeNull();
  fireEvent.change(screen.getByRole("combobox"),{target:{value:"removed"}});

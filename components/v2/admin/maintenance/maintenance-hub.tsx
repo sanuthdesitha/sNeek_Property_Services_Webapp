@@ -98,7 +98,7 @@ export function MaintenanceHub({
   timeZone: string;
 }) {
   const [view, update] = useMaintenanceView(initialView);
-  const list = useMaintenanceList(view, view.tab === "items");
+  const list = useMaintenanceList(view);
   const workerList = useWorkerList();
   const phone = useIsPhone();
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
@@ -195,8 +195,8 @@ export function MaintenanceHub({
   return (
     <div className="flex min-w-0 gap-4">
       <div className="flex min-w-0 flex-1 flex-col gap-4">
-        <header className="flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0">
+        <header className="flex flex-wrap items-end justify-between gap-3 sm:flex-nowrap">
+          <div className="min-w-0 flex-1">
             <p className="e-eyebrow mb-1">Operations</p>
             <h1 className="e-display-md">Maintenance</h1>
             <p className="mt-1 max-w-3xl text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
@@ -204,7 +204,7 @@ export function MaintenanceHub({
               {summary}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
             <EButton asChild variant="outline" size="sm">
               <a href={`/api/admin/maintenance/export?${exportQueryString(view)}`} download>Export CSV</a>
             </EButton>
@@ -241,7 +241,7 @@ export function MaintenanceHub({
           </div>
         ) : (
           <div role="tabpanel" id="maintenance-panel-items" aria-labelledby="maintenance-tab-items" className="flex min-w-0 flex-col gap-3">
-            <MaintenanceTilesRow tiles={tiles} view={view} onApply={update} />
+            <MaintenanceTilesRow tiles={tiles} view={view} onApply={update} compact={Boolean(view.open)} />
             <MaintenanceStatusBar counts={current ? data?.statusCounts ?? null : null} active={view.status} onChange={(status) => update({ status })} />
             <MaintenanceFilters
               view={view}
@@ -249,8 +249,8 @@ export function MaintenanceHub({
               properties={properties}
               workers={workerList.workers ? workerList.workers.filter((worker) => worker.isActive).map((worker) => ({ id: worker.id, name: worker.name })) : null}
               total={current ? data?.total ?? null : null}
+              tools={phoneTools}
             />
-            {phone && phoneTools ? <div className="flex items-center justify-end gap-2 sm:hidden">{phoneTools}</div> : null}
 
             <div className="overflow-hidden rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] max-sm:hidden">
               <EDataTable<MaintenanceListRow, MaintenanceListSort>

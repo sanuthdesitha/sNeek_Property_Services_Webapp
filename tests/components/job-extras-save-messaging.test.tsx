@@ -27,13 +27,15 @@ it("failed extra save retains entered scope and internal note without successful
  await waitFor(() => expect(m.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Couldn't add the extra" })));
  expect(field("Label")).toHaveValue(" Additional scope "); expect(field("Internal change note (optional)")).toHaveValue("Internal office record"); expect(m.refresh).not.toHaveBeenCalled();
 });
-it.each([true, false])("removal requires verified security and accurately describes saved-only outcome (%s)", async verified => {
- if (!verified) m.verify.mockResolvedValue(response({ error: "Denied" }, false));
+// Changed 2026-11-14: the PIN travels with the DELETE and the quote-extras route verifies it.
+it.each([true, false])("removal sends the PIN for the server to verify and accurately describes saved-only outcome (%s)", async verified => {
+ if (!verified) m.mutate.mockResolvedValue(response({ error: "INVALID_SECURITY_VERIFICATION" }, false));
  render(<JobExtrasPanel jobId="j" fixedPrice={120} />); await screen.findByText("Detail extra"); fireEvent.click(screen.getByRole("button", { name: "Remove Detail extra" }));
  expect(screen.getByText(/No client email is sent/)).toBeVisible();
  fireEvent.change(field("Your PIN"), { target: { value: "1234" } }); fireEvent.click(screen.getByRole("button", { name: "Remove extra" }));
- if (verified) {
-  await waitFor(() => expect(m.toast).toHaveBeenCalledWith({ title: "Extra removed", description: "New total $140.00 · saved without sending a client email" }));
-  expect(m.mutate.mock.calls[0][0].method).toBe("DELETE"); expect(JSON.parse(m.mutate.mock.calls[0][0].body)).toEqual({ removeLabels: ["Detail extra"] });
- } else { await waitFor(() => expect(m.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Couldn't remove the extra" }))); expect(m.mutate).not.toHaveBeenCalled(); }
+ await waitFor(() => expect(m.mutate).toHaveBeenCalled());
+ expect(m.mutate.mock.calls[0][0].method).toBe("DELETE"); expect(JSON.parse(m.mutate.mock.calls[0][0].body)).toEqual({ removeLabels: ["Detail extra"], security: { pin: "1234" } });
+ expect(m.verify).not.toHaveBeenCalled();
+ if (verified) await waitFor(() => expect(m.toast).toHaveBeenCalledWith({ title: "Extra removed", description: "New total $140.00 · saved without sending a client email" }));
+ else await waitFor(() => expect(m.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Couldn't remove the extra", description: "That was not accepted. Check your PIN and try again." })));
 });

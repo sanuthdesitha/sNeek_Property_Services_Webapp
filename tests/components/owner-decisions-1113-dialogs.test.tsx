@@ -37,16 +37,19 @@ afterEach(() => {
 describe("Void invoice", () => {
   const invoice = { id: "inv-1", invoiceNumber: "INV-0042", status: "SENT", kind: "INVOICE" } as InvoiceRow;
 
-  it("cannot be confirmed without the own PIN and sends it with the void", async () => {
+  // 2026-11-14: a quick-pick reason is required as well (owner default, pending confirmation).
+  it("cannot be confirmed without a reason and the own PIN, and sends both with the void", async () => {
     const onDone = vi.fn();
     render(<VoidInvoiceDialog invoice={invoice} onClose={vi.fn()} onDone={onDone} />);
-    const confirm = screen.getByRole("button", { name: "Void invoice" });
+    const confirm = await screen.findByRole("button", { name: "Void invoice" });
     expect(confirm).toBeDisabled();
     fireEvent.change(await screen.findByLabelText("Your PIN"), { target: { value: "4826" } });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: "Wrong client" }));
     fireEvent.click(screen.getByRole("button", { name: "Void invoice" }));
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     const voidCall = calls.find((call) => call.url === "/api/admin/invoices/inv-1");
-    expect(JSON.parse(String(voidCall?.init?.body))).toEqual({ status: "VOID", security: { pin: "4826" } });
+    expect(JSON.parse(String(voidCall?.init?.body))).toEqual({ status: "VOID", voidReason: "Wrong client", security: { pin: "4826" } });
   });
 });
 

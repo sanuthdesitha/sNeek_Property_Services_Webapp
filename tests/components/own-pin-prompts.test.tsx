@@ -53,15 +53,15 @@ describe("Rate card lock", () => {
     expect(screen.queryByText("Rates editor")).toBeNull();
   });
 
-  it("asks someone with no PIN for their password once and a new PIN", async () => {
+  // Changed 2026-11-14 (owner default, pending confirmation): the password alone confirms while there is no PIN.
+  it("asks someone with no PIN for their password alone and links to Set a PIN", async () => {
     pinState = { hasPin: false, lockedUntil: null, userId: "ops-1" };
     render(<EstatePageLock lockId="pricing"><p>Rates editor</p></EstatePageLock>);
-    fireEvent.change(await screen.findByLabelText("Account password"), { target: { value: "correct horse" } });
-    fireEvent.change(screen.getByLabelText("Choose your PIN"), { target: { value: "5824" } });
-    fireEvent.change(screen.getByLabelText("Confirm your PIN"), { target: { value: "5824" } });
+    fireEvent.change(await screen.findByLabelText("Your password"), { target: { value: "correct horse" } });
+    expect(screen.getByRole("link", { name: "Set a PIN" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
     expect(await screen.findByText("Rates editor")).toBeVisible();
-    expect(JSON.parse(String(calls.find((call) => call.url === "/api/admin/security/verify")?.init?.body))).toEqual({ password: "correct horse", newPin: "5824" });
+    expect(JSON.parse(String(calls.find((call) => call.url === "/api/admin/security/verify")?.init?.body))).toEqual({ password: "correct horse" });
   });
 
   it("shows the server's reason and stays locked when the PIN is refused", async () => {

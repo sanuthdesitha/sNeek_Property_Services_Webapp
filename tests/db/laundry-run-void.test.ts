@@ -254,8 +254,10 @@ describe.skipIf(!url)("laundry run Change state and Void (database)", () => {
 
   it("Undo void restores the previous state and reopens the skip request", async () => {
     as(ids.admin, Role.ADMIN);
-    expect((await undoPost(post({ taskId: ids.flagged, expectedUpdatedAt: await version(ids.flagged), security: { pin: "0000" } }))).status).toBe(423);
-    const response = await undoPost(post({ taskId: ids.flagged, expectedUpdatedAt: await version(ids.flagged), security: { pin: "2468" } }));
+    // 2026-11-14 (simpler confirmations): undoing a void needs a reason (quick pick, no minimum length).
+    expect((await undoPost(post({ taskId: ids.flagged, expectedUpdatedAt: await version(ids.flagged), security: { pin: "2468" } }))).status).toBe(400);
+    expect((await undoPost(post({ taskId: ids.flagged, expectedUpdatedAt: await version(ids.flagged), reason: "Voided by mistake", security: { pin: "0000" } }))).status).toBe(423);
+    const response = await undoPost(post({ taskId: ids.flagged, expectedUpdatedAt: await version(ids.flagged), reason: "x", security: { pin: "2468" } }));
     expect(response.status).toBe(200);
     const task = await m.client.laundryTask.findUniqueOrThrow({ where: { id: ids.flagged } });
     expect(task).toMatchObject({ status: "FLAGGED", voidedAt: null, voidedById: null, voidReason: null, voidPreviousStatus: null });

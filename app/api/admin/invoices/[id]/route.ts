@@ -58,12 +58,13 @@ export async function PATCH(req: NextRequest, context: { params: { id: string } 
     // Voiding (an invoice or a credit note) is a sensitive action (owner
     // decision 2026-11-13): the acting person's own PIN, checked here.
     if (patchVoids(body)) {
-      // A void keeps its reason in the invoice history (quick pick; no minimum length).
+      const pinRefusal = await voidCreditSecurityRefusal(actor, body);
+      if (pinRefusal) return NextResponse.json(pinRefusal.body, { status: pinRefusal.status });
+      // A void keeps its reason in the invoice history (quick pick, owner
+      // default 2026-11-14; no minimum length). Checked before anything changes.
       if (!requiredReason((body as { voidReason?: unknown }).voidReason)) {
         return NextResponse.json({ error: REASON_REQUIRED_MESSAGE, code: "REASON_REQUIRED" }, { status: 400 });
       }
-      const pinRefusal = await voidCreditSecurityRefusal(actor, body);
-      if (pinRefusal) return NextResponse.json(pinRefusal.body, { status: pinRefusal.status });
     }
     const result = await patchClientInvoice({ invoiceId: context.params.id, body, actor });
     return NextResponse.json(result.body, { status: result.status });

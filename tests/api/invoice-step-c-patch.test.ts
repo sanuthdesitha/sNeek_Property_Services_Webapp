@@ -152,7 +152,16 @@ describe("blank invoices and credit notes", () => {
   it("refuses voiding an invoice that still has live credit notes", async () => {
     invoice.status = "SENT";
     m.count.mockResolvedValue(1);
-    expect((await patch({ status: "VOID" })).status).toBe(409);
+    expect((await patch({ status: "VOID", voidReason: "Duplicate" })).status).toBe(409);
+  });
+
+  // Owner default 2026-11-14 (pending confirmation): the void reason is written to the audit row only.
+  it("records the void reason in a CLIENT_INVOICE_VOIDED audit row without changing amounts", async () => {
+    invoice.status = "SENT";
+    expect((await patch({ status: "VOID", voidReason: "Wrong client" })).status).toBe(200);
+    expect(m.audit).toHaveBeenCalledWith({ data: expect.objectContaining({ action: "CLIENT_INVOICE_VOIDED", entityId: "inv", after: expect.objectContaining({ reason: "Wrong client", status: "VOID" }) }) });
+    const update = m.update.mock.calls.find(([call]) => call.data.status === "VOID")?.[0];
+    expect(update.data).toMatchObject({ status: "VOID", totalAmount: 220 });
   });
 
   it("refuses Reverse on a sent invoice and points to credit notes", async () => {
@@ -170,25 +179,47 @@ describe("blank invoices and credit notes", () => {
 });
 
 describe("server-side PIN", () => {
-  it("removes a line only when the server accepts the PIN", async () => {
+  // Owner default 2026-11-14 (pending confirmation): removing a line from a
+  // DRAFT is tier B (no PIN, Undo in the editor). Past DRAFT the PIN stays.
+  it("removes a line from a DRAFT without asking for a PIN", async () => {
+    invoice.status = "DRAFT";
+    expect((await patch({ removeLineId: lineId })).status).toBe(200);
+    expect(m.verify).not.toHaveBeenCalled();
+    expect(m.lineDelete).toHaveBeenCalled();
+  });
+
+  it("removes a line from an APPROVED invoice only when the server accepts the PIN", async () => {
+    invoice.status = "APPROVED";
     expect((await patch({ removeLineId: lineId, security: { pin: "1234" } })).status).toBe(200);
     expect(m.verify).toHaveBeenCalledWith("admin", { pin: "1234" });
     expect(m.lineDelete).toHaveBeenCalled();
   });
 
-  it.each(["INVALID_SECURITY_VERIFICATION", "PIN_OR_PASSWORD_REQUIRED"])("refuses line removal with %s (423) and changes nothing", async (code) => {
+  it.each(["INVALID_SECURITY_VERIFICATION", "PIN_OR_PASSWORD_REQUIRED"])("refuses line removal past DRAFT with %s (423) and changes nothing", async (code) => {
+    invoice.status = "APPROVED";
     m.verify.mockRejectedValue(new Error(code));
     const response = await patch({ removeLineId: lineId });
     expect(response.status).toBe(423);
     expect(await response.json()).toEqual({ error: code });
     expect(m.lineDelete).not.toHaveBeenCalled();
-    expect(m.find).not.toHaveBeenCalled();
   });
 
-  it("refuses line removal while impersonating", async () => {
+  it("refuses line removal past DRAFT while impersonating", async () => {
+    invoice.status = "APPROVED";
     m.auth.mockResolvedValue({ user: { id: "target", role: "OPS_MANAGER" }, impersonation: { actorId: "admin" } });
     expect((await patch({ removeLineId: lineId, security: { pin: "1234" } })).status).toBe(403);
     expect(m.verify).not.toHaveBeenCalled();
+    expect(m.lineDelete).not.toHaveBeenCalled();
+  });
+
+  it("refuses a PIN-less removal when the draft was approved before the row lock", async () => {
+    let reads = 0;
+    m.find.mockImplementation(async () => ({ ...invoice, status: reads++ === 0 ? "DRAFT" : "APPROVED" }));
+    const response = await patch({ removeLineId: lineId });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/no longer a draft/);
+    expect(m.verify).not.toHaveBeenCalled();
+    expect(m.lineDelete).not.toHaveBeenCalled();
   });
 
   it("deletes a draft only with a valid credential checked on the server", async () => {

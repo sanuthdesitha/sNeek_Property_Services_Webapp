@@ -79,7 +79,10 @@ export function MaintenanceFilters({
   properties,
   workers,
   total,
+  tools,
 }: {
+  /** Phone-only display tools (sort, Select) beside the Filter button. */
+  tools?: React.ReactNode;
   view: MaintenanceView;
   onChange: (patch: Partial<MaintenanceView>) => void;
   properties: FilterPropertyOption[];
@@ -118,6 +121,7 @@ export function MaintenanceFilters({
       active={active}
       onClear={clear}
       resultLabel={total === null ? "Show items" : `Show ${total} ${total === 1 ? "item" : "items"}`}
+      tools={tools}
     >
       <label className="min-w-0 max-sm:block max-sm:w-full">
         <span className="sr-only">Search items</span>

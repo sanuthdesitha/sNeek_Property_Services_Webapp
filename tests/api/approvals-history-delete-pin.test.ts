@@ -34,18 +34,18 @@ beforeEach(() => {
 describe("approval history delete", () => {
   it("refuses a delete without a valid PIN or password and deletes nothing", async () => {
     m.verify.mockRejectedValueOnce(new Error("PIN_OR_PASSWORD_REQUIRED"));
-    const missing = await call({ action: "delete" });
+    const missing = await call({ action: "delete", note: "Duplicate record" });
     expect(missing.status).toBe(400);
     // Wording changed on purpose (owner decision 2026-11-13): the person's own PIN.
     expect((await missing.json()).error).toMatch(/Enter your PIN/);
     m.verify.mockRejectedValueOnce(new Error("INVALID_SECURITY_VERIFICATION"));
-    expect((await call({ action: "delete", security: { pin: "0000" } })).status).toBe(400);
+    expect((await call({ action: "delete", note: "Duplicate record", security: { pin: "0000" } })).status).toBe(400);
     expect(m.payDelete).not.toHaveBeenCalled();
   });
 
   it("deletes after the server accepts the PIN", async () => {
     m.verify.mockResolvedValueOnce(true);
-    const response = await call({ action: "delete", security: { pin: "1234" } });
+    const response = await call({ action: "delete", note: "Recorded by mistake", security: { pin: "1234" } });
     expect(response.status).toBe(200);
     expect(m.verify).toHaveBeenCalledWith("admin", { pin: "1234" });
     expect(m.payDelete).toHaveBeenCalledWith({ where: { id: "p1" } });
@@ -63,7 +63,7 @@ describe("approval history delete", () => {
   it("lets an operations manager who also holds ADMIN delete", async () => {
     m.role.mockResolvedValue({ user: { id: "both", role: "OPS_MANAGER", heldRoles: ["OPS_MANAGER", "ADMIN"] } });
     m.verify.mockResolvedValueOnce(true);
-    expect((await call({ action: "delete", security: { pin: "1234" } })).status).toBe(200);
+    expect((await call({ action: "delete", note: "Test entry", security: { pin: "1234" } })).status).toBe(200);
     expect(m.verify).toHaveBeenCalledWith("both", { pin: "1234" });
   });
 
@@ -79,5 +79,24 @@ describe("approval history delete", () => {
     m.payFind.mockResolvedValue({ id: "p1", status: "APPROVED", includedInPayrollRunId: null, includedInCleanerInvoiceId: null, cleanerId: "c1", cleaner: { id: "c1", name: "C", email: "c@x" }, jobId: null, title: "Parking", approvedAmount: 12, requestedAmount: 12 });
     await call({ action: "undo" });
     expect(m.verify).not.toHaveBeenCalled();
+  });
+
+  // Added 2026-11-14 (simpler confirmations): deleting a decision record and
+  // changing a decided amount keep a required reason (quick pick, no minimum).
+  it("refuses a delete without a reason before asking for a PIN, and accepts a one-word reason", async () => {
+    const response = await call({ action: "delete", security: { pin: "1234" } });
+    expect(response.status).toBe(400);
+    expect((await response.json()).code).toBe("REASON_REQUIRED");
+    expect(m.verify).not.toHaveBeenCalled();
+    expect((await call({ action: "delete", note: "  ", security: { pin: "1234" } })).status).toBe(400);
+    m.verify.mockResolvedValueOnce(true);
+    expect((await call({ action: "delete", note: "Dup", security: { pin: "1234" } })).status).toBe(200);
+    expect(m.payDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses changing a decided amount without a reason", async () => {
+    const response = await call({ action: "edit", amount: 10 });
+    expect(response.status).toBe(400);
+    expect((await response.json()).code).toBe("REASON_REQUIRED");
   });
 });

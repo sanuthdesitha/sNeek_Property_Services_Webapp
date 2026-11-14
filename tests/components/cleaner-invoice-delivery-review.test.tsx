@@ -49,13 +49,16 @@ async function open() {
   return screen.getByRole("dialog");
 }
 
-it("requires substantive evidence; closing sends nothing and starts clean next time", async () => {
+// Changed 2026-11-14 (simpler confirmations): evidence is required but has no minimum length.
+it("requires evidence (no minimum length); closing sends nothing and starts clean next time", async () => {
   const dialog = await open();
   expect(within(dialog).getByText(/Neither action sends an email/)).toBeVisible();
   const received = within(dialog).getByRole("button", { name: /Confirmed received/ });
   expect(received).toBeDisabled();
-  fireEvent.change(textbox(), { target: { value: "   guess   " } });
+  fireEvent.change(textbox(), { target: { value: "   " } });
   expect(received).toBeDisabled();
+  fireEvent.change(textbox(), { target: { value: "Seen" } });
+  expect(received).toBeEnabled();
   fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
   expect(screen.queryByRole("dialog")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /Review delivery CL-invoice/ }));

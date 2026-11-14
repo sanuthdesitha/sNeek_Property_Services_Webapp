@@ -36,7 +36,7 @@ export function UsageSection({ page }: { page: AiPage }) {
   return (
     <section aria-labelledby="ai-usage-heading" id="usage" className="min-w-0 space-y-3 scroll-mt-24">
       <AiSectionHeading id="ai-usage-heading" number={4} title="Usage and cost" aside={usage ? `${usage.monthLabel} so far, from the AI call log, counted in ${usage.timezone}. Estimates from the prices below, in US dollars.` : undefined} />
-      <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start">
+      <div className="flex min-w-0 flex-col gap-3 2xl:flex-row 2xl:items-start">
         <ECard className="min-w-0 flex-1 overflow-hidden">
           {!usage ? (
             <p role="alert" className="p-4 text-[0.8125rem]">This month&apos;s AI usage could not be read. Settings above still work.</p>
@@ -105,7 +105,7 @@ function PricesCard({ page, onAdd }: { page: AiPage; onAdd: () => void }) {
   const missing = (page.state.usage?.rows ?? []).filter((row) => row.provider !== "ollama" && !hasPrice(prices, row.provider, row.model));
   const update = (index: number, patch: Partial<AiModelPrice>) => page.setDraft((old) => ({ ...old, prices: old.prices.map((price, i) => (i === index ? { ...price, ...patch } : price)) }));
   return (
-    <ECard className="flex min-w-0 flex-col gap-2.5 p-4 lg:w-[24rem] lg:flex-none">
+    <ECard className="flex min-w-0 flex-col gap-2.5 p-4 2xl:w-[24rem] 2xl:flex-none">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-[0.9375rem] font-semibold">Model prices</h3>
         {page.canEdit ? <EButton type="button" size="sm" variant="outline" disabled={page.locked || prices.length >= 50} onClick={onAdd}>+ Add a price</EButton> : null}

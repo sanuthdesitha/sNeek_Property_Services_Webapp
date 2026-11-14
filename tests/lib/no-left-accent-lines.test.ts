@@ -36,16 +36,6 @@ const ALLOWLIST: Array<{ file: string; snippet: string; reason: string }> = [
     reason: "neutral nesting guide for follow-up questions, not a status accent",
   },
   {
-    file: "components/v2/admin/maintenance/maintenance-detail.tsx",
-    snippet: 'border-l-2 border-[hsl(var(--e-border))] pl-4',
-    reason: "history timeline connector",
-  },
-  {
-    file: "components/v2/admin/maintenance/maintenance-workspace.tsx",
-    snippet: 'border-l-2 border-[hsl(var(--e-border))] pl-4',
-    reason: "history timeline connector",
-  },
-  {
     file: "components/v2/laundry/handoff-receipts.tsx",
     snippet: 'border-l-2 border-[hsl(var(--e-border))] pl-3',
     reason: "handoff history timeline connector",

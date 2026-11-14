@@ -150,12 +150,11 @@ describe("saving", () => {
     fireEvent.click(financeLevel("View"));
     fireEvent.click(screen.getByRole("button", { name: "Review and save" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.change(await within(dialog).findByLabelText("Account password"), { target: { value: "hunter2-password" } });
-    fireEvent.change(within(dialog).getByLabelText("Choose your PIN"), { target: { value: "5824" } });
-    fireEvent.change(within(dialog).getByLabelText("Confirm your PIN"), { target: { value: "5824" } });
+    // 2026-11-14: with no PIN yet the password alone confirms (shared credential field).
+    fireEvent.change(await within(dialog).findByLabelText("Your password"), { target: { value: "hunter2-password" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("unexpected");
-    expect(JSON.parse(fetcher.mock.calls.find(([, init]) => init?.method === "PUT")![1].body).security).toEqual({ password: "hunter2-password", newPin: "5824" });
+    expect(JSON.parse(fetcher.mock.calls.find(([, init]) => init?.method === "PUT")![1].body).security).toEqual({ password: "hunter2-password" });
     expect(financeLevel("View")).toHaveAttribute("aria-checked", "true");
   });
 

@@ -1,35 +1,49 @@
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
+import { decryptSecret } from "@/lib/security/encryption";
 import { matchXeroDocuments, type XeroDocumentRead, type XeroReadFailure } from "./xero-documents";
+import { getXeroCredentials } from "./credentials";
+import {
+  XERO_TOKEN_URL,
+  getXeroAccessToken,
+  safeReason,
+  sealXeroToken,
+  verifyXeroTenant,
+  xeroTokenEncryptionAvailable,
+  xeroTokenFailureMessage,
+  type XeroAccessToken,
+  type XeroTokenFailure,
+} from "./token-service";
+import { buildXeroStatus, type XeroStatus } from "./connection-status";
+
+export { xeroSignInMessage, xeroSignInState, type XeroSignIn, type XeroStatus } from "./connection-status";
 
 const XERO_BASE = "https://api.xero.com";
 // Authorize lives on login.xero.com; the token + revocation endpoints live on
 // identity.xero.com (posting the token exchange to login.xero.com/connect/token
 // 404s and surfaces as a generic "exchange failed").
 const XERO_AUTH_BASE = "https://login.xero.com";
-const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 const XERO_REVOKE_URL = "https://identity.xero.com/connect/revocation";
-
-const CREDENTIAL_KEY = "integrationCredentials";
 
 /**
  * OAuth scopes we request.
+ *   - offline_access      → a refresh token, so the connection renews itself
+ *     (lib/xero/token-service.ts) instead of lapsing when the 30-minute access
+ *     token expires. A connection made without it cannot be upgraded: it must
+ *     be reconnected once.
  *   - accounting.contacts → create/read client & cleaner contacts
  *   - accounting.invoices → create/read invoices (ACCREC) & bills (ACCPAY)
- *   - offline_access      → a refresh token, so the connection stays signed in
- *     (without it the access token lapses after ~30 minutes and the hourly
- *     Xero check reports "state unknown" until someone reconnects).
+ *   - accounting.settings.read → the chart of accounts (Wave D)
  *
- * offline_access is a standard Xero scope; it was missing, so no refresh token
- * was ever issued (an existing problem, fixed 2026-11-11). The owner must
- * reconnect Xero ONCE after this ships so a refresh token is stored. If a Xero
- * app ever refuses it with "invalid_scope", set XERO_REQUEST_OFFLINE_ACCESS=false
- * to connect without it (the old, lapsing behaviour) while the app is fixed.
+ * If a Xero app ever refuses offline_access with "invalid_scope", set
+ * XERO_REQUEST_OFFLINE_ACCESS=false to connect without it (the old, lapsing
+ * behaviour) while the app is fixed.
  */
 export function xeroScopes(env: Record<string, string | undefined> = process.env): string {
   // accounting.settings.read (Wave D): read the chart of accounts so the
-  // invoice editor can name the sales account. Needs a reconnect to take
-  // effect; XERO_REQUEST_SETTINGS_READ=false leaves it out if an app refuses it
-  // (the editor then shows the code with "name unavailable").
+  // invoice editor can name the sales account. XERO_REQUEST_SETTINGS_READ=false
+  // leaves it out if an app refuses it (the editor then shows the code with
+  // "name unavailable").
   const settings = env.XERO_REQUEST_SETTINGS_READ === "false" ? "" : " accounting.settings.read";
   const base = `accounting.contacts accounting.invoices${settings}`;
   return env.XERO_REQUEST_OFFLINE_ACCESS === "false" ? base : `offline_access ${base}`;
@@ -61,138 +75,69 @@ function extractXeroError(raw: string): string {
   }
 }
 
-async function getXeroCredentials(): Promise<{ clientId: string; clientSecret: string }> {
-  const row = await db.appSetting.findUnique({ where: { key: CREDENTIAL_KEY } });
-  const creds = (row?.value as Record<string, string> | null) ?? {};
-  const clientId = creds.xeroClientId || process.env.XERO_CLIENT_ID || "";
-  const clientSecret = creds.xeroClientSecret || process.env.XERO_CLIENT_SECRET || "";
-  console.log("[xero] Credentials loaded. DB clientId:", !!clientId, "env clientId:", !!process.env.XERO_CLIENT_ID);
-  return { clientId, clientSecret };
-}
+// ── Authorised calls (every Xero API call goes through here) ──
 
-interface XeroToken {
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: Date;
-}
+type XeroCallInit = { method: string; path: string; body?: unknown; idempotencyKey?: string; accept?: string };
 
-/**
- * Get the active Xero connection with a valid token.
- * Refreshes token if expired.
- */
-async function getXeroToken(): Promise<{ token: XeroToken; tenantId: string } | null> {
-  const conn = await db.xeroConnection.findFirst({
-    where: { isActive: true },
-    orderBy: { createdAt: "desc" },
-  });
+/** A response from Xero, or the token problem that stopped the call. Network errors throw. */
+type XeroCallResult = { ok: true; res: Response; token: XeroAccessToken } | { ok: false; failure: XeroTokenFailure };
 
-  if (!conn) return null;
-
-  // Refresh if token is expired or expires within 5 minutes
-  const fiveMinFromNow = new Date(Date.now() + 5 * 60 * 1000);
-  if (conn.expiresAt < fiveMinFromNow) {
-    const refreshed = await refreshXeroToken(conn);
-    if (!refreshed) return null;
-    return {
-      token: {
-        accessToken: refreshed.accessToken,
-        refreshToken: refreshed.refreshToken,
-        expiresAt: refreshed.expiresAt,
-      },
-      tenantId: conn.tenantId,
-    };
-  }
-
-  return {
-    token: {
-      accessToken: conn.accessToken,
-      refreshToken: conn.refreshToken,
-      expiresAt: conn.expiresAt,
-    },
-    tenantId: conn.tenantId,
-  };
-}
-
-/**
- * Refresh Xero OAuth2 token.
- */
-async function refreshXeroToken(conn: { id: string; refreshToken: string }): Promise<XeroToken | null> {
-  const { clientId, clientSecret } = await getXeroCredentials();
-  if (!clientId || !clientSecret) return null;
-  // No refresh token (offline_access not granted) — nothing to refresh. Caller
-  // treats null as "reconnect needed" rather than crashing.
-  if (!conn.refreshToken) return null;
-
-  try {
-    const res = await fetch(XERO_TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: conn.refreshToken,
-        client_id: clientId,
-        client_secret: clientSecret,
-      }),
-    });
-
-    if (!res.ok) {
-      // A refused refresh (expired or revoked refresh token) means the
-      // connection has lapsed: recorded so Settings and the Finance header can
-      // say "reconnect" instead of a generic "unknown".
-      await db.xeroConnection.update({ where: { id: conn.id }, data: { lastSyncError: `${XERO_SIGN_IN_LAPSED_PREFIX} refresh refused (${res.status})` } }).catch(() => {});
-      return null;
-    }
-
-    const data = await res.json() as {
-      access_token: string;
-      refresh_token: string;
-      expires_in: number;
-    };
-
-    const expiresAt = new Date(Date.now() + data.expires_in * 1000);
-
-    await db.xeroConnection.update({
-      where: { id: conn.id },
-      data: {
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token,
-        expiresAt,
-        lastSyncAt: new Date(),
-        lastSyncError: null,
-      },
-    });
-
-    return { accessToken: data.access_token, refreshToken: data.refresh_token, expiresAt };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Make an authenticated Xero API request.
- */
-async function xeroRequest<T>(method: string, path: string, tenantId: string, body?: unknown, idempotencyKey?: string): Promise<T> {
-  const tokenData = await getXeroToken();
-  if (!tokenData) throw new Error("No active Xero connection");
-
-  const res = await fetch(`${XERO_BASE}${path}`, {
-    method,
+function sendWithToken(token: XeroAccessToken, init: XeroCallInit): Promise<Response> {
+  return fetch(`${XERO_BASE}${init.path}`, {
+    method: init.method,
     headers: {
-      Authorization: `Bearer ${tokenData.token.accessToken}`,
-      "Xero-tenant-id": tenantId,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+      Authorization: `Bearer ${token.accessToken}`,
+      "Xero-tenant-id": token.tenantId,
+      Accept: init.accept ?? "application/json",
+      ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...(init.idempotencyKey ? { "Idempotency-Key": init.idempotencyKey } : {}),
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
   });
+}
 
-  if (!res.ok) {
-    const raw = await res.text().catch(() => "");
-    throw new Error(`Xero API error (${res.status}): ${extractXeroError(raw)}`);
+/**
+ * One authorised Xero call: a valid token from the token service; on a 401,
+ * renew once and retry once (a write keeps its Idempotency-Key). A 401 after
+ * renewal, or a 403, checks whether the organisation is still connected and
+ * marks "needs reconnect" when it is not.
+ */
+async function xeroCall(init: XeroCallInit): Promise<XeroCallResult> {
+  const first = await getXeroAccessToken();
+  if (!first.ok) return { ok: false, failure: first };
+  let token = first.token;
+  let res = await sendWithToken(token, init);
+  let retried = false;
+  if (res.status === 401) {
+    const renewed = await getXeroAccessToken({ rejectedVersion: token.tokenVersion });
+    if (!renewed.ok) return { ok: false, failure: renewed };
+    token = renewed.token;
+    res = await sendWithToken(token, init);
+    retried = true;
   }
+  if (res.status === 403 || (retried && res.status === 401)) {
+    const check = await verifyXeroTenant(token);
+    if (check.state === "removed") return { ok: false, failure: check.failure };
+  }
+  return { ok: true, res, token };
+}
 
-  return res.json() as Promise<T>;
+/** The current token or a thrown, plain-words error (for pushes). */
+async function requireXeroToken(): Promise<XeroAccessToken> {
+  const outcome = await getXeroAccessToken();
+  if (!outcome.ok) throw new Error(xeroTokenFailureMessage(outcome));
+  return outcome.token;
+}
+
+/** An authenticated Xero write/read that throws on failure (pushes and contact sync). */
+async function xeroRequest<T>(method: string, path: string, body?: unknown, idempotencyKey?: string): Promise<T> {
+  const call = await xeroCall({ method, path, body, idempotencyKey });
+  if (!call.ok) throw new Error(xeroTokenFailureMessage(call.failure));
+  if (!call.res.ok) {
+    const raw = await call.res.text().catch(() => "");
+    throw new Error(`Xero API error (${call.res.status}): ${extractXeroError(raw)}`);
+  }
+  return call.res.json() as Promise<T>;
 }
 
 /**
@@ -201,6 +146,9 @@ async function xeroRequest<T>(method: string, path: string, tenantId: string, bo
 export async function getXeroAuthUrl(redirectUri: string, state: string): Promise<string> {
   const { clientId } = await getXeroCredentials();
   if (!clientId) throw new Error("Xero Client ID not configured. Set it in Settings > Integrations.");
+  if (!xeroTokenEncryptionAvailable()) {
+    throw new Error("ENCRYPTION_KEY is not set on the server, so the Xero sign-in cannot be stored safely. Set it, then connect.");
+  }
 
   const params = new URLSearchParams({
     response_type: "code",
@@ -213,170 +161,136 @@ export async function getXeroAuthUrl(redirectUri: string, state: string): Promis
   return `${XERO_AUTH_BASE}/identity/connect/authorize?${params.toString()}`;
 }
 
+/** The scopes Xero granted (token response `scope`), else the ones requested. */
+function grantedScopes(scope: unknown): string[] {
+  const text = typeof scope === "string" && scope.trim() ? scope : xeroScopes();
+  return text.split(/\s+/).filter(Boolean);
+}
+
 /**
- * Exchange authorization code for tokens.
+ * Exchange authorization code for tokens. Stores them encrypted with a fresh
+ * CONNECTED status (a reconnect clears "needs reconnect"); any other active
+ * connection is deactivated so exactly one is used.
  */
 export async function exchangeXeroCode(code: string, redirectUri: string): Promise<{ tenantId: string; tenantName: string }> {
   const { clientId, clientSecret } = await getXeroCredentials();
   if (!clientId || !clientSecret) {
     throw new Error("Xero Client ID/Secret not configured in Settings → Integrations.");
   }
-
-  try {
-    // Get tokens
-    const tokenRes = await fetch(XERO_TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: redirectUri,
-        client_id: clientId,
-        client_secret: clientSecret,
-      }),
-    });
-
-    if (!tokenRes.ok) {
-      const errBody = await tokenRes.text().catch(() => "");
-      console.error("[xero] Token exchange failed:", tokenRes.status, errBody, "redirect_uri:", redirectUri);
-      throw new Error(`Token exchange failed (${tokenRes.status}): ${extractXeroError(errBody)}`);
-    }
-
-    const tokenData = await tokenRes.json() as {
-      access_token: string;
-      refresh_token?: string; // absent when offline_access is not granted
-      expires_in: number;
-      id_token?: string;
-    };
-
-    const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000);
-
-    // Get tenant info
-    const connectionsRes = await fetch(`${XERO_BASE}/connections`, {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
-    });
-
-    if (!connectionsRes.ok) {
-      const errBody = await connectionsRes.text().catch(() => "");
-      throw new Error(`Could not read Xero organisations (${connectionsRes.status}): ${extractXeroError(errBody)}`);
-    }
-
-    const connections = await connectionsRes.json() as Array<{ tenantId: string; tenantName: string }>;
-    if (connections.length === 0) {
-      throw new Error("Connected, but no Xero organisation was authorised for this app.");
-    }
-
-    const tenant = connections[0];
-    console.log("[xero] Connected tenant:", tenant.tenantName);
-
-    // Save connection
-    await db.xeroConnection.upsert({
-      where: { tenantId: tenant.tenantId },
-      create: {
-        tenantId: tenant.tenantId,
-        tenantName: tenant.tenantName,
-        accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token ?? "",
-        expiresAt,
-        scopes: xeroScopes().split(" "),
-        isActive: true,
-      },
-      update: {
-        accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token ?? "",
-        expiresAt,
-        tenantName: tenant.tenantName,
-        scopes: xeroScopes().split(" "),
-        isActive: true,
-        lastSyncError: null,
-      },
-    });
-
-    return { tenantId: tenant.tenantId, tenantName: tenant.tenantName };
-  } catch (err) {
-    console.error("[xero] exchangeXeroCode error:", err);
-    throw err instanceof Error ? err : new Error(String(err));
+  if (!xeroTokenEncryptionAvailable()) {
+    throw new Error("ENCRYPTION_KEY is not set on the server, so the Xero sign-in cannot be stored safely. Set it, then connect again.");
   }
+
+  const tokenRes = await fetch(XERO_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri,
+      client_id: clientId,
+      client_secret: clientSecret,
+    }),
+  });
+
+  if (!tokenRes.ok) {
+    const errBody = await tokenRes.text().catch(() => "");
+    const message = safeReason(extractXeroError(errBody));
+    logger.error({ status: tokenRes.status, message, redirectUri }, "[xero] token exchange failed");
+    throw new Error(`Token exchange failed (${tokenRes.status}): ${message}`);
+  }
+
+  const tokenData = await tokenRes.json() as {
+    access_token: string;
+    refresh_token?: string; // absent when offline_access is not granted
+    expires_in: number;
+    scope?: string;
+  };
+
+  const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000);
+
+  // Get tenant info
+  const connectionsRes = await fetch(`${XERO_BASE}/connections`, {
+    headers: { Authorization: `Bearer ${tokenData.access_token}` },
+  });
+
+  if (!connectionsRes.ok) {
+    const errBody = await connectionsRes.text().catch(() => "");
+    throw new Error(`Could not read Xero organisations (${connectionsRes.status}): ${safeReason(extractXeroError(errBody))}`);
+  }
+
+  const connections = await connectionsRes.json() as Array<{ tenantId: string; tenantName: string }>;
+  if (connections.length === 0) {
+    throw new Error("Connected, but no Xero organisation was authorised for this app.");
+  }
+
+  const tenant = connections[0];
+  const now = new Date();
+  const fresh = {
+    accessToken: sealXeroToken(tokenData.access_token),
+    refreshToken: sealXeroToken(tokenData.refresh_token),
+    expiresAt,
+    tenantName: tenant.tenantName,
+    scopes: grantedScopes(tokenData.scope),
+    isActive: true,
+    status: "CONNECTED",
+    statusReasonCode: null,
+    statusReason: null,
+    needsReconnectAt: null,
+    reconnectNoticeAt: null,
+    connectedAt: now,
+    lastRefreshedAt: null,
+    lastRefreshError: null,
+    lastSyncError: null,
+    refreshLockId: null,
+    refreshLockUntil: null,
+  };
+
+  await db.$transaction([
+    db.xeroConnection.updateMany({ where: { isActive: true, tenantId: { not: tenant.tenantId } }, data: { isActive: false } }),
+    db.xeroConnection.upsert({
+      where: { tenantId: tenant.tenantId },
+      create: { tenantId: tenant.tenantId, ...fresh },
+      update: { ...fresh, tokenVersion: { increment: 1 } },
+    }),
+  ]);
+  logger.info({ tenantName: tenant.tenantName, renewable: Boolean(tokenData.refresh_token) }, "[xero] connected");
+
+  return { tenantId: tenant.tenantId, tenantName: tenant.tenantName };
 }
 
 /**
- * Disconnect Xero.
+ * Disconnect Xero: revoke the refresh token (best effort) and deactivate the
+ * row, which is kept for audit.
  */
 export async function disconnectXero(): Promise<void> {
-  const conn = await db.xeroConnection.findFirst({ where: { isActive: true } });
+  const conn = await db.xeroConnection.findFirst({ where: { isActive: true }, orderBy: { createdAt: "desc" } });
   if (!conn) return;
 
-  // Revoke token
-  const { clientId } = await getXeroCredentials();
-  if (clientId) {
+  const refreshToken = decryptSecret(conn.refreshToken);
+  const { clientId, clientSecret } = await getXeroCredentials();
+  if (clientId && refreshToken) {
+    const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
     await fetch(XERO_REVOKE_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: clientId,
-        token: conn.refreshToken,
-      }),
-    }).catch(() => {});
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Basic ${basic}` },
+      body: new URLSearchParams({ token: refreshToken }),
+    }).catch(() => undefined);
   }
 
   await db.xeroConnection.updateMany({
     where: { tenantId: conn.tenantId },
-    data: { isActive: false },
+    data: { isActive: false, refreshLockId: null, refreshLockUntil: null },
   });
 }
 
-/** Prefix on XeroConnection.lastSyncError when a token refresh was refused. */
-export const XERO_SIGN_IN_LAPSED_PREFIX = "SIGN_IN_LAPSED:";
-
-export type XeroSignIn = "ok" | "no-refresh-token" | "lapsed";
-
-export type XeroStatus = {
-  connected: boolean;
-  tenantName?: string;
-  lastSyncAt?: string;
-  /** Whether the stored connection can renew itself (a refresh token was issued). */
-  hasRefreshToken?: boolean;
-  /**
-   * ok: signed in and renewable. no-refresh-token: works until the access token
-   * expires, then lapses ("Reconnect Xero once to keep it signed in").
-   * lapsed: the access token has expired and cannot be renewed ("Xero sign-in
-   * lapsed — reconnect").
-   */
-  signIn?: XeroSignIn;
-};
-
-/** Pure: the sign-in state of a stored connection at `now`. */
-export function xeroSignInState(
-  conn: { refreshToken: string; expiresAt: Date; lastSyncError: string | null },
-  now: Date = new Date(),
-): XeroSignIn {
-  const expired = conn.expiresAt.getTime() <= now.getTime();
-  if (!conn.refreshToken) return expired ? "lapsed" : "no-refresh-token";
-  if (expired && conn.lastSyncError?.startsWith(XERO_SIGN_IN_LAPSED_PREFIX)) return "lapsed";
-  return "ok";
-}
-
-/** Plain words for a sign-in state, or null when nothing needs saying. */
-export function xeroSignInMessage(signIn: XeroSignIn | undefined): string | null {
-  if (signIn === "lapsed") return "Xero sign-in lapsed — reconnect";
-  if (signIn === "no-refresh-token") return "Reconnect Xero once to keep it signed in";
-  return null;
-}
-
 /**
- * Get Xero connection status.
+ * Get Xero connection status (Settings › Xero, the Finance header, Health).
  */
 export async function getXeroStatus(now: Date = new Date()): Promise<XeroStatus | null> {
   const conn = await db.xeroConnection.findFirst({ where: { isActive: true }, orderBy: { createdAt: "desc" } });
   if (!conn) return null;
-
-  return {
-    connected: true,
-    tenantName: conn.tenantName,
-    lastSyncAt: conn.lastSyncAt?.toISOString(),
-    hasRefreshToken: Boolean(conn.refreshToken),
-    signIn: xeroSignInState(conn, now),
-  };
+  return buildXeroStatus(conn, now);
 }
 
 // ── Contacts ──
@@ -386,7 +300,7 @@ export async function getXeroStatus(now: Date = new Date()): Promise<XeroStatus 
  * hitting "The contact name … is already assigned to another contact". Returns
  * null when there's no match or the lookup errors (caller then creates).
  */
-async function findActiveXeroContactId(tenantId: string, name: string): Promise<string | null> {
+async function findActiveXeroContactId(name: string): Promise<string | null> {
   const clean = name.trim();
   if (!clean) return null;
   const escaped = clean.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -395,7 +309,6 @@ async function findActiveXeroContactId(tenantId: string, name: string): Promise<
     const result = await xeroRequest<{ Contacts?: Array<{ ContactID: string; ContactStatus?: string }> }>(
       "GET",
       `/api.xro/2.0/Contacts?where=${where}`,
-      tenantId,
     );
     const list = result.Contacts ?? [];
     const active = list.find((c) => (c.ContactStatus ?? "ACTIVE") === "ACTIVE");
@@ -418,12 +331,11 @@ export async function syncXeroContact(input: {
   isClient: boolean;
   xeroContactId?: string;
 }): Promise<{ xeroContactId: string }> {
-  const tokenData = await getXeroToken();
-  if (!tokenData) throw new Error("No active Xero connection");
+  await requireXeroToken();
 
   // No stored link yet → try to match an existing contact by name and reuse it.
   if (!input.xeroContactId) {
-    const existingId = await findActiveXeroContactId(tokenData.tenantId, input.name);
+    const existingId = await findActiveXeroContactId(input.name);
     if (existingId) return { xeroContactId: existingId };
   }
 
@@ -437,9 +349,9 @@ export async function syncXeroContact(input: {
 
   let result: unknown;
   if (input.xeroContactId) {
-    result = await xeroRequest("PUT", `/api.xro/2.0/Contacts/${input.xeroContactId}`, tokenData.tenantId, { Contacts: [contact] });
+    result = await xeroRequest("PUT", `/api.xro/2.0/Contacts/${input.xeroContactId}`, { Contacts: [contact] });
   } else {
-    result = await xeroRequest("PUT", "/api.xro/2.0/Contacts", tokenData.tenantId, { Contacts: [contact] });
+    result = await xeroRequest("PUT", "/api.xro/2.0/Contacts", { Contacts: [contact] });
   }
 
   const contacts = (result as { Contacts?: Array<{ ContactID: string }> })?.Contacts;
@@ -465,8 +377,7 @@ export async function pushClientInvoiceToXero(input: {
   reference?: string;
   gstEnabled?: boolean;
 }): Promise<{ xeroInvoiceId: string; contactId: string }> {
-  const tokenData = await getXeroToken();
-  if (!tokenData) throw new Error("No active Xero connection");
+  await requireXeroToken();
 
   // Ensure contact exists
   let contactId = input.clientXeroContactId;
@@ -514,7 +425,7 @@ export async function pushClientInvoiceToXero(input: {
     ...(input.reference ? { Reference: input.reference } : {}),
   };
 
-  const result = await xeroRequest("PUT", "/api.xro/2.0/Invoices", tokenData.tenantId, { Invoices: [invoice] }, input.idempotencyKey);
+  const result = await xeroRequest("PUT", "/api.xro/2.0/Invoices", { Invoices: [invoice] }, input.idempotencyKey);
 
   const invoices = (result as { Invoices?: Array<{ InvoiceID: string }> })?.Invoices;
   if (!invoices?.[0]?.InvoiceID) throw new Error("Failed to create Xero invoice");
@@ -542,8 +453,7 @@ export async function pushClientCreditNoteToXero(input: {
   reference?: string;
   gstEnabled?: boolean;
 }): Promise<{ xeroCreditNoteId: string; contactId: string }> {
-  const tokenData = await getXeroToken();
-  if (!tokenData) throw new Error("No active Xero connection");
+  await requireXeroToken();
 
   let contactId = input.clientXeroContactId;
   if (!contactId) {
@@ -574,7 +484,7 @@ export async function pushClientCreditNoteToXero(input: {
     ...(input.reference ? { Reference: input.reference } : {}),
   };
 
-  const result = await xeroRequest("PUT", "/api.xro/2.0/CreditNotes", tokenData.tenantId, { CreditNotes: [creditNote] }, input.idempotencyKey);
+  const result = await xeroRequest("PUT", "/api.xro/2.0/CreditNotes", { CreditNotes: [creditNote] }, input.idempotencyKey);
   const notes = (result as { CreditNotes?: Array<{ CreditNoteID: string }> })?.CreditNotes;
   if (!notes?.[0]?.CreditNoteID) throw new Error("Failed to create Xero credit note");
   return { xeroCreditNoteId: notes[0].CreditNoteID, contactId: contactId! };
@@ -593,8 +503,7 @@ export async function pushCleanerBillToXero(input: {
   lineItems: Array<{ description: string; quantity: number; unitAmount: number; accountCode?: string; itemCode?: string }>;
   reference?: string;
 }): Promise<{ xeroBillId: string; contactId: string }> {
-  const tokenData = await getXeroToken();
-  if (!tokenData) throw new Error("No active Xero connection");
+  await requireXeroToken();
 
   // Match an existing Xero contact by name (or the stored id) or create one with
   // all the cleaner details we have.
@@ -629,7 +538,7 @@ export async function pushCleanerBillToXero(input: {
     ...(input.reference ? { Reference: input.reference } : {}),
   };
 
-  const result = await xeroRequest("PUT", "/api.xro/2.0/Invoices", tokenData.tenantId, { Invoices: [bill] }, input.idempotencyKey);
+  const result = await xeroRequest("PUT", "/api.xro/2.0/Invoices", { Invoices: [bill] }, input.idempotencyKey);
 
   const invoices = (result as { Invoices?: Array<{ InvoiceID: string }> })?.Invoices;
   if (!invoices?.[0]?.InvoiceID) throw new Error("Failed to create Xero bill");
@@ -662,41 +571,31 @@ function retryAfterMs(header: string | null): number | null {
   return Number(header.trim()) * 1000;
 }
 
+function readFailureFromToken(failure: XeroTokenFailure): XeroReadFailure {
+  if (failure.kind === "not-connected") return { kind: "not-connected", reason: "No active Xero connection." };
+  if (failure.kind === "needs-reconnect") return { kind: "not-connected", reason: `Xero needs reconnecting: ${failure.reason}` };
+  if (failure.kind === "configuration") return { kind: "not-connected", reason: failure.reason };
+  return { kind: "network", reason: `Xero sign-in could not be renewed right now: ${failure.reason}` };
+}
+
 /**
- * GET with the same token handling as the push (refresh when close to expiry,
- * "No active Xero connection" when there is none). A 429 is retried once after
- * Xero's Retry-After when that is within a minute; otherwise the read is
- * reported as rate limited. Never throws: every failure comes back typed, so
- * the caller can record "Xero state unknown" with the reason.
+ * GET through the same token service as the push (renewal near expiry, one
+ * renew-and-retry on a 401). A 429 is retried once after Xero's Retry-After
+ * when that is within a minute; otherwise the read is reported as rate
+ * limited. Never throws: every failure comes back typed, so the caller can
+ * record "Xero state unknown" with the reason.
  */
 async function xeroGet(path: string, options: XeroReadOptions = {}): Promise<XeroGetOutcome> {
   const sleep = options.sleep ?? defaultSleep;
   for (let attempt = 1; attempt <= XERO_READ_ATTEMPTS; attempt += 1) {
-    let tokenData: Awaited<ReturnType<typeof getXeroToken>>;
+    let call: XeroCallResult;
     try {
-      tokenData = await getXeroToken();
+      call = await xeroCall({ method: "GET", path });
     } catch (error) {
-      return { ok: false, failure: { kind: "network", reason: `Could not read the Xero connection: ${error instanceof Error ? error.message : String(error)}` } };
+      return { ok: false, failure: { kind: "network", reason: `Xero could not be reached: ${safeReason(error instanceof Error ? error.message : String(error))}` } };
     }
-    if (!tokenData) {
-      // An active connection whose token could not be renewed has lapsed: say
-      // "reconnect", not a generic "unknown".
-      const lapsed = await hasActiveXeroConnection().catch(() => false);
-      return { ok: false, failure: { kind: "not-connected", reason: lapsed ? "Xero sign-in lapsed — reconnect Xero in Settings." : "No active Xero connection." } };
-    }
-    let res: Response;
-    try {
-      res = await fetch(`${XERO_BASE}${path}`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${tokenData.token.accessToken}`,
-          "Xero-tenant-id": tokenData.tenantId,
-          Accept: "application/json",
-        },
-      });
-    } catch (error) {
-      return { ok: false, failure: { kind: "network", reason: `Xero could not be reached: ${error instanceof Error ? error.message : String(error)}` } };
-    }
+    if (!call.ok) return { ok: false, failure: readFailureFromToken(call.failure) };
+    const res = call.res;
     if (res.status === 429) {
       const wait = retryAfterMs(res.headers?.get?.("Retry-After") ?? null);
       if (attempt < XERO_READ_ATTEMPTS && wait !== null && wait <= XERO_MAX_RETRY_WAIT_MS) {

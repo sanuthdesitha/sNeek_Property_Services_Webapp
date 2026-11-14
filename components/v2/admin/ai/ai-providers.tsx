@@ -111,7 +111,7 @@ function FailureDetails({ kind, page }: { kind: AiProviderKind; page: AiPage }) 
   const auth = (health?.lastFailure?.errorCode ?? status.lastTest?.detail ?? "").startsWith("AUTH");
   return (
     <div className="space-y-2">
-      <p><b>{status.failure}</b>{at ? ` at ${whenText(at, page.timezone)}` : ""}{real ? `, on ${real} real ${real === 1 ? "request" : "requests"} since the last success` : ""}.</p>
+      <p><b>{status.failure}</b>{at ? `, ${whenText(at, page.timezone)}` : ""}{real ? `, on ${real} real ${real === 1 ? "request" : "requests"} since the last success` : ""}.</p>
       {users.length ? (
         <div className="rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))] p-2.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
           <b className="block text-[hsl(var(--e-foreground))]">What people see</b>

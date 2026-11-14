@@ -7,11 +7,12 @@
  * own PIN (their password while they have no PIN yet), one button.
  *
  * Request: POST /api/admin/ai/credentials with
- *   { provider, apiKey, credentials }        to add or replace
- *   { provider, clear: true, credentials }   to remove
- * where `credentials` is the `ConfirmResult.credentials` the shared dialog
- * hands every sensitive action: `{ pin }`, or `{ password }` while the person
- * has no PIN yet. The key is never shown again; a failed save keeps the typed
+ *   { provider, apiKey, security }        to add or replace
+ *   { provider, clear: true, security }   to remove
+ * where `security` is the `ConfirmResult.credentials` the shared dialog hands
+ * every sensitive action (the same field name the laundry void and the other
+ * tier C routes read): `{ pin }`, or `{ password }` while the person has no
+ * PIN yet. The key is never shown again; a failed save keeps the typed
  * key in the box, and the dialog clears the credential and re-reads the tries
  * left.
  */
@@ -75,8 +76,8 @@ export function AiKeyDialog({ request, credential, usedBy, encryptionReady, onCl
     setError(null);
     try {
       const body = removing
-        ? { provider: request.provider, clear: true, credentials: result.credentials }
-        : { provider: request.provider, apiKey: apiKey.trim(), credentials: result.credentials };
+        ? { provider: request.provider, clear: true, security: result.credentials }
+        : { provider: request.provider, apiKey: apiKey.trim(), security: result.credentials };
       const response = await fetch("/api/admin/ai/credentials", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const answer = (await response.json().catch(() => ({}))) as CredentialsBody;
       if (!response.ok || !Array.isArray(answer.credentials)) throw new Error(answer.error || "The key was not changed.");
