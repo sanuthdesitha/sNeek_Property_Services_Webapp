@@ -1,22 +1,23 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import { EPageHeader } from "@/components/v2/ui/primitives";
+import { loadWorkforceAreaSummary } from "@/lib/workforce/area-counts";
+import { WorkforceArea } from "@/components/v2/admin/workforce/workforce-area";
 import { CoachingWorkspace } from "@/components/v2/admin/workforce/coaching-workspace";
 
-export const metadata = { title: "Coaching · Estate admin" };
+export const metadata = { title: "Coaching · Workforce" };
 export const dynamic = "force-dynamic";
 
+/**
+ * Workforce › Coaching: coaching notes, warnings and management reviews; the
+ * cleaner sees the reason and acknowledges it. Suspended and Terminated are
+ * administrator-only with a PIN confirmation (enforced by the route).
+ */
 export default async function V2AdminCoachingPage() {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-
+  const summary = await loadWorkforceAreaSummary();
   return (
-    <div className="space-y-6">
-      <EPageHeader
-        eyebrow="Workforce"
-        title="Coaching & accountability"
-        description="Coaching notes, warnings, and management reviews — recommendations authored by managers, acknowledged by cleaners."
-      />
+    <WorkforceArea active="coaching" summary={summary}>
       <CoachingWorkspace />
-    </div>
+    </WorkforceArea>
   );
 }

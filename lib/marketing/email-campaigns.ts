@@ -5,6 +5,7 @@ import { renderCampaignContent } from "@/lib/marketing/campaign-render";
 import { getAppSettings } from "@/lib/settings";
 import { isMarketingSuppressed } from "@/lib/email/suppression";
 import { isSegmentId, resolveSegment, type SegmentId } from "@/lib/marketing/segments";
+import { CAMPAIGN_SEND_STATUS, skipReasonFor } from "@/lib/marketing/campaign-skips";
 
 export type { EmailCampaignAudience } from "./campaign-audience";
 import { normalizeCampaignAudience, resolveSingleCampaignRecipient } from "./campaign-audience";
@@ -106,15 +107,73 @@ export async function resolveEmailCampaignRecipients(audienceInput: unknown) {
   };
 }
 
-export async function dispatchEmailCampaignById(campaignId: string) {
+/**
+ * Claim one recipient on the (campaignId, email) ledger. A new row claims it;
+ * an existing FAILED row is re-claimed atomically (a retry); any other existing
+ * row (SENT, SKIPPED) means this person was already handled and is never
+ * emailed twice.
+ */
+async function claimRecipient(campaignId: string, email: string): Promise<boolean> {
+  try {
+    await (db as any).campaignSend.create({ data: { campaignId, email, status: CAMPAIGN_SEND_STATUS.sent } });
+    return true;
+  } catch (err: any) {
+    if (err?.code !== "P2002") throw err;
+    const reclaimed = await (db as any).campaignSend.updateMany({
+      where: { campaignId, email, status: CAMPAIGN_SEND_STATUS.failed },
+      data: { status: CAMPAIGN_SEND_STATUS.sent, error: null },
+    });
+    return Number(reclaimed?.count ?? 0) === 1;
+  }
+}
+
+/** Record a skipped address (unsubscribed / bounce list) so the campaign can count it. Never throws. */
+async function recordSkipped(campaignId: string, email: string) {
+  try {
+    const reason = await skipReasonFor(email);
+    await (db as any).campaignSend.create({ data: { campaignId, email, status: CAMPAIGN_SEND_STATUS.skipped, error: reason } });
+  } catch {
+    /* already recorded, or the ledger is unavailable: the count is only informational */
+  }
+}
+
+export type CampaignDispatchResult = { sent: number; suppressed: number; failed: number };
+
+/**
+ * Send a campaign as individual messages through sendEmailDetailed with
+ * `marketing: true`: the email design system's base layout, campaign footer and
+ * one-click unsubscribe, the campaign opt-out check, and the sending
+ * safeguards gate (caps, duplicates, quiet hours, emergency stop, the
+ * per-send recipient limit). Nothing here bypasses or raises those limits.
+ *
+ * `onlyEmails` (lowercase) limits the run to those addresses: "Retry the
+ * failed" passes the campaign's FAILED ledger rows, and each must still be in
+ * the audience.
+ */
+export async function dispatchEmailCampaignById(campaignId: string, options: { onlyEmails?: string[] } = {}): Promise<CampaignDispatchResult> {
   const campaign = await db.emailCampaign.findUnique({ where: { id: campaignId } });
   if (!campaign) {
     throw new Error("Campaign not found.");
   }
   try {
 
-  const { recipients, count } = await resolveEmailCampaignRecipients(campaign.audience);
-  if (count === 0) {
+  const resolved = await resolveEmailCampaignRecipients(campaign.audience);
+  const only = options.onlyEmails ? new Set(options.onlyEmails.map((email) => email.toLowerCase())) : null;
+  const recipients = only ? resolved.recipients.filter((recipient) => only.has(recipient.email.toLowerCase())) : resolved.recipients;
+  if (only) {
+    // A failed address that left the audience is not emailed again; record why
+    // so the campaign stops offering a retry for it.
+    const stillMatching = new Set(recipients.map((recipient) => recipient.email.toLowerCase()));
+    const gone = Array.from(only).filter((email) => !stillMatching.has(email));
+    if (gone.length > 0) {
+      await (db as any).campaignSend.updateMany({
+        where: { campaignId: campaign.id, email: { in: gone }, status: CAMPAIGN_SEND_STATUS.failed },
+        data: { status: CAMPAIGN_SEND_STATUS.skipped, error: "no longer in the audience" },
+      });
+    }
+  }
+  const count = recipients.length;
+  if (count === 0 && !only) {
     await db.emailCampaign.update({
       where: { id: campaign.id },
       data: { status: "sent", sentAt: new Date(), recipientCount: 0 },
@@ -130,9 +189,11 @@ export async function dispatchEmailCampaignById(campaignId: string) {
     const ledgerEmail = recipient.email.toLowerCase();
     // Campaigns are non-transactional marketing — bounced / complained /
     // unsubscribed addresses must never be re-emailed. Checked BEFORE the
-    // ledger claim so a suppressed address leaves no phantom "contacted" row.
+    // ledger claim; the skip is recorded (SKIPPED, with its reason) so the
+    // campaign can count it, and it is never a "contacted" row.
     if (await isMarketingSuppressed(recipient.email)) {
       suppressedCount += 1;
+      await recordSkipped(campaign.id, ledgerEmail);
       continue;
     }
 
@@ -140,17 +201,8 @@ export async function dispatchEmailCampaignById(campaignId: string) {
 
     // Claim via the unique (campaignId,email) ledger so a crashed/retried
     // dispatch never re-emails someone already contacted (audit: partial-send
-    // resume double-email). Skip if a claim already exists.
-    let alreadyContacted = false;
-    try {
-      await (db as any).campaignSend.create({
-        data: { campaignId: campaign.id, email: ledgerEmail, status: "SENT" },
-      });
-    } catch (err: any) {
-      if (err?.code === "P2002") alreadyContacted = true;
-      else throw err;
-    }
-    if (alreadyContacted) continue;
+    // resume double-email). A FAILED row is re-claimed for a retry.
+    if (!(await claimRecipient(campaign.id, ledgerEmail))) continue;
 
     const result = await sendEmailDetailed({
       to: recipient.email,
@@ -172,19 +224,25 @@ export async function dispatchEmailCampaignById(campaignId: string) {
       }
     } else {
       failed += 1;
-      // Drop the claim so a later run can retry this recipient.
-      await (db as any).campaignSend.deleteMany({
+      // Keep the row as FAILED (with the reason) so the campaign can count it
+      // and "Retry the failed" can send to exactly these people later.
+      await (db as any).campaignSend.updateMany({
         where: { campaignId: campaign.id, email: ledgerEmail },
+        data: { status: CAMPAIGN_SEND_STATUS.failed, error: (result.error ?? "Not sent").slice(0, 500) },
       });
     }
   }
 
+  // Outcome over the whole ledger, so a retry that clears the last failure
+  // marks the campaign sent, and a partial retry keeps it failed.
+  const ledger = await countLedger(campaign.id);
+  const stillFailed = ledger ? ledger.failed : failed;
   await db.emailCampaign.update({
     where: { id: campaign.id },
     data: {
-      status: failed > 0 ? "failed" : "sent",
-      sentAt: failed > 0 ? null : new Date(),
-      recipientCount: sent,
+      status: stillFailed > 0 ? "failed" : "sent",
+      sentAt: stillFailed > 0 ? null : new Date(),
+      recipientCount: ledger ? ledger.sent : sent,
     },
   });
 
@@ -193,6 +251,49 @@ export async function dispatchEmailCampaignById(campaignId: string) {
     // Rendering fails before claiming a recipient. Keep existing successful
     // claims intact, but never leave a scheduled campaign labelled sending.
     await db.emailCampaign.update({ where: { id: campaign.id }, data: { status: "failed", sentAt: null } }).catch(() => undefined);
+    throw error;
+  }
+}
+
+/** SENT / FAILED ledger totals for a campaign; null when the ledger cannot be read. */
+async function countLedger(campaignId: string): Promise<{ sent: number; failed: number } | null> {
+  try {
+    const [sentRows, failedRows] = await Promise.all([
+      (db as any).campaignSend.count({ where: { campaignId, status: CAMPAIGN_SEND_STATUS.sent } }),
+      (db as any).campaignSend.count({ where: { campaignId, status: CAMPAIGN_SEND_STATUS.failed } }),
+    ]);
+    if (typeof sentRows !== "number" || typeof failedRows !== "number") return null;
+    return { sent: sentRows, failed: failedRows };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * "Retry the failed" (board "Marketing"): sends again only to the addresses
+ * this campaign recorded as FAILED, through the same path and safeguards.
+ * Addresses no longer in the audience, or suppressed since, are not emailed.
+ */
+export async function retryFailedEmailCampaign(campaignId: string): Promise<CampaignDispatchResult & { retried: number }> {
+  const campaign = await db.emailCampaign.findUnique({ where: { id: campaignId }, select: { id: true, status: true } });
+  if (!campaign) throw new Error("Campaign not found.");
+  if (campaign.status !== "failed") throw new Error("Only a campaign with failed sends can be retried.");
+  const claim = await db.emailCampaign.updateMany({ where: { id: campaignId, status: "failed" }, data: { status: "sending" } });
+  if (claim.count !== 1) throw new Error("This campaign is already being sent.");
+  try {
+    const failedRows = (await (db as any).campaignSend.findMany({
+      where: { campaignId, status: CAMPAIGN_SEND_STATUS.failed },
+      select: { email: true },
+    })) as Array<{ email: string }>;
+    const emails = failedRows.map((row) => row.email.toLowerCase());
+    if (emails.length === 0) {
+      await db.emailCampaign.update({ where: { id: campaignId }, data: { status: "sent", sentAt: new Date() } });
+      return { sent: 0, suppressed: 0, failed: 0, retried: 0 };
+    }
+    const result = await dispatchEmailCampaignById(campaignId, { onlyEmails: emails });
+    return { ...result, retried: emails.length };
+  } catch (error) {
+    await db.emailCampaign.update({ where: { id: campaignId }, data: { status: "failed", sentAt: null } }).catch(() => undefined);
     throw error;
   }
 }

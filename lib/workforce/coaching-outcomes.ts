@@ -4,7 +4,7 @@
  * confirmed with their own PIN (tier C). Recording one does not change the
  * person's login; that stays in Accounts. Plain module.
  */
-import { Role } from "@prisma/client";
+import type { Role } from "@prisma/client";
 
 export const COACHING_OUTCOMES = ["NONE", "RETRAINED", "SUSPENDED", "TERMINATED"] as const;
 export type CoachingOutcome = (typeof COACHING_OUTCOMES)[number];
@@ -22,5 +22,5 @@ export function isDismissalOutcome(outcome: string | null | undefined): boolean 
  */
 export function canRecordDismissal(session: { user: { role: Role; heldRoles?: Role[] } }): boolean {
   const held = session.user.heldRoles ?? [session.user.role];
-  return held.includes(Role.ADMIN);
+  return held.includes("ADMIN" as Role);
 }
