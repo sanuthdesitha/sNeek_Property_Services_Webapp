@@ -53,7 +53,6 @@ export function TwoStepConfirmDialog({
             {description ?? "This action is permanent and cannot be undone."}
           </p>
 
-
           {requireSecurityVerification ? (
             <div className="space-y-3 rounded-md border bg-muted/20 p-3">
               <div>

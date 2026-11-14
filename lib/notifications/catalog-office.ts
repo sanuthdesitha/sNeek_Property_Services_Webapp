@@ -323,7 +323,7 @@ export const OFFICE_NOTIFICATION_TYPES: NotificationTypeEntry[] = [
     switches: [{ kind: "EMAIL_KIND", emailKind: "job_assignment" }],
     template: { kind: "NONE" },
     preferences: "EMAIL_GATES_ONLY",
-    producers: ["app/api/admin/maintenance/[id]/assign/route.ts", "app/api/admin/maintenance/[id]/assignees/route.ts", "app/api/admin/maintenance/assignments/[id]/route.ts"],
+    producers: ["app/api/admin/maintenance/[id]/assign/route.ts", "lib/maintenance/assign-notice.ts", "app/api/admin/maintenance/[id]/assignees/route.ts", "app/api/admin/maintenance/assignments/[id]/route.ts"],
   },
   {
     key: "office.ical_alerts",
