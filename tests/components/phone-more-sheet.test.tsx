@@ -63,6 +63,14 @@ describe("admin phone tab bar", () => {
     expect(within(tabs).getByRole("button", { name: /^More/ })).toHaveAttribute("aria-haspopup", "dialog");
   });
 
+  it("offers Sign out inside the sheet, because the rail's button is hidden on a phone", async () => {
+    mount();
+    const sheet = await openMore();
+    const { signOut } = await import("next-auth/react");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Sign out" }));
+    expect(signOut).toHaveBeenCalledWith({ callbackUrl: "/v2/login" });
+  });
+
   it("marks More when a page inside it needs attention and when the current page lives in it", () => {
     mount();
     const more = within(screen.getByRole("navigation", { name: "Main tabs" })).getByRole("button", { name: /^More/ });
