@@ -1,14 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  getConfirmationPolicy,
-  type ConfirmationActionKey,
-} from "@/lib/security/confirmation-policy";
+import type { ConfirmationActionKey } from "@/lib/security/confirmation-policy";
 import { OwnPinFields, useOwnPinPrompt } from "@/components/v2/shared/own-pin-fields";
 import type { SensitiveCredentialsInput } from "@/lib/security/pin-rules";
 
@@ -17,7 +11,9 @@ interface TwoStepConfirmDialogProps {
   onOpenChange: (open: boolean) => void;
   title: string;
   description?: string;
+  /** @deprecated Kept for older callers; no longer changes the dialog. */
   actionKey?: ConfirmationActionKey;
+  /** @deprecated Ignored since 2026-11-14 ("simpler confirmations"): nobody types a word. */
   confirmPhrase?: string;
   confirmLabel?: string;
   cancelLabel?: string;
@@ -32,8 +28,6 @@ export function TwoStepConfirmDialog({
   onOpenChange,
   title,
   description,
-  actionKey,
-  confirmPhrase,
   confirmLabel = "Yes",
   cancelLabel = "No",
   loading = false,
@@ -41,19 +35,12 @@ export function TwoStepConfirmDialog({
   securityDescription,
   onConfirm,
 }: TwoStepConfirmDialogProps) {
-  const [typedPhrase, setTypedPhrase] = useState("");
+  // Classic pages' confirmation (2026-11-14, board "Confirmations and deletes"):
+  // one line and the button, plus the person's own credential when the action
+  // is sensitive. The typed phrase is gone; no route ever checked it.
   const ownPin = useOwnPinPrompt(open && requireSecurityVerification);
-
-  useEffect(() => {
-    if (!open) setTypedPhrase("");
-  }, [open]);
-
-  const policy = getConfirmationPolicy(actionKey);
-  const resolvedConfirmPhrase = confirmPhrase?.trim() || policy?.confirmPhrase || "";
-  const phraseRequired = Boolean(resolvedConfirmPhrase);
-  const phraseMatches = !phraseRequired || typedPhrase.trim() === resolvedConfirmPhrase;
   const hasSecurityInput = !requireSecurityVerification || ownPin.credentials !== null;
-  const canConfirm = phraseMatches && hasSecurityInput && !loading;
+  const canConfirm = hasSecurityInput && !loading;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -66,18 +53,6 @@ export function TwoStepConfirmDialog({
             {description ?? "This action is permanent and cannot be undone."}
           </p>
 
-          {phraseRequired ? (
-            <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-              <Label htmlFor="confirm-phrase">Type `{resolvedConfirmPhrase}` to continue</Label>
-              <Input
-                id="confirm-phrase"
-                value={typedPhrase}
-                onChange={(event) => setTypedPhrase(event.target.value)}
-                placeholder={resolvedConfirmPhrase}
-                autoComplete="off"
-              />
-            </div>
-          ) : null}
 
           {requireSecurityVerification ? (
             <div className="space-y-3 rounded-md border bg-muted/20 p-3">
