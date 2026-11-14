@@ -339,8 +339,8 @@ export function OnboardingWorkspace({ surveyId }: { surveyId: string }) {
       />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_17rem]">
         <Checklist view={view} active={step} onOpen={open} className="lg:sticky lg:top-4 lg:self-start" />
-        <div className="min-w-0 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-5">{stepCard}</div>
-        <div className="space-y-3 lg:col-start-2 xl:col-start-auto">
+        <div className={cn("min-w-0 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-5", step === "readiness" && "xl:col-span-2")}>{stepCard}</div>
+        <div className={cn("space-y-3 lg:col-start-2", step === "readiness" ? "xl:col-span-2" : "xl:col-start-auto")}>
           <SetsUpPanel step={step} />
           <History view={view} />
         </div>

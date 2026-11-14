@@ -6,13 +6,14 @@
  */
 import { EMAIL_DESIGNS } from "./registry";
 import { wordingEmailDesigns } from "./wording-designs";
+import { financeDesigns } from "./catalog/finance";
 import type { EmailDesignDefinition } from "./types";
 
 let all: EmailDesignDefinition[] | null = null;
 let byKey: Map<string, EmailDesignDefinition> | null = null;
 
 export function allEmailDesigns(): EmailDesignDefinition[] {
-  if (!all) all = [...EMAIL_DESIGNS, ...wordingEmailDesigns()];
+  if (!all) all = [...EMAIL_DESIGNS, ...wordingEmailDesigns(), ...financeDesigns()];
   return all;
 }
 

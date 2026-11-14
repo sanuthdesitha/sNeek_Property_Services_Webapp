@@ -1,6 +1,8 @@
 // @vitest-environment node
 /** Parity for job.cleaner_requests_decided (legacy expressions copied verbatim from the producers). */
-import { describe, expect, it } from "vitest";
+import { vi, describe, expect, it } from "vitest";
+// The body composition is what these tests pin; the block-design spec the send path uses is tested in email-design-wording.test.ts.
+vi.mock("@/lib/email-design/wording-bridge", () => ({ attachWordingDesign: (html: string) => html }));
 import { defaultNotificationWording } from "@/lib/notifications/wording/render";
 
 const P = "Manly Loft";

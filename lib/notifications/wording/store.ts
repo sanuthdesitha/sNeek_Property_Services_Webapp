@@ -6,6 +6,7 @@ import { checkWording, wordingHash, type WordingProblem } from "./template";
 import { isTemplatePart, templateDefaults, templateLimitProblem, templateLive, templatePatch, templateStoredFields } from "./template-sources";
 import { wordingDefinition, wordingPart } from "./registry";
 import { emailDesign } from "@/lib/email-design/registry";
+import { isWordingEmailPart } from "@/lib/email-design/wording-designs";
 import { entryKey, partFields, type WordingFields, type WordingPartDefinition, type WordingTransport } from "./types";
 
 /**
@@ -151,7 +152,8 @@ function nextFields(input: SaveWordingInput, part: WordingPartDefinition, histor
 export async function saveWording(input: SaveWordingInput): Promise<SaveWordingResult> {
   const part = wordingPart(input.typeKey, input.partId, input.transport);
   if (!part || wordingDefinition(input.typeKey)?.status === "IN_CODE") throw new WordingNotFoundError();
-  if (part.source.kind === "EMAIL_TEMPLATE" && emailDesign(part.source.key) && (input.kind === "EDIT" || (input.kind === "RESTORE" && input.restoreVersion !== 1))) throw new WordingMovedToDesignError();
+  const movedToDesign = (part.source.kind === "EMAIL_TEMPLATE" && emailDesign(part.source.key)) || isWordingEmailPart(part);
+  if (movedToDesign && (input.kind === "EDIT" || (input.kind === "RESTORE" && input.restoreVersion !== 1))) throw new WordingMovedToDesignError();
   const key = wordingRowKey(input.typeKey);
   const entry = entryKey(part.id, part.transport);
   return db.$transaction(async (tx) => {

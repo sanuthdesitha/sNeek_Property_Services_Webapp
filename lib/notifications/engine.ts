@@ -33,7 +33,8 @@ export async function sendNotification(
     if (recipientRole !== "ADMIN") throw new Error("This template recipient scope has no durable authorization adapter.");
     const template = await options.durable.tx.notificationTemplate.findUnique({ where: { eventKey } });
     if (!template) throw new Error("Notification template unavailable.");
-    const content = substituteTemplate(template, context);
+    const substituted = substituteTemplate(template, context);
+    const content = { ...substituted, html: await financeEmailHtml(eventKey, context, substituted.html, substituted.subject ?? "sNeek Ops Notification") };
     const channels = options.channels ?? Array.from(eventDef.defaultChannels) as NotificationChannel[];
     if ((channels.includes("EMAIL") && !content.html) || (channels.includes("SMS") && !content.sms) || (channels.includes("PUSH") && (!content.pushTitle || !content.pushBody))) throw new Error("Notification template content incomplete.");
     await queueDelivery({
@@ -76,7 +77,10 @@ export async function sendNotification(
       }
 
       // Substitute variables
-      const substituted = substituteTemplate(template, context);
+      const substitutedRaw = substituteTemplate(template, context);
+      const substituted = channel === NotificationChannel.EMAIL
+        ? { ...substitutedRaw, html: await financeEmailHtml(eventKey, context, substitutedRaw.html, substitutedRaw.subject ?? "sNeek Ops Notification") }
+        : substitutedRaw;
 
       // Send via channel
       const result = await sendViaChannel(eventKey, channel, substituted, options);
@@ -90,6 +94,26 @@ export async function sendNotification(
   } catch (err) {
     console.error(`[notifications] Error sending ${eventKey}:`, err);
   }
+}
+
+/**
+ * The email of a finance event is a block design (finance.<event>). An HTML
+ * body saved before blocks goes out as it is (marked custom) until a block
+ * version is published; with neither, nothing is emailed, as before.
+ */
+async function financeEmailHtml(eventKey: string, context: NotificationContext, savedHtml: string | undefined, subject: string): Promise<string | undefined> {
+  const [{ findEmailDesign }, { getPublishedDocument }, { embedSpec }, { financeDesignKey }] = await Promise.all([
+    import("@/lib/email-design/all-designs"),
+    import("@/lib/email-design/store"),
+    import("@/lib/email-design/spec"),
+    import("@/lib/email-design/catalog/finance"),
+  ]);
+  const definition = findEmailDesign(financeDesignKey(eventKey));
+  if (!definition) return savedHtml;
+  const published = await getPublishedDocument(definition);
+  if (!savedHtml && !published) return undefined;
+  const values = Object.fromEntries(Object.entries(context).map(([name, value]) => [name, value == null ? "" : String(value)]));
+  return embedSpec(savedHtml ?? "", { v: 1, kind: "design", key: definition.key, values, subject, body: savedHtml ?? "", ...(savedHtml ? { custom: true } : {}) });
 }
 
 function substituteTemplate(

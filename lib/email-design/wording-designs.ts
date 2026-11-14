@@ -49,6 +49,13 @@ function buildDesign(typeKey: string, part: WordingPartDefinition): EmailDesignD
   });
   const formats = Object.fromEntries(variables.map((variable) => [variable.name, variable.format]));
   const converted = convertHtmlBody(part.defaults.body ?? "", formats);
+  for (const constant of converted.constants) variables.push({ name: constant.name, label: constant.label, sample: constant.url, format: "url", constant: constant.url, fallback: "" });
+  // A sender that adds its own button around this email (wrapEmailHtml with an action) still gets it.
+  const blocks = [...converted.blocks];
+  if (!blocks.some((block) => block.type === "button") && !variables.some((variable) => variable.name === "actionUrl")) {
+    variables.push({ name: "actionUrl", label: "Button link (from the sender)", sample: "", format: "url", fallback: "" }, { name: "actionLabel", label: "Button label (from the sender)", sample: "", fallback: "" });
+    blocks.push({ type: "button", label: "Open", link: "actionUrl", labelValue: "actionLabel" });
+  }
   const hasBuilt = variables.some((variable) => variable.format === "built");
   const security = typeKey === "account.security";
   return design({
@@ -67,7 +74,7 @@ function buildDesign(typeKey: string, part: WordingPartDefinition): EmailDesignD
     source: `wording ${typeKey} · ${part.label}`,
     titleOptional: !converted.hasTitle,
     wordingPart: { typeKey, partId: part.id },
-    defaults: doc(part.defaults.subject ?? "", "", converted.blocks),
+    defaults: doc(part.defaults.subject ?? "", "", blocks),
   });
 }
 

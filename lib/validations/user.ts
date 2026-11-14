@@ -61,6 +61,12 @@ export const createUserByAdminSchema = z
     department: optionalProfileLabelSchema,
     baseLocation: optionalProfileLabelSchema,
     bankDetails: bankDetailsSchema,
+    /** Operations managers: starting packs at Manage (Invite person, 2026-11-16). Nothing ticked by default. */
+    opsPacks: z.array(z.string().trim().max(60)).max(60).optional(),
+    /** SMS with the invitation link; off unless ticked. */
+    sendSms: z.boolean().optional().default(false),
+    /** Repeat-safe submit: the same key from the same person returns the first result. */
+    idempotencyKey: z.string().trim().regex(/^[A-Za-z0-9_-]{8,80}$/).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.invite === false && !value.password) {

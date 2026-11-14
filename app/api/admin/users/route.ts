@@ -2,20 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { Role } from "@prisma/client";
-import bcrypt from "bcryptjs";
 import { createUserByAdminSchema } from "@/lib/validations/user";
 import { getAppSettings, setProfileOverrideForUser } from "@/lib/settings";
 import { z } from "zod";
-import { getUserExtendedProfiles, upsertUserExtendedProfile } from "@/lib/accounts/user-details";
-import { upsertAuthUserState } from "@/lib/auth/account-state";
+import { getUserExtendedProfiles } from "@/lib/accounts/user-details";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
-import { autoAssignCleanerLearning, ensureDefaultLearningPaths } from "@/lib/workforce/service";
-import {
-  buildInvitationUrl,
-  createUserInvitation,
-  sendInvitationEmail,
-} from "@/lib/auth/invitations";
-import { randomBytes } from "node:crypto";
+import { AccountCreateError, createAccountWithInvitation, findAccountByEmail } from "@/lib/accounts/create-account";
+import { resolveAccountCreator } from "@/lib/accounts/account-creator";
+import { emailInUseMessage, inviteRefusal } from "@/lib/accounts/create-account-rules";
 import { accountListError, accountListResponse } from "@/lib/accounts/list/http";
 
 const overrideSchema = z.object({
@@ -120,19 +114,28 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
+/**
+ * POST /api/admin/users — Invite person (and every older caller of this
+ * route). Administrators only, never while testing as someone else. Creates
+ * the account through the one shared service (lib/accounts/create-account.ts):
+ * the single-use, expiring, revocable invitation link (or a password the
+ * administrator types), starting packs for an operations manager, optional
+ * SMS with the link only when `sendSms` is true, and the provider's answer
+ * for the email. Repeat-safe with `idempotencyKey`. The response never holds
+ * the link, its token or a password: the page copies the link through the
+ * audited Copy link route.
+ */
 export async function POST(req: NextRequest) {
   try {
     const session = await requireRole([Role.ADMIN]);
+    const creator = await resolveAccountCreator(session);
+    const refusal = inviteRefusal(creator);
+    if (refusal) return NextResponse.json({ error: refusal }, { status: 403 });
     const payload = createUserByAdminSchema.parse(await req.json());
     const email = payload.email.toLowerCase();
 
-    const existing = await db.user.findUnique({ where: { email } });
-    if (existing) {
-      return NextResponse.json({ error: "Email is already registered." }, { status: 409 });
-    }
-
     let clientId: string | undefined;
-    if (payload.role === "CLIENT") {
+    if (payload.role === "CLIENT" || payload.role === "VA") {
       if (payload.clientId) {
         const client = await db.client.findUnique({
           where: { id: payload.clientId },
@@ -142,10 +145,16 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "Selected client does not exist or is inactive." }, { status: 400 });
         }
         clientId = client.id;
-      } else {
+      } else if (payload.role === "CLIENT" && payload.clientName) {
+        // Older callers could create the client inline; kept for them. Invite person
+        // always links an existing client (clients are made in Add client).
+        const existing = await findAccountByEmail(email);
+        if (existing) {
+          return NextResponse.json({ error: emailInUseMessage(existing, "client-login"), code: "EMAIL_IN_USE", existing }, { status: 409 });
+        }
         const createdClient = await db.client.create({
           data: {
-            name: payload.clientName ?? payload.name,
+            name: payload.clientName,
             email,
             phone: payload.contactNumber || payload.phone || undefined,
             address: payload.address || payload.clientAddress || undefined,
@@ -153,122 +162,59 @@ export async function POST(req: NextRequest) {
           },
         });
         clientId = createdClient.id;
+      } else {
+        return NextResponse.json({ error: "A client login must be linked to a client." }, { status: 400 });
       }
     }
 
-    const inviteMode = payload.invite !== false;
-
-    // When inviting, store an unusable placeholder hash so the column stays
-    // non-null and the user cannot log in until they accept the invite. When
-    // setting a password manually, hash the admin-supplied value.
-    let passwordHash: string;
-    if (inviteMode) {
-      passwordHash = await bcrypt.hash(randomBytes(32).toString("hex"), 10);
-    } else {
-      passwordHash = await bcrypt.hash(payload.password!, 10);
-    }
-
-    const created = await db.user.create({
-      data: {
+    const outcome = await createAccountWithInvitation({
+      actor: { id: creator.id, role: "ADMIN" },
+      origin: "INVITE_PERSON",
+      idempotencyKey: payload.idempotencyKey ?? null,
+      purpose: payload.role === "CLIENT" ? "client-login" : "staff",
+      input: {
         name: payload.name,
         email,
-        passwordHash,
-        role: payload.role,
-        phone: payload.phone || payload.contactNumber || undefined,
-        isActive: true,
-        emailVerified: inviteMode ? null : new Date(),
-        clientId,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        phone: true,
-        clientId: true,
-      },
-    });
-
-    await upsertUserExtendedProfile(created.id, {
-      businessName: payload.businessName ?? null,
-      abn: payload.abn ?? null,
-      address: payload.address ?? payload.clientAddress ?? null,
-      contactNumber: payload.contactNumber ?? payload.phone ?? null,
-      jobTitle: payload.jobTitle ?? null,
-      department: payload.department ?? null,
-      baseLocation: payload.baseLocation ?? null,
-      bankDetails: payload.bankDetails
-        ? {
-            accountName: payload.bankDetails.accountName ?? "",
-            bankName: payload.bankDetails.bankName ?? "",
-            bsb: payload.bankDetails.bsb ?? "",
-            accountNumber: payload.bankDetails.accountNumber ?? "",
-          }
-        : null,
-    });
-    await upsertAuthUserState(created.id, {
-      requiresOnboarding: true,
-      tutorialSeen: false,
-      requiresPasswordReset: false,
-      welcomeEmailSent: !inviteMode,
-    });
-    if (created.role === "CLEANER") {
-      await ensureDefaultLearningPaths(session.user.id);
-      await autoAssignCleanerLearning(created.id, session.user.id);
-    }
-
-    let invitationLink: string | undefined;
-    let invitationEmailSent = false;
-    let invitationEmailError: string | undefined;
-    if (inviteMode) {
-      const invite = await createUserInvitation({
-        userId: created.id,
-        createdById: session.user.id,
-      });
-      invitationLink = buildInvitationUrl(invite.token);
-      const emailResult = await sendInvitationEmail({
-        to: created.email,
-        name: created.name,
-        role: created.role,
-        url: invitationLink,
-        expiresAt: invite.expiresAt,
-      });
-      invitationEmailSent = emailResult.ok;
-      invitationEmailError = emailResult.ok ? undefined : emailResult.error;
-    }
-
-    await db.auditLog.create({
-      data: {
-        userId: session.user.id,
-        action: "CREATE_USER",
-        entity: "User",
-        entityId: created.id,
-        after: {
-          email: created.email,
-          role: created.role,
-          clientId: created.clientId,
-          activationMode: inviteMode ? "ADMIN_CREATED_INVITE" : "ADMIN_CREATED_ACTIVE",
-          invitationEmailSent,
-        } as any,
+        phone: payload.phone || payload.contactNumber || null,
+        role: payload.role as Role,
+        clientId: clientId ?? null,
+        abn: payload.abn ?? null,
+        businessName: payload.businessName ?? null,
+        address: payload.address ?? payload.clientAddress ?? null,
+        contactNumber: payload.contactNumber ?? payload.phone ?? null,
+        jobTitle: payload.jobTitle ?? null,
+        department: payload.department ?? null,
+        baseLocation: payload.baseLocation ?? null,
+        bankDetails: payload.bankDetails ?? null,
+        signIn: payload.invite === false ? "PASSWORD" : "INVITATION",
+        password: payload.invite === false ? payload.password ?? null : null,
+        opsPacks: payload.role === "OPS_MANAGER" ? payload.opsPacks ?? [] : undefined,
+        sendSms: payload.invite !== false && payload.sendSms === true,
       },
     });
 
+    const emailSent = outcome.email.state === "ACCEPTED";
     return NextResponse.json(
       {
-        ...created,
+        ...outcome.user,
+        clientId: clientId ?? null,
+        outcome,
         requiresVerification: false,
         otpSent: false,
-        invitationLink,
-        invitationEmailSent,
-        warning: inviteMode && !invitationEmailSent
-          ? "Account created, but invitation email failed to send. Share the link manually."
+        invitationEmailSent: outcome.signIn === "INVITATION" ? emailSent : false,
+        invitationLinkAvailable: outcome.signIn === "INVITATION",
+        warning: outcome.signIn === "INVITATION" && !emailSent
+          ? "Account created, but the invitation email was not sent. Copy the link and share it yourself."
           : undefined,
-        invitationEmailError,
+        invitationEmailError: outcome.email.error ?? undefined,
       },
-      { status: 201 }
+      { status: outcome.replayed ? 200 : 201 }
     );
   } catch (err: any) {
+    if (err instanceof AccountCreateError) {
+      return NextResponse.json({ error: err.message, code: err.code, existing: err.existing }, { status: err.status });
+    }
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message }, { status });
+    return NextResponse.json({ error: getValidationErrorMessage(err, "Could not create account.") }, { status });
   }
 }

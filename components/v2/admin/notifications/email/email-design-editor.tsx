@@ -336,7 +336,7 @@ export function EmailDesignEditor({ designKey, timeZone, onBack, onChoose, typeN
       {view.impersonating ? <EAlert tone="info" title="Read-only while testing as someone else">Nobody edits, publishes or sends tests while impersonating.</EAlert> : null}
       {!view.access.canDraft && !view.impersonating && view.access.draftReason ? <EAlert tone="info" title="View only">{view.access.draftReason}</EAlert> : null}
       {view.access.canDraft && !view.access.canPublish && !definition.security ? <EAlert tone="info" title="Drafts and tests only">{view.access.publishReason}</EAlert> : null}
-      {view.customHtml ? <EAlert tone="warning" title="Still sent with the HTML edited in Forms">An administrator edited this template as raw HTML before the block editor existed. That HTML keeps going out (on the new layout) until a block version is published here.</EAlert> : null}
+      {view.customHtml ? <EAlert tone="warning" title="Custom HTML from before: publish a block version to replace it">An administrator edited this email as raw HTML before the block editor existed. That HTML is what goes out now (on the new layout). The blocks below are the standard words; publish a block version to replace the custom HTML.</EAlert> : null}
       {definition.security ? (
         <EAlert tone="info" title="Security email: core content fixed">Security emails keep their words fixed so a fake email is easier to spot and nobody can remove the code, link, expiry or warning by mistake. The Email look (logo, colour, button shape) still applies. To change these words, ask sNeek support; it is a code change with review.</EAlert>
       ) : null}

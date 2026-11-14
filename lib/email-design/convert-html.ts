@@ -138,9 +138,22 @@ function inlineOf(nodes: Node[], bold = false): InlineSegment[] {
   return out;
 }
 
-export type ConvertResult = { blocks: BlockDraft[]; hasTitle: boolean };
+export type ConvertResult = { blocks: BlockDraft[]; hasTitle: boolean; constants: Array<{ name: string; label: string; url: string }> };
 
-type Context = { blocks: BlockDraft[]; formats: Record<string, EmailValueFormat | undefined>; buttonUsed: boolean; details: DetailsRow[] | null };
+type Context = { blocks: BlockDraft[]; formats: Record<string, EmailValueFormat | undefined>; buttonUsed: boolean; details: DetailsRow[] | null; constants: Array<{ name: string; label: string; url: string }> };
+
+/** A link written literally in the body becomes a fixed link value, so it can be the button. */
+function linkTarget(ctx: Context, href: string, label: string): string | null {
+  const target = hrefValue(href);
+  if (!target) return null;
+  if ("name" in target) return ctx.formats[target.name] === "url" ? target.name : null;
+  const existing = ctx.constants.find((item) => item.url === target.url);
+  if (existing) return existing.name;
+  const name = `fixedLink${ctx.constants.length + 1}`;
+  ctx.constants.push({ name, label: `Link: ${label || target.url}`.slice(0, 60), url: target.url });
+  ctx.formats[name] = "url";
+  return name;
+}
 
 function flushDetails(ctx: Context): void {
   if (ctx.details?.length) ctx.blocks.push({ type: "details", rows: ctx.details });
@@ -187,6 +200,25 @@ function onlyLinks(node: Extract<Node, { kind: "el" }>): Array<Extract<Node, { k
   return links.length ? links : null;
 }
 
+/** Values written directly inside a list or table (not inside an item or cell): built rows or items. */
+function strayValues(node: Extract<Node, { kind: "el" }>): string[] {
+  const names: string[] = [];
+  const visit = (list: Node[]) => {
+    for (const child of list) {
+      if (child.kind === "text") {
+        const pattern = new RegExp(VALUE.source, "g");
+        let match = pattern.exec(child.text);
+        while (match) {
+          names.push(match[1]);
+          match = pattern.exec(child.text);
+        }
+      } else if (child.tag === "tbody" || child.tag === "thead") visit(child.children);
+    }
+  };
+  visit(node.children);
+  return names;
+}
+
 function convertNodes(nodes: Node[], ctx: Context): void {
   let loose: Node[] = [];
   const flushLoose = () => {
@@ -213,11 +245,11 @@ function convertNodes(nodes: Node[], ctx: Context): void {
       const links = onlyLinks(node);
       if (links) {
         for (const link of links) {
-          const target = hrefValue(link.attrs.href ?? "");
           const label = plainText(link).replace(/\s+/g, " ").trim();
-          if (!ctx.buttonUsed && target && "name" in target && label && ctx.formats[target.name] === "url") {
+          const target = label ? linkTarget(ctx, link.attrs.href ?? "", label) : null;
+          if (!ctx.buttonUsed && target) {
             flushDetails(ctx);
-            ctx.blocks.push({ type: "button", label, link: target.name });
+            ctx.blocks.push({ type: "button", label, link: target });
             ctx.buttonUsed = true;
           } else pushParagraph(ctx, inlineOf([link]));
         }
@@ -229,6 +261,11 @@ function convertNodes(nodes: Node[], ctx: Context): void {
       const segments: InlineSegment[] = [];
       items.forEach((item, position) => segments.push({ kind: "text", text: `${position ? "\n" : ""}• ` }, ...merge(inlineOf(item.children))));
       pushParagraph(ctx, segments);
+      // Items added by a built fragment ({{notesItem}} inside the list).
+      for (const name of strayValues(node)) {
+        flushDetails(ctx);
+        ctx.blocks.push({ type: "lineItems", source: name });
+      }
     } else if (tag === "table") {
       const rows: Array<Extract<Node, { kind: "el" }>> = [];
       const collect = (list: Node[]) => list.forEach((child) => { if (child.kind === "el") { if (child.tag === "tr") rows.push(child); else collect(child.children); } });
@@ -250,6 +287,8 @@ function convertNodes(nodes: Node[], ctx: Context): void {
         flushDetails(ctx);
         ctx.blocks.push({ type: "details", rows: detail });
       }
+      // Rows added by a built fragment ({{timingRow}} inside the table).
+      for (const name of strayValues(node)) ctx.blocks.push({ type: "lineItems", source: name });
     } else if (tag === "hr") {
       flushDetails(ctx);
       ctx.blocks.push({ type: "divider" });
@@ -264,13 +303,13 @@ function convertNodes(nodes: Node[], ctx: Context): void {
 }
 
 export function convertHtmlBody(html: string, formats: Record<string, EmailValueFormat | undefined>): ConvertResult {
-  const ctx: Context = { blocks: [], formats, buttonUsed: false, details: null };
+  const ctx: Context = { blocks: [], formats: { ...formats }, buttonUsed: false, details: null, constants: [] };
   convertNodes(parseHtml(html), ctx);
   flushDetails(ctx);
-  return { blocks: ctx.blocks, hasTitle: ctx.blocks[0]?.type === "heading" };
+  return { blocks: ctx.blocks, hasTitle: ctx.blocks[0]?.type === "heading", constants: ctx.constants };
 }
 
 /** Visible words of an HTML fragment (for parity checks). */
 export function htmlWords(html: string): string[] {
-  return decodeEntities(html.replace(/<[^>]+>/g, " ")).split(/[\s()·:,.!?\-–—•"'“”‘’]+/).filter((word) => word.length > 0);
+  return decodeEntities(html.replace(/<[^>]+>/g, " ")).split(/[\s()·:,.!?\-–—•"'“”‘’]+/).filter((word) => word.length > 0 && !/^(https?|\/\/.*)$/i.test(word));
 }

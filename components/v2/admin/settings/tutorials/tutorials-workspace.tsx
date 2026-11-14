@@ -379,10 +379,8 @@ function PeopleTab({ canEdit, timezone }: { canEdit: boolean; timezone: string }
   const [resetting, setResetting] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (query.trim().length < 2) {
-      setResults(null);
-      return;
-    }
+    setResults(null);
+    if (query.trim().length < 2) return;
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
@@ -431,7 +429,9 @@ function PeopleTab({ canEdit, timezone }: { canEdit: boolean; timezone: string }
       <ECard className="min-w-0 space-y-2 p-4">
         <label htmlFor="tour-people-search" className="text-[0.8125rem] font-[600]">Find a person</label>
         <input id="tour-people-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name or email" className="h-11 w-full rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2 text-[16px] sm:text-[0.875rem]" />
-        {results === null ? <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Type at least two letters.</p> : null}
+        {results === null ? (
+          <p role="status" className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{query.trim().length < 2 ? "Type at least two letters." : "Searching…"}</p>
+        ) : null}
         {results && results.length === 0 ? <p role="status" className="text-[0.8125rem]">No matching people.</p> : null}
         <ul className="divide-y divide-[hsl(var(--e-border))]">
           {(results ?? []).map((person) => (

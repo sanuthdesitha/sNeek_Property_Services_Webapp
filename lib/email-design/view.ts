@@ -11,6 +11,8 @@ import { resolveAppUrl } from "@/lib/app-url";
 import { getAppSettings } from "@/lib/settings";
 import { isCustomizedEmailTemplate, type AppEmailTemplateKey } from "@/lib/email-templates";
 import { businessFromSettings } from "./compose";
+import { wordingPart } from "@/lib/notifications/wording/registry";
+import { liveStoreOverride, readStoredRow } from "@/lib/notifications/wording/store";
 import { designAccess, lookEditRefusal, publishRefusal } from "./permission";
 import { allEmailDesigns, findEmailDesign as emailDesign } from "./all-designs";
 import { EmailDesignError, getPublishedEmailTheme, readDesignRow, readThemeRow, type DesignRow, type ThemeRow } from "./store";
@@ -27,8 +29,15 @@ export function designError(error: unknown): NextResponse {
   return NextResponse.json({ error: "Something went wrong. Nothing was changed." }, { status: 500, headers: DESIGN_HEADERS });
 }
 
-function customHtml(key: string, settings: Awaited<ReturnType<typeof getAppSettings>>): boolean {
+/** An admin's raw-HTML edit from before blocks that is still what goes out (until a block version is published). */
+async function customHtml(key: string, settings: Awaited<ReturnType<typeof getAppSettings>>): Promise<boolean> {
   const definition = emailDesign(key);
+  if (definition?.wordingPart) {
+    const part = wordingPart(definition.wordingPart.typeKey, definition.wordingPart.partId, "EMAIL");
+    if (!part) return false;
+    const row = await readStoredRow(definition.wordingPart.typeKey).catch(() => null);
+    return Boolean(row && liveStoreOverride(row, part));
+  }
   if (!definition?.templateKey || definition.security) return false;
   const templateKey = definition.templateKey as AppEmailTemplateKey;
   return isCustomizedEmailTemplate(templateKey, settings.emailTemplates[templateKey]);
@@ -42,8 +51,9 @@ export async function designList(session: Session): Promise<{ items: DesignListI
     publishedVersion: row?.publishedVersion ?? null,
     hasDraft: Boolean(row?.draft),
     readFailed: row === null,
-    customHtml: customHtml(definition.key, settings),
+    customHtml: false,
   }));
+  await Promise.all(items.map(async (item) => { item.customHtml = await customHtml(item.key, settings); }));
   return { items, access };
 }
 
@@ -57,7 +67,7 @@ export async function designView(session: Session, key: string, row?: DesignRow)
     theme,
     business: businessFromSettings(settings),
     appUrl: resolveAppUrl("/"),
-    customHtml: customHtml(key, settings),
+    customHtml: await customHtml(key, settings),
     access,
     impersonating: Boolean(session.impersonation),
   };

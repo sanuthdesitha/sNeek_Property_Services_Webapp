@@ -10,7 +10,7 @@
  * renders the overlay (tour-overlay.tsx). Board: "Tutorials" (2026-11).
  */
 import * as React from "react";
-import { usePathname, useRouter } from "next/navigation";
+import * as navigation from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useOpsAccess } from "@/components/shared/ops-access-provider";
 import { canUseOpsPath } from "@/lib/rbac/ops-catalog";
@@ -128,6 +128,32 @@ type RecordInput = {
   currentStep: number;
 };
 
+type TourRouter = { push: (href: string) => void };
+
+/**
+ * The tutorial layer must never stop the shell rendering. Outside the app
+ * router (an isolated render, a test that mocks next/navigation partly) these
+ * hooks are unavailable: tours then navigate with a full page load. Inside the
+ * app the hooks always succeed, so the hook order never changes.
+ */
+function useOptionalRouter(): TourRouter {
+  let router: TourRouter | null = null;
+  try {
+    router = navigation.useRouter();
+  } catch {
+    router = null;
+  }
+  return router ?? { push: (href: string) => window.location.assign(href) };
+}
+
+function useOptionalPathname(): string {
+  try {
+    return navigation.usePathname() ?? "";
+  } catch {
+    return typeof window === "undefined" ? "" : window.location.pathname;
+  }
+}
+
 /** A usable GET /api/me/tours answer; anything else is treated as "unknown, show no tour". */
 function isTourClientState(value: unknown): value is TourClientState {
   if (!value || typeof value !== "object") return false;
@@ -152,8 +178,8 @@ function locationMatches(route: string, pathname: string): boolean {
 }
 
 export function TutorialProvider({ portal, children }: { portal: TourPortal; children: React.ReactNode }) {
-  const pathname = usePathname() ?? "";
-  const router = useRouter();
+  const pathname = useOptionalPathname();
+  const router = useOptionalRouter();
   const { data: session } = useSession();
   const { canAccess, levels } = useOpsAccess();
   const role = toTourRole(session?.user?.role);

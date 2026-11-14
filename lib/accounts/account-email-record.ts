@@ -12,7 +12,7 @@ import type { AccountEmailState, AccountEmailType } from "./account-email-rules"
  */
 export const ACCOUNT_EMAIL_AUDIT_ACTION = "ACCOUNT_EMAIL_SENT";
 
-export type AccountEmailOrigin = "PERSON_PANEL" | "BULK" | "SELF_SERVICE";
+export type AccountEmailOrigin = "PERSON_PANEL" | "BULK" | "SELF_SERVICE" | "ACCOUNT_CREATED" | "HIRING";
 
 type ProviderAnswer = { ok: boolean; error?: string; skipped?: boolean; acceptance?: "ACCEPTED" | "NOT_ACCEPTED" | "UNKNOWN" | null; externalId?: string | null };
 

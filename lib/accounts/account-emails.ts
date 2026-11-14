@@ -184,6 +184,8 @@ function historyEntry(row: AuditRow, names: Map<string, string>, email: string):
     }
     case "CREATE_USER":
       if (after.activationMode !== "ADMIN_CREATED_INVITE") return null;
+      // Accounts created since 2026-11-16 record the email's answer as its own ACCOUNT_EMAIL_SENT row.
+      if (after.emailRecordedSeparately === true) return null;
       return entry("Invitation to set a password (account created)", legacyState(after.invitationEmailSent), by(row.userId), typeof after.email === "string" ? after.email : email);
     case "RESET_USER_PASSWORD":
       if (after.mode === "RESET_LINK") return entry("Password reset link (administrator reset)", legacyState(after.emailSent), by(row.userId), email, "A single-use link that works for 30 minutes.");

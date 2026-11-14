@@ -31,6 +31,7 @@ vi.mock("@/lib/settings", async () => {
 });
 
 import { getDefaultEmailTemplates } from "@/lib/email-templates";
+import { extractSpec } from "@/lib/email-design/spec";
 import { saveWording, WordingConflictError, WordingInvalidError, WordingMovedToDesignError, wordingRowKey } from "@/lib/notifications/wording/store";
 import { loadNotificationWording, renderNotificationWording } from "@/lib/notifications/wording/render";
 import { readTypeWording } from "@/lib/notifications/wording/read";
@@ -110,13 +111,16 @@ describe("rendering overrides", () => {
   it("applies an override on every transport of a type (inbox, email, SMS)", async () => {
     const typeKey = "job.cleaner_day_reminder";
     const inbox = await saveWording({ typeKey, partId: "cleaner", transport: "INBOX", kind: "EDIT", fields: { title: "Today: {{propertyName}}", body: "Be at {{propertyName}} at {{when}}" }, expectedHash: defaultHash(typeKey, "cleaner", "INBOX"), actor });
-    await saveWording({ typeKey, partId: "cleaner", transport: "EMAIL", kind: "EDIT", fields: { subject: "Today: {{propertyName}}", body: "<p>{{propertyName}} &middot; {{when}}</p>" }, expectedHash: defaultHash(typeKey, "cleaner", "EMAIL"), actor });
+    // 2026-11-16: whole emails are block designs; the wording editor no longer saves their HTML.
+    await expect(saveWording({ typeKey, partId: "cleaner", transport: "EMAIL", kind: "EDIT", fields: { subject: "Today: {{propertyName}}", body: "<p>{{propertyName}} &middot; {{when}}</p>" }, expectedHash: defaultHash(typeKey, "cleaner", "EMAIL"), actor })).rejects.toBeInstanceOf(WordingMovedToDesignError);
     await saveWording({ typeKey, partId: "cleaner", transport: "SMS", kind: "EDIT", fields: { body: "{{when}}: {{propertyName}}" }, expectedHash: defaultHash(typeKey, "cleaner", "SMS"), actor });
     expect(inbox.version).toBe(2);
     const wording = await loadNotificationWording(typeKey);
     const values = { propertyName: "A&B <Loft>", when: "10:00" };
     expect(wording.render("cleaner", "INBOX", values)).toMatchObject({ title: "Today: A&B <Loft>", body: "Be at A&B <Loft> at 10:00" });
-    expect(wording.render("cleaner", "EMAIL", values)).toMatchObject({ subject: "Today: A&B <Loft>", html: "<p>A&amp;B &lt;Loft&gt; &middot; 10:00</p>" });
+    const email = wording.render("cleaner", "EMAIL", values);
+    expect(email.source).toBe("default");
+    expect(extractSpec(email.html).spec).toMatchObject({ kind: "design", key: "wording.job.cleaner_day_reminder.cleaner" });
     expect(wording.render("cleaner", "SMS", values).body).toBe("10:00: A&B <Loft>");
   });
 

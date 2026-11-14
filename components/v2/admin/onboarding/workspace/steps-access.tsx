@@ -231,10 +231,8 @@ export function LaundryStep({ view, values, send }: StepProps<LaundryValues>) {
         </EField>
         <AutoTextField label="Linen sets on site" inputMode="numeric" value={numberText(draft.linenSets)} onChange={(v) => set("linenSets", parseNumberInput(v))} onCommit={() => commit("linenSets")} />
         <AutoTextField label="Spare (buffer) sets" inputMode="numeric" value={numberText(draft.linenBufferSets)} onChange={(v) => set("linenBufferSets", parseNumberInput(v))} onCommit={() => commit("linenBufferSets")} />
-        <div className="grid grid-cols-2 gap-2">
-          <AutoTextField label="Bag colour" value={draft.bagColor} onChange={(v) => set("bagColor", v)} onCommit={() => commit("bagColor")} />
-          <AutoTextField label="Bag label" value={draft.bagLabel} onChange={(v) => set("bagLabel", v)} onCommit={() => commit("bagLabel")} />
-        </div>
+        <AutoTextField label="Bag colour" value={draft.bagColor} onChange={(v) => set("bagColor", v)} onCommit={() => commit("bagColor")} />
+        <AutoTextField label="Bag label" value={draft.bagLabel} onChange={(v) => set("bagLabel", v)} onCommit={() => commit("bagLabel")} />
       </div>
       <section aria-labelledby="laundry-rules" className="overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
         <div className="flex flex-wrap items-center justify-between gap-2 bg-[hsl(var(--e-band-info-bg))] px-3 py-2">

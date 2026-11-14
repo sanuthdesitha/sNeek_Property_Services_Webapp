@@ -138,6 +138,8 @@ export type EmailVariable = {
   keep?: boolean;
   /** Text used when an optional value is empty inside a sentence (default "Not known"). */
   fallback?: string;
+  /** A fixed value the email always has (a link written in the old body); the sender's value wins when given. */
+  constant?: string;
   /** For "built" values: the plain-text twin used in the text part. */
   textTwin?: string;
 };

@@ -225,12 +225,12 @@ export function RoomsStep({ values, send }: StepProps<RoomsValues>) {
       </div>
 
       <section aria-label="Rooms and beds" className="space-y-2">
-        <div className="hidden grid-cols-[1.2fr_0.9fr_1fr_1.3fr_auto] gap-2 px-1 text-[0.75rem] font-[550] text-[hsl(var(--e-text-secondary))] md:grid">
+        <div className="hidden grid-cols-[1.2fr_0.9fr_1fr_1.3fr_auto] gap-2 px-1 text-[0.75rem] font-[550] text-[hsl(var(--e-text-secondary))] 2xl:grid">
           <span>Room</span><span>Kind</span><span>Beds</span><span>Notes</span><span className="sr-only">Remove</span>
         </div>
         {draft.roomList.length === 0 ? <p className={ONB_MUTED}>No rooms listed yet. Add each bedroom, living area or other room that has beds.</p> : null}
         {draft.roomList.map((room, index) => (
-          <div key={room.id} className="grid grid-cols-1 gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2 md:grid-cols-[1.2fr_0.9fr_1fr_1.3fr_auto] md:border-0 md:p-0">
+          <div key={room.id} className="grid grid-cols-1 gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2 sm:grid-cols-2 2xl:grid-cols-[1.2fr_0.9fr_1fr_1.3fr_auto] 2xl:border-0 2xl:p-0">
             <input aria-label={`Room ${index + 1} name`} className={ONB_INPUT_CLASS} value={room.name} placeholder="Bedroom 1" onChange={(event) => updateRoom(room.id, { name: event.target.value })} onBlur={() => commit("roomList")} />
             <select aria-label={`Room ${index + 1} kind`} className={ONB_INPUT_CLASS} value={room.kind} onChange={(event) => { const next = draft.roomList.map((r) => (r.id === room.id ? { ...r, kind: event.target.value as OnboardingRoomKind } : r)); setAndCommit("roomList", next); }}>
               {ROOM_KINDS.map((kind) => <option key={kind.value} value={kind.value}>{kind.label}</option>)}

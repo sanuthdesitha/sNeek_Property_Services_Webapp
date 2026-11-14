@@ -58,7 +58,8 @@ export function WordingWorkspace({ typeKey, catalogTransports, details, timeZone
   const [proposal, setProposal] = React.useState<{ key: string; fields: WordingFields } | null>(null);
   const [regenerating, setRegenerating] = React.useState(false);
 
-  const parts = view?.parts ?? [];
+  // Whole emails are edited as blocks in their Email design (card above); this editor keeps inbox, push, SMS and the email "line" sentences.
+  const parts = (view?.parts ?? []).filter((item) => !(item.transport === "EMAIL" && item.fields.includes("subject")));
   const activeTab = tab && partsForTab(parts, tab).length ? tab : firstTab(parts);
   const tabParts = activeTab ? partsForTab(parts, activeTab) : [];
   const part = tabParts.find((item) => draftKey(item) === partKey) ?? tabParts[0] ?? null;

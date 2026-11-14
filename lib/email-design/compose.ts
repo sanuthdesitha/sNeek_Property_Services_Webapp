@@ -73,8 +73,15 @@ export type ComposeInput = {
 };
 
 /** Render one design document with its values (common values filled in). */
+/** Fixed values of a design (links written in an old body), made absolute. */
+function constantValues(definition: EmailDesignDefinition, appUrl: string): Record<string, string> {
+  return Object.fromEntries(definition.variables.filter((variable) => variable.constant).map((variable) => [variable.name, variable.constant!.startsWith("/") ? joinUrl(appUrl, variable.constant!) : variable.constant!]));
+}
+
 export function composeDesign(definition: EmailDesignDefinition, doc: EmailDocument, values: Record<string, string>, input: ComposeInput & { settings: CompanySettingsLike }): RenderedEmail {
-  return renderEmailDocument(doc, { ...commonValues(input.settings, input.appUrl), ...values }, {
+  const merged: Record<string, string> = { ...commonValues(input.settings, input.appUrl), ...values };
+  for (const [name, value] of Object.entries(constantValues(definition, input.appUrl))) if (!String(merged[name] ?? "").trim()) merged[name] = value;
+  return renderEmailDocument(doc, merged, {
     theme: input.theme,
     business: input.business,
     definition,

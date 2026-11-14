@@ -4466,6 +4466,10 @@ model HiringPosition {
   applicationSchema Json
   screeningSchema   Json?
   isPublished       Boolean  @default(false)
+  /// "Hires become" (board Hiring, 2026-11-16): the account role a person
+  /// hired into this role gets. Null = not chosen yet; Hire then needs an
+  /// explicit role on the offer (the old guess from the offer title is gone).
+  hireAccountRole   Role?
   createdById       String
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

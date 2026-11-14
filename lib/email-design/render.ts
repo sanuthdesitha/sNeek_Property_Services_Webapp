@@ -127,12 +127,15 @@ type Ctx = {
   missing: Map<string, string>;
 };
 
+/** The value as given (spacing kept: wording values such as " at Bondi" carry their own space). */
 function rawValue(ctx: Ctx, name: string): string {
-  return String(ctx.values[name] ?? "").trim();
+  const value = String(ctx.values[name] ?? "");
+  return value.trim() ? value : "";
 }
 
 /** Present = non-empty, and for structured formats, parsable with content. */
-export function valuePresent(variable: EmailVariable | undefined, raw: string): boolean {
+export function valuePresent(variable: EmailVariable | undefined, value: string): boolean {
+  const raw = value.trim();
   if (!raw) return false;
   if (variable?.format === "rows") return parseLineItems(raw) !== null;
   if (variable?.format === "photos") return parsePhotos(raw).length > 0;
@@ -173,7 +176,7 @@ function valueHtml(ctx: Ctx, name: string, bold: boolean): string {
       html = escapeHtml(raw).replace(/\r?\n/g, "<br>");
       break;
     case "url": {
-      const href = safeHref(raw) as string;
+      const href = safeHref(raw.trim()) as string;
       html = `<a href="${escapeHtml(href)}" class="sn-br" style="color:${ctx.p.brand};text-decoration:underline;word-break:break-all">${escapeHtml(href.replace(/^https?:\/\//i, ""))}</a>`;
       break;
     }
@@ -276,7 +279,9 @@ function renderLineItems(ctx: Ctx, block: Extract<EmailBlock, { type: "lineItems
     return null;
   }
   if (variable?.format === "built") {
-    return { html: row(`<div class="sn-tx" style="font-family:${SANS};font-size:14px;line-height:1.6;color:${ctx.p.text}">${raw}</div>`), text: [valueText(ctx, block.source)] };
+    // Row or item fragments keep their table or list.
+    const body = /^\s*<tr[\s>]/i.test(raw) ? `<table role="presentation" width="100%" cellpadding="4" cellspacing="0" border="0" style="border-collapse:collapse">${raw}</table>` : /^\s*<li[\s>]/i.test(raw) ? `<ul style="margin:0;padding-left:20px">${raw}</ul>` : raw;
+    return { html: row(`<div class="sn-tx" style="font-family:${SANS};font-size:14px;line-height:1.6;color:${ctx.p.text}">${body}</div>`), text: [valueText(ctx, block.source)] };
   }
   const items = parseLineItems(raw) as LineItemsValue;
   const head = items.head ?? ["Item", "Amount"];
@@ -297,7 +302,7 @@ function renderLineItems(ctx: Ctx, block: Extract<EmailBlock, { type: "lineItems
 function renderButton(ctx: Ctx, block: Extract<EmailBlock, { type: "button" }>): BlockOut | null {
   const variable = ctx.vars.get(block.link);
   const raw = rawValue(ctx, block.link);
-  const href = safeHref(raw);
+  const href = safeHref(raw.trim());
   if (!href) {
     if (variable?.required) {
       noteMissing(ctx, block.link);

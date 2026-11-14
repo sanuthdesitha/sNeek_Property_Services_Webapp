@@ -81,8 +81,8 @@ export function ScopeStep({ view, values, send, surveyId }: StepProps<ScopeValue
         <h3 id="special-requests" className="text-[0.8125rem] font-[600]">Special requests</h3>
         {draft.specialRequests.length === 0 ? <p className={ONB_MUTED}>None. Each request becomes a checklist task; high and urgent ones need a proof photo.</p> : null}
         {draft.specialRequests.map((request, index) => (
-          <div key={index} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_8rem_8rem_auto]">
-            <input aria-label={`Request ${index + 1}`} className={ONB_INPUT_CLASS} value={request.description} placeholder="Descale the kettle every clean" onChange={(event) => updateRequest(index, { description: event.target.value })} onBlur={commitRequests} />
+          <div key={index} className="grid grid-cols-[1fr_1fr_auto] gap-2 2xl:grid-cols-[1fr_8rem_8rem_auto]">
+            <input aria-label={`Request ${index + 1}`} className={onbInput("col-span-3 2xl:col-span-1")} value={request.description} placeholder="Descale the kettle every clean" onChange={(event) => updateRequest(index, { description: event.target.value })} onBlur={commitRequests} />
             <select aria-label={`Request ${index + 1} priority`} className={ONB_INPUT_CLASS} value={request.priority} onChange={(event) => { const next = draft.specialRequests.map((r, i) => (i === index ? { ...r, priority: event.target.value as SpecialRequestValue["priority"] } : r)); set("specialRequests", next); commit("specialRequests", next.filter((r) => r.description.trim())); }}>
               <option value="LOW">Low</option><option value="NORMAL">Normal</option><option value="HIGH">High</option><option value="URGENT">Urgent</option>
             </select>
@@ -202,40 +202,37 @@ export function PricingStep({ view, values, send }: StepProps<PricingValues>) {
   if (jobTypes.length === 0) return <EToneNotice tone="attention" title="Tick a job type first">Rates are set per job type. Tick the job types on the Cleaning scope step.</EToneNotice>;
   return (
     <div className="space-y-4">
-      <div role="region" aria-label="Rates" tabIndex={0} className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
-        <table className="w-full min-w-[36rem] text-[0.8125rem]">
-          <thead className="bg-[hsl(var(--e-surface-raised))] text-left text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
-            <tr><th className="px-3 py-2 font-[550]">Job type</th><th className="px-3 py-2 font-[550]">Client rate, ex GST</th><th className="px-3 py-2 font-[550]">Billing</th><th className="px-3 py-2 font-[550]">Cleaner pay</th></tr>
-          </thead>
-          <tbody className="divide-y divide-[hsl(var(--e-border))]">
-            {rows.map((rate) => {
-              const missing = rate.clientRate === null;
-              return (
-                <tr key={rate.jobType}>
-                  <td className={`px-3 py-2 ${missing && rate.jobType === main ? "bg-[hsl(var(--e-band-problem-bg))] text-[hsl(var(--e-band-problem-fg))]" : ""}`}>{jobTypeLabel(rate.jobType)}{rate.jobType === main ? " · main" : ""}</td>
-                  <td className="px-3 py-2">
-                    <input aria-label={`${jobTypeLabel(rate.jobType)} client rate`} aria-describedby={missing ? `rate-missing-${rate.jobType}` : undefined} inputMode="decimal" className={onbInput("w-28")} value={numberText(rate.clientRate)} placeholder="0.00" onChange={(event) => set("rates", updateRate(rate.jobType, { clientRate: parseNumberInput(event.target.value) }))} onBlur={() => commit("rates")} />
-                    {missing ? <p id={`rate-missing-${rate.jobType}`} className="mt-1 text-[0.75rem] text-[hsl(var(--e-danger))]">No rate yet</p> : null}
-                  </td>
-                  <td className="px-3 py-2">
-                    <select aria-label={`${jobTypeLabel(rate.jobType)} billing`} className={onbInput("w-28")} value={rate.billingUnit} onChange={(event) => setAndCommit("rates", updateRate(rate.jobType, { billingUnit: event.target.value as OnboardingRate["billingUnit"] }))}>
-                      <option value="PER_JOB">Per job</option><option value="PER_HOUR">Per hour</option>
-                    </select>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex flex-wrap gap-2">
-                      <select aria-label={`${jobTypeLabel(rate.jobType)} cleaner pay basis`} className={onbInput("w-32")} value={rate.cleanerPayMode} onChange={(event) => setAndCommit("rates", updateRate(rate.jobType, { cleanerPayMode: event.target.value as OnboardingRate["cleanerPayMode"] }))}>
-                        <option value="PER_CLEAN">Per clean</option><option value="HOURLY">Hourly</option>
-                      </select>
-                      <input aria-label={`${jobTypeLabel(rate.jobType)} cleaner pay`} inputMode="decimal" className={onbInput("w-24")} value={numberText(rate.cleanerPay)} placeholder="Not set" onChange={(event) => set("rates", updateRate(rate.jobType, { cleanerPay: parseNumberInput(event.target.value) }))} onBlur={() => commit("rates")} />
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <ul aria-label="Rates" className="space-y-3">
+        {rows.map((rate) => {
+          const missing = rate.clientRate === null;
+          const label = jobTypeLabel(rate.jobType);
+          return (
+            <li key={rate.jobType} className="overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
+              <p className={`px-3 py-2 text-[0.8125rem] font-[600] ${missing && rate.jobType === main ? "bg-[hsl(var(--e-band-problem-bg))] text-[hsl(var(--e-band-problem-fg))]" : "bg-[hsl(var(--e-surface-raised))]"}`}>
+                {label}{rate.jobType === main ? " · main" : ""}{missing ? " · No rate yet" : ""}
+              </p>
+              <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2">
+                <EField label="Client rate, ex GST">
+                  <input inputMode="decimal" className={ONB_INPUT_CLASS} value={numberText(rate.clientRate)} placeholder="No rate yet" onChange={(event) => set("rates", updateRate(rate.jobType, { clientRate: parseNumberInput(event.target.value) }))} onBlur={() => commit("rates")} />
+                </EField>
+                <EField label="Billing">
+                  <select className={ONB_INPUT_CLASS} value={rate.billingUnit} onChange={(event) => setAndCommit("rates", updateRate(rate.jobType, { billingUnit: event.target.value as OnboardingRate["billingUnit"] }))}>
+                    <option value="PER_JOB">Per job</option><option value="PER_HOUR">Per hour</option>
+                  </select>
+                </EField>
+                <EField label="Cleaner pay basis">
+                  <select className={ONB_INPUT_CLASS} value={rate.cleanerPayMode} onChange={(event) => setAndCommit("rates", updateRate(rate.jobType, { cleanerPayMode: event.target.value as OnboardingRate["cleanerPayMode"] }))}>
+                    <option value="PER_CLEAN">Per clean</option><option value="HOURLY">Hourly</option>
+                  </select>
+                </EField>
+                <EField label="Cleaner pay">
+                  <input inputMode="decimal" className={ONB_INPUT_CLASS} value={numberText(rate.cleanerPay)} placeholder="Not set" onChange={(event) => set("rates", updateRate(rate.jobType, { cleanerPay: parseNumberInput(event.target.value) }))} onBlur={() => commit("rates")} />
+                </EField>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
       <EToneNotice tone="info">
         {estimate.state === "ok"
           ? `Estimate from ${view.values.rooms.bedrooms} bed, ${view.values.rooms.bathrooms} bath, ${estimate.value.estimatedHours.toFixed(1)} h: $${estimate.value.estimatedPrice.toFixed(2)}. It is only a suggestion; nothing is filled in for you.`

@@ -4,7 +4,9 @@
  * "editable parts" types. Each legacy expression is the producer's original
  * template literal, copied verbatim and run on the same values.
  */
-import { describe, expect, it } from "vitest";
+import { vi, describe, expect, it } from "vitest";
+// The body composition is what these tests pin; the block-design spec the send path uses is tested in email-design-wording.test.ts.
+vi.mock("@/lib/email-design/wording-bridge", () => ({ attachWordingDesign: (html: string) => html }));
 import { defaultNotificationWording } from "@/lib/notifications/wording/render";
 import { escapeHtml } from "@/lib/utils/escape-html";
 

@@ -19,7 +19,7 @@ function stateText(item: DesignListItem | undefined, security: boolean): string 
   const parts: string[] = [];
   parts.push(item.publishedVersion ? `Published v${item.publishedVersion}` : "Standard v1");
   if (item.hasDraft) parts.push("draft waiting");
-  if (item.customHtml) parts.push("still sent with raw HTML from Forms");
+  if (item.customHtml) parts.push("custom HTML from before is in use");
   if (security) parts.push("core content fixed");
   return parts.join(" · ");
 }

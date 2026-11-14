@@ -82,6 +82,15 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Unknown event key" }, { status: 400 });
     }
 
+    // The email of a finance event is edited as blocks (Notifications › Types and wording › Email design,
+    // "Finance: …"). Inbox, push and SMS wording stay here; the email subject and HTML can only be kept or cleared.
+    const current = await db.notificationTemplate.findUnique({ where: { eventKey: body.eventKey }, select: { emailSubject: true, emailBodyHtml: true } });
+    const htmlChanged = typeof body.emailBodyHtml === "string" && body.emailBodyHtml.trim() !== "" && body.emailBodyHtml !== (current?.emailBodyHtml ?? null);
+    const subjectChanged = typeof body.emailSubject === "string" && current !== null && body.emailSubject !== current.emailSubject && Boolean(current.emailBodyHtml);
+    if (htmlChanged || subjectChanged) {
+      return NextResponse.json({ error: `This email is edited as blocks now: Notifications, Types and wording, "Finance notifications", Email design "Finance: ${eventDef.label}". SMS and push wording can still be changed here.`, code: "moved_to_design", href: `/v2/admin/notifications?type=money.finance_events&email=finance.${eventDef.key}` }, { status: 409 });
+    }
+
     const updated = await db.notificationTemplate.upsert({
       where: { eventKey: body.eventKey },
       create: {

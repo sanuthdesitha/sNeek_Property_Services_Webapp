@@ -2,6 +2,7 @@ import { resolveAppUrl } from "@/lib/app-url";
 import { businessFromSettings, composeDesign, composeLegacyBody, withSpec } from "@/lib/email-design/compose";
 import { emailDesign } from "@/lib/email-design/registry";
 import { DEFAULT_EMAIL_THEME } from "@/lib/email-design/theme";
+import { embedSpec, extractSpec } from "@/lib/email-design/spec";
 
 export type AppEmailTemplateKey =
   | "signupOtp"
@@ -837,6 +838,13 @@ export function sanitizeEmailTemplates(input: unknown, fallback: AppEmailTemplat
  */
 export function wrapEmailHtml(settings: { companyName: string; logoUrl: string } & Partial<EmailLayoutSettings>, innerHtml: string, actionLink?: { url: string; label: string } | null) {
   const subject = settings.companyName || "sNeek Property Services";
+  // A wording-layer email (a block design) wrapped by its sender: keep the design and carry the sender's button into it.
+  const inner = extractSpec(innerHtml);
+  if (inner.spec?.kind === "design") {
+    const values = actionLink ? { ...inner.spec.values, actionUrl: actionLink.url, actionLabel: actionLink.label } : inner.spec.values;
+    const legacyHtml = composeLegacyBody(inner.html, { theme: DEFAULT_EMAIL_THEME, business: businessFromSettings(settings), appUrl: resolveAppUrl("/"), mode: "send", subject, action: actionLink ?? null }).html;
+    return embedSpec(legacyHtml, { ...inner.spec, values });
+  }
   const legacy = composeLegacyBody(innerHtml, {
     theme: DEFAULT_EMAIL_THEME,
     business: businessFromSettings(settings),

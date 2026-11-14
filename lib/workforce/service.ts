@@ -1,15 +1,9 @@
 import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
-﻿import bcrypt from "bcryptjs";
-import { randomUUID } from "crypto";
+﻿import { randomUUID } from "crypto";
 import { Prisma, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getUserExtendedProfiles, type UserExtendedProfile } from "@/lib/accounts/user-details";
-import { upsertAuthUserState } from "@/lib/auth/account-state";
-import { generateTempPassword } from "@/lib/auth/temp-password";
-import { resolveAppUrl } from "@/lib/app-url";
-import { renderEmailTemplate } from "@/lib/email-templates";
 import { sendEmailDetailed } from "@/lib/notifications/email";
-import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { deliverDocumentRequest, type DocumentRequestTransport } from "@/lib/workforce/document-request-send";
 import { renderPdfFromHtml } from "@/lib/reports/pdf";
 import { getAppSettings } from "@/lib/settings";
@@ -1273,92 +1267,18 @@ async function assignMandatoryLearningForRole(userId: string, role: Role, assign
   }
 }
 
-function deriveHiringUserRole(offerDetails: Record<string, unknown> | null | undefined) {
-  const roleText = String(offerDetails?.roleTitle ?? "").toLowerCase();
-  if (roleText.includes("laundry")) return Role.LAUNDRY;
-  if (roleText.includes("ops")) return Role.OPS_MANAGER;
-  return Role.CLEANER;
-}
-
-async function createOrUpdateHiredStaffAccount(input: {
-  applicationId: string;
-  email: string;
-  fullName: string;
-  phone?: string | null;
-  reviewedById: string;
-  offerDetails?: Record<string, unknown> | null;
-  existingUserId?: string | null;
-}) {
-  const role = deriveHiringUserRole(input.offerDetails);
-  const email = input.email.trim().toLowerCase();
-  const tempPassword = generateTempPassword();
-  const passwordHash = await bcrypt.hash(tempPassword, 10);
-
-  const user = await db.$transaction(async (tx) => {
-    const existingById = input.existingUserId
-      ? await tx.user.findUnique({ where: { id: input.existingUserId }, select: { id: true, role: true, email: true } })
-      : null;
-    const existingByEmail = await tx.user.findUnique({
-      where: { email },
-      select: { id: true, role: true, email: true, name: true },
-    });
-    const target = existingById ?? existingByEmail;
-
-    if (existingByEmail && existingById && existingByEmail.id !== existingById.id) {
-      throw new Error("Another account already uses this email.");
-    }
-    if (target && target.role === Role.CLIENT) {
-      throw new Error("This email is already linked to a client account.");
-    }
-
-    const userRow = target
-      ? await tx.user.update({
-          where: { id: target.id },
-          data: {
-            name: input.fullName.trim(),
-            email,
-            phone: input.phone?.trim() || undefined,
-            role,
-            isActive: true,
-            emailVerified: new Date(),
-            passwordHash,
-          },
-          select: { id: true, name: true, email: true, phone: true, role: true },
-        })
-      : await tx.user.create({
-          data: {
-            name: input.fullName.trim(),
-            email,
-            phone: input.phone?.trim() || undefined,
-            role,
-            isActive: true,
-            emailVerified: new Date(),
-            passwordHash,
-          },
-          select: { id: true, name: true, email: true, phone: true, role: true },
-        });
-
-    await tx.session.deleteMany({ where: { userId: userRow.id } });
-    await tx.hiringApplication.update({
-      where: { id: input.applicationId },
-      data: { hiredUserId: userRow.id },
-    });
-
-    return userRow;
-  });
-
-  await upsertAuthUserState(user.id, {
-    requiresOnboarding: true,
-    requiresPasswordReset: true,
-    tutorialSeen: false,
-    welcomeEmailSent: false,
-    profileCreationNotified: false,
-  });
-
-  await assignMandatoryLearningForRole(user.id, user.role, input.reviewedById);
-
+/**
+ * What a hire receives once its account exists (lib/hiring/hire.ts creates the
+ * account through the shared invitation flow): the mandatory learning for the
+ * account role and the staff document requests. No password, no email and no
+ * SMS here (owner defaults 2026-11-16: the invitation link replaces the
+ * emailed temporary password; the welcome SMS is a per-hire tick box).
+ * Re-running is harmless: existing open or fulfilled requests are kept.
+ */
+export async function prepareHiredStaffAccount(input: { userId: string; role: Role; actorId: string }) {
+  await assignMandatoryLearningForRole(input.userId, input.role, input.actorId);
   const requiredDocs =
-    user.role === Role.CLEANER
+    input.role === Role.CLEANER
       ? [
           { category: "COMPLIANCE", title: "Police check" },
           { category: "COMPLIANCE", title: "Driver licence" },
@@ -1368,52 +1288,21 @@ async function createOrUpdateHiredStaffAccount(input: {
           { category: "COMPLIANCE", title: "Police check" },
           { category: "COMPLIANCE", title: "Driver licence" },
         ];
-
   for (const doc of requiredDocs) {
     const existingRequest = await db.staffDocumentRequest.findFirst({
-      where: {
-        userId: user.id,
-        title: doc.title,
-        status: { in: ["REQUESTED", "FULFILLED"] },
-      },
+      where: { userId: input.userId, title: doc.title, status: { in: ["REQUESTED", "FULFILLED"] } },
       select: { id: true },
     });
     if (!existingRequest) {
       await createStaffDocumentRequest({
-        userId: user.id,
-        requestedById: input.reviewedById,
+        userId: input.userId,
+        requestedById: input.actorId,
         category: doc.category,
         title: doc.title,
         notes: "Please upload this document in your workforce hub during onboarding.",
       });
     }
   }
-
-  const settings = await getAppSettings();
-  const template = renderEmailTemplate(settings, "accountInvite", {
-    userName: user.name ?? user.email,
-    role: user.role,
-    email: user.email,
-    tempPassword,
-    welcomeNote: (await loadNotificationWording("workforce.updates")).line("welcome-note", "EMAIL", {}),
-    actionUrl: resolveAppUrl("/login"),
-    actionLabel: "Sign in and set your password",
-  });
-  const emailResult = await sendEmailDetailed({
-    kind: "workforce_update",
-    to: user.email,
-    subject: template.subject,
-    html: template.html,
-  });
-  if (emailResult.ok) {
-    await upsertAuthUserState(user.id, { welcomeEmailSent: true });
-  }
-
-  if (user.phone) {
-    await sendSmsDetailed(user.phone, `Welcome to sNeek. Your account is ready. Sign in, set your password, and complete onboarding in the team hub.`);
-  }
-
-  return { user, tempPassword: emailResult.ok ? null : tempPassword, emailSent: emailResult.ok };
 }
 
 export async function listLearningPaths(options?: { includeDrafts?: boolean }) {
@@ -2538,6 +2427,8 @@ export async function updateHiringPosition(input: {
   requireKnowledgeTest?: boolean;
   passThreshold?: number | null;
   heroImageUrl?: string | null;
+  /** "Hires become" (undefined leaves it unchanged; null clears it). */
+  hireAccountRole?: Role | null;
 }) {
   const slug = await ensureUniqueHiringSlug(input.slug?.trim() || input.title, input.positionId);
   const current = await db.hiringPosition.findUnique({
@@ -2595,6 +2486,7 @@ export async function updateHiringPosition(input: {
       employmentType: input.employmentType?.trim() || null,
       screeningSchema: screeningSchemaUpdate,
       ...(applicationSchemaUpdate !== undefined ? { applicationSchema: applicationSchemaUpdate } : {}),
+      ...(input.hireAccountRole !== undefined ? { hireAccountRole: input.hireAccountRole } : {}),
       isPublished: input.isPublished !== false,
     },
   });
@@ -2613,6 +2505,10 @@ export async function updateHiringApplication(input: {
   const current = await db.hiringApplication.findUnique({ where: { id: input.applicationId } });
   if (!current) throw new Error("NOT_FOUND");
   const nextStatus = input.status.trim().toUpperCase();
+  // Hired creates an account: only lib/hiring/hire.ts does that (explicit role,
+  // invitation link). A plain save may keep an already-hired application hired.
+  if (nextStatus === "HIRED" && current.status !== "HIRED") throw new Error("HIRE_THROUGH_ACCOUNT_STEP");
+  if (current.status === "HIRED" && nextStatus !== "HIRED") throw new Error("HIRED_IS_FINAL");
   const evaluation = current.evaluation && typeof current.evaluation === "object" && !Array.isArray(current.evaluation)
     ? { ...(current.evaluation as Record<string, unknown>) }
     : {};
@@ -2640,18 +2536,6 @@ export async function updateHiringApplication(input: {
         summary: `Status: ${current.status} → ${nextStatus}`,
         data: { from: current.status, to: nextStatus },
       },
-    });
-  }
-
-  if (nextStatus === "HIRED") {
-    await createOrUpdateHiredStaffAccount({
-      applicationId: updated.id,
-      email: current.email,
-      fullName: current.fullName,
-      phone: current.phone,
-      reviewedById: input.reviewedById,
-      offerDetails: input.offerDetails ?? (current.offerDetails as Record<string, unknown> | null),
-      existingUserId: current.hiredUserId,
     });
   }
 
