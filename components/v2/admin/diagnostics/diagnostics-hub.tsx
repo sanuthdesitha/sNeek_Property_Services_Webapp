@@ -1,26 +1,20 @@
 "use client";
 
-import { useRestorableState } from "@/hooks/use-restorable-state";
-
 /**
- * Estate-native diagnostics hub — System (live 5s poll of
- * /api/admin/system/diagnostics), Email (suppression list + unsuppress), and
- * Uploads (unresolved failures). No dependency on components/{ui,admin}.
+ * The earlier Diagnostics tabs, kept inside System health (2026-11-16):
+ * Server (live 5s poll of /api/admin/system/diagnostics; was "System"),
+ * Email (suppression list; removing an address asks a tier A confirmation)
+ * and Uploads (unresolved failures). No dependency on components/{ui,admin}.
  */
 import { useEffect, useState } from "react";
-import { cn } from "@/lib/utils";
-import { Activity, Mail, Upload, RefreshCw, Loader2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { EBadge, EEmptyState, EButton, EStatCard, ECard, ECardBody } from "@/components/v2/ui/primitives";
 import { ETableShell } from "@/components/v2/admin/estate-kit";
+import { EConfirmDialog } from "@/components/v2/ui/confirm-dialog";
 
-type Tab = "system" | "email" | "uploads";
-type EmailRow = { email: string; reason: string | null; createdAt: string | null };
-type UploadRow = { id: string; reason: string; occurredAt: string | null; user: string | null; job: string | null };
+export type EmailRow = { email: string; reason: string | null; createdAt: string | null };
+export type UploadRow = { id: string; reason: string; occurredAt: string | null; user: string | null; job: string | null };
 type Band = "good" | "warn" | "bad";
-
-function bandTone(b: Band): "success" | "warning" | "danger" {
-  return b === "good" ? "success" : b === "warn" ? "warning" : "danger";
-}
 // EStatCard.deltaTone has a narrower set (no "warning").
 function deltaTone(b: Band): "success" | "danger" | "neutral" {
   return b === "good" ? "success" : b === "bad" ? "danger" : "neutral";
@@ -34,59 +28,7 @@ function fmt(ts: string | null): string {
   }
 }
 
-export function DiagnosticsHub({
-  initialTab,
-  email,
-  uploads,
-}: {
-  initialTab?: string;
-  email: EmailRow[];
-  uploads: UploadRow[];
-}) {
-  const [tab, setTab] = useRestorableState<Tab>("diagnostics-hub:tab",
-    initialTab === "email" || initialTab === "uploads" ? (initialTab as Tab) : "system"
-  );
-
-  const TABS: { key: Tab; label: string; icon: React.ReactNode; count?: number }[] = [
-    { key: "system", label: "System", icon: <Activity className="h-4 w-4" /> },
-    { key: "email", label: "Email", icon: <Mail className="h-4 w-4" />, count: email.length },
-    { key: "uploads", label: "Uploads", icon: <Upload className="h-4 w-4" />, count: uploads.length },
-  ];
-
-  return (
-    <div className="space-y-6">
-      <div className="-mx-1 overflow-x-auto px-1 pb-1">
-        <div className="inline-flex min-w-full items-center gap-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTab(t.key)}
-              className={cn(
-                "inline-flex items-center gap-2 rounded-[var(--e-radius)] px-3 py-1.5 text-[0.8125rem] font-medium transition-colors",
-                tab === t.key
-                  ? "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]"
-                  : "text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"
-              )}
-            >
-              {t.icon}
-              {t.label}
-              {t.count ? (
-                <span className="rounded-full bg-[hsl(var(--e-muted))] px-1.5 text-[0.6875rem]">{t.count}</span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {tab === "system" ? <SystemTab /> : null}
-      {tab === "email" ? <EmailTab rows={email} /> : null}
-      {tab === "uploads" ? <UploadsTab rows={uploads} /> : null}
-    </div>
-  );
-}
-
-function SystemTab() {
+export function ServerTab({ supportText }: { supportText: string | null }) {
   const [snap, setSnap] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -140,7 +82,10 @@ function SystemTab() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Auto-refreshing every 5 seconds.</p>
+        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          Auto-refreshing every 5 seconds. Stored schedules, iCal worker evidence and slow queries:{" "}
+          <a href="/admin/system/diagnostics" className="underline underline-offset-2">classic diagnostics</a>.
+        </p>
         <EButton variant="outline" size="sm" onClick={load}>
           <RefreshCw className="h-4 w-4" /> Refresh
         </EButton>
@@ -199,46 +144,94 @@ function SystemTab() {
           ))}
         </ETableShell>
       ) : null}
+
+      {supportText ? (
+        <ECard>
+          <ECardBody className="pt-6">
+            <label htmlFor="health-support-text" className="mb-2 block text-[0.75rem] font-[600] uppercase tracking-[0.12em] text-[hsl(var(--e-muted-foreground))]">Support details</label>
+            <p className="mb-2 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">The same text as &quot;Copy details for support&quot;: times, task names, counts and error text, with no passwords, keys, tokens or client details.</p>
+            <textarea id="health-support-text" readOnly value={supportText} rows={8} className="w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] p-2 font-mono text-[16px] sm:text-[0.75rem]" />
+          </ECardBody>
+        </ECard>
+      ) : null}
     </div>
   );
 }
 
-function EmailTab({ rows }: { rows: EmailRow[] }) {
-  const [list, setList] = useState(rows);
-  const [busy, setBusy] = useState<string | null>(null);
+const REASON_WORDS: Record<string, string> = {
+  HARD_BOUNCE: "Hard bounce",
+  SOFT_BOUNCE: "Soft bounce",
+  COMPLAINT: "Complaint",
+  UNSUBSCRIBED: "Unsubscribed",
+  MARKETING_OPT_OUT: "Opted out of marketing",
+};
 
-  async function unsuppress(emailAddr: string) {
-    setBusy(emailAddr);
+export function EmailTab({ rows }: { rows: EmailRow[] }) {
+  const [list, setList] = useState(rows);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  async function unsuppress() {
+    const address = confirming;
+    if (!address) return;
+    setBusy(true);
+    setError(null);
     try {
-      const res = await fetch(`/api/admin/system/email/${encodeURIComponent(emailAddr)}/unsuppress`, { method: "POST" });
-      if (res.ok) setList((l) => l.filter((r) => r.email !== emailAddr));
+      const res = await fetch(`/api/admin/system/email/${encodeURIComponent(address)}/unsuppress`, { method: "POST" });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        setError(`It was not removed: ${body?.error ?? "the server refused the request"}.`);
+        return;
+      }
+      setList((current) => current.filter((row) => row.email !== address));
+      setDone(`${address} was removed from the bounce list. Emails to it will be tried again.`);
+      setConfirming(null);
+    } catch {
+      setError("It was not removed: the server could not be reached.");
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
 
-  if (!list.length) {
-    return <EEmptyState eyebrow="Email" title="No suppressed addresses" description="Deliverability is healthy — nothing on the suppression list." />;
-  }
   return (
-    <ETableShell headers={[{ label: "Address" }, { label: "Reason" }, { label: "Since" }, { label: "", align: "right" }]}>
-      {list.map((r) => (
-        <tr key={r.email} className="border-t border-[hsl(var(--e-border))]">
-          <td className="px-4 py-2.5 font-mono text-[0.75rem]">{r.email}</td>
-          <td className="px-4 py-2.5 text-[0.8125rem]">{r.reason ?? "—"}</td>
-          <td className="px-4 py-2.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{fmt(r.createdAt)}</td>
-          <td className="px-4 py-2.5 text-right">
-            <EButton variant="outline" size="sm" disabled={busy === r.email} onClick={() => unsuppress(r.email)}>
-              {busy === r.email ? "…" : "Unsuppress"}
-            </EButton>
-          </td>
-        </tr>
-      ))}
-    </ETableShell>
+    <div className="space-y-3">
+      <p role="status" className="text-[0.8125rem]">{done}</p>
+      {!list.length ? (
+        <EEmptyState eyebrow="Email" title="No address on the bounce list" description="Nothing on the suppression list, so no address is skipped." />
+      ) : (
+        <ETableShell phoneStack headers={[{ label: "Address" }, { label: "Reason" }, { label: "Since" }, { label: "", align: "right" }]}>
+          {list.map((r) => (
+            <tr key={r.email} className="border-t border-[hsl(var(--e-border))]">
+              <td className="break-all px-4 py-2.5 font-mono text-[0.75rem]">{r.email}</td>
+              <td className="px-4 py-2.5 text-[0.8125rem]">{r.reason ? REASON_WORDS[r.reason] ?? r.reason : "—"}</td>
+              <td className="px-4 py-2.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{fmt(r.createdAt)}</td>
+              <td className="px-4 py-2.5 text-right">
+                <EButton variant="outline" size="sm" onClick={() => { setError(null); setConfirming(r.email); }}>
+                  Remove from list…
+                </EButton>
+              </td>
+            </tr>
+          ))}
+        </ETableShell>
+      )}
+      <EConfirmDialog
+        open={confirming !== null}
+        onClose={() => { if (!busy) setConfirming(null); }}
+        tier="ordinary"
+        title={`Remove ${confirming ?? ""} from the bounce list?`}
+        description="Emails to this address will be tried again."
+        confirmLabel="Remove from list"
+        busy={busy}
+        error={error}
+        onConfirm={() => unsuppress()}
+      />
+    </div>
   );
 }
 
-function UploadsTab({ rows }: { rows: UploadRow[] }) {
+export function UploadsTab({ rows }: { rows: UploadRow[] }) {
   if (!rows.length) {
     return <EEmptyState eyebrow="Uploads" title="No unresolved failures" description="Every upload has succeeded or been resolved." />;
   }

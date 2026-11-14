@@ -21,6 +21,6 @@ export const SAFEGUARD_NOTIFICATION_TYPES: readonly NotificationTypeEntry[] = [
     template: { kind: "NONE" },
     preferences: "IGNORES",
     producers: ["lib/notifications/safeguards/alerts.ts", "lib/notifications/safeguards/held.ts"],
-    notes: "One inbox notice and at most one email per incident (event id), and at most the configured number of safeguard emails per hour in total, so the alert cannot loop. The daily line is inbox only. Held messages keep their own type when released.",
+    notes: "One inbox notice and at most one email per incident (event id), and at most the configured number of safeguard emails per hour in total, so the alert cannot loop. The daily line is inbox only. A scheduled task failing twice in a row is inbox only too (one notice until it succeeds again; System health, 2026-11-16, owner default pending confirmation). Held messages keep their own type when released.",
   },
 ];

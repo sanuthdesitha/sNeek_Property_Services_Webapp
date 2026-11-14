@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { DeepCleanPlanningError, readDeepCleanPlan, scheduleDeepCleanProposal, verifyDeepCleanBaseline } from "@/lib/properties/deep-clean-planning";
+import { deepCleanPropertyDetail } from "@/lib/properties/deep-clean-queue";
 const changeSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("verify"), jobId: z.string().min(1), revision: z.number().int().nonnegative(), reviewNote: z.string().trim().min(1).max(2000), evidenceReviewed: z.literal(true) }),
   z.object({ action: z.literal("schedule"), proposalId: z.string().min(1), revision: z.number().int().nonnegative(), date: z.string().date() }),
@@ -12,11 +13,13 @@ function failure(error: unknown) {
   const status = error instanceof DeepCleanPlanningError ? error.status : message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400;
   return NextResponse.json({ error: error instanceof z.ZodError ? "Review the required fields before saving." : message }, { status });
 }
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const result = await readDeepCleanPlan(params.id);
-    return NextResponse.json({ ...result, canManage: (session.user.heldRoles ?? [session.user.role]).includes(Role.ADMIN) });
+    // ?detail=1 (Deep-clean scheduling panels): candidates with evidence counts, history, why evidence changed.
+    const detail = req.nextUrl.searchParams.get("detail") === "1" ? await deepCleanPropertyDetail(params.id) : null;
+    return NextResponse.json({ ...result, ...(detail ? { candidateDetails: detail.candidateDetails, history: detail.history, changeReason: detail.changeReason } : {}), canManage: (session.user.heldRoles ?? [session.user.role]).includes(Role.ADMIN) });
   } catch (error) { return failure(error); }
 }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {

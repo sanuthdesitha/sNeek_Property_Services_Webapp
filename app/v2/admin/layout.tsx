@@ -66,7 +66,7 @@ const NAV: NavItem[] = [
   { href: "/v2/admin/delivery-profiles", label: "Delivery profiles", icon: Truck, group: "System" },
   { href: "/v2/admin/ai", label: "AI configuration", icon: Sparkles, group: "System" },
   { href: "/v2/admin/system/test-as", label: "Test as", icon: Eye, group: "System", adminOnly: true },
-  { href: "/v2/admin/diagnostics", label: "Diagnostics", icon: ShieldCheck, group: "System", adminOnly: true },
+  { href: "/v2/admin/diagnostics", label: "System health", icon: ShieldCheck, group: "System", adminOnly: true },
 ];
 
 // Which attention count badges which nav item. Pages without an unambiguous

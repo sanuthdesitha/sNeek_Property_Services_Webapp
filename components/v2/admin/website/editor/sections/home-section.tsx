@@ -2,8 +2,12 @@
 
 import type { WebsiteContent, WebsiteFeatureCard, WebsiteHeroStat, WebsiteTestimonial } from "@/lib/public-site/content";
 import type { SectionProps } from "../types";
+import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
+import { EButton, EEyebrow } from "@/components/v2/ui/primitives";
+import { cn } from "@/lib/utils";
+import { CHANGED_OUTLINE_CLASS, ChangedField, useFieldChange } from "../changes-context";
 import {
-  ESectionCard,
+  EFoldSection,
   EImageField,
   EListItem,
   EAddRow,
@@ -20,11 +24,14 @@ export function FeatureCardsEditor({
   value,
   onChange,
   keyPrefix,
+  pathPrefix,
   uploadingKey,
   handleUpload,
   readOnly,
 }: {
   hint: string;
+  /** Content path of the list, e.g. "home.serviceBenefits" (unsaved-change marks). */
+  pathPrefix: string;
   value: WebsiteFeatureCard[];
   onChange: (next: WebsiteFeatureCard[]) => void;
   keyPrefix: string;
@@ -66,6 +73,8 @@ export function FeatureCardsEditor({
           </EField>
           <EImageField
             label="Card image"
+            path={`${pathPrefix}[${index}].imageUrl`}
+            altPath={`${pathPrefix}[${index}].imageAlt`}
             value={card.imageUrl}
             alt={card.imageAlt}
             disabled={readOnly}
@@ -86,30 +95,29 @@ export function HomeSection({ content, setContent, readOnly, uploadingKey, handl
     setContent((c) => ({ ...c, home: { ...c.home, ...p } }));
 
   return (
-    <div className="space-y-5">
-      <ESectionCard title="Hero & call to action">
-        <EField label="Eyebrow">
+    <div className="space-y-4">
+      <div className="space-y-3">
+        <ChangedField path="home.eyebrow" label="Eyebrow">
           <EInput value={home.eyebrow} disabled={readOnly} onChange={(e) => setHome({ eyebrow: e.target.value })} />
-        </EField>
-        <EField label="Headline">
-          <ETextarea rows={3} value={home.title} disabled={readOnly} onChange={(e) => setHome({ title: e.target.value })} />
-        </EField>
-        <EField label="Subtitle">
-          <ETextarea rows={3} value={home.subtitle} disabled={readOnly} onChange={(e) => setHome({ subtitle: e.target.value })} />
-        </EField>
-        <EField label="Brand idea / positioning">
-          <ETextarea rows={3} value={home.brandIdea} disabled={readOnly} onChange={(e) => setHome({ brandIdea: e.target.value })} />
-        </EField>
-        <div className="grid gap-4 md:grid-cols-2">
-          <EField label="Primary CTA label">
+        </ChangedField>
+        <ChangedField path="home.title" label="Headline">
+          <EInput value={home.title} disabled={readOnly} onChange={(e) => setHome({ title: e.target.value })} />
+        </ChangedField>
+        <ChangedField path="home.subtitle" label="Subtitle">
+          <ETextarea rows={2} value={home.subtitle} disabled={readOnly} onChange={(e) => setHome({ subtitle: e.target.value })} />
+        </ChangedField>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ChangedField path="home.primaryCtaLabel" label="Main button">
             <EInput value={home.primaryCtaLabel} disabled={readOnly} onChange={(e) => setHome({ primaryCtaLabel: e.target.value })} />
-          </EField>
-          <EField label="Secondary CTA label">
+          </ChangedField>
+          <ChangedField path="home.secondaryCtaLabel" label="Second button">
             <EInput value={home.secondaryCtaLabel} disabled={readOnly} onChange={(e) => setHome({ secondaryCtaLabel: e.target.value })} />
-          </EField>
+          </ChangedField>
         </div>
         <EImageField
           label="Hero image"
+          path="home.heroImageUrl"
+          altPath="home.heroImageAlt"
           value={home.heroImageUrl}
           alt={home.heroImageAlt}
           disabled={readOnly}
@@ -118,65 +126,71 @@ export function HomeSection({ content, setContent, readOnly, uploadingKey, handl
           onAltChange={(alt) => setHome({ heroImageAlt: alt })}
           onUpload={(file) => handleUpload("home-hero", file, (url) => setHome({ heroImageUrl: url }))}
         />
-      </ESectionCard>
+        <ChangedField path="home.brandIdea" label="Positioning line">
+          <ETextarea rows={2} value={home.brandIdea} disabled={readOnly} onChange={(e) => setHome({ brandIdea: e.target.value })} />
+        </ChangedField>
+      </div>
 
-      <ESectionCard title="Homepage stats" description="Three headline stats shown in the hero.">
+      <div className="space-y-2">
+        <EEyebrow className="text-[0.625rem]">Figures</EEyebrow>
         <StatsEditor value={home.stats} readOnly={readOnly} onChange={(stats) => setHome({ stats })} />
-      </ESectionCard>
+      </div>
 
-      <ESectionCard title="Service benefit cards">
-        <EField label="Section title">
+      <EFoldSection title="Benefit cards" changePath="home.serviceBenefits" extraPaths={["home.servicesTitle", "home.servicesIntro"]}>
+        <ChangedField path="home.servicesTitle" label="Section title">
           <EInput value={home.servicesTitle} disabled={readOnly} onChange={(e) => setHome({ servicesTitle: e.target.value })} />
-        </EField>
-        <EField label="Section intro">
+        </ChangedField>
+        <ChangedField path="home.servicesIntro" label="Section introduction">
           <ETextarea rows={3} value={home.servicesIntro} disabled={readOnly} onChange={(e) => setHome({ servicesIntro: e.target.value })} />
-        </EField>
+        </ChangedField>
         <FeatureCardsEditor
           hint="Cards under the services section"
           keyPrefix="benefit"
+          pathPrefix="home.serviceBenefits"
           value={home.serviceBenefits}
           readOnly={readOnly}
           uploadingKey={uploadingKey}
           handleUpload={handleUpload}
           onChange={(serviceBenefits) => setHome({ serviceBenefits })}
         />
-      </ESectionCard>
+      </EFoldSection>
 
-      <ESectionCard title="Hosting support cards">
-        <EField label="Section title">
+      <EFoldSection title="Hosting strip" changePath="home.hostingFeatures" extraPaths={["home.hostingTitle", "home.hostingIntro"]}>
+        <ChangedField path="home.hostingTitle" label="Section title">
           <EInput value={home.hostingTitle} disabled={readOnly} onChange={(e) => setHome({ hostingTitle: e.target.value })} />
-        </EField>
-        <EField label="Section intro">
+        </ChangedField>
+        <ChangedField path="home.hostingIntro" label="Section introduction">
           <ETextarea rows={3} value={home.hostingIntro} disabled={readOnly} onChange={(e) => setHome({ hostingIntro: e.target.value })} />
-        </EField>
+        </ChangedField>
         <FeatureCardsEditor
           hint="Cards in the Airbnb / managed-property strip"
           keyPrefix="hosting"
+          pathPrefix="home.hostingFeatures"
           value={home.hostingFeatures}
           readOnly={readOnly}
           uploadingKey={uploadingKey}
           handleUpload={handleUpload}
           onChange={(hostingFeatures) => setHome({ hostingFeatures })}
         />
-      </ESectionCard>
+      </EFoldSection>
 
-      <ESectionCard title="Testimonials & final CTA">
-        <TestimonialsEditor
-          value={home.testimonials}
-          readOnly={readOnly}
-          onChange={(testimonials) => setHome({ testimonials })}
-        />
-        <EField label="Final CTA title">
+      <EFoldSection title="Testimonials" changePath="home.testimonials">
+        <TestimonialsEditor value={home.testimonials} readOnly={readOnly} onChange={(testimonials) => setHome({ testimonials })} />
+      </EFoldSection>
+
+      <EFoldSection title="Final call to action" changePath="home.finalCtaTitle" extraPaths={["home.finalCtaBody"]}>
+        <ChangedField path="home.finalCtaTitle" label="Title">
           <EInput value={home.finalCtaTitle} disabled={readOnly} onChange={(e) => setHome({ finalCtaTitle: e.target.value })} />
-        </EField>
-        <EField label="Final CTA body">
+        </ChangedField>
+        <ChangedField path="home.finalCtaBody" label="Wording">
           <ETextarea rows={3} value={home.finalCtaBody} disabled={readOnly} onChange={(e) => setHome({ finalCtaBody: e.target.value })} />
-        </EField>
-      </ESectionCard>
+        </ChangedField>
+      </EFoldSection>
     </div>
   );
 }
 
+/** Figures as compact rows (value, label, note) with keyboard move buttons. */
 function StatsEditor({
   value,
   onChange,
@@ -189,37 +203,71 @@ function StatsEditor({
   const patch = (i: number, p: Partial<WebsiteHeroStat>) =>
     onChange(value.map((row, idx) => (idx === i ? { ...row, ...p } : row)));
   return (
-    <div className="space-y-4">
-      <EAddRow
-        hint="Headline metrics"
-        label="Add stat"
-        disabled={readOnly}
-        onAdd={() => onChange([...value, { value: "0", label: "Metric", note: "" }])}
-      />
+    <div className="space-y-2">
       {value.map((item, index) => (
-        <EListItem
+        <FigureRow
           key={index}
           index={index}
           count={value.length}
-          title={`Stat ${index + 1}`}
-          disabled={readOnly}
-          onMoveUp={() => onChange(moveItem(value, index, -1))}
-          onMoveDown={() => onChange(moveItem(value, index, 1))}
+          item={item}
+          readOnly={readOnly}
+          onPatch={(p) => patch(index, p)}
+          onMove={(dir) => onChange(moveItem(value, index, dir))}
           onRemove={() => onChange(value.filter((_, i) => i !== index))}
-        >
-          <div className="grid gap-3 md:grid-cols-3">
-            <EField label="Value">
-              <EInput value={item.value} disabled={readOnly} onChange={(e) => patch(index, { value: e.target.value })} />
-            </EField>
-            <EField label="Label">
-              <EInput value={item.label} disabled={readOnly} onChange={(e) => patch(index, { label: e.target.value })} />
-            </EField>
-            <EField label="Note">
-              <EInput value={item.note} disabled={readOnly} onChange={(e) => patch(index, { note: e.target.value })} />
-            </EField>
-          </div>
-        </EListItem>
+        />
       ))}
+      {!readOnly ? (
+        <EButton variant="outline" size="sm" onClick={() => onChange([...value, { value: "", label: "", note: "" }])}>
+          <Plus className="h-3.5 w-3.5" aria-hidden /> Add figure
+        </EButton>
+      ) : null}
+    </div>
+  );
+}
+
+function FigureRow({
+  index,
+  count,
+  item,
+  readOnly,
+  onPatch,
+  onMove,
+  onRemove,
+}: {
+  index: number;
+  count: number;
+  item: WebsiteHeroStat;
+  readOnly: boolean;
+  onPatch: (p: Partial<WebsiteHeroStat>) => void;
+  onMove: (dir: -1 | 1) => void;
+  onRemove: () => void;
+}) {
+  const change = useFieldChange(`home.stats[${index}]`);
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2 sm:flex-nowrap",
+        change.changed && CHANGED_OUTLINE_CLASS
+      )}
+    >
+      {!readOnly ? (
+        <span className="flex shrink-0 flex-col">
+          <button type="button" className="px-1 text-[hsl(var(--e-muted-foreground))] disabled:opacity-30 max-sm:min-h-[22px]" disabled={index === 0} onClick={() => onMove(-1)} aria-label={`Move figure ${index + 1} up`}>
+            <ArrowUp className="h-3 w-3" aria-hidden />
+          </button>
+          <button type="button" className="px-1 text-[hsl(var(--e-muted-foreground))] disabled:opacity-30 max-sm:min-h-[22px]" disabled={index === count - 1} onClick={() => onMove(1)} aria-label={`Move figure ${index + 1} down`}>
+            <ArrowDown className="h-3 w-3" aria-hidden />
+          </button>
+        </span>
+      ) : null}
+      <EInput aria-label={`Figure ${index + 1} value`} className="w-24 shrink-0 font-[600]" value={item.value} disabled={readOnly} onChange={(e) => onPatch({ value: e.target.value })} placeholder="4,800+" />
+      <EInput aria-label={`Figure ${index + 1} label`} className="min-w-0 flex-1" value={item.label} disabled={readOnly} onChange={(e) => onPatch({ label: e.target.value })} placeholder="turnovers this year" />
+      <EInput aria-label={`Figure ${index + 1} note`} className="min-w-0 flex-1 max-sm:basis-full" value={item.note} disabled={readOnly} onChange={(e) => onPatch({ note: e.target.value })} placeholder="Note (optional)" />
+      {!readOnly ? (
+        <EButton variant="ghost" size="icon" onClick={onRemove} aria-label={`Remove figure ${index + 1}`}>
+          <X className="h-3.5 w-3.5" aria-hidden />
+        </EButton>
+      ) : null}
     </div>
   );
 }

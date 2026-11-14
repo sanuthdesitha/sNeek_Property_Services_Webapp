@@ -28,6 +28,7 @@ import { previewLifecycleEmail, sendLifecycleEmail } from "@/lib/notifications/l
 import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
 import { assignmentLeaveConflicts } from "@/lib/accounts/leave-conflicts";
+import { assignmentDocumentWarnings } from "@/lib/workforce/assignment-document-warnings";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 export async function POST(
@@ -113,9 +114,17 @@ export async function POST(
     // confirmCompletedReset. The response names each conflict.
     const newlyAdded = userIds.filter((id) => !previousAssignedIds.includes(id));
     const leaveConflicts = await assignmentLeaveConflicts(newlyAdded, job.scheduledDate, cleaners);
-    if (leaveConflicts.length > 0 && !confirmLeaveConflict) {
+    // An expired police check or visa warns the same way (owner default
+    // 2026-11-16): the same 409 and the same "Assign anyway" override, so every
+    // existing assign dialog shows it. It never blocks and never changes who may assign.
+    const documentWarnings = await assignmentDocumentWarnings(newlyAdded, job.scheduledDate);
+    if ((leaveConflicts.length > 0 || documentWarnings.length > 0) && !confirmLeaveConflict) {
+      const lines = [
+        ...leaveConflicts.map((row) => `${row.name}: ${row.reason}`),
+        ...documentWarnings.map((row) => `${row.name}: ${row.reason}`),
+      ];
       return NextResponse.json(
-        { error: leaveConflicts.map((row) => `${row.name}: ${row.reason}`).join("; "), code: "LEAVE_CONFLICT", conflicts: leaveConflicts },
+        { error: lines.join("; "), code: "LEAVE_CONFLICT", conflicts: leaveConflicts, documentWarnings },
         { status: 409 },
       );
     }
@@ -217,6 +226,23 @@ export async function POST(
         after: { userIds, primaryUserId } as any,
       },
     });
+    if (confirmLeaveConflict && (leaveConflicts.length > 0 || documentWarnings.length > 0)) {
+      // "Assign anyway": who overrode which warnings, for the activity log.
+      await db.auditLog.create({
+        data: {
+          userId: session.user.id,
+          jobId: params.id,
+          action: "ASSIGNMENT_WARNING_OVERRIDDEN",
+          entity: "Job",
+          entityId: params.id,
+          after: {
+            leave: leaveConflicts.map((row) => ({ userId: row.userId, reason: row.reason })),
+            documents: documentWarnings.map((row) => ({ userId: row.userId, kind: row.kind, expiredOn: row.expiredOn, reason: row.reason })),
+            ...(session.impersonation ? { actualActorId: session.impersonation.actorId } : {}),
+          },
+        },
+      });
+    }
 
     const currentAssignedIds = new Set(userIds);
     const removedIds = previousAssignedIds.filter((id) => !currentAssignedIds.has(id));

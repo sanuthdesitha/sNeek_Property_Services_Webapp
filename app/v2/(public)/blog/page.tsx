@@ -6,6 +6,8 @@ import { EButton, ECard, ECardBody, EEyebrow } from "@/components/v2/ui/primitiv
 import { notFound } from "next/navigation";
 
 export const metadata = { title: "Blog · sNeek Property Services" };
+// Rendered per request so scheduled posts appear exactly at their publish time.
+export const dynamic = "force-dynamic";
 
 export default async function V2BlogIndexPage() {
   const posts = await listPublishedBlogPosts().catch(() => []);

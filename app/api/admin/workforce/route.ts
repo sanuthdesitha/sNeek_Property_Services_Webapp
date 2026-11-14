@@ -179,6 +179,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, result });
       }
       case "REVIEW_DOCUMENT": {
+        // Reviews are the reviewer's own decisions: never recorded while testing as someone else.
+        if (session.impersonation) {
+          return NextResponse.json({ error: "Documents cannot be reviewed while testing as someone else." }, { status: 403 });
+        }
+        // A rejection is explained to the person who uploaded it (board "Workforce").
+        if (String(body.status ?? "") === "REJECTED" && !(typeof body.notes === "string" && body.notes.trim())) {
+          return NextResponse.json({ error: "Say why it is rejected; the person sees this reason." }, { status: 400 });
+        }
         const result = await reviewStaffDocument({
           documentId: String(body.documentId ?? ""),
           reviewerId: session.user.id,

@@ -9,7 +9,11 @@
  */
 import * as React from "react";
 import type { WebsiteContent } from "@/lib/public-site/content";
+import type { PreviewBlock } from "@/lib/public-site/website-draft";
 import { EBadge } from "@/components/v2/ui/primitives";
+
+/** Dashed gold outline on the block an unsaved change touches (board "Website and blog"). */
+const HIGHLIGHT_CLASS = "outline outline-2 outline-dashed outline-offset-2 outline-[hsl(var(--e-gold))]";
 
 function SectionHeading({ eyebrow, title, intro }: { eyebrow?: string; title: string; intro?: string }) {
   return (
@@ -45,8 +49,13 @@ function FeatureGrid({ cards }: { cards: WebsiteContent["home"]["serviceBenefits
   );
 }
 
-export function WebsitePreviewRender({ content }: { content: WebsiteContent }) {
+export function WebsitePreviewRender({ content, highlight = [] }: { content: WebsiteContent; highlight?: PreviewBlock[] }) {
   const { announcementBar: ab, maintenanceMode, home, contact, footer, whyChooseUs, faq, gallery } = content;
+  const mark = (block: PreviewBlock) => ({
+    "data-preview-block": block,
+    "data-preview-changed": highlight.includes(block) ? "true" : undefined,
+  });
+  const hl = (block: PreviewBlock) => (highlight.includes(block) ? ` ${HIGHLIGHT_CLASS}` : "");
 
   if (maintenanceMode.enabled) {
     return (
@@ -66,7 +75,7 @@ export function WebsitePreviewRender({ content }: { content: WebsiteContent }) {
     <div className="pb-16">
       {/* Announcement bar */}
       {ab.enabled ? (
-        <div className="border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-primary))] px-6 py-2 text-center text-[0.8125rem] text-[hsl(var(--e-primary-foreground))]">
+        <div {...mark("announcement")} className={"border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-primary))] px-6 py-2 text-center text-[0.8125rem] text-[hsl(var(--e-primary-foreground))]" + hl("announcement")}>
           {ab.promoMessage}
           {ab.promoLink ? <span className="ml-1 font-semibold underline">{ab.promoLinkLabel || "Book now →"}</span> : null}
           <div className="mt-1 flex flex-wrap justify-center gap-x-4 gap-y-1 text-[0.6875rem] opacity-90">
@@ -79,7 +88,7 @@ export function WebsitePreviewRender({ content }: { content: WebsiteContent }) {
       ) : null}
 
       {/* Hero */}
-      <section className="grid items-center gap-8 px-6 py-14 lg:grid-cols-2 lg:px-10">
+      <section {...mark("hero")} className={"grid items-center gap-8 px-6 py-14 lg:grid-cols-2 lg:px-10" + hl("hero")}>
         <div>
           {home.eyebrow ? <p className="e-eyebrow mb-3">{home.eyebrow}</p> : null}
           <h1 className="e-display-lg">{home.title}</h1>
@@ -110,7 +119,7 @@ export function WebsitePreviewRender({ content }: { content: WebsiteContent }) {
 
       {/* Stats */}
       {home.stats.length ? (
-        <section className="border-y border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-6 py-8 lg:px-10">
+        <section {...mark("stats")} className={"border-y border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-6 py-8 lg:px-10" + hl("stats")}>
           <div className="grid gap-6 sm:grid-cols-3">
             {home.stats.map((s, i) => (
               <div key={i} className="text-center">
@@ -124,20 +133,20 @@ export function WebsitePreviewRender({ content }: { content: WebsiteContent }) {
       ) : null}
 
       {/* Service benefits */}
-      <section className="px-6 py-14 lg:px-10">
+      <section {...mark("benefits")} className={"px-6 py-14 lg:px-10" + hl("benefits")}>
         <SectionHeading title={home.servicesTitle} intro={home.servicesIntro} />
         <FeatureGrid cards={home.serviceBenefits} />
       </section>
 
       {/* Hosting features */}
-      <section className="bg-[hsl(var(--e-surface-raised))] px-6 py-14 lg:px-10">
+      <section {...mark("hosting")} className={"bg-[hsl(var(--e-surface-raised))] px-6 py-14 lg:px-10" + hl("hosting")}>
         <SectionHeading title={home.hostingTitle} intro={home.hostingIntro} />
         <FeatureGrid cards={home.hostingFeatures} />
       </section>
 
       {/* Why choose us */}
       {whyChooseUs.items.length ? (
-        <section className="px-6 py-14 lg:px-10">
+        <section {...mark("why")} className={"px-6 py-14 lg:px-10" + hl("why")}>
           <SectionHeading title={whyChooseUs.title} intro={whyChooseUs.intro} />
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {whyChooseUs.items.map((item) => (
@@ -155,7 +164,7 @@ export function WebsitePreviewRender({ content }: { content: WebsiteContent }) {
 
       {/* Testimonials */}
       {home.testimonials.length ? (
-        <section className="bg-[hsl(var(--e-surface-raised))] px-6 py-14 lg:px-10">
+        <section {...mark("testimonials")} className={"bg-[hsl(var(--e-surface-raised))] px-6 py-14 lg:px-10" + hl("testimonials")}>
           <div className="grid gap-5 lg:grid-cols-3">
             {home.testimonials.map((t, i) => (
               <figure key={i} className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-6">
@@ -172,7 +181,7 @@ export function WebsitePreviewRender({ content }: { content: WebsiteContent }) {
 
       {/* Gallery */}
       {gallery.items.some((g) => g.imageUrl) ? (
-        <section className="px-6 py-14 lg:px-10">
+        <section {...mark("gallery")} className={"px-6 py-14 lg:px-10" + hl("gallery")}>
           <SectionHeading title={gallery.title} intro={gallery.intro} />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {gallery.items
@@ -195,7 +204,7 @@ export function WebsitePreviewRender({ content }: { content: WebsiteContent }) {
 
       {/* FAQ */}
       {faq.items.length ? (
-        <section className="bg-[hsl(var(--e-surface-raised))] px-6 py-14 lg:px-10">
+        <section {...mark("faq")} className={"bg-[hsl(var(--e-surface-raised))] px-6 py-14 lg:px-10" + hl("faq")}>
           <SectionHeading title={faq.title} intro={faq.intro} />
           <div className="mx-auto max-w-3xl space-y-3">
             {faq.items.map((item) => (
@@ -212,13 +221,13 @@ export function WebsitePreviewRender({ content }: { content: WebsiteContent }) {
       ) : null}
 
       {/* Final CTA */}
-      <section className="px-6 py-16 text-center lg:px-10">
+      <section {...mark("final")} className={"px-6 py-16 text-center lg:px-10" + hl("final")}>
         <h2 className="e-display-md mx-auto max-w-2xl">{home.finalCtaTitle}</h2>
         <p className="mx-auto mt-3 max-w-xl text-[0.9375rem] text-[hsl(var(--e-muted-foreground))]">{home.finalCtaBody}</p>
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-[hsl(var(--e-border))] px-6 py-10 lg:px-10">
+      <footer {...mark("footer")} className={"border-t border-[hsl(var(--e-border))] px-6 py-10 lg:px-10" + hl("footer")}>
         <div className="grid gap-6 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))] sm:grid-cols-3">
           <p>{footer.blurb}</p>
           <p>{footer.areas}</p>

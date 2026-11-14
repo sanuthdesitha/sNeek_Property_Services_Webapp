@@ -131,8 +131,8 @@ export function HiringPipeline({
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
+      <header className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
           <h1 className="e-display-md">Hiring</h1>
           <p className="mt-1 text-[0.9375rem] text-[hsl(var(--e-muted-foreground))] max-sm:hidden">
             Applications for open roles, from new to hired. A hire becomes a staff account through the same invitation as Invite person.
@@ -141,7 +141,7 @@ export function HiringPipeline({
             {figures[1]?.value} in the pipeline · {figures[2]?.value} need a first look · {figures[3]?.value} interviews this week
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 max-sm:hidden">
+        <div className="flex shrink-0 items-center gap-2 pt-1 max-sm:hidden">
           <EButton variant="outline" size="sm" onClick={copyCareersLink}>Copy careers link</EButton>
           <EButton size="sm" onClick={createRole} disabled={creating}>{creating ? "Creating…" : "New role"}</EButton>
         </div>
@@ -311,7 +311,7 @@ function PipelineCard({ card, onMove, draggable = false }: { card: HubCard; onMo
       bodyClassName="px-3 py-2"
       header={
         <div className="min-w-0">
-          <Link href={`/v2/admin/hiring/applications/${card.id}`} className="block truncate text-[0.875rem] font-semibold underline-offset-2 hover:underline">
+          <Link href={`/v2/admin/hiring/applications/${card.id}`} className="block break-words text-[0.875rem] font-semibold leading-snug underline-offset-2 hover:underline">
             {card.name}
           </Link>
           <p className="truncate text-[0.75rem] opacity-80">{card.subtitle}</p>

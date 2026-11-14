@@ -53,8 +53,21 @@ function sanitizeProfile(value: unknown): ClientDeliveryProfile | null {
   };
 }
 
-async function readStore(): Promise<StoredData> {
-  const row = await db.appSetting.findUnique({ where: { key: DELIVERY_PROFILES_KEY } });
+type StoreClient = Pick<typeof db, "appSetting">;
+
+/**
+ * Someone saved this client's profile after the editor loaded it (stale-write
+ * guard, 2026-11-16). Carries the profile as it is now so the editor can
+ * offer "keep mine" or "load theirs".
+ */
+export class DeliveryProfileConflictError extends Error {
+  constructor(public current: ClientDeliveryProfile | null) {
+    super("Someone else changed this client's delivery profile.");
+  }
+}
+
+async function readStore(client: StoreClient = db): Promise<StoredData> {
+  const row = await client.appSetting.findUnique({ where: { key: DELIVERY_PROFILES_KEY } });
   const value = row?.value;
   if (!value || typeof value !== "object" || Array.isArray(value)) return { profiles: [] };
   const profiles = Array.isArray((value as any).profiles)
@@ -65,8 +78,8 @@ async function readStore(): Promise<StoredData> {
   return { profiles };
 }
 
-async function writeStore(data: StoredData) {
-  await db.appSetting.upsert({
+async function writeStore(data: StoredData, client: StoreClient = db) {
+  await client.appSetting.upsert({
     where: { key: DELIVERY_PROFILES_KEY },
     create: { key: DELIVERY_PROFILES_KEY, value: { profiles: data.profiles } as any },
     update: { value: { profiles: data.profiles } as any },
@@ -83,6 +96,14 @@ export async function getClientDeliveryProfile(clientId: string) {
   return profiles.find((profile) => profile.clientId === clientId) ?? null;
 }
 
+/**
+ * Every profile lives in one stored document, so a save locks it (advisory
+ * transaction lock) and re-reads it: two people saving different clients at
+ * once can no longer overwrite each other. When `expectedUpdatedAt` is given
+ * (null = "no profile when I loaded it"), a save over a newer profile is
+ * refused with DeliveryProfileConflictError; older callers that omit it keep
+ * the last-write behaviour.
+ */
 export async function upsertClientDeliveryProfile(input: {
   clientId: string;
   reportRecipients?: string[];
@@ -90,9 +111,21 @@ export async function upsertClientDeliveryProfile(input: {
   autoSendReports?: boolean;
   autoSendInvoices?: boolean;
   updatedByUserId?: string | null;
+  expectedUpdatedAt?: string | null;
 }) {
-  const store = await readStore();
+  return db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${DELIVERY_PROFILES_KEY}))`;
+    return upsertInStore(tx, input);
+  });
+}
+
+async function upsertInStore(client: StoreClient, input: Parameters<typeof upsertClientDeliveryProfile>[0]) {
+  const store = await readStore(client);
   const index = store.profiles.findIndex((profile) => profile.clientId === input.clientId);
+  if (input.expectedUpdatedAt !== undefined) {
+    const current = index >= 0 ? store.profiles[index] : null;
+    if ((current?.updatedAt ?? null) !== input.expectedUpdatedAt) throw new DeliveryProfileConflictError(current);
+  }
   const existing =
     index >= 0
       ? store.profiles[index]
@@ -133,7 +166,7 @@ export async function upsertClientDeliveryProfile(input: {
   } else {
     store.profiles.push(updated);
   }
-  await writeStore(store);
+  await writeStore(store, client);
   return updated;
 }
 

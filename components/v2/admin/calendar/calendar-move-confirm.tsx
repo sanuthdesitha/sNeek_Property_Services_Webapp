@@ -16,6 +16,7 @@ const WARNING_PREFIX: Record<MoveWarning["kind"], string> = {
   clash: "Clash",
   unavailable: "Roster",
   leave: "Leave",
+  document: "Document",
   booking: "Booking",
   notice: "Note",
 };
@@ -67,7 +68,7 @@ export function MoveCheckBody({ state }: { state: MoveState }) {
         check.warnings.length > 0 ? (
           <ul className="space-y-1.5 text-[0.8125rem]">
             {check.warnings.map((warning) => (
-              <li key={`${warning.kind}:${warning.text}`} className={warning.kind === "clash" || warning.kind === "unavailable" || warning.kind === "leave" ? "text-[hsl(var(--e-warning))]" : "text-[hsl(var(--e-text-secondary))]"}>
+              <li key={`${warning.kind}:${warning.text}`} className={warning.kind === "clash" || warning.kind === "unavailable" || warning.kind === "leave" || warning.kind === "document" ? "text-[hsl(var(--e-warning))]" : "text-[hsl(var(--e-text-secondary))]"}>
                 <span className="font-[600]">{WARNING_PREFIX[warning.kind]}:</span> {warning.text}
               </li>
             ))}

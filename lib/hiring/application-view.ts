@@ -73,6 +73,18 @@ function text(value: unknown): string {
   return String(value);
 }
 
+const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** "Mon, Tue, Wed, Thu, Fri" → "Mon–Fri" when the days run on; otherwise as answered. */
+export function dayRange(value: unknown): string {
+  const days = Array.isArray(value) ? value.map(String) : [];
+  const positions = days.map((day) => WEEK.indexOf(day)).filter((index) => index >= 0).sort((a, b) => a - b);
+  if (positions.length >= 3 && positions.length === days.length && positions.every((day, index) => index === 0 || day === positions[index - 1] + 1)) {
+    return `${WEEK[positions[0]]}–${WEEK[positions[positions.length - 1]]}`;
+  }
+  return text(value);
+}
+
 function humanKey(key: string): string {
   return key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
 }
@@ -168,7 +180,7 @@ export async function loadApplicationView(applicationId: string, creator: Resolv
   };
 
   const emailsNote = application.lastReplyAt ? `last reply ${day(application.lastReplyAt)}` : application.lastEmailedAt ? `last sent ${day(application.lastEmailedAt)}` : "none yet";
-  const days = text(answers.availabilityDays);
+  const days = dayRange(answers.availabilityDays);
   const facts: Fact[] = [
     { label: "Knowledge test", value: score !== null ? `${Math.round(score)}%` : "Not done", note: score !== null ? `pass mark ${passMark}%${toReview ? ` · ${toReview} answer${toReview === 1 ? "" : "s"} to review` : ""}` : "no score recorded" },
     { label: "Emails", value: `${application.emailsSent} sent · ${application.repliesReceived} repl${application.repliesReceived === 1 ? "y" : "ies"}`, note: emailsNote },

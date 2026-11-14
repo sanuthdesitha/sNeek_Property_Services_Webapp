@@ -7,6 +7,7 @@
  * invoice's status and only restamps when it was sent.
  */
 import { useState } from "react";
+import Link from "next/link";
 import { toast } from "@/hooks/use-toast";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EField, EInput, EModal, ESwitch } from "@/components/v2/admin/estate-kit";
@@ -83,7 +84,18 @@ export function SendInvoiceDialog({
           <iframe title="Invoice preview" src={pdfHref(invoice.id)} className="h-[46vh] w-full" />
         </div>
         <fieldset disabled={sending} className="space-y-4">
-          <EField label="Send to email" hint="Leave blank to use the client's delivery profile.">
+          <EField
+            label="Send to email"
+            hint={
+              <>
+                Leave blank to use the client&apos;s delivery profile.{" "}
+                {/* Delivery profiles (2026-11-16): who gets this client's invoices. */}
+                <Link href={`/v2/admin/delivery-profiles?client=${encodeURIComponent(invoice.client.id)}`} className="font-medium underline underline-offset-2">
+                  Change recipients
+                </Link>
+              </>
+            }
+          >
             <EInput
               type="email"
               aria-label="Send to email"

@@ -442,6 +442,26 @@ enum TwoFactorMethod {
 /// A device the user chose to "remember", so 2FA isn't prompted again on it for
 /// the cookie's lifetime. We store only a SHA-256 hash of the random token; the
 /// raw token lives in an httpOnly cookie on the device.
+/// One recorded sign-in (a session token carries its id as `sid`). Lets a
+/// person see where they are signed in and sign out everywhere else; a revoked
+/// row makes its token refused on the next request. Device and place are only
+/// what the browser sent at sign-in (user agent); nothing is guessed.
+model UserSignIn {
+  id           String    @id @default(cuid())
+  userId       String
+  /// PASSWORD | PASSKEY
+  method       String
+  userAgent    String?   @db.Text
+  createdAt    DateTime  @default(now())
+  lastActiveAt DateTime  @default(now())
+  revokedAt    DateTime?
+  revokedById  String?
+
+  user User @relation("UserSignInUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+}
+
 model TrustedDevice {
   id         String    @id @default(cuid())
   userId     String
@@ -794,6 +814,13 @@ model User {
   twoFactorMethod      TwoFactorMethod?
   totpSecret           String? // base32 secret (TOTP method only)
   twoFactorBackupCodes String? // JSON array of sha256-hashed one-time codes
+  /// When the "two-step sign-in is required for administrators" grace period
+  /// started for this person (first admin page seen without two-step on).
+  /// Null: never prompted. See lib/auth/two-step-policy.ts.
+  twoStepRequiredSince DateTime?
+  /// "Sign out everywhere else": a session token issued before this instant
+  /// that carries no recorded sign-in (UserSignIn) is refused.
+  sessionsValidFrom    DateTime?
 
   profileEditingEnabled Boolean  @default(true)
   bankBsb               String?
@@ -824,6 +851,7 @@ model User {
   qaReworkReviewed             QaReworkTransfer[]          @relation("QaReworkReviewedBy")
   webauthnCredentials          WebAuthnCredential[]
   trustedDevices               TrustedDevice[]
+  signIns                      UserSignIn[]                @relation("UserSignInUser")
   pushSubscriptions            PushSubscription[]
   maintenanceReported          PropertyMaintenanceItem[]   @relation("MaintenanceReportedBy")
   maintenanceResolved          PropertyMaintenanceItem[]   @relation("MaintenanceResolvedBy")

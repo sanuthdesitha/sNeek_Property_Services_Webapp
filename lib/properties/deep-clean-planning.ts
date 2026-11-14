@@ -181,3 +181,39 @@ export async function listDeepCleanProposals(cursor?: string, now = new Date()) 
   const proposals = await Promise.all(plans.filter(plan => plan.proposal?.status === "NEEDS_SCHEDULING" && names.has(plan.propertyId)).map(async plan => ({ propertyId: plan.propertyId, propertyName: names.get(plan.propertyId)!, revision: plan.revision, proposal: plan.proposal!, baselineValid: await baselineIsCurrent(db, plan, now) })));
   return { proposals, nextCursor: rows.length === 100 ? rows[rows.length - 1].key : null };
 }
+
+/* ── Read helpers for the scheduling queue and reminder (2026-11-16) ──────────
+ * Additive and read only: the rule above (verify → +3 months → undated
+ * proposal → an administrator chooses the day → one draft job) is unchanged.
+ */
+export type StoredDeepCleanPlan = { propertyId: string; plan: DeepCleanPlan | null; invalid: boolean };
+
+/** Every stored plan; one that does not decode is reported, not skipped silently. */
+export async function listStoredDeepCleanPlans(): Promise<StoredDeepCleanPlan[]> {
+  const rows = await db.appSetting.findMany({ where: { key: { startsWith: DEEP_CLEAN_PLAN_PREFIX } }, orderBy: { key: "asc" }, select: { key: true, value: true } });
+  return rows.map(row => {
+    const propertyId = row.key.slice(DEEP_CLEAN_PLAN_PREFIX.length);
+    try { return { propertyId, plan: decode(row.value, propertyId), invalid: false }; }
+    catch (error) { if (error instanceof DeepCleanPlanningError) return { propertyId, plan: null, invalid: true }; throw error; }
+  });
+}
+
+/** The same check the scheduler and Choose date use, with why the evidence no longer matches. */
+export async function deepCleanBaselineStatus(plan: DeepCleanPlan, now = new Date()): Promise<{ current: boolean; reason: string | null }> {
+  if (!plan.baseline) return { current: false, reason: null };
+  if (await baselineIsCurrent(db, plan, now)) return { current: true, reason: null };
+  try {
+    const found = await evidence(db, plan.propertyId, plan.baseline.jobId, now);
+    if (!plan.baseline.proofKeys.every(key => found.proofKeys.includes(key))) return { current: false, reason: "a photo or video was removed after verifying" };
+    if (found.submission.id !== plan.baseline.submissionId) return { current: false, reason: "the job was submitted again after verifying" };
+    if ((found.qa?.id ?? null) !== plan.baseline.qaReviewId) return { current: false, reason: "a newer QA review was recorded after verifying" };
+    return { current: false, reason: "the completion time changed after verifying" };
+  } catch (error) {
+    if (error instanceof DeepCleanPlanningError) {
+      if (error.code === "PROOF_REQUIRED") return { current: false, reason: "the submitted photos or video are no longer there" };
+      if (error.code === "QA_FAILED") return { current: false, reason: "the QA review no longer passes" };
+      return { current: false, reason: "the job is no longer a completed deep clean for this property" };
+    }
+    throw error;
+  }
+}

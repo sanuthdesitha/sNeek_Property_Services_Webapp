@@ -1,4 +1,4 @@
-/** Wording for office.reports_generated, office.ical_alerts, agent.action_request, xero.reconnect_needed and leads.alerts. */
+/** Wording for office.reports_generated, office.ical_alerts, agent.action_request, xero.reconnect_needed, property.deep_clean_due and leads.alerts. */
 import { editable, inbox, line, part } from "./build";
 
 const ICAL_EMAIL = `
@@ -92,6 +92,10 @@ export const AGENT_REQUEST_WORDING = editable("agent.action_request", [
 
 export const EMAIL_DESIGN_PUBLISHED_WORDING = editable("email.design_published", [
   inbox("published", "Email design published", "Email changed: {{emailName}}", "{{actorName}} published version {{version}} of the email \"{{emailName}}\". {{changeSummary}} The next emails use it.", { required: ["emailName", "version"], note: "Inbox only, to the other active administrators." }),
+]);
+
+export const DEEP_CLEAN_DUE_WORDING = editable("property.deep_clean_due", [
+  inbox("due", "Deep clean due", "Deep clean due: {{propertyName}}", "{{propertyName}} is due a deep clean on {{dueDay}}, three months after its verified deep clean on {{baselineDay}}. Choose the day in Deep-clean scheduling; nothing is booked until you do.", { required: ["propertyName", "dueDay"], note: "Inbox only, to administrators, once per proposal." }),
 ]);
 
 export const XERO_RECONNECT_WORDING = editable("xero.reconnect_needed", [

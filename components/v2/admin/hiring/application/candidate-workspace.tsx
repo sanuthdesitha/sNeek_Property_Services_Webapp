@@ -164,8 +164,8 @@ export function CandidateWorkspace({ view, smsReady, isAdmin }: { view: Applicat
   return (
     <OfferDraftContext.Provider value={{ offer, setOffer }}>
     <div className="flex min-w-0 flex-col gap-4">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+      <header className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
           <p className="e-eyebrow"><Link href="/v2/admin/hiring" className="underline-offset-2 hover:underline">← Hiring</Link></p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <h1 className="e-display-md break-words">{view.name}</h1>
@@ -173,7 +173,7 @@ export function CandidateWorkspace({ view, smsReady, isAdmin }: { view: Applicat
           </div>
           <p className="mt-1 break-words text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">{view.intro}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 max-sm:hidden">
+        <div className="flex shrink-0 items-center gap-2 pt-4 max-sm:hidden">
           <EButton variant="outline" size="sm" onClick={() => setEmailOpen(true)}>Email…</EButton>
           {decision.primary ? <EButton size="sm" onClick={decision.primary.onClick} disabled={decision.primary.disabled}>{decision.primary.label}</EButton> : null}
           {menuItems.length ? <ERowMenu label={`More actions for ${view.name}`} items={menuItems} trigger="More ▾" triggerVariant="outline" /> : null}
@@ -261,7 +261,7 @@ export function CandidateWorkspace({ view, smsReady, isAdmin }: { view: Applicat
                 <li key={row.id} className="grid grid-cols-1 gap-1 py-2 sm:grid-cols-[9rem_minmax(0,1fr)] sm:gap-4">
                   <span className="e-tnum text-[hsl(var(--e-muted-foreground))]">{row.at}</span>
                   <div className="min-w-0">
-                    <p className="break-words">{row.summary}{row.from && row.to ? <> · <EPill>{row.from}</EPill> → <EPill tone="gold">{row.to}</EPill></> : null}</p>
+                    <p className="break-words">{row.summary}{row.from && row.to && !row.summary.includes("→") ? <> · <EPill>{row.from}</EPill> → <EPill tone="gold">{row.to}</EPill></> : null}</p>
                     {row.body ? <p className="mt-1 whitespace-pre-line rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-surface-raised))] p-2 text-[0.75rem]">{row.body}</p> : null}
                   </div>
                 </li>
@@ -271,14 +271,15 @@ export function CandidateWorkspace({ view, smsReady, isAdmin }: { view: Applicat
           </Section>
         </div>
 
-        <aside aria-label="Decision" className="min-w-0 space-y-4 lg:sticky lg:top-4 lg:self-start">
+        <aside aria-label="Decision" className={`min-w-0 space-y-4 lg:sticky lg:top-4 lg:self-start ${view.status === "HIRED" || hire.status === "done" ? "max-sm:order-first" : ""}`}>
           <div className={view.status === "HIRED" ? "" : "max-sm:hidden"}>{decision.card}</div>
           {hire.status === "done" ? (
             <HiredResult outcome={hire.outcome} link={hire.link} linkError={hire.linkError} onCopy={copyLink} first={first} />
           ) : view.hired ? (
             <HiredCard view={view} onCopy={copyLink} onResend={resend} />
           ) : view.status !== "REJECTED" && view.status !== "WITHDRAWN" ? (
-            <HirePreviewCard view={view} sendSms={sendSms} onSms={setSendSms} smsReason={smsReason} onHire={() => setHireOpen(true)} officeKind={officeKind} isAdmin={isAdmin} />
+            // On a phone the hire sheet itself lists what will be created (board "Hiring on a phone").
+            <div className="max-sm:hidden"><HirePreviewCard view={view} sendSms={sendSms} onSms={setSendSms} smsReason={smsReason} onHire={() => setHireOpen(true)} officeKind={officeKind} isAdmin={isAdmin} /></div>
           ) : null}
           {view.preview.emailInUse && !view.hired ? (
             <EToneCard tone="problem" header={<div><p className="font-semibold">If the email is already in use</p><p className="text-[0.75rem] opacity-80">Checked before you confirm</p></div>} pill="Cannot hire">
@@ -338,7 +339,7 @@ export function CandidateWorkspace({ view, smsReady, isAdmin }: { view: Applicat
   );
 }
 
-type Action = { label: string; onClick: () => void; disabled?: boolean };
+type Action = { label: string; onClick: () => void; disabled?: boolean; variant?: "primary" | "outline" };
 
 function stageDecision(
   view: ApplicationView,
@@ -375,7 +376,7 @@ function stageDecision(
             title="Offer made"
             subtitle={[view.offer.rate, view.offer.startDate ? `start ${view.offer.startDate}` : null].filter(Boolean).join(" · ") || "Offer details not set"}
             pill={view.stages[3]?.note?.startsWith("Sent") ? "Waiting on reply" : "Send the offer"}
-            actions={[decline]}
+            actions={[{ ...decline, variant: "outline" }]}
             note="When they accept, mark them hired below. Nothing happens until you confirm."
           />
         ),
@@ -396,7 +397,7 @@ function DecisionCard({ title, subtitle, pill, actions, note }: { title: string;
     <EToneCard tone="attention" header={<div><p className="font-semibold">{title}</p><p className="text-[0.75rem] opacity-80">{subtitle}</p></div>} pill={pill}>
       <div className="flex flex-wrap gap-2">
         {actions.map((action, index) => (
-          <EButton key={action.label} size="sm" variant={index === 0 ? "primary" : "outline"} onClick={action.onClick} disabled={action.disabled} className={index === 0 ? "flex-1" : undefined}>{action.label}</EButton>
+          <EButton key={action.label} size="sm" variant={action.variant ?? (index === 0 ? "primary" : "outline")} onClick={action.onClick} disabled={action.disabled} className={index === 0 ? "flex-1" : undefined}>{action.label}</EButton>
         ))}
       </div>
       {note ? <p className="mt-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{note}</p> : null}
@@ -711,8 +712,8 @@ function InterviewSection({ view, onMessage }: { view: ApplicationView; onMessag
     <Section title="Interview" aside={view.interview.label} summary={`${view.interview.label}${notes ? " · notes" : ""}${scored ? ` · ${scored} scores` : ""}`}>
       <fieldset disabled={saving} className="space-y-3">
         <legend className="sr-only">Interview</legend>
-        <EField label="Date and time">
-          <EInput type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} className="sm:max-w-xs max-sm:text-[16px]" />
+        <EField label="Date and time" className="sm:max-w-xs">
+          <EInput type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} className="max-sm:text-[16px]" />
         </EField>
         <EField label="Notes">
           <ETextarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="max-sm:text-[16px]" />

@@ -87,7 +87,7 @@ export function cardBand(facts: CardFacts, now: Date): { tone: CardTone; pill: s
       return { tone: "info", pill: "Booked" };
     }
     case "OFFER": {
-      if (!facts.offerSentAt) return { tone: "attention", pill: "Offer not sent" };
+      if (!facts.offerSentAt) return { tone: "attention", pill: "Send offer" };
       const waited = Math.floor((now.getTime() - new Date(facts.offerSentAt).getTime()) / 86_400_000);
       const replied = facts.lastReplyAt && facts.lastReplyAt > facts.offerSentAt;
       if (replied) return { tone: "attention", pill: "Replied" };

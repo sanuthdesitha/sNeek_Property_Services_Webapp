@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { blogRouteError } from "@/lib/public-site/blog-route-errors";
 
 const schema = z.object({
   slug: z.string().trim().min(2).max(160).optional(),
@@ -18,32 +19,39 @@ const schema = z.object({
 });
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-  const body = schema.parse(await req.json());
-  const updated = await db.blogPost.update({
-    where: { id: params.id },
-    data: {
-      ...body,
-      coverImageUrl: body.coverImageUrl === undefined ? undefined : body.coverImageUrl || null,
-      publishedAt:
-        body.isPublished === true
-          ? body.publishedAt
+  try {
+    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const body = schema.parse(await req.json());
+    const updated = await db.blogPost.update({
+      where: { id: params.id },
+      data: {
+        ...body,
+        coverImageUrl: body.coverImageUrl === undefined ? undefined : body.coverImageUrl || null,
+        // A future time schedules the post: public reads hide it until then
+        // (lib/public-site/blog-visibility). Publishing without a time means now;
+        // a draft may keep a planned time (it is not public either way).
+        publishedAt:
+          body.publishedAt
             ? new Date(body.publishedAt)
-            : new Date()
-          : body.isPublished === false
-            ? null
-            : body.publishedAt === undefined
-              ? undefined
-              : body.publishedAt
-                ? new Date(body.publishedAt)
-                : null,
-    },
-  });
-  return NextResponse.json(updated);
+            : body.isPublished === true
+              ? new Date()
+              : body.publishedAt === null
+                ? null
+                : undefined,
+      },
+    });
+    return NextResponse.json(updated);
+  } catch (error) {
+    return blogRouteError(error, "The post was not saved.");
+  }
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-  await db.blogPost.delete({ where: { id: params.id } });
-  return NextResponse.json({ ok: true });
+  try {
+    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    await db.blogPost.delete({ where: { id: params.id } });
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return blogRouteError(error, "The post was not deleted.");
+  }
 }

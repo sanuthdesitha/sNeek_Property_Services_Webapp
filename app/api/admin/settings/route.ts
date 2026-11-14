@@ -8,6 +8,9 @@ import { db } from "@/lib/db";
 import { z } from "zod";
 import { EMAIL_TEMPLATE_KEYS, getDefaultEmailTemplates } from "@/lib/email-templates";
 import { NOTIFICATION_TEMPLATE_KEYS } from "@/lib/notification-templates";
+import { sanitizeWebsiteContent } from "@/lib/public-site/content";
+import { altTextRefusal, missingImageAltText } from "@/lib/public-site/website-draft";
+import { WebsiteChangedError, findWebsitePublication, websiteContentRevision } from "@/lib/public-site/website-publish";
 
 const rolePolicySchema = z.object({
   canEditName: z.boolean(),
@@ -181,6 +184,8 @@ const updateSchema = z.object({
   accountsEmail: z.string().trim().email().optional(),
   timezone: z.string().trim().min(1).optional(),
   websiteContent: z.any().optional(),
+  /** The website revision the editor's draft started from (stale-write guard). */
+  websiteRevision: z.string().trim().min(1).max(64).optional(),
   smsProvider: z.enum(["none", "twilio", "cellcast"]).optional(),
   reminder24hHours: z.number().int().min(1).max(168).optional(),
   reminder2hHours: z.number().int().min(1).max(48).optional(),
@@ -338,7 +343,45 @@ export async function PATCH(req: NextRequest) {
     if (rawTemplateEdit.length) {
       return NextResponse.json({ error: `These emails are edited as blocks now, in Notifications, Types and wording (Email design): ${rawTemplateEdit.join(", ")}. Raw HTML was not saved; nothing else changed.`, code: "moved_to_design" }, { status: 409 });
     }
-    const settings = await saveAppSettings(body as any);
+    // Website publishing (2026-11-16): every image needs alt text before the
+    // website content is saved, and an editor that names the revision it
+    // started from is refused when someone else published in the meantime.
+    const { websiteRevision, ...settingsInput } = body;
+    const incomingWebsite = settingsInput.websiteContent !== undefined ? sanitizeWebsiteContent(settingsInput.websiteContent, before.websiteContent) : null;
+    // Only a change to the website is checked: a whole-settings save that sends
+    // the stored content back unchanged is not a website publish.
+    if (incomingWebsite && websiteContentRevision(incomingWebsite) !== websiteContentRevision(before.websiteContent)) {
+      const issues = missingImageAltText(incomingWebsite);
+      if (issues.length > 0) {
+        return NextResponse.json({ error: altTextRefusal(issues), code: "alt_text_missing", issues }, { status: 400 });
+      }
+    }
+    let settings;
+    try {
+      settings = await saveAppSettings(settingsInput as any, {
+        guard: (current) => {
+          if (settingsInput.websiteContent !== undefined && websiteRevision && websiteContentRevision(current.websiteContent) !== websiteRevision) {
+            throw new WebsiteChangedError();
+          }
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof WebsiteChangedError)) throw error;
+      const latest = await getAppSettings();
+      const publication = await findWebsitePublication(latest.websiteContent);
+      return NextResponse.json(
+        {
+          error: publication.publishedByName
+            ? `${publication.publishedByName} published the website after you started editing. Nothing was published; your changes are kept.`
+            : "Someone published the website after you started editing. Nothing was published; your changes are kept.",
+          code: "website_changed",
+          ...publication,
+          websiteContent: latest.websiteContent,
+          websiteRevision: websiteContentRevision(latest.websiteContent),
+        },
+        { status: 409 }
+      );
+    }
 
     // The default look is cached for a few seconds (middleware asks for it on
     // every navigation); drop it now so the admin who just flipped the switch
@@ -398,10 +441,11 @@ export async function PATCH(req: NextRequest) {
       },
     });
 
+    const revisionField = { websiteRevision: websiteContentRevision(settings.websiteContent) };
     if (schedulingRulesIgnored.length > 0) {
-      return NextResponse.json({ ...settings, schedulingRulesIgnored }, { headers: { "X-Scheduling-Rules-Ignored": schedulingRulesIgnored.join(",") } });
+      return NextResponse.json({ ...settings, ...revisionField, schedulingRulesIgnored }, { headers: { "X-Scheduling-Rules-Ignored": schedulingRulesIgnored.join(",") } });
     }
-    return NextResponse.json(settings);
+    return NextResponse.json({ ...settings, ...revisionField });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

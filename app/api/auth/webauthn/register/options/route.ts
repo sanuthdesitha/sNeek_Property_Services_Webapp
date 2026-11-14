@@ -16,6 +16,10 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   try {
     const session = await requireSession();
+    // A passkey belongs to the person at the keyboard: never enrolled into an account being tested as.
+    if (session.impersonation) {
+      return NextResponse.json({ error: "Stop testing as someone else to change your own passkeys.", code: "ACTUAL_ACTOR_REQUIRED" }, { status: 403 });
+    }
     const { rpID, origin } = getRelyingParty(req.headers);
 
     const user = await db.user.findUnique({

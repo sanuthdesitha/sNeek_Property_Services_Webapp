@@ -61,6 +61,8 @@ export function ServicePagesSection({
         <div className="space-y-4 pt-2">
           <EImageField
             label="Hero image"
+            path={`servicePages.${slug}.heroImageUrl`}
+            altPath={`servicePages.${slug}.heroImageAlt`}
             value={page.heroImageUrl}
             alt={page.heroImageAlt}
             disabled={readOnly}

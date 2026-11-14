@@ -46,7 +46,7 @@ export const SETTINGS_GROUPS = [
     key: "system",
     label: "System",
     shortLabel: "System",
-    description: "The settings audit trail, and tutorials and What's new.",
+    description: "The settings audit trail, tutorials and What's new, and System health.",
   },
 ] as const;
 
@@ -119,6 +119,17 @@ export const SETTINGS_DESTINATIONS = [
     group: "notifications",
     adminOnly: false,
     href: "/v2/admin/notifications/safeguards",
+  },
+  {
+    // Who receives each client's job reports and invoices by email (own page;
+    // ADMIN, and operations managers with the communications pack).
+    key: "client-delivery",
+    label: "Client delivery",
+    description:
+      "Who receives each client's job reports and invoices by email, the fallback address, and what happened to recent sends.",
+    group: "notifications",
+    adminOnly: false,
+    href: "/v2/admin/delivery-profiles",
   },
   {
     key: "notifications",
@@ -336,6 +347,16 @@ export const SETTINGS_DESTINATIONS = [
     group: "system",
     adminOnly: false,
     href: "/v2/admin/settings/tutorials",
+  },
+  {
+    // System health (was Diagnostics, 2026-11-16): scheduled work, the
+    // database, the queue and each outside service. Administrators only.
+    key: "system-health",
+    label: "System health",
+    description: "Is everything behind the app working: scheduled work, the database, the queue and each outside service, with copyable support details.",
+    group: "system",
+    adminOnly: true,
+    href: "/v2/admin/diagnostics",
   },
   {
     key: "audit",

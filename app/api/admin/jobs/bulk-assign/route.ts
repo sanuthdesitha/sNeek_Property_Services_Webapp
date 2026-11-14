@@ -20,6 +20,7 @@ import { getJobReference } from "@/lib/jobs/job-number";
 import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
 import { assignmentLeaveConflicts } from "@/lib/accounts/leave-conflicts";
+import { assignmentDocumentWarnings } from "@/lib/workforce/assignment-document-warnings";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import { bulkEmailTexts } from "@/lib/notifications/wording/bulk-offer";
 
@@ -90,16 +91,22 @@ export async function POST(req: NextRequest) {
     if (cancelled.length > 0) {
       return NextResponse.json({ error: `${cancelled.length} selected job${cancelled.length === 1 ? " is" : "s are"} cancelled. Restore before assigning.` }, { status: 409 });
     }
-    if (!body.confirmLeaveConflict) {
-      const conflicts: string[] = [];
-      for (const job of jobs) {
-        if (job.assignments.some((assignment) => assignment.userId === cleaner.id)) continue;
-        const [conflict] = await assignmentLeaveConflicts([cleaner.id], job.scheduledDate, [cleaner]);
-        if (conflict) conflicts.push(`${job.jobNumber}: ${conflict.reason}`);
+    // Leave and expired police check / visa (owner default 2026-11-16): both
+    // need "Assign anyway"; neither blocks. Overrides are audited below.
+    const conflicts: string[] = [];
+    const overridden: Array<{ jobId: string; reasons: string[] }> = [];
+    for (const job of jobs) {
+      if (job.assignments.some((assignment) => assignment.userId === cleaner.id)) continue;
+      const [conflict] = await assignmentLeaveConflicts([cleaner.id], job.scheduledDate, [cleaner]);
+      const documents = await assignmentDocumentWarnings([cleaner.id], job.scheduledDate);
+      const reasons = [...(conflict ? [conflict.reason] : []), ...documents.map((row) => row.reason)];
+      if (reasons.length > 0) {
+        conflicts.push(`${job.jobNumber}: ${reasons.join(", ")}`);
+        overridden.push({ jobId: job.id, reasons });
       }
-      if (conflicts.length > 0) {
-        return NextResponse.json({ error: `${cleaner.name ?? cleaner.email} — ${conflicts.join("; ")}`, code: "LEAVE_CONFLICT" }, { status: 409 });
-      }
+    }
+    if (conflicts.length > 0 && !body.confirmLeaveConflict) {
+      return NextResponse.json({ error: `${cleaner.name ?? cleaner.email} — ${conflicts.join("; ")}`, code: "LEAVE_CONFLICT" }, { status: 409 });
     }
 
     const changedAt = new Date();
@@ -158,6 +165,19 @@ export async function POST(req: NextRequest) {
             after: { cleanerUserId: cleaner.id } as any,
           },
         });
+        const override = overridden.find((row) => row.jobId === job.id);
+        if (override) {
+          await tx.auditLog.create({
+            data: {
+              userId: session.user.id,
+              jobId: job.id,
+              action: "ASSIGNMENT_WARNING_OVERRIDDEN",
+              entity: "Job",
+              entityId: job.id,
+              after: { cleanerUserId: cleaner.id, reasons: override.reasons },
+            },
+          });
+        }
       }
     });
 

@@ -11,6 +11,41 @@ import { readActiveRoleCookie } from "@/lib/auth/active-role";
 import { resolveImpersonation } from "./impersonation-server";
 import { resolveRouteRole } from "./route-role";
 import { recordLastSeen } from "./last-seen";
+import { TWO_STEP_SETUP_PATH, isAdminPortalPage, pageExemptFromTwoStep, twoStepRequirement } from "./two-step-policy";
+
+function currentRequestPath(): string | null {
+  try {
+    return headers().get(REQUEST_PATH_HEADER);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Two-step sign-in requirement for administrators (lib/auth/two-step-policy.ts):
+ * starts the grace period the first time an administrator without two-step
+ * opens an admin page, and after it sends every admin page except Your
+ * profile to the setup card. API routes are never refused here, so the 2FA
+ * endpoints, sign-out and recovery keep working.
+ */
+async function enforceTwoStepRequirement(
+  user: { id: string; twoFactorEnabled: boolean; twoStepRequiredSince: Date | null },
+  held: Role[],
+): Promise<void> {
+  const path = currentRequestPath();
+  if (!isAdminPortalPage(path)) return;
+  const holdsAdmin = held.includes(Role.ADMIN);
+  if (!holdsAdmin || user.twoFactorEnabled) return;
+  let requiredSince = user.twoStepRequiredSince;
+  if (!requiredSince) {
+    requiredSince = new Date();
+    await db.user
+      .updateMany({ where: { id: user.id, twoStepRequiredSince: null }, data: { twoStepRequiredSince: requiredSince } })
+      .catch(() => undefined);
+  }
+  const state = twoStepRequirement({ holdsAdmin, holdsOpsManager: held.includes(Role.OPS_MANAGER), twoFactorEnabled: false, requiredSince });
+  if (state.kind === "setup_required" && !pageExemptFromTwoStep(path)) redirect(TWO_STEP_SETUP_PATH);
+}
 
 export async function getSession() {
   return getServerSession(authOptions);
@@ -19,6 +54,10 @@ export async function getSession() {
 export async function requireSession() {
   const session = await getSession();
   if (!session?.user) {
+    // A page request with a signed-out (or signed-out-elsewhere) token goes to
+    // sign-in instead of an error page; API requests answer 401 as before.
+    const path = currentRequestPath();
+    if (path && path.startsWith("/v2/")) redirect("/login");
     throw new Error("UNAUTHORIZED");
   }
 
@@ -27,7 +66,14 @@ export async function requireSession() {
     // extraRoles is read on EVERY request rather than cached in the JWT, for the
     // same reason the role itself is: an admin revoking somebody's QA hat has to
     // take effect now, not at their next sign-in.
-    select: { id: true, isActive: true, role: true, extraRoles: { select: { role: true } } },
+    select: {
+      id: true,
+      isActive: true,
+      role: true,
+      extraRoles: { select: { role: true } },
+      twoFactorEnabled: true,
+      twoStepRequiredSince: true,
+    },
   });
   if (!user?.isActive) {
     throw new Error("UNAUTHORIZED");
@@ -51,6 +97,9 @@ export async function requireSession() {
   session.user.role = activeRole;
   session.user.primaryRole = user.role;
   session.user.heldRoles = held;
+
+  // The genuine person's own requirement, before any "test as" swap below.
+  await enforceTwoStepRequirement(user, held);
 
   // Admin "test as": swap the session's identity for the impersonated user so
   // every downstream query (which reads session.user.id / .role and knows
@@ -184,6 +233,8 @@ declare module "next-auth" {
      * presence is what the warning banner keys off; absent means `user` is the
      * genuine signed-in identity.
      */
+    /** The recorded sign-in this session token carries (lib/auth/sign-in-records.ts); null for older tokens. */
+    signInId?: string | null;
     impersonation?: {
       actorId: string;
       actorName?: string | null;

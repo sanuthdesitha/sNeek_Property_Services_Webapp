@@ -172,6 +172,10 @@ export function NewClientForm({
   if (phone && !MOBILE_PATTERN.test(phone)) fieldErrors.phone = "Phone accepts 0451 217 210 or +61 451 217 210.";
   const issues = Object.keys(fieldErrors).length;
   const shownError = (field: string) => (touched ? fieldErrors[field] : undefined);
+  const errorHint = (field: string, fallback?: string) => {
+    const message = shownError(field);
+    return message ? <span className="text-[hsl(var(--e-danger))]">{message}</span> : fallback;
+  };
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -262,13 +266,13 @@ export function NewClientForm({
 
         <StepCard id="client-who" step={1} title="Who they are" done={Boolean(draft.name.trim()) && !fieldErrors.email && !fieldErrors.phone}>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <EField label={<>Client name <span aria-hidden className="text-[hsl(var(--e-danger))]">*</span></>} hint={shownError("name")}>
+            <EField label={<>Client name <span aria-hidden className="text-[hsl(var(--e-danger))]">*</span></>} hint={errorHint("name")}>
               <EInput value={draft.name} onChange={(e) => patch({ name: e.target.value })} placeholder="Seaside Hosting" aria-required="true" aria-invalid={Boolean(shownError("name"))} className="max-sm:text-[16px]" />
             </EField>
-            <EField label="Email" hint={shownError("email") ?? "Needed for a portal login and invoices"}>
+            <EField label="Email" hint={errorHint("email", "Needed for a portal login and invoices")}>
               <EInput type="email" value={draft.email} onChange={(e) => patch({ email: e.target.value })} placeholder="owner@example.com" aria-invalid={Boolean(shownError("email"))} className={`max-sm:text-[16px] ${shownError("email") ? "border-[hsl(var(--e-danger))]" : ""}`} />
             </EField>
-            <EField label="Phone" hint={shownError("phone")}>
+            <EField label="Phone" hint={errorHint("phone")}>
               <EInput type="tel" inputMode="tel" maxLength={16} value={draft.phone} onChange={(e) => patch({ phone: e.target.value })} placeholder="0412 778 230" aria-invalid={Boolean(shownError("phone"))} className="max-sm:text-[16px]" />
             </EField>
           </div>

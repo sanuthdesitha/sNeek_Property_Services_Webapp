@@ -28,6 +28,14 @@ import {
   recordFailedAttempt,
   clearFailedAttempts,
 } from "@/lib/auth/login-lockout";
+import { recordSignIn, sessionTokenRefusal, type SignInMethod } from "@/lib/auth/sign-in-records";
+
+/** The browser's user agent at sign-in, for the signed-in sessions list. */
+function signInUserAgent(req: unknown): string | null {
+  const headers = (req as { headers?: Record<string, unknown> } | undefined)?.headers ?? {};
+  const value = headers["user-agent"] ?? headers["User-Agent"];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
 
 function getConfiguredAuthBaseUrl() {
   const raw =
@@ -204,6 +212,8 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
             name: user.name,
             image: user.image,
             role: user.role,
+            signInMethod: "PASSWORD" as SignInMethod,
+            signInUserAgent: signInUserAgent(req),
           };
         },
       }),
@@ -267,6 +277,8 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
             name: verifiedUser.name,
             image: verifiedUser.image,
             role: verifiedUser.role as Role,
+            signInMethod: "PASSKEY" as SignInMethod,
+            signInUserAgent: signInUserAgent(req),
           };
         },
       }),
@@ -283,14 +295,33 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
         if (user) {
           token.id = user.id;
           token.role = (user as unknown as { role: Role }).role;
+          // A new sign-in: record it so it can be listed and signed out
+          // (lib/auth/sign-in-records.ts). The token carries the record's id.
+          const facts = user as unknown as { signInMethod?: SignInMethod; signInUserAgent?: string | null };
+          if (facts.signInMethod && !token.retainedContext) {
+            const sid = await recordSignIn(user.id, facts.signInMethod, facts.signInUserAgent ?? null);
+            if (sid) token.sid = sid;
+          }
         }
         return token;
       },
       async session({ session, token }) {
         if (token.retainedContext && typeof token.exp === "number") session.expires = new Date(token.exp * 1000).toISOString();
+        // A revoked sign-in, or an unrecorded token older than "Sign out
+        // everywhere else", reads as signed out on every server read.
+        if (!token.retainedContext && typeof token.id === "string") {
+          const refusal = await sessionTokenRefusal({
+            userId: token.id,
+            sid: typeof token.sid === "string" ? token.sid : null,
+            issuedAtSeconds: typeof token.iat === "number" ? token.iat : null,
+          });
+          // null: getServerSession answers "no session" and the browser reads unauthenticated.
+          if (refusal) return null as unknown as typeof session;
+        }
         if (session.user) {
           session.user.id = token.id as string;
           session.user.role = token.role as Role;
+          session.signInId = typeof token.sid === "string" ? token.sid : null;
         }
         return session;
       },

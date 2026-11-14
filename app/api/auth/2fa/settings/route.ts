@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import QRCode from "qrcode";
 import { db } from "@/lib/db";
+import { Role } from "@prisma/client";
 import { requireSession } from "@/lib/auth/session";
+import { twoStepRequirement } from "@/lib/auth/two-step-policy";
 import { sendEmail } from "@/lib/notifications/email";
 import { getAppSettings } from "@/lib/settings";
 import { buildDesignedEmail } from "@/lib/email-design/build-email";
@@ -24,15 +26,33 @@ async function sessionOr401() {
   }
 }
 
+/** Changes are the signed-in person's own: refused while testing as someone else. */
+function impersonationRefusal(session: { impersonation?: unknown }) {
+  if (!session.impersonation) return null;
+  return NextResponse.json({ error: "Stop testing as someone else to change your own two-step sign-in.", code: "ACTUAL_ACTOR_REQUIRED" }, { status: 403 });
+}
+
 /** Current 2FA status for the signed-in user. */
 export async function GET() {
   const session = await sessionOr401();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const user = await db.user.findUnique({
     where: { id: session.user.id },
-    select: { twoFactorEnabled: true, twoFactorMethod: true, twoFactorBackupCodes: true, passwordHash: true, email: true },
+    select: { twoFactorEnabled: true, twoFactorMethod: true, twoFactorBackupCodes: true, passwordHash: true, email: true, twoStepRequiredSince: true },
+  });
+  const held = session.user.heldRoles ?? [session.user.role];
+  const requirement = twoStepRequirement({
+    holdsAdmin: held.includes(Role.ADMIN),
+    holdsOpsManager: held.includes(Role.OPS_MANAGER),
+    twoFactorEnabled: !!user?.twoFactorEnabled,
+    requiredSince: user?.twoStepRequiredSince ?? null,
   });
   return NextResponse.json({
+    requirement: requirement.kind === "grace"
+      ? { kind: "grace", deadline: requirement.deadline?.toISOString() ?? null }
+      : requirement.kind === "setup_required"
+        ? { kind: "setup_required", since: requirement.since.toISOString() }
+        : requirement,
     enabled: !!user?.twoFactorEnabled,
     method: user?.twoFactorMethod ?? null,
     backupCodesRemaining: countBackupCodes(user?.twoFactorBackupCodes ?? null),
@@ -46,6 +66,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await sessionOr401();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const refused = impersonationRefusal(session);
+  if (refused) return refused;
   const body = await req.json().catch(() => ({}));
   const method = body.method === "EMAIL" ? "EMAIL" : body.method === "TOTP" ? "TOTP" : null;
   if (!method) return NextResponse.json({ error: "Choose a method." }, { status: 400 });
@@ -84,6 +106,8 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const session = await sessionOr401();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const refused = impersonationRefusal(session);
+  if (refused) return refused;
   const body = await req.json().catch(() => ({}));
   const method = body.method === "EMAIL" ? "EMAIL" : body.method === "TOTP" ? "TOTP" : null;
   const code = typeof body.code === "string" ? body.code.trim() : "";
@@ -119,6 +143,7 @@ export async function PUT(req: NextRequest) {
     // invalidate any "remember this device" tokens minted under the old setup —
     // otherwise a previously-trusted device keeps skipping the new second factor.
     db.trustedDevice.deleteMany({ where: { userId: session.user.id } }),
+    db.auditLog.create({ data: { userId: session.user.id, action: "OWN_TWO_FACTOR_ENABLED", entity: "User", entityId: session.user.id, after: { method } } }),
   ]);
 
   return NextResponse.json({ ok: true, backupCodes: plain });
@@ -128,6 +153,8 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const session = await sessionOr401();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const refused = impersonationRefusal(session);
+  if (refused) return refused;
   const body = await req.json().catch(() => ({}));
   const password = typeof body.password === "string" ? body.password : "";
 
@@ -148,6 +175,7 @@ export async function DELETE(req: NextRequest) {
       data: { twoFactorEnabled: false, twoFactorMethod: null, totpSecret: null, twoFactorBackupCodes: null },
     }),
     db.trustedDevice.deleteMany({ where: { userId: session.user.id } }),
+    db.auditLog.create({ data: { userId: session.user.id, action: "OWN_TWO_FACTOR_DISABLED", entity: "User", entityId: session.user.id } }),
   ]);
 
   return NextResponse.json({ ok: true });

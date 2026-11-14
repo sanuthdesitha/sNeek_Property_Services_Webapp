@@ -108,8 +108,8 @@ export function useCalendarMove(onSaved: () => void): CalendarMoveApi {
       if (assign) {
         const result = await postJson(`/api/admin/jobs/${encodeURIComponent(move.job.id)}/assign`, {
           userIds: assign.userIds, primaryUserId: assign.primaryUserId ?? undefined,
-          // The confirmation listed the leave; confirming it is the explicit override.
-          ...(check.warnings.some((warning) => warning.kind === "leave") ? { confirmLeaveConflict: true } : {}),
+          // The confirmation listed the leave or expired document; confirming it is the explicit override.
+          ...(check.warnings.some((warning) => warning.kind === "leave" || warning.kind === "document") ? { confirmLeaveConflict: true } : {}),
         });
         if (!result.ok) {
           const reason = errorText(result.body, "the assignment was refused.");

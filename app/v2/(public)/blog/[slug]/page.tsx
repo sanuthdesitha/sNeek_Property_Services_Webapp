@@ -3,13 +3,12 @@ import { notFound } from "next/navigation";
 import { format } from "date-fns";
 import { ArrowLeft, ArrowRight, Calendar, Clock, User } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { getPublishedBlogPostBySlug, listPublishedBlogPosts } from "@/lib/public-site/blog";
+import { getPublishedBlogPostBySlug } from "@/lib/public-site/blog";
 import { EButton, ECard, ECardBody, EEyebrow } from "@/components/v2/ui/primitives";
 
-export async function generateStaticParams() {
-  const posts = await listPublishedBlogPosts().catch(() => []);
-  return posts.map((p: any) => ({ slug: p.slug }));
-}
+// Rendered per request, never prerendered: a scheduled post stays hidden until
+// its publish time and appears once it arrives (lib/public-site/blog-visibility).
+export const dynamic = "force-dynamic";
 
 export default async function V2BlogPostPage({ params }: { params: { slug: string } }) {
   const post = await getPublishedBlogPostBySlug(params.slug).catch(() => null);

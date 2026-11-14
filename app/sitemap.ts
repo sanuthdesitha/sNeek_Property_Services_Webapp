@@ -1,6 +1,11 @@
 import type { MetadataRoute } from "next";
 import { db } from "@/lib/db";
 import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
+import { publicBlogWhere } from "@/lib/public-site/blog-visibility";
+
+// Rendered per request: a scheduled blog post must not be listed before its
+// publish time, and must appear once it arrives (no build-time snapshot).
+export const dynamic = "force-dynamic";
 
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://sneekproservices.com.au";
 
@@ -31,7 +36,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   let blogPages: MetadataRoute.Sitemap = [];
   try {
     const posts = await db.blogPost.findMany({
-      where: { isPublished: true },
+      where: publicBlogWhere(new Date()),
       select: { slug: true, updatedAt: true },
       orderBy: { publishedAt: "desc" },
     });

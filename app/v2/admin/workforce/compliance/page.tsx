@@ -1,74 +1,45 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import {
-  listStaffDirectory,
-  listStaffDocumentsForAdmin,
-  listStaffDocumentRequestsForAdmin,
-} from "@/lib/workforce/service";
-import { EPageHeader } from "@/components/v2/ui/primitives";
-import { WorkforceSubnav } from "@/components/v2/admin/workforce/workforce-subnav";
-import {
-  ComplianceBoard,
-  type ComplianceDoc,
-  type ComplianceRequest,
-  type ComplianceStaff,
-} from "@/components/v2/admin/workforce/compliance-board";
+import { getAppSettings } from "@/lib/settings";
+import { loadComplianceData } from "@/lib/workforce/compliance-load";
+import { loadWorkforceAreaSummary } from "@/lib/workforce/area-counts";
+import { WorkforceArea } from "@/components/v2/admin/workforce/workforce-area";
+import { ComplianceBoard, ComplianceDialogsProvider, ComplianceHeaderActions } from "@/components/v2/admin/workforce/compliance-board";
 
-export const metadata = { title: "Compliance · Estate workforce" };
+export const metadata = { title: "Compliance · Workforce" };
 export const dynamic = "force-dynamic";
 
+/** Workforce › Compliance (first tab: the only one that can stop someone working). */
 export default async function WorkforceCompliancePage() {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-
-  const [documents, requests, directory] = await Promise.all([
-    listStaffDocumentsForAdmin().catch(() => []),
-    listStaffDocumentRequestsForAdmin().catch(() => []),
-    listStaffDirectory().catch(() => []),
-  ]);
-
-  const docs: ComplianceDoc[] = documents.map((d) => ({
-    id: d.id,
-    title: d.title,
-    category: d.category,
-    status: d.status,
-    fileName: d.fileName,
-    url: d.url,
-    notes: d.notes ?? null,
-    expiresAt: d.expiresAt ? d.expiresAt.toISOString() : null,
-    createdAt: d.createdAt.toISOString(),
-    requiresSignature: d.requiresSignature,
-    user: { id: d.user.id, name: d.user.name ?? "Unknown", role: d.user.role, image: d.user.image },
-    verifiedByName: d.verifiedBy?.name ?? null,
-  }));
-
-  const reqs: ComplianceRequest[] = requests
-    .filter((r) => r.status === "REQUESTED")
-    .map((r) => ({
-      id: r.id,
-      title: r.title,
-      category: r.category,
-      notes: r.notes ?? null,
-      dueAt: r.dueAt ? r.dueAt.toISOString() : null,
-      createdAt: r.createdAt.toISOString(),
-      user: { id: r.user.id, name: r.user.name ?? "Unknown" },
-      requestedByName: r.requestedBy?.name ?? null,
-    }));
-
-  const staff: ComplianceStaff[] = directory.map((u) => ({
-    id: u.id,
-    name: u.name ?? u.email,
-    role: u.role,
-  }));
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const [data, settings] = await Promise.all([loadComplianceData(), getAppSettings().catch(() => null)]);
+  const summary = await loadWorkforceAreaSummary(data);
+  const timeZone = settings?.timezone || "Australia/Sydney";
+  const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
+  const testingAs = session.impersonation ? session.user.name ?? session.user.email ?? "someone else" : null;
+  const readOnlyReason = testingAs ? `Stop testing as ${testingAs} to send this.` : null;
 
   return (
-    <div className="space-y-6">
-      <EPageHeader
-        eyebrow="Workforce"
-        title="Compliance"
-        description="Track document expiry, review uploads and chase what's missing — for the whole team."
-      />
-      <WorkforceSubnav active="compliance" />
-      <ComplianceBoard documents={docs} requests={reqs} staff={staff} />
-    </div>
+    <ComplianceDialogsProvider>
+      <WorkforceArea active="compliance" summary={summary} actions={data.status === "ready" ? <ComplianceHeaderActions disabledReason={readOnlyReason} /> : null}>
+        {data.status === "failed" ? (
+          <div role="alert" className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-5">
+            <p className="font-[600]">The documents could not be loaded.</p>
+            <p className="mt-1 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">Nothing is shown rather than a false all clear. Reload the page to try again.</p>
+          </div>
+        ) : (
+          <ComplianceBoard
+            rows={data.rows}
+            figures={data.figures}
+            documents={data.documents}
+            requests={data.requests}
+            staff={data.staff}
+            timeZone={timeZone}
+            todayKey={todayKey}
+            readOnlyReason={readOnlyReason}
+          />
+        )}
+      </WorkforceArea>
+    </ComplianceDialogsProvider>
   );
 }

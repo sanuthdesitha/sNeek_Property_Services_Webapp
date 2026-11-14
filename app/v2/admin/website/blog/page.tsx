@@ -1,24 +1,26 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import { EPageHeader } from "@/components/v2/ui/primitives";
-// Estate-native blog manager — same /api/admin/blog-posts endpoints as v1
-// (GET list, POST create, PATCH/DELETE by id) rendered entirely with the
-// Estate primitives + estate-kit. No dependency on components/{admin,ui,shared}.
+import { getAppSettings } from "@/lib/settings";
+import { countBlogPosts, findWebsitePublication, publishedLine } from "@/lib/public-site/website-publish";
+import { WebsiteHeader } from "@/components/v2/admin/website/website-header";
 import { BlogWorkspace } from "@/components/v2/admin/website/blog/blog-workspace";
 
-export const metadata = { title: "Blog · Estate admin" };
+export const metadata = { title: "Blog · Website · Estate admin" };
 export const dynamic = "force-dynamic";
 
+/**
+ * Website › Blog (board "Website and blog", 2026-11-16): list on the left, the
+ * post opens beside it. ADMIN and OPS_MANAGER publish posts, as before; the
+ * /api/admin/blog-posts routes keep their guards.
+ */
 export default async function V2AdminBlogPage() {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const settings = await getAppSettings();
+  const [publication, blogCount] = await Promise.all([findWebsitePublication(settings.websiteContent), countBlogPosts()]);
   return (
-    <div className="space-y-6">
-      <EPageHeader
-        eyebrow="Website"
-        title="Blog"
-        description="Write, publish, and retire public blog posts — cover imagery, tags, SEO, and markdown content."
-      />
-      <BlogWorkspace />
+    <div className="space-y-5">
+      <WebsiteHeader active="blog" publishedLine={publishedLine(publication, settings.timezone)} blogCount={blogCount} />
+      <BlogWorkspace timeZone={settings.timezone} />
     </div>
   );
 }

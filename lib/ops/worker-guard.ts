@@ -9,12 +9,35 @@
  *   cancelled, so the next tick of the SAME job is skipped while the earlier
  *   run is still going: two copies of one sweep never send side by side.
  * - After FAILURE_ALERT_AFTER failures in a row administrators are told once
- *   (sending safeguards incident, inbox + one email); the incident closes
- *   when the job succeeds again.
+ *   (a non-pausing sending safeguards incident and ONE inbox notice, no email,
+ *   SMS or push); the incident closes when the job succeeds again. One rule
+ *   since 2026-11-16 (System health, owner default pending confirmation):
+ *   the second failure in a row, inbox only. It was the third failure, inbox
+ *   and email.
+ * - Every run returns a small run record as the job's output, which pg-boss
+ *   stores on the job row. System health reads those rows (the worker is a
+ *   separate process, so its in-memory history is not visible to the web).
+ *   The error text is redacted before it is stored.
  */
-export const FAILURE_ALERT_AFTER = 3;
+import { redactSupportText } from "./support-redaction";
+
+export const FAILURE_ALERT_AFTER = 2;
 
 export type JobRunRecord = { name: string; ok: boolean; durationMs: number; error?: string; skipped?: boolean };
+
+/** What a run returns to pg-boss (stored as the job's `output`). */
+export type JobRunOutput = { sneekRun: { ok: boolean; durationMs: number; error?: string; skipped?: boolean } };
+
+function runOutput(run: JobRunRecord): JobRunOutput {
+  return {
+    sneekRun: {
+      ok: run.ok,
+      durationMs: run.durationMs,
+      ...(run.error ? { error: redactSupportText(run.error, 500) } : {}),
+      ...(run.skipped ? { skipped: true } : {}),
+    },
+  };
+}
 
 export type WorkerGuardDeps = {
   log: { warn: (data: object, message: string) => void; error: (data: object, message: string) => void };
@@ -32,7 +55,7 @@ export function createWorkerGuard(deps: WorkerGuardDeps) {
     const count = (failures.get(jobName) ?? 0) + 1;
     failures.set(jobName, count);
     if (count !== FAILURE_ALERT_AFTER) return;
-    const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    const message = redactSupportText(error instanceof Error ? `${error.name}: ${error.message}` : String(error), 500);
     await deps.raiseFailure(jobName, count, message).catch((alertError: unknown) => deps.log.error({ err: alertError, jobName }, "[worker] failure alert could not be raised"));
   }
 
@@ -43,11 +66,12 @@ export function createWorkerGuard(deps: WorkerGuardDeps) {
   }
 
   function safeHandler<T>(jobName: string, handler: (job?: { data: T }) => Promise<unknown>, timeoutMs: number) {
-    return async (job?: { data: T }) => {
+    return async (job?: { data: T }): Promise<JobRunOutput> => {
       if (running.has(jobName)) {
         deps.log.warn({ jobName }, `[worker] ${jobName} skipped: the previous run is still going`);
-        deps.recordRun({ name: jobName, ok: true, durationMs: 0, skipped: true });
-        return;
+        const skipped: JobRunRecord = { name: jobName, ok: true, durationMs: 0, skipped: true };
+        deps.recordRun(skipped);
+        return runOutput(skipped);
       }
       running.add(jobName);
       const start = Date.now();
@@ -55,6 +79,7 @@ export function createWorkerGuard(deps: WorkerGuardDeps) {
       // A late rejection after the timeout must not become an unhandled rejection.
       work.catch(() => undefined);
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let record: JobRunRecord;
       try {
         await Promise.race([
           work,
@@ -62,18 +87,21 @@ export function createWorkerGuard(deps: WorkerGuardDeps) {
             timer = setTimeout(() => reject(new Error(`Handler timeout after ${timeoutMs}ms`)), timeoutMs);
           }),
         ]);
-        deps.recordRun({ name: jobName, ok: true, durationMs: Date.now() - start });
+        record = { name: jobName, ok: true, durationMs: Date.now() - start };
+        deps.recordRun(record);
         await noteSuccess(jobName);
       } catch (error) {
         deps.log.error({ err: error, jobName }, `[worker] ${jobName} failed`);
         deps.recordFailure(jobName, error);
-        deps.recordRun({ name: jobName, ok: false, durationMs: Date.now() - start, error: error instanceof Error ? error.message : String(error) });
+        record = { name: jobName, ok: false, durationMs: Date.now() - start, error: error instanceof Error ? error.message : String(error) };
+        deps.recordRun(record);
         await noteFailure(jobName, error);
         // Swallow: returning normally tells pg-boss the job is done, so it is
         // never retried in a fast loop (and never sends twice on a retry).
       } finally {
         if (timer) clearTimeout(timer);
       }
+      return runOutput(record);
     };
   }
 

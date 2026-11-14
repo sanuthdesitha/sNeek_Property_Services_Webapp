@@ -1,4 +1,5 @@
 import "server-only";
+import { assignmentDocumentWarnings } from "@/lib/workforce/assignment-document-warnings";
 import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
@@ -174,6 +175,10 @@ export async function checkCalendarMove(input: CheckMoveRequest): Promise<CheckM
       warnings.push({ kind: "notice", text: "The reschedule notifies the assigned cleaners and sends the client's schedule-update email when that is switched on." });
     }
     if (toCleanerId) {
+      // Expired police check or visa: the same "Assign anyway" as leave (owner default 2026-11-16).
+      for (const warning of await assignmentDocumentWarnings([toCleanerId], dayKeyToUtcDate(toDate))) {
+        warnings.push({ kind: "document", text: `${warning.name}: ${warning.reason}` });
+      }
       warnings.push({ kind: "notice", text: "The new cleaner is offered the job by the usual assignment notices. If the primary cleaner changes, a note to the client is prepared for you to review; it is not sent automatically." });
     }
   }
