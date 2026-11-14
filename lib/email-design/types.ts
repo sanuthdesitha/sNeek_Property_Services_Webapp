@@ -184,6 +184,10 @@ export type EmailDesignDefinition = {
   defaults: EmailDocument;
   /** The shared template this replaces (an admin's raw-HTML edit keeps rendering until a block version is published). */
   templateKey?: string;
+  /** Converted from an HTML body that had no heading: the title check is a note, not an error. */
+  titleOptional?: boolean;
+  /** The wording part this email is (wording-layer emails): its inbox, push and SMS stay in the wording editor. */
+  wordingPart?: { typeKey: string; partId: string };
   samples: readonly EmailSampleSet[];
 };
 

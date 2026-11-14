@@ -95,8 +95,8 @@ export function canMove(doc: EmailDocument, id: string, direction: -1 | 1, secur
   const index = doc.blocks.findIndex((block) => block.id === id);
   const target = index + direction;
   if (index < 0 || target < 0 || target >= doc.blocks.length) return false;
-  // The title stays first.
-  if (index === 0 || target === 0) return false;
+  // The title stays first (an email without a title block can move every block).
+  if (doc.blocks[0]?.type === "heading" && (index === 0 || target === 0)) return false;
   return true;
 }
 

@@ -13,7 +13,7 @@ import { resolveAppUrl } from "@/lib/app-url";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { businessFromSettings, composeDesign, withSpec } from "./compose";
-import { emailDesign } from "./registry";
+import { findEmailDesign as emailDesign } from "./all-designs";
 import { getPublishedDocument, getPublishedEmailTheme, EmailDesignError } from "./store";
 import type { EmailDocument, EmailTheme } from "./types";
 

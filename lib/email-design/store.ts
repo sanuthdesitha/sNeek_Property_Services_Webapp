@@ -18,7 +18,7 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import type { DesignActor, DesignRow, DesignVersion, ThemeRow, ThemeVersion } from "./store-types";
 import { blockingChecks, checkDocument, documentKey, parseDocument } from "./checks";
-import { emailDesign } from "./registry";
+import { findEmailDesign as emailDesign } from "./all-designs";
 import { DEFAULT_EMAIL_THEME, sanitizeTheme, themeProblems } from "./theme";
 import type { EmailDesignDefinition, EmailDocument, EmailTheme } from "./types";
 

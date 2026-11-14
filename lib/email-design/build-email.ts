@@ -6,7 +6,7 @@
  */
 import { resolveAppUrl } from "@/lib/app-url";
 import { businessFromSettings, composeDesign, withSpec, type CompanySettingsLike } from "./compose";
-import { emailDesign } from "./registry";
+import { findEmailDesign as emailDesign } from "./all-designs";
 import { DEFAULT_EMAIL_THEME } from "./theme";
 
 export type BuiltDesignedEmail = { subject: string; html: string; text: string; missing: string[] };

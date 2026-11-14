@@ -19,7 +19,8 @@ import "server-only";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getAppSettings, type AppSettings } from "@/lib/settings";
 import { bodyOf, businessFromSettings, campaignDocument, commonValues, composeDesign, composeLegacyBody } from "./compose";
-import { MARKETING_LAYOUT_DEFINITION, emailDesign } from "./registry";
+import { MARKETING_LAYOUT_DEFINITION } from "./registry";
+import { findEmailDesign as emailDesign } from "./all-designs";
 import { fragmentToText, renderEmailDocument } from "./render";
 import { extractSpec, resolveSubject, type EmailSpec } from "./spec";
 import { getPublishedDocument, getPublishedEmailTheme } from "./store";
@@ -65,13 +66,14 @@ async function renderSpec(spec: EmailSpec, input: OutgoingEmailInput, theme: Ema
   const definition = spec.key ? emailDesign(spec.key) : null;
   // A test send carries its draft; everything else uses the published version.
   const published = definition ? spec.doc ?? (await getPublishedDocument(definition)) : null;
-  if (definition && (spec.kind === "design" || published)) {
+  // A raw-HTML wording edit from before blocks keeps going out until a block version is published.
+  if (definition && ((spec.kind === "design" && !spec.custom) || published)) {
     const rendered = composeDesign(definition, published ?? definition.defaults, spec.values, { theme, business, appUrl, mode: "send", settings });
     return { subject: resolveSubject(input.subject, spec, rendered.subject), html: rendered.html, text: rendered.text, missing: rendered.missing, security: definition.security, path: "design", designKey: definition.key };
   }
   const security = Boolean(spec.security || input.critical);
   const legacy = composeLegacyBody(spec.body ?? "", { theme, business, appUrl, mode: "send", subject: input.subject, action: spec.action ?? null, security });
-  return { subject: input.subject, html: legacy.html, text: legacy.text, missing: [], security, path: spec.key ? "legacy-template" : "legacy-body", designKey: null };
+  return { subject: input.subject, html: legacy.html, text: legacy.text, missing: [], security, path: spec.key ? "legacy-template" : "legacy-body", designKey: spec.key || null };
 }
 
 function renderCampaign(html: string, input: OutgoingEmailInput, theme: EmailTheme, settings: AppSettings): Omit<OutgoingEmail, "theme" | "settings"> {

@@ -12,7 +12,7 @@ import { getAppSettings } from "@/lib/settings";
 import { isCustomizedEmailTemplate, type AppEmailTemplateKey } from "@/lib/email-templates";
 import { businessFromSettings } from "./compose";
 import { designAccess, lookEditRefusal, publishRefusal } from "./permission";
-import { EMAIL_DESIGNS, emailDesign } from "./registry";
+import { allEmailDesigns, findEmailDesign as emailDesign } from "./all-designs";
 import { EmailDesignError, getPublishedEmailTheme, readDesignRow, readThemeRow, type DesignRow, type ThemeRow } from "./store";
 import { DEFAULT_EMAIL_THEME, themeContrastReport } from "./theme";
 import type { DesignListItem, DesignViewResponse, LookViewResponse } from "./view-types";
@@ -36,7 +36,7 @@ function customHtml(key: string, settings: Awaited<ReturnType<typeof getAppSetti
 
 export async function designList(session: Session): Promise<{ items: DesignListItem[]; access: Awaited<ReturnType<typeof designAccess>> }> {
   const [access, settings] = await Promise.all([designAccess(session), getAppSettings()]);
-  const rows = await Promise.all(EMAIL_DESIGNS.map(async (definition) => ({ definition, row: await readDesignRow(definition.key).catch(() => null) })));
+  const rows = await Promise.all(allEmailDesigns().map(async (definition) => ({ definition, row: await readDesignRow(definition.key).catch(() => null) })));
   const items = rows.map(({ definition, row }): DesignListItem => ({
     key: definition.key,
     publishedVersion: row?.publishedVersion ?? null,

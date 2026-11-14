@@ -44,6 +44,8 @@ import { TourOverlay } from "./tour-overlay";
 
 /** How long a step waits for its control to appear before it is skipped and recorded as missing. */
 export const TARGET_WAIT_MS = 1500;
+/** After the tour opens a page (or on its first step) the page may still be loading: wait longer. */
+export const TARGET_WAIT_AFTER_NAVIGATION_MS = 6000;
 const TARGET_POLL_MS = 150;
 const AUTO_START_DELAY_MS = 700;
 const URGENCY_POLL_MS = 700;
@@ -126,6 +128,20 @@ type RecordInput = {
   currentStep: number;
 };
 
+/** A usable GET /api/me/tours answer; anything else is treated as "unknown, show no tour". */
+function isTourClientState(value: unknown): value is TourClientState {
+  if (!value || typeof value !== "object") return false;
+  const body = value as Partial<TourClientState>;
+  const isRecord = (entry: unknown) => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry);
+  return typeof body.recordable === "boolean"
+    && typeof body.toursOn === "boolean"
+    && typeof body.roleToursOn === "boolean"
+    && typeof body.legacyWelcomeSeen === "boolean"
+    && Array.isArray(body.dontShowAgain)
+    && isRecord(body.progress)
+    && isRecord(body.settings);
+}
+
 /** The path matches and every query parameter the route names (e.g. ?tab=invoices) is present. */
 function locationMatches(route: string, pathname: string): boolean {
   if (!matchesRoute(route, pathname)) return false;
@@ -158,6 +174,8 @@ export function TutorialProvider({ portal, children }: { portal: TourPortal; chi
   const suppressPathRef = React.useRef<string | null>(null);
   const returnFocusRef = React.useRef<HTMLElement | null>(null);
   const runRef = React.useRef<ActiveRun | null>(null);
+  /** The tour has just navigated to its step's page. */
+  const arrivedRef = React.useRef(false);
   runRef.current = run;
 
   const viewer = React.useMemo<TourViewer | null>(() => {
@@ -184,11 +202,12 @@ export function TutorialProvider({ portal, children }: { portal: TourPortal; chi
         const response = await fetch("/api/me/tours", { cache: "no-store", signal: controller.signal });
         const body = await response.json().catch(() => null);
         if (controller.signal.aborted) return;
-        if (!response.ok || !body) {
+        if (!response.ok || !isTourClientState(body)) {
+          // Unknown state: show no tour, never throw; Help says tours could not be loaded.
           setLoadError(typeof body?.error === "string" ? body.error : "Tours could not be loaded just now.");
           return;
         }
-        setState(body as TourClientState);
+        setState(body);
       } catch {
         if (!controller.signal.aborted) setLoadError("Tours could not be loaded just now.");
       } finally {
@@ -385,9 +404,12 @@ export function TutorialProvider({ portal, children }: { portal: TourPortal; chi
       return;
     }
     if (run.navigatingTo) {
+      arrivedRef.current = true;
       setRun({ ...run, navigatingTo: null });
       return;
     }
+    const patience = arrivedRef.current || run.index === run.plan.startIndex ? TARGET_WAIT_AFTER_NAVIGATION_MS : TARGET_WAIT_MS;
+    arrivedRef.current = false;
     if (!activeStep.target) {
       setTargetElement(null);
       markSeen(activeStep.id);
@@ -405,7 +427,7 @@ export function TutorialProvider({ portal, children }: { portal: TourPortal; chi
         return;
       }
       waited += TARGET_POLL_MS;
-      if (waited < TARGET_WAIT_MS) {
+      if (waited < patience) {
         timer = setTimeout(poll, TARGET_POLL_MS);
         return;
       }

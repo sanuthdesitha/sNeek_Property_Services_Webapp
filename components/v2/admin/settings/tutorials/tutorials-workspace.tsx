@@ -147,7 +147,7 @@ function ToursTab({ data, canEdit, timezone, onSaved }: { data: Overview; canEdi
                   const active = entry.key === selected;
                   return (
                     <li key={entry.key} className={cn("flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5", active && "bg-[hsl(var(--e-primary)/0.08)]")}>
-                      <button type="button" onClick={() => setSelected(entry.key)} aria-pressed={active} className="min-h-11 min-w-0 flex-1 text-left">
+                      <button type="button" onClick={() => setSelected(entry.key)} aria-pressed={active} className="min-h-11 min-w-[12rem] flex-1 text-left">
                         <span className="block truncate text-[0.875rem] font-[600]">{entry.title}</span>
                         <span className="block text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{`${kindLabel(entry)} · ${entry.steps.length} steps · ${entry.roles.map((role) => TOUR_ROLE_LABELS[role]).join(", ")}`}</span>
                       </button>
@@ -253,14 +253,16 @@ function TourEditor({ tour, setting, canEdit, onSaved }: { tour: TourDefinition;
         </label>
       </div>
 
-      <fieldset disabled={!canEdit || saving} className="space-y-2">
+      <fieldset disabled={!canEdit || saving} className="min-w-0 space-y-2">
         <legend className="sr-only">Steps</legend>
         <ol className="space-y-2">
           {drafts.map((step, index) => {
             const words = countWords(step.body);
-            const options = registryTargets.filter((id) => id === step.target || TOUR_TARGETS[id].page === (step.target ? TOUR_TARGETS[step.target].page : ""));
+            // The step's own target first, then the other registered targets on the same page.
+            const samePage = registryTargets.filter((id) => id !== step.target && step.target !== null && TOUR_TARGETS[id].page === TOUR_TARGETS[step.target].page);
+            const options = step.target ? [step.target, ...samePage] : samePage;
             return (
-              <li key={step.id} className={cn("rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3", step.hidden && "opacity-60")}>
+              <li key={step.id} className={cn("min-w-0 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3", step.hidden && "opacity-60")}>
                 <div className="flex items-center gap-2">
                   <span className="e-tnum text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{index + 1}</span>
                   <input aria-label={`Step ${index + 1} title`} value={step.title} maxLength={60} onChange={(event) => update(step.id, { title: event.target.value })} className="h-11 min-w-0 flex-1 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2 text-[16px] font-[600] sm:h-9 sm:text-[0.875rem]" />
@@ -271,9 +273,9 @@ function TourEditor({ tour, setting, canEdit, onSaved }: { tour: TourDefinition;
                 <textarea id={`words-${step.id}`} rows={2} value={step.body} aria-invalid={words > 25} onChange={(event) => update(step.id, { body: event.target.value })} className="mt-1 w-full rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2 py-1.5 text-[16px] sm:text-[0.8125rem]" />
                 {words > 25 ? <p role="alert" className="text-[0.75rem] text-[hsl(var(--e-danger))]">At most 25 words.</p> : null}
                 {step.target ? (
-                  <label className="mt-2 flex flex-col gap-1 text-[0.75rem] font-[550]">
+                  <label className="mt-2 flex min-w-0 flex-col gap-1 text-[0.75rem] font-[550]">
                     Points at
-                    <select value={step.target} onChange={(event) => update(step.id, { target: event.target.value as TourTargetId })} className="h-11 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2 font-mono text-[16px] sm:h-9 sm:text-[0.75rem]">
+                    <select value={step.target} onChange={(event) => update(step.id, { target: event.target.value as TourTargetId })} className="h-11 w-full min-w-0 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2 font-mono text-[16px] sm:h-9 sm:text-[0.75rem]">
                       {options.map((id) => <option key={id} value={id}>{`${id} · ${TOUR_TARGETS[id].label}`}</option>)}
                     </select>
                   </label>

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { EAlert, EButton, ECard } from "@/components/v2/ui/primitives";
 import { EConfirmDialog, type ConfirmResult } from "@/components/v2/ui/confirm-dialog";
 import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
-import { emailDesign } from "@/lib/email-design/registry";
+import { findEmailDesign as emailDesign } from "@/lib/email-design/all-designs";
 import { checkBrandColour, COLOUR_PRESETS, FOOTER_EXTRA_LIMIT, formatRatio, isHexColour, themeContrastReport, themeProblems } from "@/lib/email-design/theme";
 import { BUTTON_SHAPES, HEADING_STYLES, type ButtonShape, type EmailTheme, type HeadingStyle } from "@/lib/email-design/types";
 import type { LookViewResponse } from "@/lib/email-design/view-types";

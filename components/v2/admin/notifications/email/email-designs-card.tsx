@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import { designsForType } from "@/lib/email-design/registry";
+import { allDesignsForType as designsForType } from "@/lib/email-design/all-designs";
 import type { DesignListItem } from "@/lib/email-design/view-types";
 
 type Props = {

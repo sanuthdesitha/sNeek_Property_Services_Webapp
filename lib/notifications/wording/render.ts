@@ -7,6 +7,8 @@ import { liveStoreOverride, readStoredRow } from "./store";
 import { variableFormats } from "./variables";
 import { isTemplatePart, renderTemplatePart } from "./template-sources";
 import type { WordingFields, WordingPartDefinition, WordingTransport } from "./types";
+import { attachWordingDesign } from "@/lib/email-design/wording-bridge";
+import { isWordingEmailPart } from "@/lib/email-design/wording-designs";
 
 /**
  * THE render function for notification wording. Every send path that has a
@@ -73,7 +75,10 @@ function makeRenderer(typeKey: string, overrides: Overrides, settings: AppSettin
       return { ...renderTemplatePart(settings, part, values as Record<string, unknown>), source: "default" };
     }
     const override = overrides.get(`${part.id}:${part.transport}`);
-    return { ...renderPart(part, override ?? part.defaults, values), source: override ? "override" : "default" };
+    const rendered = renderPart(part, override ?? part.defaults, values);
+    // Whole emails are block designs now (lib/email-design): the HTML body is kept, with the spec the send path renders.
+    if (isWordingEmailPart(part)) rendered.html = attachWordingDesign(rendered.html, { typeKey, partId: part.id, values, subject: rendered.subject, custom: Boolean(override) });
+    return { ...rendered, source: override ? "override" : "default" };
   }
   return {
     typeKey,

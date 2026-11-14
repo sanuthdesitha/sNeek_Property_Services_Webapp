@@ -26,6 +26,8 @@ export type EmailSpec = {
   action?: { url: string; label: string } | null;
   /** "legacy": a security email (no preferences link, no reply-to). */
   security?: boolean;
+  /** "design" from the wording layer: an admin's raw-HTML wording edit from before blocks (sent as `body` until a block version is published). */
+  custom?: boolean;
   /** Test sends only: the draft document to send instead of the published one. */
   doc?: EmailDocument;
   /** Test sends only: the draft Email look to use instead of the published one. */
@@ -65,7 +67,7 @@ function parseSpec(value: unknown): EmailSpec | null {
     : null;
   const doc = row.doc ? parseDocument(row.doc) ?? undefined : undefined;
   const theme = row.theme ? sanitizeTheme(row.theme) : undefined;
-  return { v: 1, kind: row.kind, key: row.key, values, subject: row.subject, body: typeof row.body === "string" ? row.body : undefined, action, security: row.security === true, ...(doc ? { doc } : {}), ...(theme ? { theme } : {}) };
+  return { v: 1, kind: row.kind, key: row.key, values, subject: row.subject, body: typeof row.body === "string" ? row.body : undefined, action, security: row.security === true, ...(row.custom === true ? { custom: true } : {}), ...(doc ? { doc } : {}), ...(theme ? { theme } : {}) };
 }
 
 /** The spec (when present and valid) and the HTML without it. */

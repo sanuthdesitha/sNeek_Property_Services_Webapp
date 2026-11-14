@@ -10,7 +10,7 @@ import { sendJson, useNotificationRead } from "./use-notification-read";
 import { TypeDetails } from "./type-details";
 import { TypeList } from "./type-list";
 import { WordingWorkspace, type WordingPhoneScreen } from "./wording-workspace";
-import { emailDesign } from "@/lib/email-design/registry";
+import { findEmailDesign as emailDesign } from "@/lib/email-design/all-designs";
 import type { DesignListResponse } from "@/lib/email-design/view-types";
 import { EmailDesignEditor } from "./email/email-design-editor";
 import { EmailDesignsCard } from "./email/email-designs-card";

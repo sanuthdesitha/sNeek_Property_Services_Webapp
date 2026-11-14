@@ -237,7 +237,7 @@ export function checkDocument(definition: EmailDesignDefinition, doc: EmailDocum
   }
 
   const first = doc.blocks[0];
-  checks.push({ id: "title", level: "error", ok: first?.type === "heading", message: first?.type === "heading" ? "The title is the first block." : "The first block must be the heading (the title)." });
+  checks.push({ id: "title", level: definition.titleOptional ? "note" : "error", ok: first?.type === "heading", message: first?.type === "heading" ? "The title is the first block." : definition.titleOptional ? "No title block (this email never had one). Adding a heading first is recommended." : "The first block must be the heading (the title)." });
   if (first?.type === "heading" && measured(definition, first.text) > HEADING_LIMIT) checks.push({ id: "title-length", level: "note", ok: false, message: `The title is over ${HEADING_LIMIT} characters.` });
 
   for (const block of doc.blocks) {

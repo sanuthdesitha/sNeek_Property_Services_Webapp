@@ -8,7 +8,8 @@ import { EBottomSheet } from "@/components/v2/ui/bottom-sheet";
 import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
 import { useIsPhone } from "@/components/v2/ui/use-phone";
 import { checkDocument, documentKey, blockingChecks, SUBJECT_LIMIT, PREHEADER_LIMIT } from "@/lib/email-design/checks";
-import { EMAIL_DESIGNS, EMAIL_GROUP_ORDER, emailDesign } from "@/lib/email-design/registry";
+import { EMAIL_GROUP_ORDER } from "@/lib/email-design/registry";
+import { allEmailDesigns, findEmailDesign as emailDesign } from "@/lib/email-design/all-designs";
 import { BLOCK_LABEL, EMAIL_GROUP_LABEL, type EmailBlock, type EmailBlockType, type EmailDocument } from "@/lib/email-design/types";
 import type { DesignViewResponse } from "@/lib/email-design/view-types";
 import { sendJson, useNotificationRead } from "../use-notification-read";
@@ -326,7 +327,7 @@ export function EmailDesignEditor({ designKey, timeZone, onBack, onChoose, typeN
         <label htmlFor={`${headingId}-pick`} className="text-sm font-medium">Email</label>
         <select id={`${headingId}-pick`} value={designKey} disabled={busy !== null || save.kind === "saving"} onChange={(event) => onChoose(event.target.value)} className="min-h-[44px] max-w-xl rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-3 text-base sm:text-sm">
           {EMAIL_GROUP_ORDER.map((group) => {
-            const items = EMAIL_DESIGNS.filter((item) => item.group === group);
+            const items = allEmailDesigns().filter((item) => item.group === group);
             return items.length ? <optgroup key={group} label={EMAIL_GROUP_LABEL[group]}>{items.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</optgroup> : null;
           })}
         </select>
