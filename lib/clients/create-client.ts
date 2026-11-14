@@ -176,11 +176,12 @@ export async function createClientWithLogin(input: ClientCreateInput, actor: Act
       if (idempotencyKey) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`create-client:${actor.id}:${idempotencyKey}`}))`;
         const prior = await priorClientFor(tx, actor.id, idempotencyKey);
-        if (prior) return { priorId: prior } as const;
+        if (prior) return { priorId: prior, client: null };
       }
-      return { client: await writeClient(tx, actor.id, input, email, xeroContactId, idempotencyKey) } as const;
+      return { priorId: null, client: await writeClient(tx, actor.id, input, email, xeroContactId, idempotencyKey) };
     });
-    if ("priorId" in created) return replay(created.priorId);
+    if (created.priorId) return replay(created.priorId);
+    if (!created.client) throw new ClientCreateError(500, "The client was not recorded.");
     return { client: created.client, replayed: false, login: null, xeroLinked: Boolean(xeroContactId) };
   }
 

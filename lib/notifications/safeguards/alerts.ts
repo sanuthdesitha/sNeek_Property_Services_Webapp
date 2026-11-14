@@ -8,6 +8,7 @@ import "server-only";
  * go out in an hour in total, so the alert itself cannot loop. Queued is not
  * delivered: the outcomes are kept on the incident, never claimed as read.
  */
+import { plainMessageEmail } from "@/lib/email-design/build-email";
 import { Prisma, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { resolveAppUrl } from "@/lib/app-url";
@@ -47,7 +48,7 @@ async function send(incidentId: string, subject: string, body: string, reviewUrl
     subject, body, url: reviewUrl,
     email: () => {
       const email = wording.render(part, "EMAIL", { title: subject, messageText: body, reviewUrl, ...extra });
-      return { subject: email.subject ?? subject, html: email.html ?? `<p>${body}</p>` };
+      return { subject: email.subject ?? subject, html: email.html || plainMessageEmail({ subject, text: body }).html };
     },
     transports: ["INBOX", "EMAIL"], recipients,
     respectsPreferences: false,

@@ -50,6 +50,19 @@ export function preferencesUrl(target: PreferencesTarget, appUrl: string): strin
   return path && /^https?:\/\//i.test(appUrl) ? joinUrl(appUrl, path) : null;
 }
 
+/** Uploaded logos are stored as app paths ("/api/uploads/…"); an inbox needs the full link. */
+function absolute(url: string, appUrl: string): string {
+  return url.startsWith("/") && /^https?:\/\//i.test(appUrl) ? joinUrl(appUrl, url) : url;
+}
+
+export function absoluteTheme(theme: EmailTheme, appUrl: string): EmailTheme {
+  return { ...theme, logoUrl: absolute(theme.logoUrl, appUrl), logoDarkUrl: absolute(theme.logoDarkUrl, appUrl) };
+}
+
+export function absoluteBusiness(business: BusinessDetails, appUrl: string): BusinessDetails {
+  return { ...business, logoUrl: absolute(business.logoUrl, appUrl), logoDarkUrl: absolute(business.logoDarkUrl, appUrl) };
+}
+
 /** Values every email gets (the shared templates' common variables). */
 export function commonValues(settings: CompanySettingsLike, appUrl: string, now = new Date()): Record<string, string> {
   const timeZone = settings.timezone || "Australia/Sydney";
@@ -81,9 +94,11 @@ function constantValues(definition: EmailDesignDefinition, appUrl: string): Reco
 export function composeDesign(definition: EmailDesignDefinition, doc: EmailDocument, values: Record<string, string>, input: ComposeInput & { settings: CompanySettingsLike }): RenderedEmail {
   const merged: Record<string, string> = { ...commonValues(input.settings, input.appUrl), ...values };
   for (const [name, value] of Object.entries(constantValues(definition, input.appUrl))) if (!String(merged[name] ?? "").trim()) merged[name] = value;
+  // Links built as app paths ("/v2/…") become full links (the send path did this for href="/…").
+  for (const variable of definition.variables) if (variable.format === "url" && typeof merged[variable.name] === "string") merged[variable.name] = absolute(merged[variable.name].trim(), input.appUrl);
   return renderEmailDocument(doc, merged, {
-    theme: input.theme,
-    business: input.business,
+    theme: absoluteTheme(input.theme, input.appUrl),
+    business: absoluteBusiness(input.business, input.appUrl),
     definition,
     mode: input.mode,
     scheme: input.scheme,
@@ -100,7 +115,7 @@ export function composeLegacyBody(body: string, input: ComposeInput & {
   unsubscribeUrl?: string | null;
 }): { html: string; text: string } {
   const definition: RenderDefinition = input.definition ?? { ...LEGACY_LAYOUT_DEFINITION, security: Boolean(input.security) };
-  const options = { theme: input.theme, business: input.business, definition, mode: input.mode, scheme: input.scheme, preferencesUrl: null, unsubscribeUrl: input.unsubscribeUrl ?? null };
+  const options = { theme: absoluteTheme(input.theme, input.appUrl), business: absoluteBusiness(input.business, input.appUrl), definition, mode: input.mode, scheme: input.scheme, preferencesUrl: null, unsubscribeUrl: input.unsubscribeUrl ?? null };
   const href = input.action ? safeHref(input.action.url) : null;
   const buttonDoc: EmailDocument | null = href && input.action
     ? { subject: [], preheader: [], blocks: [{ id: "b1", type: "button", label: input.action.label, link: "actionUrl" }] }

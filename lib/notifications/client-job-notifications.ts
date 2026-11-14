@@ -1,4 +1,5 @@
 import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
+import { plainMessageEmail } from "@/lib/email-design/build-email";
 import { db } from "@/lib/db";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getAppSettings } from "@/lib/settings";
@@ -80,14 +81,6 @@ function scheduleNoteFor(wording: WordingRenderer, diff: number, startTime: stri
   return null;
 }
 
-/** HTML escaping for the plain-text fallback below. */
-function esc(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 function isEventEnabled(
   type: ClientJobNotificationType,
@@ -105,7 +98,7 @@ function buildEmailPayload(
   msg: NotificationMessage
 ): { subject: string; html: string; logBody: string } {
   // The SMS body is plain text being promoted into HTML — escape it.
-  const html = msg.emailHtml ?? `<p>${esc(msg.smsBody)}</p>`;
+  const html = msg.emailHtml ?? plainMessageEmail({ subject: msg.emailSubject ?? msg.subject, text: msg.smsBody }).html;
   return { subject: msg.emailSubject ?? msg.subject, html, logBody: `Client notification sent to ${recipientEmail}` };
 }
 

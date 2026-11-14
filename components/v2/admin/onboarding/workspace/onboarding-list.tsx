@@ -311,7 +311,6 @@ export function OnboardingList({ isAdmin }: { isAdmin: boolean }) {
         description="Every new property from first call to activation, as a checklist you can leave and come back to. A draft appears here on its first save; opening Start onboarding creates nothing."
         actions={<EButton asChild className="max-sm:hidden"><Link href="/v2/admin/onboarding/new">Start onboarding</Link></EButton>}
       />
-      <EPhoneActionBar label="Onboarding actions" primary={<EButton asChild className="w-full"><Link href="/v2/admin/onboarding/new">+ Start</Link></EButton>} />
       {counts ? <p className={`${ONB_MUTED} sm:hidden`}>{counts.open} open · {counts.ready} ready to activate · {counts.waiting} waiting on a client</p> : null}
       <EFilterChips
         label="Onboarding status"
@@ -385,6 +384,7 @@ export function OnboardingList({ isAdmin }: { isAdmin: boolean }) {
 
       <EToneNotice tone="info" className="max-sm:hidden" title="Future idea, not built">&quot;Import from a listing URL&quot; (Airbnb or Stayz page) to prefill name, suburb, rooms and photos is not part of this design.</EToneNotice>
       {isAdmin ? <EmptyDraftsReview timeZone={timeZone} onDeleted={() => setReloadKey((value) => value + 1)} /> : null}
+      <EPhoneActionBar label="Onboarding actions" primary={<EButton asChild className="w-full"><Link href="/v2/admin/onboarding/new">+ Start</Link></EButton>} />
     </div>
   );
 }

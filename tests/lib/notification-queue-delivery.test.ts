@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { extractSpec } from "@/lib/email-design/spec";
 import { beforeEach, expect, it, vi } from "vitest";
 import { queueDelivery, type DurableDeliveryContext } from "@/lib/notifications/queue-delivery";
 import { deliverNotificationToRecipients, type DeliveryInput } from "@/lib/notifications/delivery";
@@ -37,7 +38,11 @@ it("propagates queue failure so the domain transaction cannot falsely commit not
 it("template entry point uses the same queue with kind and event preference identity", async () => {
   await sendNotification("invoice_approved", { id: "42" }, { recipientRole: "ADMIN", channels: ["EMAIL"], durable: { ...context(), recipient } });
   expect(m.enqueue).toHaveBeenCalledTimes(1);
-  expect(m.enqueue.mock.calls[0][1]).toMatchObject({ eventKey: "invoice_approved", subject: "Invoice 42", emailHtml: "<p>42</p>", emailKind: "admin_alert", templateRecipientRole: "ADMIN" });
+  expect(m.enqueue.mock.calls[0][1]).toMatchObject({ eventKey: "invoice_approved", subject: "Invoice 42", emailKind: "admin_alert", templateRecipientRole: "ADMIN" });
+  // 2026-11-16: the saved HTML goes out as the finance design's "custom HTML from before" (same body, spec attached).
+  const { spec, html } = extractSpec(m.enqueue.mock.calls[0][1].emailHtml);
+  expect(html).toBe("<p>42</p>");
+  expect(spec).toMatchObject({ kind: "design", key: "finance.invoice_approved", custom: true });
   expect(m.email).not.toHaveBeenCalled();
 });
 it("template errors and unsupported scopes fail the domain transaction rather than logging false success", async () => {

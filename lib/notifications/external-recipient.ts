@@ -1,9 +1,9 @@
 import "server-only";
+import { plainMessageEmail } from "@/lib/email-design/build-email";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { escapeHtml } from "@/lib/utils/escape-html";
 import { rateLimit } from "@/lib/security/rate-limit";
 import { sendEmailDetailed } from "./email";
 import { getSmsProviderState, sendSmsDetailed } from "./sms";
@@ -163,7 +163,7 @@ async function enforceRateLimits(policy: KindPolicy, input: ExternalSendInput, n
 }
 
 async function deliverEmail(policy: KindPolicy, input: ExternalSendInput): Promise<ExternalMessageResult> {
-  const sent = await sendEmailDetailed({ to: input.to, subject: input.subject, html: `<p>${escapeHtml(input.body).replace(/\n/g, "<br>")}</p>` });
+  const sent = await sendEmailDetailed({ to: input.to, ...plainMessageEmail({ subject: input.subject, text: input.body }) });
   await db.notification.create({ data: {
     userId: null, jobId: input.jobId, channel: "EMAIL", subject: input.subject, body: policy.logBody(input.entityId),
     status: sent.ok ? "SENT" : "FAILED", sentAt: sent.ok ? new Date() : undefined, errorMsg: sent.ok ? undefined : sent.error ?? "Email delivery failed.",

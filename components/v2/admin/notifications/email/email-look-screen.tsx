@@ -13,6 +13,18 @@ import { sendJson } from "../use-notification-read";
 import { newIdempotencyKey } from "./design-model";
 import { EmailPreview } from "./email-preview";
 
+/** A real file input behind a button (PNG, SVG, JPG or WebP). */
+function LogoUpload({ busy, disabled, label, onFile }: { busy: boolean; disabled: boolean; label: string; onFile: (file: File) => void }) {
+  const ref = React.useRef<HTMLInputElement>(null);
+  return (
+    <div className="flex items-center gap-2">
+      <input ref={ref} type="file" accept="image/png,image/svg+xml,image/jpeg,image/webp" className="sr-only" tabIndex={-1} aria-hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); event.target.value = ""; }} />
+      <EButton type="button" variant="outline" className="min-h-[44px]" disabled={disabled || busy} onClick={() => ref.current?.click()}>{busy ? "Uploading…" : label}</EButton>
+      <span className="text-xs text-[hsl(var(--e-muted-foreground))]">or paste a link below</span>
+    </div>
+  );
+}
+
 const SHAPE_LABEL: Record<ButtonShape, string> = { square: "Square", rounded: "Rounded", pill: "Pill" };
 const HEADING_LABEL: Record<HeadingStyle, string> = { serif: "Serif", sans: "Sans" };
 
@@ -58,6 +70,30 @@ export function EmailLookScreen({ initial, timeZone }: { initial: LookViewRespon
     setDraft((current) => ({ ...current, ...patch }));
     setDirty(true);
     setMessage(null);
+  }
+
+  const [uploading, setUploading] = React.useState<null | "logoUrl" | "logoDarkUrl">(null);
+  /** The app's existing upload (folder "branding", as Company & brand logos use); the link field stays as a fallback. */
+  async function uploadLogo(field: "logoUrl" | "logoDarkUrl", file: File) {
+    setUploading(field);
+    setMessage(null);
+    try {
+      const data = new FormData();
+      data.append("file", file);
+      data.append("folder", "branding");
+      const response = await fetch("/api/uploads/direct", { method: "POST", body: data });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || typeof body.url !== "string") {
+        setMessage({ tone: "danger", text: `Logo not uploaded: ${body.error ?? "the upload failed."} Nothing else changed.` });
+        return;
+      }
+      update({ [field]: body.url } as Partial<EmailTheme>);
+      setMessage({ tone: "success", text: "Logo uploaded. Save the draft to keep it." });
+    } catch {
+      setMessage({ tone: "danger", text: "Logo not uploaded: the server could not be reached." });
+    } finally {
+      setUploading(null);
+    }
   }
 
   async function saveDraft() {
@@ -136,12 +172,14 @@ export function EmailLookScreen({ initial, timeZone }: { initial: LookViewRespon
             <legend className="sr-only">Email look</legend>
             <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex min-w-0 flex-col gap-1">
-                <label htmlFor={`${idBase}-logo`} className="text-sm font-medium">Logo (link to a PNG or SVG)</label>
+                <label htmlFor={`${idBase}-logo`} className="text-sm font-medium">Logo (upload, or a link to a PNG or SVG)</label>
+                <LogoUpload busy={uploading === "logoUrl"} disabled={disabled} label={"Upload logo"} onFile={(file) => void uploadLogo("logoUrl", file)} />
                 <input id={`${idBase}-logo`} className={inputClass} value={draft.logoUrl} placeholder="Empty uses the Company & brand logo" onChange={(event) => update({ logoUrl: event.target.value })} />
                 <p className="text-xs text-[hsl(var(--e-muted-foreground))]">At least 400 px wide, transparent background, https only. Empty: the Company & brand logo{view.business.logoUrl ? "" : " (none set, so the company name is shown)"}.</p>
               </div>
               <div className="flex min-w-0 flex-col gap-1">
                 <label htmlFor={`${idBase}-logo-dark`} className="text-sm font-medium">Logo on dark backgrounds</label>
+                <LogoUpload busy={uploading === "logoDarkUrl"} disabled={disabled} label={"Upload dark logo"} onFile={(file) => void uploadLogo("logoDarkUrl", file)} />
                 <input id={`${idBase}-logo-dark`} className={inputClass} value={draft.logoDarkUrl} placeholder="Empty uses the dark-background logo" onChange={(event) => update({ logoDarkUrl: event.target.value })} />
                 <p className="text-xs text-[hsl(var(--e-muted-foreground))]">Used by mail apps in dark mode.</p>
               </div>

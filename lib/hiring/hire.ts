@@ -224,7 +224,7 @@ export async function moveApplicationStage(input: {
   const refusal = moveRefusal(application.status, input.to);
   if (refusal) throw new HiringError(409, refusal);
   if (input.to === "REJECTED" && !input.rejectionReason?.trim()) throw new HiringError(400, "Choose a reason for declining.");
-  const data: Prisma.HiringApplicationUpdateManyMutationInput = { status: input.to, reviewedById: input.actorId };
+  const data: Prisma.HiringApplicationUncheckedUpdateManyInput = { status: input.to, reviewedById: input.actorId };
   if (input.to === "OFFER" && input.offer) {
     const accountRole = isHireAccountKind(input.offer.accountRole) ? input.offer.accountRole : undefined;
     data.offerDetails = { ...asRecord(application.offerDetails), ...input.offer, accountRole } as Prisma.InputJsonValue;

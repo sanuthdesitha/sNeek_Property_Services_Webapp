@@ -1,9 +1,9 @@
 import "server-only";
+import { plainMessageEmail } from "@/lib/email-design/build-email";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { escapeHtml } from "@/lib/utils/escape-html";
 import { sendOfficeNotification, type OfficeRecipient, type RecipientOutcome } from "./office-sends";
 import { STAFF_MESSAGE_ROLES } from "./recipient-scopes";
 import { getNotificationTypeControls, typeRespectsPreferences } from "./type-controls";
@@ -86,7 +86,7 @@ export async function sendStaffMessage(actorId: string, input: unknown): Promise
     scopeType: "STAFF_MEMBER", scopeId: (recipient) => recipient.id,
     category: "account", severity: "INFO", jobId: null,
     subject: request.subject, body: request.body,
-    email: () => ({ subject: request.subject, html: `<p>${escapeHtml(request.body).replace(/\n/g, "<br>")}</p>` }),
+    email: () => plainMessageEmail({ subject: request.subject, text: request.body }),
     emailKind: "workforce_update",
     transports: request.transports, recipients,
     respectsPreferences: typeRespectsPreferences(controls, typeKey),

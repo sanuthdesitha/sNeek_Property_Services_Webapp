@@ -16,10 +16,10 @@ import "server-only";
  * accepted by the provider), otherwise "Message not sent" with the reasons.
  * The item's status never changes (telling the client is not a stage).
  */
+import { plainMessageEmail } from "@/lib/email-design/build-email";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { escapeHtml } from "@/lib/utils/escape-html";
 import { OfficeActionError, type OfficeActionResult } from "@/lib/notifications/office-actions";
 import { outcomeTaken, sendOfficeNotification, type OfficeRecipient } from "@/lib/notifications/office-sends";
 import { getNotificationTypeControls, typeRespectsPreferences } from "@/lib/notifications/type-controls";
@@ -87,7 +87,7 @@ export async function sendLostItemClientNotice(actorId: string, input: unknown, 
     scopeType: "LOST_ITEM_PROPERTY_CLIENT", scopeId: () => item.id,
     category: "jobs", severity: "INFO", jobId: item.jobId,
     subject: request.subject, body: request.body, url: "/client",
-    email: (recipient) => ({ subject: request.subject, html: `<p>Hi ${escapeHtml(recipient.name ?? "there")},</p><p>${escapeHtml(request.body).replace(/\n/g, "<br>")}</p>` }),
+    email: (recipient) => plainMessageEmail({ subject: request.subject, text: request.body, greetingName: recipient.name ?? null }),
     emailKind: "client_job_update",
     transports: request.transports, recipients,
     respectsPreferences: typeRespectsPreferences(controls, typeKey),

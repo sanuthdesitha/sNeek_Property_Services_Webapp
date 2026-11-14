@@ -6,6 +6,8 @@ import { routeSecurityRefusal, securityFromBody } from "@/lib/security/route-ver
 import { publishRefusal } from "@/lib/email-design/permission";
 import { EmailDesignError, getPublishedEmailTheme, publishDesign } from "@/lib/email-design/store";
 import { DESIGN_HEADERS, designError, designView } from "@/lib/email-design/view";
+import { findEmailDesign } from "@/lib/email-design/all-designs";
+import { notifyEmailDesignPublished } from "@/lib/email-design/publish-notice";
 
 /**
  * POST { expectedRevision, idempotencyKey, change, security }: publish the
@@ -40,6 +42,8 @@ export async function POST(request: Request, { params }: { params: { key: string
       theme,
       actor: { id: session.user.id, name: session.user.name ?? null, role: "ADMIN" },
     });
+    const definition = findEmailDesign(params.key);
+    if (definition) await notifyEmailDesignPublished({ key: definition.key, label: definition.label, typeKey: definition.typeKey, version, change: parsed.data.change ?? "", actor: { id: session.user.id, name: session.user.name ?? null } });
     return NextResponse.json({ version, view: await designView(session, params.key, row) }, { headers: DESIGN_HEADERS });
   } catch (error) {
     return designError(error);

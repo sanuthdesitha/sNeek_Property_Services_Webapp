@@ -23,3 +23,14 @@ export function buildDesignedEmail(settings: CompanySettingsLike, key: string, v
   });
   return { subject: rendered.subject, html: withSpec(rendered, { kind: "design", key, values }), text: rendered.text, missing: rendered.missing };
 }
+
+/**
+ * A message a person wrote (or a notice with no email wording), on the base
+ * layout as the "plainMessage" design: the text is escaped and keeps its line
+ * breaks. The subject stays the caller's.
+ */
+export function plainMessageEmail(input: { subject: string; text: string; greetingName?: string | null; settings?: CompanySettingsLike }): { subject: string; html: string } {
+  const greeting = input.greetingName === undefined ? "" : `Hi ${input.greetingName?.trim() || "there"},`;
+  const built = buildDesignedEmail(input.settings ?? { companyName: "sNeek Property Services" }, "plainMessage", { greeting, messageText: input.text });
+  return { subject: input.subject, html: built.html };
+}

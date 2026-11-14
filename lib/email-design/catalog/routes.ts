@@ -59,4 +59,13 @@ export const ROUTE_DESIGNS: readonly EmailDesignDefinition[] = [
       note("{{financeNote}}", { showIf: "financeNote" }),
     ]),
   }),
+
+  design({
+    key: "plainMessage", label: "Message written by the office", group: "office", typeKey: "client.office_messages", audience: "The person the office writes to",
+    trigger: "The office sends a written message (staff message, guest message, lost property notice, a notice with no email wording).", security: false,
+    whyLine: "You got this because the sNeek office wrote to you.", preferences: "none",
+    mustStay: ["Message"], source: "office sends and fallbacks that wrapped the text in one paragraph (HTML in code)", titleOptional: true,
+    variables: [v("greeting", "Greeting", "", { fallback: "" }), v("messageText", "Message", "The new roster is up in the team hub.", { format: "multiline", keep: true, fallback: "" })],
+    defaults: doc("{{companyName}}", "", [paragraph("{{greeting}}", { showIf: "greeting" }), paragraph("{{messageText}}")]),
+  }),
 ];

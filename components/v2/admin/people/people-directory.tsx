@@ -11,7 +11,6 @@ import Link from "next/link";
 import { EButton } from "@/components/v2/ui/primitives";
 import type { EstateBirthdayRow } from "@/components/v2/admin/accounts/birthdays-card";
 import type { EstateVaClientOption } from "@/components/v2/admin/accounts/va-manager";
-import { InvitePersonDialog } from "@/components/v2/admin/accounts/hub/invite-person-dialog";
 import { CREATE_ROLE_FOR_TAB } from "@/components/v2/admin/accounts/hub/managed-roles";
 import type { CleanerFigures } from "@/lib/people/cleaner-figures";
 import type { PeopleCounts } from "@/lib/people/counts";
@@ -32,6 +31,11 @@ export type PeopleCapabilities = {
   canSeeWorkforce: boolean;
   canViewAddresses: boolean;
 };
+
+/** Invite person opens on the role card that matches the tab. */
+function inviteHref(role: string): string {
+  return `/v2/admin/accounts?invite=${encodeURIComponent(role.toLowerCase())}`;
+}
 
 function count(value: number | null, one: string, many: string): string {
   if (value === null) return `– ${many}`;
@@ -74,8 +78,7 @@ export function PeopleDirectory({
   const [tab, setTab] = useState<PeopleTab>(initialTab);
   const [search, setSearch] = useState(initialSearch);
   const [exportHref, setExportHref] = useState<string | null>(null);
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [revision, setRevision] = useState(0);
+  const [revision] = useState(0);
   const allowed = allowedPeopleTabs(access);
 
   useEffect(() => {
@@ -113,7 +116,12 @@ export function PeopleDirectory({
               <a href={exportHref} download>Export</a>
             </EButton>
           ) : null}
-          {capabilities.isAdmin ? <EButton size="sm" variant="outline" onClick={() => setInviteOpen(true)}>Invite person</EButton> : null}
+          {capabilities.isAdmin ? (
+            // Invite person is a page now (board "Invite person"); the old dialog is gone.
+            <EButton asChild size="sm" variant="outline">
+              <Link href={inviteHref(CREATE_ROLE_FOR_TAB[listTab ?? "everyone"])}>Invite person</Link>
+            </EButton>
+          ) : null}
           {access.clients ? (
             // On a phone the Clients tab docks "New client" at the bottom instead.
             <EButton asChild size="sm" variant="primary" className={tab === "clients" ? "max-sm:hidden" : undefined}>
@@ -149,15 +157,6 @@ export function PeopleDirectory({
           </div>
         ) : null}
       </div>
-
-      {capabilities.isAdmin ? (
-        <InvitePersonDialog
-          open={inviteOpen}
-          defaultRole={CREATE_ROLE_FOR_TAB[listTab ?? "everyone"]}
-          onClose={() => setInviteOpen(false)}
-          onCreated={() => setRevision((value) => value + 1)}
-        />
-      ) : null}
     </div>
   );
 }

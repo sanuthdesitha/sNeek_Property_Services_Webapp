@@ -40,7 +40,7 @@ export function financeDesigns(): EmailDesignDefinition[] {
       mustStay: [],
       source: "finance template editor (standard wording from lib/notification-templates.ts)",
       titleOptional: true,
-      variables: event.variables.map((name) => v(name, label(name), `[${label(name)}]`, { fallback: "" })),
+      variables: Array.from(new Set([...event.variables, ...`${standard?.webSubject ?? ""} ${standard?.webBody ?? ""}`.match(/\{([a-zA-Z0-9_]+)\}/g)?.map((token) => token.slice(1, -1)) ?? []])).map((name) => v(name, label(name), `[${label(name)}]`, { fallback: "" })),
       defaults: doc(toDouble(standard?.webSubject ?? event.label), "", [paragraph(toDouble(standard?.webBody ?? event.label))]),
     });
   });

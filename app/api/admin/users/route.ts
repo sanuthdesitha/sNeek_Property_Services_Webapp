@@ -167,6 +167,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    let laundrySupplierId: string | null = null;
+    if (payload.role === "LAUNDRY" && payload.laundrySupplierId) {
+      const partner = await db.laundrySupplier.findUnique({ where: { id: payload.laundrySupplierId }, select: { id: true } });
+      if (!partner) return NextResponse.json({ error: "That laundry partner no longer exists." }, { status: 400 });
+      laundrySupplierId = partner.id;
+    }
+
     const outcome = await createAccountWithInvitation({
       actor: { id: creator.id, role: "ADMIN" },
       origin: "INVITE_PERSON",
@@ -178,6 +185,7 @@ export async function POST(req: NextRequest) {
         phone: payload.phone || payload.contactNumber || null,
         role: payload.role as Role,
         clientId: clientId ?? null,
+        laundrySupplierId,
         abn: payload.abn ?? null,
         businessName: payload.businessName ?? null,
         address: payload.address ?? payload.clientAddress ?? null,

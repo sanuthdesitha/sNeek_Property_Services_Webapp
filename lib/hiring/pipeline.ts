@@ -137,13 +137,6 @@ export function parseInterviewScores(value: unknown): InterviewScores {
   return out;
 }
 
-/** Decline reasons (board): a pick, plus Other with any text. */
-export const DECLINE_REASONS = [
-  { value: "availability", label: "Not enough availability" },
-  { value: "area", label: "Outside our area" },
-  { value: "test", label: "Test below pass mark" },
-] as const;
-
 /** Documents and learning a hire receives, as the confirm lists them. */
 export function hireDocuments(kind: string): string[] {
   if (kind === "CLEANER") return ["Police check", "Driver licence", "White card / site card"];

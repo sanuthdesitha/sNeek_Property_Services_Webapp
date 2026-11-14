@@ -63,6 +63,8 @@ export const createUserByAdminSchema = z
     bankDetails: bankDetailsSchema,
     /** Operations managers: starting packs at Manage (Invite person, 2026-11-16). Nothing ticked by default. */
     opsPacks: z.array(z.string().trim().max(60)).max(60).optional(),
+    /** Laundry accounts: the laundry partner they work for (optional). */
+    laundrySupplierId: z.string().trim().max(64).optional(),
     /** SMS with the invitation link; off unless ticked. */
     sendSms: z.boolean().optional().default(false),
     /** Repeat-safe submit: the same key from the same person returns the first result. */

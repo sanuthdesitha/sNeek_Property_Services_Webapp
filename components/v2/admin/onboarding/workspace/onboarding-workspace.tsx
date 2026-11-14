@@ -333,7 +333,7 @@ export function OnboardingWorkspace({ surveyId }: { surveyId: string }) {
               <ReadinessBar percent={readiness.percent} label="Readiness" />
             </div>
             {editable ? <EButton variant="outline" onClick={() => setLinkOpen(true)}>Send link to client…</EButton> : null}
-            <EButton onClick={() => open("readiness")}>Review and activate</EButton>
+            <EButton onClick={() => open("readiness")}>{view.status === "APPROVED" ? "Activation result" : "Review and activate"}</EButton>
           </>
         }
       />

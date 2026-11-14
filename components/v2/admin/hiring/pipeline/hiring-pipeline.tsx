@@ -1,83 +1,81 @@
 "use client";
 
-import { useRestorableState } from "@/hooks/use-restorable-state";
-
 /**
- * ESTATE-native hiring hub (ATS) — pipeline board + filterable roster of
- * applications, KPIs, and open-role management. Uses the same endpoints as the
- * v1 hub (`/api/admin/workforce/hiring/positions`, `.../applications`) but is a
- * brand-new Estate UI: hairline borders, warm surfaces, serif numerals,
- * champagne accents. No dependency on components/{ui,hiring,admin,shared}.
+ * Hiring hub (boards "Hiring" and "Hiring on a phone", 2026-11-16): five
+ * figures, search and filters, the five-stage board (drag a card to another
+ * stage, or use its "Move to…" menu from the keyboard), a list view, the
+ * closed applications behind a switch, and the roles table with "Hires
+ * become". A stage move opens the existing email preview first; moving to
+ * Hired opens the account step on the application page. On a phone the board
+ * is one stage at a time on a swipeable chip row.
  */
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  Briefcase, Users, Star, UserCheck, Gauge, Search, Mail, Reply, ExternalLink,
-  Copy, Plus, Pencil, LayoutGrid, List as ListIcon, ClipboardList, Loader2,
-} from "lucide-react";
-import {
-  EButton, EPageHeader, EBadge, EStatCard, EEmptyState, ECard,
-} from "@/components/v2/ui/primitives";
-import {
-  EInput, ESelect, EField,
-} from "@/components/v2/admin/estate-kit";
+import { useRestorableState } from "@/hooks/use-restorable-state";
+import { EButton } from "@/components/v2/ui/primitives";
+import { EInput, ESelect } from "@/components/v2/admin/estate-kit";
+import { EFilterChips } from "@/components/v2/ui/filter-chips";
+import { ERowMenu } from "@/components/v2/ui/row-menu";
+import { EPill } from "@/components/v2/ui/pill";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
+import { EToneCard, toneNoticeClass } from "@/components/v2/ui/tone-band";
+import type { HubCard, HubFigure, HubRole } from "@/lib/hiring/hub-data";
+import { CLOSED_STAGES, MOVE_TARGETS, moveRefusal, PIPELINE_STAGES, stageLabel, type PipelineStage } from "@/lib/hiring/pipeline";
+import { StageMoveFlow, type PendingMove } from "../stage-move";
 
-const PIPELINE = [
-  { key: "NEW", label: "New", tone: "neutral" as const },
-  { key: "SCREENING", label: "Screening", tone: "info" as const },
-  { key: "INTERVIEW", label: "Interview", tone: "warning" as const },
-  { key: "OFFER", label: "Offer", tone: "aubergine" as const },
-  { key: "HIRED", label: "Hired", tone: "success" as const },
-] as const;
+type TestFilter = "any" | "passed" | "below" | "not-done";
 
-const CLOSED = new Set(["REJECTED", "WITHDRAWN"]);
+type Message = { text: string; tone: "success" | "danger" };
 
-type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
-
-function scoreTone(score: number | null | undefined): Tone {
-  if (typeof score !== "number") return "neutral";
-  if (score >= 80) return "success";
-  if (score >= 60) return "gold";
-  return "danger";
-}
-
-type Application = {
-  id: string;
-  fullName: string;
-  email: string;
-  status: string;
-  positionId: string;
-  position?: { id: string; title: string; slug?: string } | null;
-  screeningScore?: number | null;
-  emailsSent?: number | null;
-  repliesReceived?: number | null;
-  createdAt: string;
-  quizAssignments?: Array<{ id: string; status: string; score: number | null }>;
-};
-
-type Position = {
-  id: string;
-  title: string;
-  slug: string;
-  isPublished: boolean;
-  _count?: { applications: number };
-};
+const DRAG_TYPE = "application/x-sneek-application";
 
 export function HiringPipeline({
-  positions,
-  applications,
+  cards,
+  roles,
+  figures,
+  closedCounts,
+  capped,
+  careersUrl,
 }: {
-  positions: Position[];
-  applications: Application[];
+  cards: HubCard[];
+  roles: HubRole[];
+  figures: HubFigure[];
+  closedCounts: { rejected: number; withdrawn: number };
+  capped: boolean;
+  careersUrl: string;
 }) {
   const router = useRouter();
   const [query, setQuery] = useRestorableState("hiring-pipeline:query", "");
-  const [positionId, setPositionId] = useState("all");
-  const [stageFilter, setStageFilter] = useRestorableState("hiring-pipeline:stageFilter", "all");
+  const [roleId, setRoleId] = useRestorableState("hiring-pipeline:role", "all");
+  const [testFilter, setTestFilter] = useRestorableState<TestFilter>("hiring-pipeline:test", "any");
   const [view, setView] = useRestorableState<"board" | "list">("hiring-pipeline:view", "board");
+  const [phoneStage, setPhoneStage] = useRestorableState<PipelineStage>("hiring-pipeline:phone-stage", "NEW");
   const [showClosed, setShowClosed] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [pending, setPending] = useState<PendingMove | null>(null);
+  const [message, setMessage] = useState<Message | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return cards.filter((card) => {
+      if (roleId !== "all" && card.positionId !== roleId) return false;
+      if (testFilter === "passed" && card.testPassed !== true) return false;
+      if (testFilter === "below" && card.testPassed !== false) return false;
+      if (testFilter === "not-done" && card.testDone) return false;
+      if (!q) return true;
+      return card.name.toLowerCase().includes(q) || card.email.toLowerCase().includes(q) || (card.phone ?? "").replace(/\s+/g, "").includes(q.replace(/\s+/g, ""));
+    });
+  }, [cards, query, roleId, testFilter]);
+
+  const byStage = useMemo(() => {
+    const map = new Map<string, HubCard[]>();
+    for (const stage of [...PIPELINE_STAGES, ...CLOSED_STAGES]) map.set(stage, []);
+    for (const card of filtered) map.get(card.status)?.push(card);
+    return map;
+  }, [filtered]);
+  const closed = filtered.filter((card) => (CLOSED_STAGES as readonly string[]).includes(card.status));
 
   async function createRole() {
     setCreating(true);
@@ -87,334 +85,336 @@ export function HiringPipeline({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: "New role", isPublished: false }),
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || !body?.id) {
-        alert(body.error ?? "Could not create role.");
-        return;
-      }
+      const body = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+      if (!res.ok || !body.id) return setMessage({ text: body.error ?? "The role could not be created.", tone: "danger" });
       router.push(`/v2/admin/hiring/positions/${body.id}`);
     } finally {
       setCreating(false);
     }
   }
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return applications.filter((a) => {
-      if (positionId !== "all" && a.positionId !== positionId) return false;
-      if (stageFilter !== "all" && a.status !== stageFilter) return false;
-      if (!showClosed && CLOSED.has(a.status)) return false;
-      if (!q) return true;
-      return (
-        a.fullName?.toLowerCase().includes(q) ||
-        a.email?.toLowerCase().includes(q) ||
-        a.position?.title?.toLowerCase().includes(q)
-      );
-    });
-  }, [applications, query, positionId, stageFilter, showClosed]);
-
-  const stats = useMemo(() => {
-    const total = applications.length;
-    const inPipeline = applications.filter((a) => !CLOSED.has(a.status) && a.status !== "HIRED").length;
-    const hired = applications.filter((a) => a.status === "HIRED").length;
-    const scored = applications.filter((a) => typeof a.screeningScore === "number") as Array<Application & { screeningScore: number }>;
-    const avg = scored.length ? Math.round(scored.reduce((s, a) => s + a.screeningScore, 0) / scored.length) : null;
-    const needsReview = applications.filter((a) => a.status === "NEW").length;
-    return { total, inPipeline, hired, avg, needsReview };
-  }, [applications]);
-
-  const byStatus = useMemo(() => {
-    const map: Record<string, Application[]> = {};
-    for (const stage of PIPELINE) map[stage.key] = [];
-    for (const a of filtered) if (map[a.status]) map[a.status].push(a);
-    return map;
-  }, [filtered]);
-
-  const closedList = useMemo(() => filtered.filter((a) => CLOSED.has(a.status)), [filtered]);
-
-  function copyLink(slug: string) {
-    const url = `${window.location.origin}/apply/${slug}`;
-    navigator.clipboard.writeText(url).catch(() => {});
+  async function copyCareersLink() {
+    try {
+      await navigator.clipboard.writeText(careersUrl);
+      setMessage({ text: `Copied ${careersUrl}`, tone: "success" });
+    } catch {
+      setMessage({ text: `Copy this link: ${careersUrl}`, tone: "success" });
+    }
   }
 
+  function requestMove(card: HubCard, to: string) {
+    const refusal = moveRefusal(card.status, to);
+    if (refusal && to !== "HIRED") return setMessage({ text: refusal, tone: "danger" });
+    if (to === "HIRED" && card.status !== "OFFER") return setMessage({ text: "Make an offer first: hiring happens from the Offer stage.", tone: "danger" });
+    setPending({ applicationId: card.id, name: card.name, from: card.status, to });
+  }
+
+  function onDrop(event: React.DragEvent, stage: string) {
+    event.preventDefault();
+    setDragOver(null);
+    const id = event.dataTransfer.getData(DRAG_TYPE);
+    const card = cards.find((item) => item.id === id);
+    if (card && card.status !== stage) requestMove(card, stage);
+  }
+
+  const columnProps = (stage: string) => ({
+    onDragOver: (event: React.DragEvent) => {
+      if (!event.dataTransfer.types.includes(DRAG_TYPE)) return;
+      event.preventDefault();
+      setDragOver(stage);
+    },
+    onDragLeave: () => setDragOver((current) => (current === stage ? null : current)),
+    onDrop: (event: React.DragEvent) => onDrop(event, stage),
+  });
+
+  const stageChips = PIPELINE_STAGES.map((stage) => ({ key: stage, label: stageLabel(stage), count: byStage.get(stage)?.length ?? 0 }));
+
   return (
-    <div className="space-y-6">
-      <EPageHeader
-        eyebrow="Workforce"
-        title="Hiring"
-        description="Move candidates through the pipeline, assess them, and keep every conversation on record."
-        actions={
-          <EButton variant="gold" size="sm" onClick={createRole} disabled={creating}>
-            {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-            New role
-          </EButton>
-        }
+    <div className="flex min-w-0 flex-col gap-5">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="e-display-md">Hiring</h1>
+          <p className="mt-1 text-[0.9375rem] text-[hsl(var(--e-muted-foreground))] max-sm:hidden">
+            Applications for open roles, from new to hired. A hire becomes a staff account through the same invitation as Invite person.
+          </p>
+          <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))] sm:hidden">
+            {figures[1]?.value} in the pipeline · {figures[2]?.value} need a first look · {figures[3]?.value} interviews this week
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 max-sm:hidden">
+          <EButton variant="outline" size="sm" onClick={copyCareersLink}>Copy careers link</EButton>
+          <EButton size="sm" onClick={createRole} disabled={creating}>{creating ? "Creating…" : "New role"}</EButton>
+        </div>
+      </header>
+      <div className="e-signature-rule" />
+
+      {message ? (
+        <p role={message.tone === "danger" ? "alert" : "status"} className={`rounded-[var(--e-radius-lg)] p-3 text-[0.8125rem] ${toneNoticeClass(message.tone === "danger" ? "problem" : "good")}`}>
+          {message.text}
+        </p>
+      ) : null}
+
+      <ul aria-label="Hiring figures" className="grid grid-cols-2 gap-2.5 max-sm:hidden lg:grid-cols-5">
+        {figures.map((figure) => (
+          <li key={figure.label} className="min-w-0 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-3 py-2.5">
+            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{figure.label}</p>
+            <p className="e-tnum text-[1.125rem] font-semibold">{figure.value}</p>
+            <p className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">{figure.note}</p>
+          </li>
+        ))}
+      </ul>
+      {capped ? <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Showing the latest 300 applications; older ones are not counted here.</p> : null}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <EInput aria-label="Search name, email or phone" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, email or phone" className="min-w-0 flex-1 basis-56 max-sm:text-[16px]" />
+        <ESelect aria-label="Role" value={roleId} onChange={(e) => setRoleId(e.target.value)} className="w-auto max-sm:flex-1 max-sm:text-[16px]">
+          <option value="all">Role: all</option>
+          {roles.map((role) => <option key={role.id} value={role.id}>{role.title}</option>)}
+        </ESelect>
+        <ESelect aria-label="Knowledge test" value={testFilter} onChange={(e) => setTestFilter(e.target.value as TestFilter)} className="w-auto max-sm:text-[16px]">
+          <option value="any">Test: any</option>
+          <option value="passed">Test: passed</option>
+          <option value="below">Test: below pass mark</option>
+          <option value="not-done">Test: not done</option>
+        </ESelect>
+        <label className="flex min-h-[44px] items-center gap-2 text-[0.8125rem] sm:ml-auto">
+          <input type="checkbox" className="h-4 w-4 accent-[hsl(var(--e-primary))]" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} />
+          <span><span className="sm:hidden">Closed</span><span className="max-sm:hidden">Show closed (rejected {closedCounts.rejected}, withdrawn {closedCounts.withdrawn})</span></span>
+        </label>
+        <div role="group" aria-label="Layout" className="inline-flex rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-0.5 max-sm:hidden">
+          {(["board", "list"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={view === option}
+              onClick={() => setView(option)}
+              className={`h-8 rounded-[var(--e-radius-sm)] px-3 text-[0.8125rem] font-[550] ${view === option ? "bg-[hsl(var(--e-surface))] shadow-[var(--e-elevation-1)]" : "text-[hsl(var(--e-muted-foreground))]"}`}
+            >
+              {option === "board" ? "Board" : "List"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Phone: one stage at a time on a swipeable chip row. */}
+      <div className="flex flex-col gap-3 sm:hidden">
+        <EFilterChips label="Stage" chips={stageChips} active={phoneStage} onChange={setPhoneStage} phoneLayout="carousel" />
+        <StageCards stage={phoneStage} cards={byStage.get(phoneStage) ?? []} onMove={requestMove} />
+      </div>
+
+      <div className="max-sm:hidden">
+        {view === "board" ? (
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            {PIPELINE_STAGES.map((stage) => (
+              <section
+                key={stage}
+                aria-labelledby={`stage-${stage}`}
+                {...columnProps(stage)}
+                className={`min-w-0 rounded-[var(--e-radius-lg)] p-1 transition-colors ${dragOver === stage ? "bg-[hsl(var(--e-primary-soft))] outline outline-2 outline-[hsl(var(--e-primary)/0.4)]" : ""}`}
+              >
+                <h2 id={`stage-${stage}`} className="mb-2 flex items-center justify-between px-1 text-[0.8125rem] font-[550]">
+                  {stageLabel(stage)}
+                  <span className="e-tnum text-[hsl(var(--e-muted-foreground))]">{byStage.get(stage)?.length ?? 0}</span>
+                </h2>
+                <StageCards stage={stage} cards={byStage.get(stage) ?? []} onMove={requestMove} draggable />
+              </section>
+            ))}
+          </div>
+        ) : (
+          <ApplicationTable cards={filtered.filter((card) => showClosed || !(CLOSED_STAGES as readonly string[]).includes(card.status))} onMove={requestMove} />
+        )}
+        <p className="mt-3 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          Drag a card to another stage, or use its Move to… menu. Moving into Interview, Offer or Declined opens the email preview with that stage&apos;s template, to send or skip; moving to Hired always opens the account step.
+        </p>
+      </div>
+
+      {showClosed ? (
+        <section aria-labelledby="closed-title" className="min-w-0">
+          <h2 id="closed-title" className="mb-2 text-[0.8125rem] font-[550]">Closed · {closed.length}</h2>
+          {closed.length === 0 ? (
+            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No rejected or withdrawn applications match these filters.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {closed.map((card) => <PipelineCard key={card.id} card={card} onMove={requestMove} />)}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      <RolesTable roles={roles} careersUrl={careersUrl} />
+
+      <EPhoneActionBar
+        label="Hiring actions"
+        secondary={<EButton variant="outline" onClick={copyCareersLink}>Copy link</EButton>}
+        primary={<EButton onClick={createRole} disabled={creating}>New role</EButton>}
+        hidden={pending !== null}
       />
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <EStatCard label="Candidates" value={stats.total} icon={<Users className="h-4 w-4" />} />
-        <EStatCard
-          label="Needs review"
-          value={stats.needsReview}
-          icon={<Star className="h-4 w-4" />}
-          delta={stats.needsReview > 0 ? "Awaiting first look" : undefined}
-          deltaTone={stats.needsReview > 0 ? "danger" : "neutral"}
-        />
-        <EStatCard label="In pipeline" value={stats.inPipeline} icon={<Briefcase className="h-4 w-4" />} />
-        <EStatCard label="Hired" value={stats.hired} icon={<UserCheck className="h-4 w-4" />} />
-        <EStatCard label="Avg score" value={stats.avg != null ? `${stats.avg}%` : "—"} icon={<Gauge className="h-4 w-4" />} />
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="relative min-w-[220px] flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--e-text-faint))]" />
-          <EInput
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search name, email, role…"
-            className="pl-9"
-          />
-        </div>
-        <EField label="Position" className="w-[200px]">
-          <ESelect value={positionId} onChange={(e) => setPositionId(e.target.value)}>
-            <option value="all">All positions</option>
-            {positions.map((p) => (
-              <option key={p.id} value={p.id}>{p.title}</option>
-            ))}
-          </ESelect>
-        </EField>
-        <EField label="Stage" className="w-[160px]">
-          <ESelect value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
-            <option value="all">All stages</option>
-            {PIPELINE.map((s) => (
-              <option key={s.key} value={s.key}>{s.label}</option>
-            ))}
-            <option value="REJECTED">Rejected</option>
-            <option value="WITHDRAWN">Withdrawn</option>
-          </ESelect>
-        </EField>
-        <div className="inline-flex items-center gap-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1">
-          <button
-            type="button"
-            onClick={() => setView("board")}
-            aria-pressed={view === "board"}
-            className={`inline-flex h-8 items-center gap-1.5 rounded-[var(--e-radius)] px-3 text-[0.8125rem] font-[550] transition-colors ${view === "board" ? "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]" : "text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"}`}
-          >
-            <LayoutGrid className="h-3.5 w-3.5" /> Board
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("list")}
-            aria-pressed={view === "list"}
-            className={`inline-flex h-8 items-center gap-1.5 rounded-[var(--e-radius)] px-3 text-[0.8125rem] font-[550] transition-colors ${view === "list" ? "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]" : "text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"}`}
-          >
-            <ListIcon className="h-3.5 w-3.5" /> List
-          </button>
-        </div>
-        <EButton variant={showClosed ? "primary" : "outline"} size="sm" onClick={() => setShowClosed((v) => !v)}>
-          {showClosed ? "Hide closed" : "Show closed"}
-        </EButton>
-      </div>
-
-      {/* Board / List */}
-      {view === "board" ? (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          {PIPELINE.map((stage) => (
-            <div key={stage.key} className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-2">
-              <div className="mb-2 flex items-center justify-between px-1.5 py-1">
-                <EBadge tone={stage.tone} soft>{stage.label}</EBadge>
-                <span className="e-tnum text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{byStatus[stage.key].length}</span>
-              </div>
-              <div className="space-y-2">
-                {byStatus[stage.key].map((a) => <CandidateCard key={a.id} a={a} />)}
-                {byStatus[stage.key].length === 0 ? (
-                  <p className="px-2 py-6 text-center text-[0.75rem] text-[hsl(var(--e-text-faint))]">Empty</p>
-                ) : null}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <ApplicationList applications={filtered} />
-      )}
-
-      {showClosed && closedList.length > 0 ? (
-        <div>
-          <p className="mb-2 e-eyebrow">Closed · {closedList.length}</p>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {closedList.map((a) => <CandidateCard key={a.id} a={a} muted />)}
-          </div>
-        </div>
-      ) : null}
-
-      {applications.length === 0 ? (
-        <EEmptyState
-          eyebrow="Pipeline"
-          title="No candidates yet"
-          description="Publish a role and share its apply link — applications land here automatically."
-        />
-      ) : null}
-
-      {/* Open roles */}
-      <ECard>
-        <div className="flex items-center justify-between border-b border-[hsl(var(--e-border))] px-6 py-4">
-          <div>
-            <p className="e-eyebrow mb-1">Positions</p>
-            <h3 className="e-display-sm">Open roles</h3>
-          </div>
-          <EButton variant="outline" size="sm" onClick={createRole} disabled={creating}>
-            <Plus className="h-3.5 w-3.5" /> New role
-          </EButton>
-        </div>
-        <div className="space-y-2 p-4">
-          {positions.map((p) => (
-            <div
-              key={p.id}
-              className="flex flex-wrap items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-3"
-            >
-              <div className="min-w-0 flex-1 max-sm:basis-full">
-                <p className="flex flex-wrap items-center gap-2 font-[550] text-[hsl(var(--e-foreground))]">
-                  {p.title}
-                  <EBadge tone={p.isPublished ? "success" : "neutral"} soft>
-                    {p.isPublished ? "Published" : "Draft"}
-                  </EBadge>
-                </p>
-                <p className="break-words text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                  {p._count?.applications ?? 0} applications · /apply/{p.slug}
-                </p>
-              </div>
-              <EButton variant="outline" size="sm" asChild>
-                <Link href={`/v2/admin/hiring/positions/${p.id}`}>
-                  <Pencil className="h-3.5 w-3.5" /> Edit
-                </Link>
-              </EButton>
-              <EButton variant="ghost" size="sm" onClick={() => copyLink(p.slug)}>
-                <Copy className="h-3.5 w-3.5" /> Copy link
-              </EButton>
-              <EButton variant="ghost" size="sm" asChild>
-                <a href={`/apply/${p.slug}`} target="_blank" rel="noreferrer">
-                  <ExternalLink className="h-3.5 w-3.5" /> Open
-                </a>
-              </EButton>
-            </div>
-          ))}
-          {positions.length === 0 ? (
-            <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">No roles yet.</p>
-          ) : null}
-        </div>
-      </ECard>
+      <StageMoveFlow
+        move={pending}
+        onMessage={(text, tone) => setMessage({ text, tone })}
+        onFinished={(changed) => {
+          setPending(null);
+          if (changed) router.refresh();
+        }}
+      />
     </div>
   );
 }
 
-function quizCaption(a: Application) {
-  const quizzes = Array.isArray(a.quizAssignments) ? a.quizAssignments : [];
-  if (quizzes.length === 0) return null;
-  const completed = quizzes.filter((q) => q.status === "COMPLETED");
-  const best = completed.reduce<number | null>(
-    (b, q) => (typeof q.score === "number" ? Math.max(b ?? 0, q.score) : b),
-    null,
+function StageCards({ stage, cards, onMove, draggable = false }: { stage: string; cards: HubCard[]; onMove: (card: HubCard, to: string) => void; draggable?: boolean }) {
+  if (cards.length === 0) {
+    return <p className="rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border))] px-3 py-6 text-center text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">No applications in {stageLabel(stage)}.</p>;
+  }
+  return (
+    <ul className="flex flex-col gap-2">
+      {cards.map((card) => (
+        <li key={card.id}>
+          <PipelineCard card={card} onMove={onMove} draggable={draggable} />
+        </li>
+      ))}
+    </ul>
   );
-  if (completed.length === quizzes.length) {
-    return { tone: "success" as Tone, text: `Quiz done${best != null ? ` · ${Math.round(best)}%` : ""}` };
-  }
-  if (completed.length > 0) {
-    return { tone: "warning" as Tone, text: `Quiz ${completed.length}/${quizzes.length}${best != null ? ` · ${Math.round(best)}%` : ""}` };
-  }
-  return { tone: "neutral" as Tone, text: "Quiz sent · awaiting" };
 }
 
-function CandidateCard({ a, muted }: { a: Application; muted?: boolean }) {
-  const quiz = quizCaption(a);
+function moveItems(card: HubCard, onMove: (card: HubCard, to: string) => void) {
+  const targets = [...MOVE_TARGETS.filter((stage) => stage !== card.status && stage !== "WITHDRAWN"), "HIRED", "WITHDRAWN"];
+  return targets.map((stage, index) => {
+    const refusal = stage === "HIRED" ? (card.status === "OFFER" ? null : "Make an offer first") : moveRefusal(card.status, stage);
+    return {
+      key: stage,
+      label: stage === "HIRED" ? "Mark hired and invite…" : stage === "REJECTED" ? "Decline…" : `Move to ${stageLabel(stage)}`,
+      heading: index === 0 ? "Move to" : undefined,
+      separated: stage === "REJECTED",
+      disabled: Boolean(refusal),
+      hint: refusal ?? undefined,
+      danger: stage === "REJECTED",
+      onSelect: () => onMove(card, stage),
+    };
+  });
+}
+
+function PipelineCard({ card, onMove, draggable = false }: { card: HubCard; onMove: (card: HubCard, to: string) => void; draggable?: boolean }) {
+  const menu = card.status === "HIRED" ? null : (
+    <ERowMenu label={`Move ${card.name}`} items={moveItems(card, onMove)} />
+  );
   return (
-    <Link
-      href={`/v2/admin/hiring/applications/${a.id}`}
-      className={`block rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-3 transition-[border-color,box-shadow] duration-[160ms] hover:border-[hsl(var(--e-border-gold)/0.5)] hover:shadow-[var(--e-elevation-1)] ${muted ? "opacity-70" : ""}`}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <p className="truncate text-[0.875rem] font-[550] text-[hsl(var(--e-foreground))]">{a.fullName}</p>
-        {typeof a.screeningScore === "number" ? (
-          <EBadge tone={scoreTone(a.screeningScore)} soft className="shrink-0 e-tnum">
-            {Math.round(a.screeningScore)}%
-          </EBadge>
-        ) : null}
-      </div>
-      <p className="mt-0.5 truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{a.position?.title}</p>
-      {quiz ? (
-        <div className="mt-1.5">
-          <EBadge tone={quiz.tone} soft className="text-[0.625rem]">
-            <ClipboardList className="h-3 w-3" /> {quiz.text}
-          </EBadge>
+    <EToneCard
+      tone={card.tone}
+      draggable={draggable && card.status !== "HIRED"}
+      onDragStart={(event: React.DragEvent<HTMLDivElement>) => {
+        event.dataTransfer.setData(DRAG_TYPE, card.id);
+        event.dataTransfer.effectAllowed = "move";
+      }}
+      className={draggable && card.status !== "HIRED" ? "cursor-grab active:cursor-grabbing" : undefined}
+      headerClassName="px-3 py-2"
+      bodyClassName="px-3 py-2"
+      header={
+        <div className="min-w-0">
+          <Link href={`/v2/admin/hiring/applications/${card.id}`} className="block truncate text-[0.875rem] font-semibold underline-offset-2 hover:underline">
+            {card.name}
+          </Link>
+          <p className="truncate text-[0.75rem] opacity-80">{card.subtitle}</p>
         </div>
-      ) : null}
-      <div className="mt-2 flex items-center gap-3 text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
-        <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" /> {a.emailsSent ?? 0}</span>
-        <span className="inline-flex items-center gap-1"><Reply className="h-3 w-3" /> {a.repliesReceived ?? 0}</span>
-        <span className="ml-auto e-tnum">{new Date(a.createdAt).toLocaleDateString()}</span>
+      }
+      pill={card.pill}
+    >
+      <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+          {card.test ? <EPill tone={card.test.tone}>{card.test.text}</EPill> : null}
+          {card.detail ? <span className="min-w-0 break-words">{card.detail}</span> : null}
+        </div>
+        {menu ? <div className="shrink-0 [&_button]:h-7 [&_button]:w-7 max-sm:[&_button]:h-11 max-sm:[&_button]:w-11">{menu}</div> : null}
       </div>
-    </Link>
+    </EToneCard>
   );
 }
 
-function ApplicationList({ applications }: { applications: Application[] }) {
-  const stageLabel: Record<string, { label: string; tone: Tone }> = {
-    NEW: { label: "New", tone: "neutral" }, SCREENING: { label: "Screening", tone: "info" },
-    INTERVIEW: { label: "Interview", tone: "warning" }, OFFER: { label: "Offer", tone: "aubergine" },
-    HIRED: { label: "Hired", tone: "success" }, REJECTED: { label: "Rejected", tone: "danger" },
-    WITHDRAWN: { label: "Withdrawn", tone: "neutral" },
-  };
-  if (applications.length === 0) {
-    return (
-      <EEmptyState eyebrow="Roster" title="Nothing matches" description="Adjust the filters to see more candidates." />
-    );
-  }
+function ApplicationTable({ cards, onMove }: { cards: HubCard[]; onMove: (card: HubCard, to: string) => void }) {
+  if (cards.length === 0) return <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">No applications match these filters.</p>;
   return (
-    <ECard className="overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-[0.875rem]">
-          <thead>
-            <tr className="border-b border-[hsl(var(--e-border))]">
-              {["Candidate", "Position", "Stage", "Quiz", "Score", "Applied"].map((h, i) => (
-                <th
-                  key={h}
-                  className={`px-4 py-3 text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--e-gold-ink))] ${i >= 4 ? "text-right" : "text-left"}`}
-                >
-                  {h}
-                </th>
-              ))}
+    <div role="region" aria-label="Applications" tabIndex={0} className="overflow-x-auto rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
+      <table className="w-full min-w-[720px] text-[0.8125rem]">
+        <thead className="bg-[hsl(var(--e-surface-raised))] text-left text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          <tr>
+            <th className="px-3 py-2 font-[550]">Applicant</th>
+            <th className="px-3 py-2 font-[550]">Role</th>
+            <th className="px-3 py-2 font-[550]">Stage</th>
+            <th className="px-3 py-2 font-[550]">Test</th>
+            <th className="px-3 py-2 font-[550]">Now</th>
+            <th className="px-3 py-2"><span className="sr-only">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[hsl(var(--e-border))]">
+          {cards.map((card) => (
+            <tr key={card.id}>
+              <td className="px-3 py-2">
+                <Link href={`/v2/admin/hiring/applications/${card.id}`} className="font-semibold underline-offset-2 hover:underline">{card.name}</Link>
+                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{card.email}</p>
+              </td>
+              <td className="px-3 py-2">{card.positionTitle}</td>
+              <td className="px-3 py-2"><EPill>{stageLabel(card.status)}</EPill>{card.pill ? <span className="ml-1.5 text-[0.75rem]">{card.pill}</span> : null}</td>
+              <td className="px-3 py-2">{card.test ? <EPill tone={card.test.tone}>{card.test.text}</EPill> : "–"}</td>
+              <td className="px-3 py-2 text-[hsl(var(--e-text-secondary))]">{card.detail || "–"}</td>
+              <td className="px-3 py-2 text-right">{card.status === "HIRED" ? null : <ERowMenu label={`Move ${card.name}`} items={moveItems(card, onMove)} />}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RolesTable({ roles, careersUrl }: { roles: HubRole[]; careersUrl: string }) {
+  return (
+    <section aria-labelledby="roles-title" className="min-w-0 overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-3">
+        <h2 id="roles-title" className="text-[0.9375rem] font-semibold">Roles</h2>
+        <p className="min-w-0 break-all text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Careers page: {careersUrl.replace(/^https?:\/\//, "")}</p>
+      </div>
+      {roles.length === 0 ? <p className="px-4 pb-4 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No roles yet. New role starts one as a draft.</p> : null}
+      <div role="region" aria-label="Roles table" tabIndex={0} className="overflow-x-auto max-sm:hidden">
+        <table className="w-full min-w-[820px] text-[0.8125rem]">
+          <thead className="bg-[hsl(var(--e-surface-raised))] text-left text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            <tr>
+              <th className="px-4 py-2 font-[550]">Role</th>
+              <th className="px-3 py-2 font-[550]">Status</th>
+              <th className="px-3 py-2 font-[550]">Applications</th>
+              <th className="px-3 py-2 font-[550]">Knowledge test</th>
+              <th className="px-3 py-2 font-[550]">Hires become</th>
+              <th className="px-3 py-2 font-[550]">Public link</th>
+              <th className="px-3 py-2"><span className="sr-only">Open</span></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[hsl(var(--e-border))]">
-            {applications.map((a) => {
-              const stage = stageLabel[a.status] ?? { label: a.status, tone: "neutral" as Tone };
-              const quiz = quizCaption(a);
-              return (
-                <tr key={a.id} className="transition-colors hover:bg-[hsl(var(--e-muted))]">
-                  <td className="px-4 py-3">
-                    <Link href={`/v2/admin/hiring/applications/${a.id}`} className="font-[550] text-[hsl(var(--e-foreground))] hover:text-[hsl(var(--e-gold-ink))]">
-                      {a.fullName}
-                    </Link>
-                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{a.email}</p>
-                  </td>
-                  <td className="px-4 py-3 text-[hsl(var(--e-text-secondary))]">{a.position?.title ?? "—"}</td>
-                  <td className="px-4 py-3"><EBadge tone={stage.tone} soft>{stage.label}</EBadge></td>
-                  <td className="px-4 py-3">
-                    {quiz ? <EBadge tone={quiz.tone} soft className="text-[0.625rem]">{quiz.text}</EBadge> : <span className="text-[hsl(var(--e-text-faint))]">—</span>}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {typeof a.screeningScore === "number" ? (
-                      <EBadge tone={scoreTone(a.screeningScore)} soft className="e-tnum">{Math.round(a.screeningScore)}%</EBadge>
-                    ) : <span className="text-[hsl(var(--e-text-faint))]">—</span>}
-                  </td>
-                  <td className="px-4 py-3 text-right e-tnum text-[hsl(var(--e-muted-foreground))]">{new Date(a.createdAt).toLocaleDateString()}</td>
-                </tr>
-              );
-            })}
+            {roles.map((role) => (
+              <tr key={role.id}>
+                <td className="px-4 py-2.5">
+                  <p className="font-semibold">{role.title}</p>
+                  {role.subtitle ? <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{role.subtitle}</p> : null}
+                </td>
+                <td className="px-3 py-2.5"><EPill tone={role.isPublished ? "ok" : "neutral"}>{role.isPublished ? "Accepting" : "Draft"}</EPill></td>
+                <td className="e-tnum px-3 py-2.5">{role.applications ? `${role.applications} · ${role.open} open` : "None yet"}</td>
+                <td className="px-3 py-2.5">{role.test}</td>
+                <td className="px-3 py-2.5">{role.hiresBecomeSet ? role.hiresBecome : <span className="text-[hsl(var(--e-warning))]">Not chosen</span>}</td>
+                <td className="px-3 py-2.5">{role.isPublished ? <a className="underline" href={`/apply/${role.slug}`} target="_blank" rel="noreferrer">/apply/{role.slug}</a> : "Not published"}</td>
+                <td className="px-3 py-2.5 text-right"><EButton asChild size="sm" variant="outline"><Link href={`/v2/admin/hiring/positions/${role.id}`}>Open</Link></EButton></td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
-    </ECard>
+      <ul className="divide-y divide-[hsl(var(--e-border))] sm:hidden">
+        {roles.map((role) => (
+          <li key={role.id} className="flex items-start justify-between gap-3 px-4 py-3">
+            <div className="min-w-0">
+              <p className="font-semibold">{role.title}</p>
+              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{role.isPublished ? "Accepting" : "Draft"} · {role.applications} applications · {role.hiresBecome}</p>
+            </div>
+            <EButton asChild size="sm" variant="outline"><Link href={`/v2/admin/hiring/positions/${role.id}`}>Open</Link></EButton>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

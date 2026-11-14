@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { bodyOf } from "@/lib/email-design/compose";
 import { z } from "zod";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
@@ -70,12 +71,14 @@ export async function POST(req: NextRequest) {
       recipientName: body.to,
       reportLabel,
       propertyName: data.propertyName ?? "Multiple properties",
+      // The report document's body, shown under the email as before (built content; the PDF is attached too).
+      reportHtml: bodyOf(html),
     });
 
     const sent = await sendEmailDetailed({
       to: body.to,
       subject: emailTemplate.subject,
-      html: `${emailTemplate.html}${html}`,
+      html: emailTemplate.html,
       attachments: [{ filename, content: pdf }],
     });
 

@@ -76,6 +76,13 @@ export const REASON_CHOICES = {
     OTHER,
   ],
   // Property onboarding reject (2026-11-16): the onboarding keeps the reason.
+  /** Hiring › Decline (board "Hiring application", 2026-11-16): kept on the application's history. */
+  hiringDecline: [
+    { id: "availability", label: "Not enough availability" },
+    { id: "area", label: "Outside our area" },
+    { id: "test", label: "Test below pass mark" },
+    OTHER,
+  ],
   onboardingReject: [
     { id: "client-withdrew", label: "Client withdrew" },
     { id: "outside-area", label: "Outside our service area" },

@@ -63,6 +63,8 @@ export type AccountCreateInput = {
   phone?: string | null;
   role: Role;
   clientId?: string | null;
+  /** Laundry accounts: the laundry partner (LaundrySupplier) they work for. */
+  laundrySupplierId?: string | null;
   abn?: string | null;
   businessName?: string | null;
   address?: string | null;
@@ -176,6 +178,7 @@ async function insertAccount(tx: Tx, options: AccountCreateOptions, email: strin
       isActive: true,
       emailVerified: invite ? null : new Date(),
       clientId: input.role === Role.CLIENT || input.role === Role.VA ? input.clientId ?? null : null,
+      laundrySupplierId: input.role === Role.LAUNDRY ? input.laundrySupplierId ?? null : null,
     },
     select: { id: true, name: true, email: true, phone: true, role: true },
   });
@@ -200,6 +203,7 @@ async function insertAccount(tx: Tx, options: AccountCreateOptions, email: strin
         email: user.email,
         role: user.role,
         clientId: input.clientId ?? null,
+        laundrySupplierId: input.role === Role.LAUNDRY ? input.laundrySupplierId ?? null : null,
         activationMode: invite ? "ADMIN_CREATED_INVITE" : "ADMIN_CREATED_ACTIVE",
         origin: options.origin,
         actorRole: actor.role,

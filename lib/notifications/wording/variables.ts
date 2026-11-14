@@ -158,6 +158,9 @@ const DICTIONARY: Record<string, Entry> = {
   // Office messages
   subject: { label: "Subject the sender wrote", sample: "Roster for next week" },
   message: { label: "Message the sender wrote", sample: "The new roster is up in the team hub.", format: "multiline" },
+  emailName: { label: "Email name", sample: "Job reminder (24 hours)" },
+  version: { label: "Version", sample: "6" },
+  changeSummary: { label: "What changed", sample: "Subject changed; + Callout." },
 };
 
 export function variableDefinition(name: string): WordingVariable {
