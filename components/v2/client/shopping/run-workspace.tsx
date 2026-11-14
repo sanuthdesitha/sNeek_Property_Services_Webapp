@@ -398,6 +398,7 @@ export function ShoppingRunWorkspaceEstate({
             {backLabel}
           </Link>
         </EButton>
+        <h1 className="e-display-md">Shopping run</h1>
         {error ? <EInlineNotice tone="danger">{error}</EInlineNotice> : null}
         <ECard>
           <ECardBody className="py-10 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">

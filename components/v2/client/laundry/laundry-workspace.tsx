@@ -1,7 +1,7 @@
 "use client";
 import { JobStatusIcon } from "@/components/shared/job-status-icon";
 
-import { statusBlockStyle } from "@/lib/jobs/status-presentation";
+import { statusTintStyle } from "@/lib/jobs/status-presentation";
 
 /**
  * Estate laundry workspace (client) — read-only laundry schedule + timeline.
@@ -145,7 +145,7 @@ function buildLatestLaundrySummary(task: any) {
   if (latest) {
     return {
       title: latest.laundryReady ? "Cleaner marked laundry ready" : "Laundry update recorded",
-      detail: [format(new Date(latest.createdAt), "dd MMM yyyy HH:mm"), latest.bagLocation || null].filter(Boolean).join(" • "),
+      detail: [format(toLocalDate(latest.createdAt), "dd MMM yyyy HH:mm"), latest.bagLocation || null].filter(Boolean).join(" • "),
     };
   }
   return { title: "Laundry schedule created", detail: `Pickup ${format(toLocalDate(task.pickupDate), "dd MMM yyyy")}` };
@@ -250,7 +250,7 @@ export function LaundryWorkspace({ tasks, showLaundryImages, properties: availab
     return (
       <div
         key={task.id}
-        style={statusBlockStyle(String(task.status), "laundry")}
+        style={statusTintStyle(String(task.status), "laundry")}
         ref={(node) => {
           taskRefs.current[task.id] = node;
         }}

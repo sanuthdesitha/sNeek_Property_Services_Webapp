@@ -46,7 +46,12 @@ export function InventorySettingsCard({
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`(${res.status})`))))
       .then((body) => {
         if (cancelled) return;
-        setItems(Array.isArray(body) ? (body as CatalogItem[]).filter((it) => it.isActive !== false) : []);
+        // An unexpected reply is a failure, never an empty catalogue.
+        if (!Array.isArray(body)) {
+          setLoadError("(unexpected reply)");
+          return;
+        }
+        setItems((body as CatalogItem[]).filter((it) => it.isActive !== false));
       })
       .catch((err) => {
         if (!cancelled) setLoadError(err?.message ?? "Could not load the inventory catalog.");

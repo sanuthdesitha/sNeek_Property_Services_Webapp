@@ -93,6 +93,11 @@ const money = (n: number) =>
   new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(Number(n ?? 0));
 const label = (s: string) => s.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 
+/** The billing serializer falls back to the raw scope ("CLEANER"); show it as words. Names pass through. */
+function paidByLabel(value: string): string {
+  return /^[A-Z_ ]+$/.test(value) ? value.charAt(0) + value.slice(1).toLowerCase() : value;
+}
+
 export function EstateShoppingRunDetail({
   initialRun,
   runId,
@@ -209,7 +214,6 @@ export function EstateShoppingRunDetail({
 
   return (
     <div className="space-y-6">
-      <ShoppingClientCharges key={runId} runId={runId} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Link
@@ -226,7 +230,7 @@ export function EstateShoppingRunDetail({
             </EBadge>
           </div>
           <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            {run.ownerName ?? "—"} · {run.ownerScope.toLowerCase()} · paid by {run.paidByDisplay ?? "—"}
+            {run.ownerName ?? "—"} · {run.ownerScope.toLowerCase()} · paid by {run.paidByDisplay ? paidByLabel(run.paidByDisplay) : "—"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -251,6 +255,9 @@ export function EstateShoppingRunDetail({
         <EStatCard label="Estimated" value={money(run.totals.estimatedTotalCost)} />
         <EStatCard label="Actual" value={money(run.totals.actualTotalCost)} />
       </section>
+
+      {/* Client allocations sit under the run heading (never above the page h1). */}
+      <ShoppingClientCharges key={runId} runId={runId} />
 
       {/* Purchase order */}
       <ECard className="p-5">

@@ -19,5 +19,12 @@ export default async function QaInspectionPage({ params }: { params: { id: strin
     .catch(() => null);
   if (!exists) notFound();
 
-  return <div className="space-y-6"><PhotoReviewPanel jobId={params.id} /><QaInspectionWorkspace jobId={params.id} /></div>;
+  // The workspace owns the page heading, so the photo review panel follows it
+  // (feature panels never sit above the page heading).
+  return (
+    <div className="space-y-6">
+      <QaInspectionWorkspace jobId={params.id} />
+      <PhotoReviewPanel jobId={params.id} />
+    </div>
+  );
 }

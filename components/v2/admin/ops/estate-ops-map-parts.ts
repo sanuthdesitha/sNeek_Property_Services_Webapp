@@ -213,3 +213,19 @@ export function propertyInfoHtml(p: OpsMapProperty): string {
   return `<div style="font:500 13px system-ui;color:#2a241d">${escapeHtml(p.name)}<br/><span style="font-weight:400;color:#8a7f70">${escapeHtml(p.suburb ?? "")}${status}</span>${link}</div>`;
 }
 
+
+/** Info window for a laundry driver (moved unchanged from estate-ops-map). */
+export function driverInfoHtml(driver: {
+  name: string;
+  stopsDone: number;
+  stopsTotal: number;
+  lastPingAt: string | null;
+  accuracy?: number | null;
+  trackingState?: string | null;
+}): string {
+  const reason = trackingStateLabel(driver.trackingState ?? null);
+  const age = driver.lastPingAt
+    ? `Last fix ${formatRelativeAgo(driver.lastPingAt)}${driver.accuracy != null ? ` · ±${Math.round(driver.accuracy)}m` : ""}`
+    : "No GPS yet";
+  return `<div style="font:600 13px system-ui;color:#2a241d">${escapeHtml(driver.name)}</div><div style="font:400 12px system-ui;color:#4a4238">Laundry route · ${driver.stopsDone} of ${driver.stopsTotal} stops done</div><div style="font:400 11px system-ui;color:#a39a8a;margin-top:4px">${escapeHtml(age)}</div>${reason ? `<div style="font:500 11px system-ui;color:#b4472e">Phone reports: ${escapeHtml(reason)}</div>` : ""}`;
+}

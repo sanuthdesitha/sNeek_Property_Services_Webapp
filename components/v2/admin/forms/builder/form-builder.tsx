@@ -23,7 +23,7 @@ import { buildBadgeContext } from "@/lib/forms/question-badges";
 import type { FormSchema } from "@/lib/forms/types";
 import type { BuilderUsage } from "@/lib/forms/builder-context";
 import { cn } from "@/lib/utils";
-import { BuilderHeader, publishTarget, type BuilderStatus } from "./builder-header";
+import { BuilderHeader, BuilderPhoneActionBar, publishTarget, type BuilderStatus } from "./builder-header";
 import { BuilderOverlays, type Overlay } from "./builder-overlays";
 import { CleanerPreview } from "./cleaner-preview";
 import { MultiEditPanel } from "./multi-edit-panel";
@@ -34,7 +34,7 @@ import type { RowAction } from "./question-row";
 import { useBuilderDocument } from "./use-builder-document";
 import { useBuilderEditing } from "./use-builder-editing";
 import { useBuilderLifecycle } from "./use-builder-lifecycle";
-import { useDraftAutosave } from "./use-draft-autosave";
+import { draftFailureReason, useDraftAutosave } from "./use-draft-autosave";
 import { useInlineRename } from "./use-inline-rename";
 import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { useIsPhone } from "@/components/v2/ui/use-phone";
@@ -73,6 +73,18 @@ const BANNER_TONE = {
   warning: toneNoticeClass("attention"),
   success: toneNoticeClass("good"),
 } as const;
+
+/**
+ * Frame of the one-question settings editor. From 640px up it is a bounded
+ * flex column, so the properties panel's body (flex-1, min-h-0) scrolls to
+ * its last field inside the right-hand pane; without the flex column the
+ * panel's height never resolved and everything below the frame's max-height
+ * was clipped. On a phone it is in normal flow: the whole question screen
+ * scrolls with the page.
+ */
+const EDITOR_FRAME_CLASS =
+  "flex max-h-[70vh] flex-col overflow-hidden rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] lg:max-h-[calc(100vh-14rem)] " +
+  "max-sm:max-h-none max-sm:overflow-visible";
 
 function Banner({ tone, children }: { tone: keyof typeof BANNER_TONE; children: React.ReactNode }) {
   return (
@@ -148,6 +160,11 @@ export function EstateFormBuilder(props: EstateFormBuilderProps) {
     setOverlay({ kind: "delete", ids });
   };
   const target = publishTarget(shownStatus);
+  const bulkActive = editing.selectedIds.length > 0;
+  const openPublish = () => {
+    lifecycle.setError(null);
+    setOverlay({ kind: "publish" });
+  };
   /** The existing section reorder for any section (the phone outline's Move up / Move down). */
   const moveSectionAt = (sectionId: string, direction: -1 | 1) => document.editSchema((current) => moveSectionBy(current, sectionId, direction));
   const focusedSectionRepeat = editing.focused?.section.repeatBy;
@@ -171,7 +188,7 @@ export function EstateFormBuilder(props: EstateFormBuilderProps) {
           }}
         />
       ) : editing.focused ? (
-        <div className="max-h-[70vh] overflow-hidden rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] lg:max-h-[calc(100vh-14rem)]">
+        <div className={EDITOR_FRAME_CLASS} data-builder-editor-frame="">
           <PropertiesPanel
             key={editing.focused.field.id}
             field={editing.focused.field}
@@ -204,13 +221,9 @@ export function EstateFormBuilder(props: EstateFormBuilderProps) {
         onRedo={document.redo}
         onVersions={() => setOverlay({ kind: "versions" })}
         onTest={() => setOverlay({ kind: "test" })}
-        onPublish={() => {
-          lifecycle.setError(null);
-          setOverlay({ kind: "publish" });
-        }}
+        onPublish={openPublish}
         onLeave={leave}
         onRename={rename}
-        bulkActive={editing.selectedIds.length > 0}
         menuItems={[
           { key: "settings", label: "Form settings (name, service type, theme)", onSelect: () => setOverlay({ kind: "settings" }) },
           { key: "checks", label: `Checks (${checks.errors} problems, ${checks.warnings} warnings)`, onSelect: () => setOverlay({ kind: "checks" }) },
@@ -233,7 +246,7 @@ export function EstateFormBuilder(props: EstateFormBuilderProps) {
       ) : null}
       {autosave.state.status === "failed" ? (
         <Banner tone="danger">
-          <span className="font-[600]">The draft was not saved.</span> {autosave.state.error} Your edits are kept here.{" "}
+          <span className="font-[600]">The draft was not saved.</span> {draftFailureReason(autosave.state.error)} Your edits are kept here.{" "}
           <EButton size="sm" variant="outline" className="ml-1" onClick={() => void autosave.flush()}>Retry</EButton>
         </Banner>
       ) : null}
@@ -341,6 +354,24 @@ export function EstateFormBuilder(props: EstateFormBuilderProps) {
         onDeleteSection={editing.removeSection}
         onDiscard={() => void lifecycle.discardDraft()}
       />
+      {phone ? (
+        <>
+          {/*
+            Phones: the end of every screen stays clear of what is docked at
+            the bottom. The main area already clears the tab bar; this adds the
+            safe area, and stands in for the action bar's own spacer while the
+            bulk bar (which has none) owns the bottom.
+          */}
+          <div aria-hidden data-builder-dock-clearance="" className={cn("sm:hidden", bulkActive ? "h-[calc(env(safe-area-inset-bottom)+4.5rem)]" : "h-[env(safe-area-inset-bottom)]")} />
+          <BuilderPhoneActionBar
+            status={shownStatus}
+            busy={lifecycle.busy}
+            bulkActive={bulkActive}
+            onTest={() => setOverlay({ kind: "test" })}
+            onPublish={openPublish}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

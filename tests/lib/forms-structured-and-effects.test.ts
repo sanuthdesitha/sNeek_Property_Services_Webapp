@@ -72,6 +72,34 @@ describe("strict save checks and Checks", () => {
   });
 });
 
+describe("the builder's draft keeps a question still being set up (owner report 2026-11-13)", () => {
+  // Production: "The draft was not saved. … is a Stock count that does not say
+  // which item it counts." while a Stock count was being set up. A new Stock
+  // count has no item until one is picked, so every autosave was refused.
+  const stockWithoutItem = schema([{ id: "q", label: "Supplies replenished (soap, shampoo)", type: "stock_count" }]);
+  it("accepts a Stock count without its item, a choice column without choices and a fixed table without rows for the draft only", () => {
+    expect(validateFormSchemaForSave(stockWithoutItem, { allowIncomplete: true })).toEqual({ ok: true, issues: [] });
+    const unfinishedTable = schema([{ id: "t", label: "Linen", type: "table", table: { columns: [{ id: "c1", label: "", cellType: "choice" }], rowMode: "fixed", rowLabels: [] } }]);
+    expect(validateFormSchemaForSave(unfinishedTable, { allowIncomplete: true }).ok).toBe(true);
+    expect(validateFormSchemaForSave(unfinishedTable).ok).toBe(false);
+    const strict = validateFormSchemaForSave(stockWithoutItem);
+    expect(strict.ok).toBe(false);
+    expect(strict.issues[0].message).toBe('"Supplies replenished (soap, shampoo)" is a Stock count that does not say which item it counts.');
+  });
+  it("still refuses what is malformed, not unfinished, even for the draft", () => {
+    const allow = { allowIncomplete: true };
+    expect(validateFormSchemaForSave(schema([{ id: "q", label: "Q", type: "stock_count", stockItemId: "t", effects: [{ kind: "urgent-stock-below", threshold: 0 }] }]), allow).ok).toBe(false);
+    expect(validateFormSchemaForSave(schema([{ id: "q", label: "Q", type: "table", table: { columns: [], rowMode: "dynamic" } }]), allow).ok).toBe(false);
+    expect(validateFormSchemaForSave(schema([{ id: "q", label: "Q", type: "nonsense" }]), allow).ok).toBe(false);
+    const twice = schema([{ id: "a", label: "A", type: "stock_count", stockItemId: "t" }, { id: "b", label: "B", type: "stock_count", stockItemId: "t" }]);
+    expect(validateFormSchemaForSave(twice, allow).ok).toBe(false);
+  });
+  it("keeps it a check error, so the form cannot be published until the item is chosen (publish: form-schema-save-and-publish)", () => {
+    const result = checkTemplateSchema(stockWithoutItem);
+    expect(result.issues.some((issue) => issue.rule === "question-setup" && issue.severity === "error" && issue.fieldId === "q")).toBe(true);
+  });
+});
+
 describe("question effects", () => {
   const stock = { id: "tabs", label: "Tablets left", type: "stock_count", stockItemId: "tabs", unit: "tablets", effects: [{ kind: "urgent-stock-below", threshold: 3 }] };
   const damage = { id: "dmg", label: "Anything damaged?", type: "yesno", effects: [{ kind: "damage-report", when: "yes", area: "Kitchen bench" }] };

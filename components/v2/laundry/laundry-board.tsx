@@ -2,7 +2,7 @@
 import { Tags } from "lucide-react";
 import { JobStatusIcon } from "@/components/shared/job-status-icon";
 
-import { statusBlockStyle } from "@/lib/jobs/status-presentation";
+import { statusTintStyle } from "@/lib/jobs/status-presentation";
 import { LinenBags } from "@/components/operations/linen-bags";
 import { OperationsDisclosure } from "@/components/operations/ui";
 
@@ -703,7 +703,7 @@ export function QueueBoard({ canDelete = false }: BoardRoleProps) {
           {QUEUE_STAGES.map((s) => {
             const items = active.filter((t) => t.status === s.status);
             return (
-              <ECard key={s.status} style={statusBlockStyle(s.status, "laundry")}>
+              <ECard key={s.status} style={statusTintStyle(s.status, "laundry")}>
                 <ECardBody className="space-y-3 pt-6">
                   <div className="flex items-center justify-between">
                     <p className="text-[0.8125rem] font-semibold uppercase tracking-wide text-[hsl(var(--e-muted-foreground))]">
@@ -722,7 +722,7 @@ export function QueueBoard({ canDelete = false }: BoardRoleProps) {
                         return (
                           <div
                             key={it.id}
-                            style={statusBlockStyle(it.status, "laundry")}
+                            style={statusTintStyle(it.status, "laundry")}
                             className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem]"
                           ><JobStatusIcon status={it.status} domain="laundry" />
                             <div className="flex flex-wrap items-center justify-between gap-2">

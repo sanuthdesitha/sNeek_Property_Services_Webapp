@@ -47,7 +47,7 @@ export function SubFieldsEditor({
                 value={child.label}
                 onChange={(e) => updateChild(index, { ...child, label: e.target.value })}
                 placeholder="Sub-field label"
-                className="flex-1"
+                className="min-w-0 flex-1"
               />
               {/* Low tier: one sub-field of an unsaved form draft. */}
               <EConfirmButton

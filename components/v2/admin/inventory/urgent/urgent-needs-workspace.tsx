@@ -11,6 +11,7 @@
  * places a purchase or proves a delivery.
  */
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EDataTable } from "@/components/v2/ui/data-table";
 import { EPagination } from "@/components/v2/ui/pagination";
@@ -59,6 +60,13 @@ function urgentActiveFilters(view: UrgentView, propertyName: string | null, upda
 export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, canResolve, canEditReminders }: { initialView: UrgentView; tabs: React.ReactNode; timeZone: string; canResolve: boolean; canEditReminders: boolean }) {
   const [view, update] = useUrgentView(initialView);
   const list = useUrgentNeeds(view);
+  const router = useRouter();
+  // A write changes the open count in the server-rendered "Urgent needs N" tab too.
+  const reloadList = list.reload;
+  const reloadAfterWrite = React.useCallback(() => {
+    reloadList();
+    router.refresh();
+  }, [reloadList, router]);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [bulkRunning, setBulkRunning] = React.useState(false);
   const [acting, setActing] = React.useState<UrgentNeedListRow | null>(null);
@@ -163,7 +171,7 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, canResolve, 
           onRunningChange={setBulkRunning}
           onFinished={(results) => {
             setSelected(new Set(results.filter((result) => result.outcome === "refused").map((result) => result.id)));
-            list.reload();
+            reloadAfterWrite();
           }}
         />
         {view.propertyId ? (
@@ -178,7 +186,7 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, canResolve, 
         ) : null}
       </div>
 
-      {view.open ? <NeedPanel key={view.open} needId={view.open} row={openRow} timeZone={zone} canResolve={canResolve} onClose={() => update({ open: null })} onChanged={list.reload} /> : null}
+      {view.open ? <NeedPanel key={view.open} needId={view.open} row={openRow} timeZone={zone} canResolve={canResolve} onClose={() => update({ open: null })} onChanged={reloadAfterWrite} /> : null}
       {acting ? (
         <NeedActionDialog
           need={acting}
@@ -186,13 +194,13 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, canResolve, 
           onClose={() => setActing(null)}
           onDone={() => {
             setActing(null);
-            list.reload();
+            reloadAfterWrite();
           }}
         />
       ) : null}
-      {addingToRun ? <AddToRunDialog needs={[addingToRun]} onClose={() => setAddingToRun(null)} onDone={() => list.reload()} /> : null}
+      {addingToRun ? <AddToRunDialog needs={[addingToRun]} onClose={() => setAddingToRun(null)} onDone={reloadAfterWrite} /> : null}
       <EPhoneActionBar label="Urgent needs actions" hidden={selected.size > 0} primary={<EButton onClick={() => setReportOpen(true)}>Report a need</EButton>} />
-      <ReportNeedDialog key={view.propertyId} open={reportOpen} initialPropertyId={view.propertyId} onClose={() => setReportOpen(false)} onReported={() => { setReportOpen(false); list.reload(); }} />
+      <ReportNeedDialog key={view.propertyId} open={reportOpen} initialPropertyId={view.propertyId} onClose={() => setReportOpen(false)} onReported={() => { setReportOpen(false); reloadAfterWrite(); }} />
       <ReminderSettingsDialog open={canEditReminders && settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );

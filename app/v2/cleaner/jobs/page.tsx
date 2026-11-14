@@ -1,6 +1,6 @@
 
 import { JobStatusIcon } from "@/components/shared/job-status-icon";
-import { statusBlockStyle } from "@/lib/jobs/status-presentation";
+import { statusTintStyle } from "@/lib/jobs/status-presentation";
 import Link from "next/link";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
@@ -350,10 +350,10 @@ export default async function CleanerJobsPage({
             // Pending-offer rows carry inline Accept/Decline buttons, so they must
             // not be wrapped in an anchor (no interactive controls inside a link).
             return isPending ? (
-              <ECard style={statusBlockStyle(j.status)} key={j.id}>{body}</ECard>
+              <ECard style={statusTintStyle(j.status)} key={j.id}>{body}</ECard>
             ) : (
               <Link key={j.id} href={`/v2/cleaner/jobs/${j.id}`} className="block">
-                <ECard style={statusBlockStyle(j.status)}>{body}</ECard>
+                <ECard style={statusTintStyle(j.status)}>{body}</ECard>
               </Link>
             );
           })}

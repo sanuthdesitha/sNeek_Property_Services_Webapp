@@ -31,6 +31,7 @@ export function PhotoReviewPanel({ jobId }: { jobId: string }) {
   const generation = useRef(0);
   const actionPending = useRef(false);
   const [error, setError] = useState("");
+  const [refused, setRefused] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [reload, setReload] = useState(0);
@@ -39,10 +40,15 @@ export function PhotoReviewPanel({ jobId }: { jobId: string }) {
   useEffect(() => {
     const version = ++generation.current;
     let cancelled = false; const controller = new AbortController();
-    setLoading(true); setError(""); setSelected([]); setReason(""); setSaving(false); actionPending.current = false;
+    setLoading(true); setError(""); setRefused(false); setSelected([]); setReason(""); setSaving(false); actionPending.current = false;
     fetch(`/api/qa/jobs/${jobId}/photo-review`, { cache: "no-store", signal: controller.signal }).then(async response => {
-      const body = await response.json(); if (!response.ok) throw new Error(body.error || "Could not load photo review.");
-      if (!cancelled) setLoaded({ jobId, data: body });
+      const body = await response.json().catch(() => ({}));
+      if (cancelled) return;
+      // 403 is the server's correct answer for an inspector who does not own
+      // this inspection yet: show that gated state, never the raw code.
+      if (response.status === 403) { setLoaded(null); setRefused(true); return; }
+      if (!response.ok) throw new Error(typeof body.error === "string" && body.error ? body.error : "Could not load photo review.");
+      setLoaded({ jobId, data: body });
     }).catch(err => { if (!cancelled) { setLoaded(null); setError(err.message); } }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; controller.abort(); if (generation.current === version) generation.current++; };
   }, [jobId, reload]);
@@ -78,8 +84,9 @@ export function PhotoReviewPanel({ jobId }: { jobId: string }) {
     finally { if (isCurrent()) { setSaving(false); actionPending.current = false; } }
   }
   return <ECard><ECardBody className="min-w-0 space-y-4 p-4">
-    <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">AI photo review</h2><EButton variant="outline" size="sm" disabled={loading || saving} onClick={() => setReload(value => value + 1)}>Refresh analysis</EButton></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">AI photo review</h2><EButton variant="outline" size="sm" disabled={loading || saving || refused} onClick={() => setReload(value => value + 1)}>Refresh analysis</EButton></div>
     <p className="text-sm">Compares submitted photos with the form’s uploaded reference photos. Findings are suggestions; only an approved deduction changes the QA score.</p>
+    {refused ? <p className="text-sm">AI photo review opens once this inspection is assigned to you.</p> : null}
     {error ? <p role="alert" className="break-words text-sm">{error}</p> : null}
     {loading ? <p role="status">Loading photo review…</p> : data ? <>
       {!data.hasSubmission ? <p>No cleaner form has been submitted yet.</p> : null}
@@ -120,6 +127,6 @@ export function PhotoReviewPanel({ jobId }: { jobId: string }) {
         <div className="flex flex-wrap gap-2"><EButton disabled={saving || !data.canApprove || deduction <= 0 || reason.trim().length < 3} onClick={() => act("approve")}>Approve selected deduction</EButton><EButton variant="outline" disabled={saving || reason.trim().length < 3} onClick={() => act("dismiss")}>Dismiss suggestions</EButton></div>
       </div> : null}
     </> : null}
-    <PhotoIntegrityFlags key={jobId} jobId={jobId} />
+    {refused ? null : <PhotoIntegrityFlags key={jobId} jobId={jobId} />}
   </ECardBody></ECard>;
 }

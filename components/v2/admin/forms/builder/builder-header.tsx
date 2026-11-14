@@ -97,11 +97,8 @@ export function BuilderHeader({
   menuItems,
   onLeave,
   onRename,
-  bulkActive = false,
 }: {
   name: string;
-  /** Phones: a bulk bar owns the bottom of the screen, so the Test / Publish bar steps aside. */
-  bulkActive?: boolean;
   /** Rename in place (metadata PATCH with the stale-write guard). */
   onRename: (next: string) => Promise<RenameOutcome>;
   status: BuilderStatus;
@@ -123,8 +120,6 @@ export function BuilderHeader({
   const pill = statePill(status);
   const target = publishTarget(status);
   const phone = useIsPhone();
-  const publishTitle = target === null ? (status.archived ? "Unarchive the form before publishing." : "Nothing new to publish.") : undefined;
-  const publishLabel = target === null ? (status.archived ? "Archived" : "Published") : `Publish v${target}`;
   if (phone) {
     return (
       <BuilderPhoneHeader
@@ -143,14 +138,6 @@ export function BuilderHeader({
           { key: "versions", label: "Versions", onSelect: onVersions },
           ...menuItems.map((item, index) => (index === 0 ? { ...item, separated: true } : item)),
         ]}
-        actionBar={
-          <EPhoneActionBar
-            label="Test and publish"
-            hidden={bulkActive}
-            secondary={<EButton variant="outline" onClick={onTest}>Test as cleaner</EButton>}
-            primary={<EButton onClick={onPublish} disabled={busy || target === null} title={publishTitle}>{publishLabel}</EButton>}
-          />
-        }
       />
     );
   }
@@ -221,7 +208,6 @@ function BuilderPhoneHeader({
   onRename,
   onLeave,
   menuItems,
-  actionBar,
 }: {
   name: string;
   status: BuilderStatus;
@@ -233,10 +219,8 @@ function BuilderPhoneHeader({
   onRename: (next: string) => Promise<RenameOutcome>;
   onLeave: () => boolean;
   menuItems: ERowMenuItem[];
-  actionBar: React.ReactNode;
 }) {
   return (
-    <>
       <header className="space-y-1.5" data-builder-phone-header="">
         <div className="flex items-start gap-2">
           <Link
@@ -263,7 +247,37 @@ function BuilderPhoneHeader({
         </div>
         <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{usageSentence(status.liveVersion, status.isActive && !status.archived, usage)}</p>
       </header>
-      {actionBar}
-    </>
+  );
+}
+
+/**
+ * Phones: Test as cleaner and Publish docked above the tab bar. Rendered by
+ * the builder at the END of the page (not with the header), so the bar's
+ * spacer keeps the last field of every screen clear of it. It steps aside
+ * while the bulk bar owns the bottom. Same callbacks as the desktop header.
+ */
+export function BuilderPhoneActionBar({
+  status,
+  busy,
+  bulkActive,
+  onTest,
+  onPublish,
+}: {
+  status: BuilderStatus;
+  busy: boolean;
+  bulkActive: boolean;
+  onTest: () => void;
+  onPublish: () => void;
+}) {
+  const target = publishTarget(status);
+  const publishTitle = target === null ? (status.archived ? "Unarchive the form before publishing." : "Nothing new to publish.") : undefined;
+  const publishLabel = target === null ? (status.archived ? "Archived" : "Published") : `Publish v${target}`;
+  return (
+    <EPhoneActionBar
+      label="Test and publish"
+      hidden={bulkActive}
+      secondary={<EButton variant="outline" onClick={onTest}>Test as cleaner</EButton>}
+      primary={<EButton onClick={onPublish} disabled={busy || target === null} title={publishTitle}>{publishLabel}</EButton>}
+    />
   );
 }

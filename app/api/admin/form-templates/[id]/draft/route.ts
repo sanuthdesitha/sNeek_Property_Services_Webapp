@@ -52,6 +52,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       note: body.note,
       actorId: session.user.id,
       expectedToken: body.expectedUpdatedAt,
+      // The builder's working copy: a question still being set up (a new
+      // Stock count before its item is picked) is kept; publishing and the
+      // Checks still refuse it.
+      allowIncomplete: true,
     });
     return NextResponse.json({
       draft: { id: saved.draft.id, baseVersion: saved.draft.baseVersion, updatedAt: saved.draft.updatedAt },

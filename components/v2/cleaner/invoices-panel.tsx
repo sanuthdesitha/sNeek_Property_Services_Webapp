@@ -865,7 +865,7 @@ export function InvoicesPanel({
                         onClick={() => removeJobFromInvoice(row.jobId)}
                         title="Remove this job from the invoice"
                         aria-label="Remove this job from the invoice"
-                        className="rounded-[var(--e-radius-xs)] border border-[hsl(var(--e-border))] p-1 text-[hsl(var(--e-muted-foreground))] transition-colors hover:border-[hsl(var(--e-danger)/0.4)] hover:text-[hsl(var(--e-danger))]"
+                        className="rounded-[var(--e-radius-xs)] border border-[hsl(var(--e-border))] p-1 text-[hsl(var(--e-muted-foreground))] transition-colors hover:border-[hsl(var(--e-danger)/0.4)] hover:text-[hsl(var(--e-danger))] max-sm:flex max-sm:h-11 max-sm:w-11 max-sm:items-center max-sm:justify-center"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -958,7 +958,7 @@ export function InvoicesPanel({
                       onClick={() => removeRunFromInvoice(row.runId)}
                       title="Remove from invoice"
                       aria-label="Remove from invoice"
-                      className="rounded-[var(--e-radius-xs)] border border-[hsl(var(--e-border))] p-1 text-[hsl(var(--e-muted-foreground))] transition-colors hover:border-[hsl(var(--e-danger)/0.4)] hover:text-[hsl(var(--e-danger))]"
+                      className="rounded-[var(--e-radius-xs)] border border-[hsl(var(--e-border))] p-1 text-[hsl(var(--e-muted-foreground))] transition-colors hover:border-[hsl(var(--e-danger)/0.4)] hover:text-[hsl(var(--e-danger))] max-sm:flex max-sm:h-11 max-sm:w-11 max-sm:items-center max-sm:justify-center"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -992,7 +992,7 @@ export function InvoicesPanel({
                       onClick={() => removeRunFromInvoice(row.runId)}
                       title="Remove from invoice"
                       aria-label="Remove from invoice"
-                      className="rounded-[var(--e-radius-xs)] border border-[hsl(var(--e-border))] p-1 text-[hsl(var(--e-muted-foreground))] transition-colors hover:border-[hsl(var(--e-danger)/0.4)] hover:text-[hsl(var(--e-danger))]"
+                      className="rounded-[var(--e-radius-xs)] border border-[hsl(var(--e-border))] p-1 text-[hsl(var(--e-muted-foreground))] transition-colors hover:border-[hsl(var(--e-danger)/0.4)] hover:text-[hsl(var(--e-danger))] max-sm:flex max-sm:h-11 max-sm:w-11 max-sm:items-center max-sm:justify-center"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>

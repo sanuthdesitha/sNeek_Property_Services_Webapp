@@ -2,6 +2,7 @@ import {
   JOB_PROGRESS_STEPS,
   jobProgress,
   statusBlockStyle,
+  statusTintStyle,
 } from "@/lib/jobs/status-presentation";
 import { JobStatusIcon } from "./job-status-icon";
 const stepStatuses = [
@@ -22,16 +23,19 @@ const stepStatuses = [
 export function JobStatusProgress({
   status,
   compact = false,
+  tintOnly = false,
 }: {
   status: string;
   compact?: boolean;
+  /** v2 screens: status tint without the classic coloured left edge. */
+  tintOnly?: boolean;
 }) {
   const progress = jobProgress(status);
   return (
     <section
       aria-label="Job progress"
       className={compact ? "rounded-lg border p-3 sm:p-5" : "rounded-lg border p-4 sm:p-5"}
-      style={statusBlockStyle(status)}
+      style={tintOnly ? statusTintStyle(status) : statusBlockStyle(status)}
     >
       <div
         className={

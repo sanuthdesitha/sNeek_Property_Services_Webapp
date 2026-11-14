@@ -80,7 +80,7 @@ describe("recording a reply", () => {
 
   it("replays the same key and refuses the same key for a different answer", async () => {
     m.reply.findUnique.mockResolvedValue(storedReply());
-    await expect(recordTeamRequestReply(tom, "req1", body())).resolves.toMatchObject({ replayed: true });
+    await expect(recordTeamRequestReply(tom, "req1", body(), new Date("2026-11-12T01:00:00Z"))).resolves.toMatchObject({ replayed: true });
     expect(m.reply.create).not.toHaveBeenCalled();
     await expect(recordTeamRequestReply(tom, "req1", body({ answer: "MESSAGE", note: "hello" }))).rejects.toMatchObject({ status: 409 });
   });
@@ -88,7 +88,7 @@ describe("recording a reply", () => {
   it("lets the unique key decide a double tap", async () => {
     m.reply.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("dup", { code: "P2002", clientVersion: "5" }));
     m.reply.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(storedReply());
-    await expect(recordTeamRequestReply(tom, "req1", body())).resolves.toMatchObject({ replayed: true });
+    await expect(recordTeamRequestReply(tom, "req1", body(), new Date("2026-11-12T01:00:00Z"))).resolves.toMatchObject({ replayed: true });
   });
 
   it("refuses office accounts, runs out of scope, other teams and wrong answers", async () => {
@@ -104,7 +104,7 @@ describe("recording a reply", () => {
 
   it("accepts a current team member who was not among the recipients", async () => {
     m.user.findUnique.mockResolvedValueOnce({ name: "Mia", laundrySupplierId: "l1", isActive: true });
-    await expect(recordTeamRequestReply({ id: "mia", role: Role.LAUNDRY }, "req1", body({ idempotencyKey: "reply-key-0002" }))).resolves.toMatchObject({ replayed: false });
+    await expect(recordTeamRequestReply({ id: "mia", role: Role.LAUNDRY }, "req1", body({ idempotencyKey: "reply-key-0002" }), new Date("2026-11-12T01:00:00Z"))).resolves.toMatchObject({ replayed: false });
   });
 });
 

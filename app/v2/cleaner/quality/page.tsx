@@ -20,7 +20,7 @@ export default async function V2CleanerQualityPage() {
         title="QA feedback"
         description="Your recent inspection outcomes — every issue, photo and score, in full."
       />
-      <CleanerQaFeedbackCard />
+      <CleanerQaFeedbackCard variant="page" />
     </div>
   );
 }

@@ -81,12 +81,12 @@ export function QuestionsPane({
   return (
     <section aria-label="Questions" className="flex min-w-0 flex-1 flex-col gap-2.5">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="e-display-sm break-words text-[1.25rem]">{section.title || "Untitled section"}</h2>
+        <h2 className="e-display-sm min-w-0 break-words text-[1.25rem]">{section.title || "Untitled section"}</h2>
         <EPill>
           {section.fields.length} question{section.fields.length === 1 ? "" : "s"}
         </EPill>
         <span className="grow" />
-        <label className="flex items-center gap-2 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+        <label className="flex items-center gap-2 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))] max-sm:min-h-11">
           <input
             type="checkbox"
             className="size-[15px] accent-[hsl(var(--e-primary))]"
@@ -100,7 +100,7 @@ export function QuestionsPane({
           type="button"
           onClick={() => setExpanded(anyExpanded ? new Set() : new Set(ids))}
           disabled={ids.length === 0}
-          className="inline-flex h-7 items-center rounded-full border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2.5 text-[0.75rem] font-[500] text-[hsl(var(--e-text-secondary))] disabled:opacity-50"
+          className="inline-flex h-7 items-center rounded-full border max-sm:h-11 max-sm:px-3.5 border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2.5 text-[0.75rem] font-[500] text-[hsl(var(--e-text-secondary))] disabled:opacity-50"
         >
           {anyExpanded ? "Collapse all" : "Expand all"}
         </button>
@@ -123,7 +123,8 @@ export function QuestionsPane({
         </p>
       ) : null}
       <SortableContext items={ids.map(fieldDragId)} strategy={verticalListSortingStrategy}>
-        <ul className="flex flex-col gap-2">
+        {/* A size container: each row picks its layout from the list's width (question-row.tsx). */}
+        <ul className="flex flex-col gap-2 [container-type:inline-size]" data-question-list="">
           {section.fields.map((field, index) => (
             <QuestionRow
               key={field.id}

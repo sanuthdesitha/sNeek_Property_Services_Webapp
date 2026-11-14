@@ -2,8 +2,8 @@
 
 /**
  * Cleaner-facing "QA feedback" card. Self-fetches the cleaner's recent QA
- * outcomes from GET /api/cleaner/qa-feedback and renders nothing when there are
- * none. Each row shows property + job date, score% + Passed/Failed; expanding
+ * outcomes from GET /api/cleaner/qa-feedback; on the home screen it renders
+ * nothing when there are none (the full page shows loading and empty states). Each row shows property + job date, score% + Passed/Failed; expanding
  * ("View feedback") reveals every issue (severity, category, description, QA
  * photos). Unacknowledged reviews are visually prominent and carry an "I've
  * read this" button hitting POST /api/cleaner/qa-feedback/[id]/acknowledge.
@@ -14,7 +14,7 @@ import { format, parseISO } from "date-fns";
 import { ChevronDown, ChevronUp, Download, PenLine, ShieldCheck } from "lucide-react";
 import { downloadFromApi } from "@/lib/client/download";
 import { toast } from "@/hooks/use-toast";
-import { EBadge, EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
+import { EBadge, EButton, ECard, ECardBody, EEmptyState } from "@/components/v2/ui/primitives";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { E_BAND_BADGE_CLASS, toneBandClass, toneMutedClass } from "@/components/v2/ui/tone-band";
 
@@ -81,8 +81,17 @@ function severityTone(severity: string): "warning" | "danger" | "neutral" {
   return "neutral";
 }
 
-export function CleanerQaFeedbackCard() {
+/** Outcome of the last GET /api/cleaner/qa-feedback (a failed read is never shown as "no feedback"). */
+type FeedbackLoad = "loading" | "failed" | "ready";
+
+/**
+ * `variant="home"` (default) hides the card while loading and when there is no
+ * feedback yet; `variant="page"` (the full QA feedback page) shows the loading
+ * and empty states instead of a blank page. Both say when the read failed.
+ */
+export function CleanerQaFeedbackCard({ variant = "home" }: { variant?: "home" | "page" } = {}) {
   const [reviews, setReviews] = useState<Review[] | null>(null);
+  const [loadState, setLoadState] = useState<FeedbackLoad>("loading");
   const [openId, setOpenId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -91,10 +100,15 @@ export function CleanerQaFeedbackCard() {
     try {
       const res = await fetch("/api/cleaner/qa-feedback", { cache: "no-store" });
       const body = await res.json().catch(() => null);
-      if (res.ok && body) setReviews(body.reviews ?? []);
-      else setReviews([]);
+      if (res.ok && body && Array.isArray(body.reviews)) {
+        setReviews(body.reviews);
+        setLoadState("ready");
+      } else {
+        // Keep whatever was shown before; say the refresh failed.
+        setLoadState("failed");
+      }
     } catch {
-      setReviews([]);
+      setLoadState("failed");
     }
   }, []);
 
@@ -132,8 +146,32 @@ export function CleanerQaFeedbackCard() {
     }
   }
 
-  // Hide entirely when the cleaner has no QA outcomes yet.
-  if (!reviews || reviews.length === 0) return null;
+  const retry = () => {
+    setLoadState("loading");
+    void load();
+  };
+  const failedNotice =
+    loadState === "failed" ? (
+      <p role="alert" className="flex flex-wrap items-center gap-2 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+        QA feedback could not be loaded.
+        <EButton variant="outline" size="sm" onClick={retry}>Retry</EButton>
+      </p>
+    ) : null;
+
+  if (!reviews || reviews.length === 0) {
+    if (failedNotice) return failedNotice;
+    if (variant === "home") return null; // the home screen stays quiet until there is feedback
+    if (loadState === "loading") {
+      return <p role="status" className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Loading QA feedback…</p>;
+    }
+    return (
+      <EEmptyState
+        eyebrow="Nothing yet"
+        title="No QA feedback yet"
+        description="Inspection outcomes for your cleans appear here once a QA inspector reviews them."
+      />
+    );
+  }
   const unseenFirst = [...reviews].sort(
     (a, b) => Number(Boolean(a.cleanerAcknowledgedAt)) - Number(Boolean(b.cleanerAcknowledgedAt))
   );
@@ -144,6 +182,7 @@ export function CleanerQaFeedbackCard() {
       <span className="e-eyebrow flex items-center gap-1.5">
         <ShieldCheck className="h-3.5 w-3.5" /> QA FEEDBACK
       </span>
+      {failedNotice}
       {visible.map((r) => {
         const unseen = !r.cleanerAcknowledgedAt;
         const open = openId === r.id;

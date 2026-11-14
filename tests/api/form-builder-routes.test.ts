@@ -53,6 +53,7 @@ vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ accountability
 
 import { POST as testRun } from "@/app/api/admin/form-templates/[id]/test-run/route";
 import { PATCH as legacyPatch } from "@/app/api/admin/form-templates/[id]/route";
+import { PUT as putDraft } from "@/app/api/admin/form-templates/[id]/draft/route";
 import { GET as listBlocks, POST as createBlock } from "@/app/api/admin/form-templates/blocks/route";
 import { DELETE as deleteQa, PATCH as patchQa } from "@/app/api/admin/qa/templates/[id]/route";
 import { POST as duplicateQa } from "@/app/api/admin/qa/templates/[id]/duplicate/route";
@@ -102,6 +103,36 @@ describe("legacy PATCH", () => {
     expect(response.status).toBe(200);
     expect(update).toHaveBeenCalledWith({ where: { id: "t" }, data: { name: "Renamed" } });
     expect(m.audit.mock.calls[0][0].data.action).toBe("FORM_TEMPLATE_METADATA");
+  });
+});
+
+describe("draft autosave of a question still being set up (owner report 2026-11-13)", () => {
+  const unfinishedStock = { standardSections: false, sections: [{ id: "s", title: "Supplies", fields: [{ id: "q", type: "stock_count", label: "Supplies replenished (soap, shampoo)" }] }] };
+
+  it("saves the builder's draft with a Stock count whose item is not chosen yet (was refused with 422)", async () => {
+    const savedAt = new Date("2026-11-13T01:00:00Z");
+    const create = vi.fn(async () => ({ id: "d", version: 1, schema: unfinishedStock, name: null, serviceType: null, note: null, restoredFromVersionId: null, updatedAt: savedAt }));
+    const { db } = await import("@/lib/db");
+    const versions = db.formTemplateVersion as unknown as { create: typeof create };
+    const original = versions.create;
+    versions.create = create;
+    try {
+      m.templateFind.mockResolvedValue({ id: "t", version: 4, updatedAt: new Date("2026-11-01T00:00:00Z") });
+      const response = await putDraft(json({ schema: unfinishedStock, expectedUpdatedAt: "2026-11-01T00:00:00.000Z" }, "PUT"), params);
+      expect(response.status).toBe(200);
+      expect((await response.json()).editToken).toBe(savedAt.toISOString());
+      expect(create).toHaveBeenCalledTimes(1);
+    } finally {
+      versions.create = original;
+    }
+  });
+
+  it("still refuses a malformed question in the draft, and the legacy PATCH stays fully strict", async () => {
+    const malformed = { sections: [{ id: "s", title: "S", fields: [{ id: "q", type: "stock_count", label: "Q", stockItemId: "i", effects: [{ kind: "urgent-stock-below", threshold: 0 }] }] }] };
+    const refused = await putDraft(json({ schema: malformed }, "PUT"), params);
+    expect(refused.status).toBe(422);
+    expect((await legacyPatch(json({ schema: unfinishedStock }, "PATCH"), params)).status).toBe(422);
+    expect(m.writes).not.toHaveBeenCalled();
   });
 });
 

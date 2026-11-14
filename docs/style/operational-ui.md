@@ -299,5 +299,7 @@ Phone means below 640px: Tailwind `max-sm:` for phone-only styles, `sm:` for eve
 - Long full pages: `<ESectionSwitcher label="Invoice sections" sections={[{ id, label }]} />` gives sticky section chips (phones only unless `everywhere`); each target is a `<section id>`.
 - A phone-only chooser: `EBottomSheet` (`components/v2/ui/bottom-sheet.tsx`).
 - A list row that becomes a card with a band on a phone only: `tonePhoneBandClass(tone)` from `tone-band.tsx` (never a left line).
+- A small `ETableShell` table whose cells read on their own (status pill, date, actions): pass `phoneStack` to stack rows below 640px instead of scrolling sideways. Larger tables get a phone list (`sm:hidden`) beside the table (`max-sm:hidden`).
+- Status-tinted cards in v2 use `statusTintStyle` (tint only); `statusBlockStyle` adds the classic coloured inline-start edge and is for the classic pages only.
 
 **Rules.** Nothing scrolls sideways except deliberate carousels (tab rows, chip rows, the section switcher). Inputs in sheets use 16px text. Keep one page h1; sheets use their own h2 title. Check 390px and 1280px in light and dark before delivery, including the docked bars over the last list item.
