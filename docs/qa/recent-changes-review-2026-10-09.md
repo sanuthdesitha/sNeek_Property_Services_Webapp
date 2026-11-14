@@ -2070,3 +2070,34 @@ Owner report: "it only connects for 30 mins from xero." Section: `docs/SYSTEM.md
 - Tests (Xero mocked; no credentials here): `tests/lib/xero-token-lifecycle.test.ts` 19, `tests/db/xero-token-refresh.test.ts` 4 (PostgreSQL 55439, fresh database, two Prisma clients as two processes, `--no-file-parallelism`), `tests/lib/xero-reconnect-notice.test.ts` 3, `tests/components/xero-connection-card.test.tsx` 5, `tests/lib/xero-connect-exchange.test.ts` 3; existing Xero/finance/notification/worker suites (35 files, 356 tests) pass except `notification-catalog` "lists every file that sends a notification", which fails on `lib/maintenance/assign-notice.ts` (another agent's in-progress file, not this change). Changed on purpose: `tests/lib/finance-decisions-rules.test.ts` (sign-in wording and the NEEDS_RECONNECT rule), `tests/lib/xero-read-transport.test.ts` (mock gains `updateMany`/notice).
 - `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: clean on the final run (an earlier run showed one error in `lib/ops/tomorrow-prep.ts` from another agent's in-progress work, since resolved).
 - Not done: production build (not requested), browser inspection of the settings card at 390/1280 light/dark (jsdom component tests only), anything against real Xero.
+
+## Sending safeguards and repeated-email audit (2026-11-15)
+
+Scope, causes and defaults: `docs/SYSTEM.md`, "Sending safeguards and the repeated-email audit". Migration `20261115060000_sending_safeguards` (additive: `OutboundMessageEvent`, `OutboundSafeguardIncident`).
+
+**Verification.**
+- Migrations:
+  - `npx prisma migrate deploy` on a freshly created `sneek_sg_fresh2` applied all 156, including the new one. A second run reported "No pending migrations to apply". `prisma migrate diff --from-url … --to-schema-datamodel prisma/schema.prisma --exit-code` reported "No difference detected" (exit 0).
+  - On `sneek_ui` the migration was already recorded (applied 12:06 UTC by a concurrent session). Repeat: no pending; diff exit 0.
+- Regression tests, each shown to FAIL on the code at `acff1d5` and pass now:
+  - `tests/lib/qa-auto-score-once.test.ts` (3; old code: 3 AUTO reviews and 3 notifications in 3 hours)
+  - `tests/lib/tomorrow-prep-once.test.ts` (3; old code: 6 emails for 2 cleaners over 3 failed runs)
+  - `tests/lib/job-reminders-claim.test.ts` (4; old code: 3 emails in 3 ticks)
+  - `tests/lib/follow-up-once.test.ts` (2)
+- Safeguards:
+  - `tests/lib/safeguards-decide.test.ts` 16
+  - `tests/lib/outbound-provider-imports.test.ts` 2 (no provider access outside the four chokepoints)
+  - `tests/lib/worker-guard.test.ts` 4 (alert once, skip overlapping tick, retried three times sends once)
+  - `tests/api/sending-safeguards-routes.test.ts` 6
+  - `tests/components/sending-safeguards-screen.test.tsx` 6 (includes phone)
+  - `tests/db/sending-safeguards.test.ts` 8 (fresh PostgreSQL 55439, `--no-file-parallelism`): caps under 12 concurrent senders (exactly 5 allowed); duplicate; breaker with one incident, one admin email and one inbox notice; pause/resume; emergency stop with the security email still sent; hold and release once; suppressed never delivered; recipient cap and disabled account.
+- Existing notification, work-queue, worker, settings, server-client-imports, no-left-accent and ops-policy suites, together with the new ones: 86 files, 797 tests, 796 pass. The 1 failure is `tests/lib/notification-catalog.test.ts`: `lib/maintenance/assign-notice.ts` is not listed in the catalog. That file predates this change (Maintenance work at `acff1d5`) and was left to that work. Updated for the gate: `tests/lib/mobile-outbox-delivery.test.ts`, `tests/lib/ops-notification-producers.test.ts`, `tests/lib/work-queue.test.ts` (plus a new card test).
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: clean.
+- Browser check (`e2e/admin/sending-safeguards.spec.ts`, system Chrome, esbuild fixture with mocked routes): 390px and 1280px, light and dark. One h1; no horizontal overflow; keyboard Enter opens the PIN dialog; a refused PIN keeps the dialog with the reason; Escape closes; an out-of-bounds limit draft is kept with its problem. Screenshots were inspected; one double label ("Scheduled job: Scheduled job:") was fixed. The fixture renders the dialog portal outside its `.dark` wrapper, so the dark dialog was not inspected in true dark.
+
+**Not done or not verifiable.**
+- No production build or full suite (not requested).
+- No production logs, so the ranking of causes is from code and the real volume per cause is unknown.
+- No real provider sends (Resend is mocked; no Twilio, Cellcast, VAPID or Expo credentials here).
+- Deployment is not verified.
+- Another agent committed these files part-way in commits `48431dd` and `586c754`. This session did not commit.
