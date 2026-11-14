@@ -16,7 +16,10 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "types": ["vitest/globals", "node"],
+    "types": [
+      "vitest/globals",
+      "node"
+    ],
     "plugins": [
       {
         "name": "next"
@@ -34,7 +37,8 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next-dev/types/**/*.ts",
-    ".next-prod.__build/types/**/*.ts"
+    ".next-prod.__build/types/**/*.ts",
+    ".next-tour/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

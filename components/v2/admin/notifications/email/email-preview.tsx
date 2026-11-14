@@ -78,16 +78,41 @@ export function EmailPreview({ definition, doc, theme, business, appUrl, label }
       {mode === "text" ? (
         <pre aria-label="Plain-text part" className="max-h-[640px] overflow-auto whitespace-pre-wrap break-words rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4 font-mono text-[0.8125rem] leading-relaxed">{rendered.text}</pre>
       ) : (
-        <div className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-muted))] p-2">
-          <iframe
-            title={`${label}: ${MODE_LABEL[mode]}`}
-            sandbox=""
-            srcDoc={rendered.html}
-            className="mx-auto block h-[720px] max-w-full border-0 bg-white"
-            style={{ width: mode === "phone" ? 360 : 640 }}
-          />
-        </div>
+        <ScaledFrame title={`${label}: ${MODE_LABEL[mode]}`} html={rendered.html} width={mode === "phone" ? 360 : 640} />
       )}
     </section>
+  );
+}
+
+const FRAME_HEIGHT = 720;
+
+/**
+ * The email at its real width (640 desktop, 360 phone), scaled down to fit a
+ * narrow column so the desktop layout is shown as desktop, never squeezed
+ * into the phone layout.
+ */
+function ScaledFrame({ title, html, width }: { title: string; html: string; width: number }) {
+  const boxRef = React.useRef<HTMLDivElement>(null);
+  const [available, setAvailable] = React.useState(width);
+  React.useEffect(() => {
+    const box = boxRef.current;
+    if (!box || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => setAvailable(Math.max(200, entry.contentRect.width)));
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, []);
+  const scale = Math.min(1, available / width);
+  return (
+    <div ref={boxRef} className="overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-muted))] p-2">
+      <div className="mx-auto" style={{ width: width * scale, height: FRAME_HEIGHT * scale }}>
+        <iframe
+          title={title}
+          sandbox=""
+          srcDoc={html}
+          className="block border-0 bg-white"
+          style={{ width, height: FRAME_HEIGHT, transform: `scale(${scale})`, transformOrigin: "0 0" }}
+        />
+      </div>
+    </div>
   );
 }

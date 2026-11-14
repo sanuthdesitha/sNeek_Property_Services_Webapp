@@ -201,6 +201,16 @@ export function OnboardingWorkspace({ surveyId }: { surveyId: string }) {
       setPhoneStepOpen(true);
     }
     if (new URLSearchParams(window.location.search).get("send") === "1") setLinkOpen(true);
+    // A deep link followed on the same page (#access) only changes the hash.
+    const onHash = () => {
+      const target = readHashStep();
+      if (target) {
+        setStep(target);
+        setPhoneStepOpen(true);
+      }
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
   }, [surveyId]);
 
   const open = (next: OnboardingStepKey) => {
