@@ -46,7 +46,7 @@ function incidentView(row: {
     kind: row.kind,
     scopeKind: row.scopeKind,
     // A person's address is never shown in full.
-    scopeLabel: row.scopeKind === "RECIPIENT" ? row.label : row.scopeKind === "TYPE" ? typeName(row.scopeKey) : row.label,
+    scopeLabel: row.scopeKind === "TYPE" ? typeName(row.scopeKey) : row.scopeKind === "JOB_NAME" ? row.scopeKey : row.label,
     label: row.label,
     status: row.status,
     pausesSending: row.pausesSending,

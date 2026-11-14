@@ -268,6 +268,7 @@ Selected schedules (see `workers/boss.ts` for the complete current registry):
 | `workforce-post-dispatch` | hourly | scheduled workforce hub posts |
 | `email-campaign-dispatch` (2026-07 changes) | **every 5 min** | scheduled marketing email; runs at the scheduler's floor so a 09:00 campaign goes at 09:00. Double-dispatch is impossible: each dispatcher claims its row with a conditional `updateMany` status transition (legacy `scheduled→sending`; engine `SCHEDULED→SENDING`), and the two dispatchers exclude each other's rows |
 | `marketing-campaign-dispatch` | every 5 min | the newer campaign engine's dispatcher (`lib/marketing/campaign-sender.ts`) |
+| `notification-safeguards` (2026-11-15) | every 10 min | sending safeguards: release messages held over quiet hours once, expire stale holds, 35-day event retention, daily inbox line to administrators when something was not sent (`lib/notifications/safeguards/maintenance.ts`) |
 | `sla-escalation` | hourly | SLA warn/overdue escalation (`lib/ops/sla.ts`) |
 | `safety-checkin-alerts` | every 30 min | overdue safety check-ins |
 | `timing-rule-reconcile` (2026-07) | every 30 min | one-shot repair of jobs whose start/due drifted from admin timing rules before the iCal fix; gated on the `timingRuleReconcilePending` flag — runs once, clears the flag, then every tick is a cheap check (`lib/ops/timing-rule-reconcile.ts`) |
@@ -3287,6 +3288,76 @@ Approved board "Confirmations and deletes" (`ConfirmDialogs.dc.html`). Owner: "R
 
 **Not verified.** Nothing ran against real Xero (no credentials in this environment); the exact error bodies Xero returns for a revoked token, a removed organisation (assumed 403 → connection list check) and rate-limited renewals are from the documentation and OAuth standards, not observed. The settings card was checked in jsdom component tests only, not in a browser.
 
+## Sending safeguards and the repeated-email audit (2026-11-15)
+
+Owner report: "some cleaners are getting constant emails". No production logs were available; the causes below come from a code audit of every worker job, sweep and send path. Since 2026-11-10 (`scripts/embedded-worker.cjs`) every deployment runs the worker, so sweeps that had not run since 4 October all started at once. Migration `20261115060000_sending_safeguards` (additive).
+
+**Causes found and fixed, most likely first (each has a regression test that fails on the previous code):**
+1. **QA auto-score re-scored failed jobs every hour** (`lib/qa/auto-score.ts`, worker `qa-auto-score`, hourly, on by default). A failed automatic score sends the job back to QA_REVIEW, which the sweep scores again (only a real "QA" inspection excluded a job). Every hour it filed another AUTO review and sent every cleaner on the job the "QA needs attention" inbox notice, push, **email and SMS**, until someone inspected the job, for up to 200 jobs per run. Now each submission is auto-scored once: the sweep skips jobs with an AUTO/ADMIN review newer than the latest submission, re-checked under the per-job lock (`ALREADY_SCORED`). A rework resubmission is scored again; an administrator's quick score is never blocked. Test: `tests/lib/qa-auto-score-once.test.ts`.
+2. **Tomorrow's-jobs summary could repeat to every cleaner** (`lib/ops/tomorrow-prep.ts`, every 2 h after the configured time). It emails and texts every active cleaner and laundry user, and recorded the day as done only after the last one. A run that failed part-way left the day unrecorded and the next tick sent to everyone again. Each person is now claimed once per part and day (`dispatchNotificationOnce`) before sending. A manual "send now" is unchanged. **Behaviour change, pending owner confirmation:** a cleaner or driver with nothing tomorrow now gets the inbox notice only, with no email or SMS (previously a daily "no jobs tomorrow" email and SMS to every cleaner). Test: `tests/lib/tomorrow-prep-once.test.ts`.
+3. **24-hour and 2-hour job reminders recorded "sent" after sending** (`lib/ops/reminders.ts`, every 30 min). The flag was set only after a clear provider yes. An uncertain answer or a failed flag update meant another email or SMS every 30 minutes for the whole window. The job is now claimed first (conditional update). The claim is released only when nothing reached a provider (switched off, no key, refused before sending). Test: `tests/lib/job-reminders-claim.test.ts`.
+4. **Client follow-ups queued twice sent twice** (`lib/ops/follow-up-sequences.ts`, `lib/notifications/client-automation.ts`): pg-boss `singletonKey`, plus a send-once receipt per job and step or rule. Test: `tests/lib/follow-up-once.test.ts`.
+5. **Daily unfinished-job push never stopped** for a job left PAUSED (`lib/ops/unfinished-reminders.ts`). It now stops after 3 nights per job; the office still sees the job.
+6. **Direct Twilio call** in the finance template engine (`lib/notifications/engine.ts`) bypassed every SMS gate. It now goes through `sendSmsDetailed`.
+Checked and not repeating: cleaner day reminder (receipt), missed clock-in (one per job), auto clock-out / auto-pause (claimed state change), case follow-up (48 h stale window), iCal booking-moved and removed notices (assignment removed), location notices (inbox only, event ids), workforce posts (marked), job-task auto-approve (state change first), document expiry (weekly), the intent pipeline (one intent per transport and person; UNCERTAIN never retried; MAX attempts), mobile outbox (claimed). The worker's handler wrapper never lets pg-boss retry a job.
+
+**The gate (one place every outbound message passes).** `lib/notifications/safeguards/gate.ts` `guardOutbound`, called immediately before the provider call in the only four modules allowed to reach a provider: `email.ts` (per address), `sms.ts`, `web-push.ts` (one decision per person, per device for pipeline intents), `mobile-push.ts`. The inbox is never capped. `tests/lib/outbound-provider-imports.test.ts` fails if any other file imports Resend, Twilio, web-push or nodemailer, or calls their APIs. Decisions are taken in a transaction under an advisory lock per (transport group, person) and written as `OutboundMessageEvent` rows. Caps, duplicates and the breaker count these rows, so they are correct across web replicas and the worker (tested with real concurrency). Producers may pass `safeguard: { typeKey, entityKey, recipientUserId }` (delivery.ts `typeKey`, office sends and pipeline intents do this automatically). Otherwise the type comes from the event key, subject, email kind or category, and the catch-all is `unclassified:<transport>`.
+
+Order of rules (`decide.ts`): disabled account, emergency stop, pause (type / person / subject), identical duplicate, same type and subject, alert limit, hourly ceiling, daily ceiling, quiet hours. Classes (`classify.ts`):
+- SECURITY: `account.security`, `account.invitations`, any `critical` email. Exempt from everything but the duplicate check.
+- ALERT: the safeguards' own notice. Exempt from pauses and ceilings; at most N emails per hour.
+- URGENT: cancellations, job changes, offers, day/2-hour reminders, clock changes, field and iCal alerts, client job updates. No quiet hours and no same-subject window.
+- BULK: marketing campaigns. Never pause a type.
+- NORMAL: everything else.
+
+A suppressed message is **never delivered**. Callers get `ok: false, skipped: true, suppressed: { reason, held }` (SMS `status: "suppressed"`) and record "Not sent (sending safeguard): <reason>" with `deliveryStatus` SUPPRESSED or HELD. The event row has no outcome. When the gate itself cannot run, NORMAL and BULK messages are not sent (`SAFEGUARD_UNAVAILABLE`); security, urgent and alert messages go. **Deploy the migration before the code.**
+
+**Defaults (all pending owner confirmation; editable by ADMIN with PIN inside the bounds shown on the screen):**
+
+| | Email | SMS | Push (browser + phone) |
+| --- | --- | --- | --- |
+| Per person per hour | 15 | 6 | 30 |
+| Per person per day | 50 | 15 | 120 |
+| Same type and subject once per | 30 min | 60 min | 5 min |
+| Breaker: attempts to one person in 15 min | 12 | 6 | 30 |
+
+Other limits:
+- Identical message dropped within 12 h.
+- Breaker window 15 min. Breaker per type: 200 attempts on one transport in the window. Breaker per job or subject: 40.
+- Most recipients in one send: 25 (the whole send is refused).
+- Safeguard alert emails: 6 per hour in total.
+- Quiet hours for staff: 21:00 to 07:00 in the organisation timezone (clients and the public are never held).
+
+Sanity check: a cleaner on six jobs gets about 25 to 30 automatic emails a day across offers, reminders, QA and changes.
+
+**Breaker and alert.** Attempts in the window, sent or not, are counted for the person, the subject and the type (catch-all types are never paused as a type). Crossing a threshold opens one `OutboundSafeguardIncident` (advisory lock per scope). It pauses email, SMS and push for that scope; the inbox continues. Its creator alone tells every active administrator through `sendOfficeNotification`: one inbox notice and one email (event `safeguard:<incident>`). The notice says what tripped, how many, to whom (masked) and links to the screen. **A pause never resumes on its own:** only an administrator's Resume ends it (no silent cool-down). A worker job failing 3 times in a row opens a non-pausing incident and one alert; it closes when the job succeeds (`lib/ops/worker-guard.ts`). The guard also skips a tick while the previous run of the same job is still going after its timeout.
+
+**Emergency stop.** One switch (AppSetting `notificationSafeguards`): ADMIN, own PIN (`routeSecurityRefusal` / `verifySensitiveAction`), refused while impersonating, audited `NOTIFICATION_EMERGENCY_STOP_ON` / `_OFF`. While on, only security messages leave; the inbox works. Per-type pause and resume: ADMIN, not impersonating, audited `NOTIFICATION_TYPE_PAUSED` / `NOTIFICATION_SAFEGUARD_RESUMED`; no PIN (pausing only makes things safer). Limits: ADMIN with PIN, stale-write 409, out-of-bounds 400, audited `NOTIFICATION_SAFEGUARDS_UPDATED`.
+
+**Quiet hours.** Non-urgent email and SMS to staff is HELD: the payload is kept on the event row, released once after quiet hours by the worker, re-checked by the gate (duplicates, pauses and preferences still apply), and dropped as `HELD_EXPIRED` after 12 h. Push at night and these types are DROPPED (inbox kept): `job.reminder.unfinished_daily`, `job.reminder.manual`, `laundry.cleaner_nudge`, `office.sla_and_summaries`, `stock.alerts`, location notices. Emails with attachments are never held.
+
+**Also.**
+- Disabled accounts are refused (except security).
+- The send-size cap applies.
+- `SNEEK_OUTBOUND_SANDBOX_EMAIL` (non-production) sends every email to one inbox marked with the real recipients; `SNEEK_OUTBOUND_SANDBOX_SMS=off` sends no SMS.
+- Existing person preferences, `allEmailOff`, kind switches and the Resend bounce/complaint suppression list still run first.
+
+**Worker job** `notification-safeguards`, every 10 min: expire and release held messages, keep events for 35 days, and once a day after 08:00 an inbox-only line to administrators when something was not sent or tripped the day before (claimed per day).
+
+**Screen.** `/v2/admin/notifications/safeguards` ("Sending safeguards", settings catalog › Notifications; one h1; Estate primitives; stacked rows below 640px). It shows the emergency stop, what is paused (with Resume) and pausing a type, today's sent / not sent / held by type and transport, most-messaged people, reasons, recent "not sent" (masked addresses, organisation timezone), limits and recent incidents. Reads: ADMIN, and OPS_MANAGER with the notifications pack (middleware; the routes re-check the role). Changes: ADMIN only. Routes: `GET|PATCH /api/admin/notifications/safeguards`, `POST …/emergency-stop`, `POST …/pauses`. Command's work queue shows a "sending-paused" card (urgency now, needs the communications pack) while the emergency stop is on or anything is paused. New catalog type `system.sending_safeguard` (`catalog-safeguards.ts`, wording `definitions/safeguards.ts`).
+
+**What the owner should do in production now.**
+- Before deploy: set `SNEEK_DISABLED_JOBS=qa-auto-score,tomorrow-prep-dispatch` on the worker or web container (whichever runs the worker) and restart. Optionally also set `reminder-dispatch` there. Or turn off QA automation's auto-score in Settings.
+- After deploy: run `npx prisma migrate deploy` first. Remove those entries from `SNEEK_DISABLED_JOBS`. Watch the Sending safeguards screen. Use the emergency stop if anything still loops.
+
+**Not built.**
+- Per-person unsubscribe link in emails. `allEmailOff` and the preferences already exist; a signed public link is a separate decision.
+- Bounce/complaint auto-pause beyond the existing suppression list.
+- Holding push at night (dropped instead).
+- Moving the remaining direct producers onto the intent pipeline (the gate covers them).
+- A per-type editable quiet-hours policy (it is in code, documented above).
+- Admin alerts by SMS.
+
 ## Change Log
 
 - **2026-11-15 (Xero stays connected):** one token service for every Xero call: renewal 5 minutes before expiry, on a 401 (renew once, retry once) and daily by the new `xero-token-keepalive` job (so an idle connection never reaches the 60-day refresh-token expiry); single flight across web and worker by compare-and-set on `tokenVersion`; new tokens stored encrypted (previously plaintext) before use; transient failures retried and kept CONNECTED, terminal ones (invalid_grant, credentials refused, no refresh token, organisation removed) marked NEEDS_RECONNECT with a reason, kept for audit, with one inbox-only notice to administrators (`xero.reconnect_needed`). Settings › Xero shows connected since, last and next refresh, keep-alive, the 60-day limit, the reason and Reconnect; a connection without a refresh token says "Reconnect Xero once to keep it connected". Migration `20261115050000_xero_token_lifecycle`. Owner must set `ENCRYPTION_KEY` and reconnect once.
@@ -3720,3 +3791,5 @@ One line per shipped wave. Newest first. (Add to this list with every future wav
 - **2026-11-15** — Admin Maintenance redesign (no schema change): list with tiles, status bar, Assigned to / Client price filters, attention tint, row menu, bulk with Undo and bulk assign, side panel, Report an item, People and trades tab, CSV export; item page with progress strip, facts, Who is on this, Visit and access, Client price, linked records; phone cards, sheets and docked actions; Command row for items nobody is on for more than two days; worker price approval ADMIN-only. Owner defaults pending confirmation.
 
 - **2026-11-14** — Simpler confirmations (no schema change): three tiers in the shared `EConfirmDialog` (ordinary, removes something with Undo where safe, sensitive with one credential field), typed DELETE/VOID/REMOVE/DISCARD removed everywhere, password alone confirms while a person has no PIN (audited with the credential used), quick-pick reasons with no minimum length (invoice and credit-note void reason new and audited), draft invoice line removal without a PIN, cleaner invoice delete and damage void tier C, PIN verified by the action's route for extras, checklist modules, receipts and assistant teams, AI keys on the same credential. Defaults pending owner confirmation.
+
+- **2026-11-15** — Sending safeguards and repeated-email audit (migration `20261115060000_sending_safeguards`): fixed QA auto-score re-scoring and re-notifying failed jobs hourly, tomorrow-prep and job reminders resending after partial failures, duplicate client follow-ups, endless unfinished-job pushes and a direct Twilio bypass. One gate before every email, SMS and push provider call with per-person caps, duplicate and same-subject suppression, circuit breaker with one admin alert, emergency stop (ADMIN + PIN), per-type pause, quiet hours, worker failure alerts, and the Sending safeguards screen plus a Command card. Defaults pending owner confirmation.
