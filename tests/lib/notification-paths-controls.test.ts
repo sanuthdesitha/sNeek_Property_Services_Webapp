@@ -35,7 +35,7 @@ describe("transport paths", () => {
   });
 
   it("shows no banner once the transports are on the pipeline", () => {
-    const env = { SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS: "EMAIL,WEB_PUSH" };
+    const env = { SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS: "EMAIL,WEB_PUSH,SMS" };
     expect(transportPath("WEB_PUSH", env)).toBe("pipeline");
     expect(directPathBanners(fallbackTypes(), env)).toEqual([]);
   });
