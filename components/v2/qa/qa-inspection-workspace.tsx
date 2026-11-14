@@ -1,5 +1,6 @@
 "use client";
 
+import { undoToast } from "@/components/v2/ui/undo-toast";
 import { useRestorableState } from "@/hooks/use-restorable-state";
 import { DeviceStatusInput } from "@/components/shared/device-status-input";
 import { isDeviceException, isDeviceStatusField } from "@/lib/forms/device-status";
@@ -1908,7 +1909,21 @@ export function QaInspectionWorkspace({
     setTools((prev) => ({ ...prev, damage: prev.damage.map((d) => (d.id === id ? { ...d, ...patch } : d)) }));
   }
   function removeDamage(id: string) {
+    // A draft entry: Undo (10 seconds) puts the same entry, photos and all, back where it was.
+    const index = tools.damage.findIndex((d) => d.id === id);
+    const removed = index >= 0 ? tools.damage[index] : null;
     setTools((prev) => ({ ...prev, damage: prev.damage.filter((d) => d.id !== id) }));
+    if (removed) {
+      undoToast({
+        title: "Damage entry removed",
+        onUndo: () =>
+          setTools((prev) =>
+            prev.damage.some((d) => d.id === removed.id)
+              ? prev
+              : { ...prev, damage: [...prev.damage.slice(0, index), removed, ...prev.damage.slice(index)] },
+          ),
+      });
+    }
   }
   function addDamagePhoto(entryId: string, key: string, url?: string) {
     if (url) setUrlByKey((p) => ({ ...p, [key]: url }));
@@ -2077,7 +2092,22 @@ export function QaInspectionWorkspace({
     setRework({ flaggedAreas: rework.flaggedAreas.map((a) => (a.id === id ? { ...a, ...patch } : a)) });
   }
   function removeFlaggedArea(id: string) {
+    // A draft entry: Undo (10 seconds) puts the same area and its photos back where it was.
+    const index = rework.flaggedAreas.findIndex((a) => a.id === id);
+    const removed = index >= 0 ? rework.flaggedAreas[index] : null;
     setRework({ flaggedAreas: rework.flaggedAreas.filter((a) => a.id !== id) });
+    if (removed) {
+      undoToast({
+        title: "Flagged area removed",
+        onUndo: () =>
+          setTools((prev) => {
+            const current = prev.rework ?? emptyReworkProposal();
+            if (current.flaggedAreas.some((a) => a.id === removed.id)) return prev;
+            const flaggedAreas = [...current.flaggedAreas.slice(0, index), removed, ...current.flaggedAreas.slice(index)];
+            return { ...prev, rework: { ...current, flaggedAreas } };
+          }),
+      });
+    }
   }
   function addFlaggedAreaPhoto(areaId: string, key: string, url?: string) {
     if (url) setUrlByKey((p) => ({ ...p, [key]: url }));
@@ -3550,10 +3580,10 @@ export function QaInspectionWorkspace({
       <EConfirmModal
         open={Boolean(removeDamageId)}
         onClose={() => setRemoveDamageId(null)}
-        title="Remove this damage entry"
-        description={`The note and the ${
+        title="Remove this damage entry?"
+        description={`The note and its ${
           tools.damage.find((d) => d.id === removeDamageId)?.photoKeys.length ?? 0
-        } photo(s) attached to it come off this inspection. Photos already uploaded are not re-attached by adding a new entry.`}
+        } photo(s) come out of this inspection draft. You get Undo for 10 seconds.`}
         confirmLabel="Remove entry"
         onConfirm={() => {
           if (removeDamageId) removeDamage(removeDamageId);
@@ -3564,10 +3594,10 @@ export function QaInspectionWorkspace({
       <EConfirmModal
         open={Boolean(removeAreaId)}
         onClose={() => setRemoveAreaId(null)}
-        title="Remove this flagged area"
-        description={`The cleaner is no longer asked to re-clean it, and the ${
+        title="Remove this flagged area?"
+        description={`The cleaner is no longer asked to re-clean it, and its ${
           rework.flaggedAreas.find((a) => a.id === removeAreaId)?.photoKeys.length ?? 0
-        } photo(s) showing what was wrong come off with it.`}
+        } photo(s) come off with it. You get Undo for 10 seconds.`}
         confirmLabel="Remove area"
         onConfirm={() => {
           if (removeAreaId) removeFlaggedArea(removeAreaId);

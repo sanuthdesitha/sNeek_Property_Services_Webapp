@@ -232,7 +232,8 @@ export function monthFigure(usage: Usage | null, match: (row: UsageRow) => boole
 }
 
 export function money(micro: number): string {
-  return new Intl.NumberFormat("en-AU", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(micro / 1_000_000);
+  // US dollars, written "$14.72" as the provider bills (en-US places the plain "$" sign).
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(micro / 1_000_000);
 }
 
 export function count(value: number): string {
@@ -329,7 +330,9 @@ export function statusStrip(state: AiScreenState, draft: RoutingDraft, vision: V
   else {
     const total = monthFigure(state.usage, () => true)!;
     const unknownText = total.unknownCalls ? ` · ${count(total.unknownCalls)} at a price marked "Not known"` : "";
-    cost = total.knownMicroUsd > 0 || total.unknownCalls === 0
+    cost = total.requests === 0
+      ? { title: "No AI cost this month", detail: "0 requests" }
+      : total.knownMicroUsd > 0 || total.unknownCalls === 0
       ? { title: `About ${money(total.knownMicroUsd)} this month`, detail: `${count(total.requests)} requests${unknownText}` }
       : { title: "Cost not known this month", detail: `${count(total.requests)} requests${unknownText}` };
   }

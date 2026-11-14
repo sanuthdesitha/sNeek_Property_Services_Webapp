@@ -2,6 +2,7 @@
 
 /** Application field-schema editor → PATCH .../[id]/application-schema.
  *  Stores { schema: { version: 3, steps } } exactly as v1 does. */
+import { undoToast } from "@/components/v2/ui/undo-toast";
 import { useState } from "react";
 import { ArrowUp, ArrowDown, Plus, Trash2, Save, Loader2 } from "lucide-react";
 import { EButton, ECard, ECardBody, ECardHeader, EAlert } from "@/components/v2/ui/primitives";
@@ -216,17 +217,23 @@ export function ApplicationSchemaEditor({
       <EConfirmModal
         open={removeStepAt !== null}
         onClose={() => setRemoveStepAt(null)}
-        title="Delete this section"
+        title="Delete this section?"
         description={
           removeStepAt !== null
             ? `"${steps[removeStepAt]?.title || "Untitled section"}" and the ${
                 (steps[removeStepAt]?.fields ?? []).length
-              } field(s) written inside it are removed from the application form.`
+              } field(s) written inside it come out of this unsaved form. You get Undo for 10 seconds.`
             : undefined
         }
         confirmLabel="Delete section"
         onConfirm={() => {
-          if (removeStepAt !== null) removeStep(removeStepAt);
+          if (removeStepAt !== null) {
+            // Nothing is saved until Save, so Undo puts the same section back where it was.
+            const index = removeStepAt;
+            const removed = steps[index];
+            removeStep(index);
+            if (removed) undoToast({ title: "Section deleted", onUndo: () => setSteps((current) => [...current.slice(0, index), removed, ...current.slice(index)]) });
+          }
           setRemoveStepAt(null);
         }}
       />

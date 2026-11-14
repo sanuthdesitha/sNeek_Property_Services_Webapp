@@ -4,6 +4,7 @@
  *  Save test → PATCH .../[id]/screening-schema  { requireKnowledgeTest, passThreshold, title, intro, questions }
  *  Save as reusable quiz → POST .../[id]/save-as-quiz  { name, passThreshold, title, intro, questions }
  *  Identical payloads and question shape to v1. */
+import { undoToast } from "@/components/v2/ui/undo-toast";
 import { useState } from "react";
 import { ArrowUp, ArrowDown, Plus, Trash2, Save, Loader2, Copy, Check } from "lucide-react";
 import { EButton, ECard, ECardBody, EAlert, EBadge } from "@/components/v2/ui/primitives";
@@ -318,17 +319,23 @@ export function QuizDesigner({
       <EConfirmModal
         open={removeQAt !== null}
         onClose={() => setRemoveQAt(null)}
-        title="Delete this question"
+        title="Delete this question?"
         description={
           removeQAt !== null
-            ? `"${questions[removeQAt]?.prompt || "Untitled question"}" goes, along with its ${
+            ? `"${questions[removeQAt]?.prompt || "Untitled question"}", with its ${
                 (questions[removeQAt]?.options ?? []).length
-              } option(s) and the answer marked correct.`
+              } option(s) and the answer marked correct, comes out of this unsaved quiz. You get Undo for 10 seconds.`
             : undefined
         }
         confirmLabel="Delete question"
         onConfirm={() => {
-          if (removeQAt !== null) removeQ(removeQAt);
+          if (removeQAt !== null) {
+            // Nothing is saved until Save, so Undo puts the same question back where it was.
+            const index = removeQAt;
+            const removed = questions[index];
+            removeQ(index);
+            if (removed) undoToast({ title: "Question deleted", onUndo: () => setQuestions((current) => [...current.slice(0, index), removed, ...current.slice(index)]) });
+          }
           setRemoveQAt(null);
         }}
       />

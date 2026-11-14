@@ -36,6 +36,12 @@ export function dayTime(iso: string | null | undefined, timeZone: string): strin
   return date ? formatInTimeZone(date, timeZone, "EEE d MMM HH:mm") : null;
 }
 
+/** "Tue 09:10" in the organisation's timezone (recent history lines); null when missing. */
+export function weekdayTime(iso: string | null | undefined, timeZone: string): string | null {
+  const date = validDate(iso);
+  return date ? formatInTimeZone(date, timeZone, "EEE HH:mm") : null;
+}
+
 /** "3 d ago", "today". */
 export function ageLabel(iso: string | null | undefined, now: Date = new Date()): string | null {
   const date = validDate(iso);

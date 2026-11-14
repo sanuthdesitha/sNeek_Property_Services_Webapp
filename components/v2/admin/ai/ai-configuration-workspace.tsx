@@ -17,7 +17,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { EAlert, EBadge, EButton, EPageHeader } from "@/components/v2/ui/primitives";
-import { EActionDialog } from "@/components/v2/ui/action-dialog";
+import { EConfirmDialog } from "@/components/v2/ui/confirm-dialog";
 import { EPhoneActionBar, ESectionSwitcher } from "@/components/v2/ui/phone-bars";
 import { EToneCard } from "@/components/v2/ui/tone-band";
 import { OllamaSection } from "@/components/v2/admin/settings/ollama-section";
@@ -399,21 +399,17 @@ export function AiConfigurationWorkspace({ canEdit: serverCanEdit, readOnlyReaso
           setNotice({ tone: "success", text: mode === "remove" ? "Key removed. Features using it now say AI is unavailable until you choose another provider." : "Key saved. Saving does not test it: use Test connection." });
         }}
       />
-      <EActionDialog
+      <EConfirmDialog
         open={photoConfirm !== null}
-        eyebrow="Photos leave this server"
+        tier="ordinary"
         title={`Allow photos to go to ${confirmCompany}?`}
         description={photoConfirm ? `${AI_FEATURE_CATALOG[photoConfirm].label} will send cleaning photos to ${confirmCompany}${confirmRoute && ["anthropic", "openai"].includes(confirmRoute.provider) ? " in the United States" : ""}, with the time and address stamp blacked out. It takes effect when you save changes, and the change is kept in the settings audit.` : undefined}
+        confirmLabel="Allow photos"
         onClose={() => setPhotoConfirm(null)}
-        footer={
-          <>
-            <EButton variant="outline" onClick={() => setPhotoConfirm(null)}>Cancel</EButton>
-            <EButton onClick={() => { if (photoConfirm) updateFeature(photoConfirm, { allowCloudImages: true }); setPhotoConfirm(null); }}>Allow photos</EButton>
-          </>
-        }
+        onConfirm={() => { if (photoConfirm) updateFeature(photoConfirm, { allowCloudImages: true }); setPhotoConfirm(null); }}
       >
         <p className="text-[0.8125rem]">Photos from properties that opted out are never sent. Turning the switch off again keeps photos on this server from the next request.</p>
-      </EActionDialog>
+      </EConfirmDialog>
       <OptOutDialog
         open={optOutOpen}
         canEdit={canEdit}

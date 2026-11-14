@@ -144,7 +144,7 @@ export function BuilderOverlays({
         open={overlay.kind === "delete"}
         onClose={close}
         title={overlay.kind === "delete" && overlay.ids.length > 1 ? `Delete ${overlay.ids.length} questions?` : "Delete this question?"}
-        description="It is removed from the draft. Undo brings it back; submissions already made keep their answers."
+        description="It comes out of this draft form. You get Undo for 10 seconds; submissions already made keep their answers."
         confirmLabel="Delete"
         danger
         onConfirm={() => {
@@ -161,7 +161,7 @@ export function BuilderOverlays({
             ? undefined
             : isStandardSectionId(overlay.sectionId)
               ? standardSectionDeleteWarning(overlay.sectionId)
-              : "The section and its questions are removed from the draft. Undo brings them back."
+              : "The section and its questions come out of this draft form. You get Undo for 10 seconds."
         }
         confirmLabel="Delete section"
         danger

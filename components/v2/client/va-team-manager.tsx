@@ -158,9 +158,9 @@ function TeamCard({
 
   const permissions = team.permissions ?? {};
   const scope = team.propertyIds ?? [];
-  // Modal tier, not PIN: deleting a team wipes its permissions, property scope
-  // and every invitation on it — not something to retype. The client portal has
-  // no admin PIN to demand, so the typed phrase carries the weight instead.
+  // Tier B (board "Confirmations and deletes", 2026-11-14): one line and one
+  // red button. Clients have no PIN and nobody types REMOVE any more; the line
+  // says the team's permissions, property scope and invitations go with it.
   const [removeTeamOpen, setRemoveTeamOpen] = React.useState(false);
 
   /** PATCH the team, reverting the optimistic state if the server refuses. */
@@ -337,7 +337,7 @@ function TeamCard({
         open={removeTeamOpen}
         onClose={() => setRemoveTeamOpen(false)}
         title="Remove this team"
-        description={`Everyone on ${team.name} loses access to your properties immediately, and the team's permissions and property list go with it.`}
+        description={`Everyone on ${team.name} loses access to your properties straight away, with the team's permissions and property list. This cannot be undone.`}
         confirmLabel="Remove team"
         loading={busy}
         onConfirm={removeTeam}

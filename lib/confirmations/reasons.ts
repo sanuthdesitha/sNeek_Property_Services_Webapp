@@ -67,9 +67,11 @@ export const REASON_CHOICES = {
     { id: "test", label: "Test entry" },
     OTHER,
   ],
+  // A voided damage submission goes back to the cleaner, who sees the reason.
   damageVoid: [
-    { id: "not-cleaner", label: "Not caused by the cleaner" },
-    { id: "pre-existing", label: "Damage was already there" },
+    { id: "photos-unclear", label: "Photos do not show the damage" },
+    { id: "wrong-item", label: "Wrong item or room" },
+    { id: "details-missing", label: "Details are missing" },
     { id: "duplicate", label: "Duplicate report" },
     OTHER,
   ],
