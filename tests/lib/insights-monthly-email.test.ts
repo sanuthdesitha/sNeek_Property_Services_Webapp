@@ -15,7 +15,7 @@ vi.mock("@/lib/db", () => ({ db: {
   $transaction: async (ops: unknown[]) => ops,
 } }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ timezone: "Australia/Sydney", companyName: "sNeek" }) }));
-vi.mock("@/lib/app-url", () => ({ getAppBaseUrl: () => "https://app.test" }));
+vi.mock("@/lib/app-url", () => ({ getAppBaseUrl: () => "https://app.test", resolveAppUrl: (path: string) => `https://app.test${path}` }));
 vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops }));
 vi.mock("@/lib/insights/business", () => ({ getBusinessInsights: m.business }));
 vi.mock("@/lib/notifications/office-sends", () => ({ sendOfficeNotification: m.send }));
