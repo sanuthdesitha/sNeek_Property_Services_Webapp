@@ -39,7 +39,8 @@
     ".next-dev/types/**/*.ts",
     ".next-prod.__build/types/**/*.ts",
     ".next-health/types/**/*.ts",
-    ".next-wf/types/**/*.ts"
+    ".next-wf/types/**/*.ts",
+    ".next-web/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
