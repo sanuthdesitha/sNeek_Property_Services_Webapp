@@ -325,7 +325,7 @@ function ScheduledSection({ view, preview }: { view: SystemHealthView; preview: 
   const rows = view.tasks ?? [];
   const shown = preview ? rows.slice(0, PREVIEW_TASKS) : rows;
   return (
-    <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
       <ECard className="min-w-0 overflow-hidden">
         {view.tasks === null ? (
           <p role="alert" className="p-4 text-[0.875rem]">The scheduled task history could not be read, so this page cannot tell how scheduled work is running.</p>

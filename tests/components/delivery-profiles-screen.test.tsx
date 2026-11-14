@@ -74,7 +74,7 @@ describe("Delivery profiles", () => {
     render(<DeliveryProfilesScreen />);
     await screen.findAllByText("Harbour View Stays");
     const row = document.querySelector('[data-client-row="c1"]') as HTMLElement;
-    expect(row).toHaveTextContent("client email, fallback");
+    expect(row).toHaveTextContent("fallback");
     expect(row).toHaveTextContent("Queued");
     expect(document.body).not.toHaveTextContent("Delivered");
     const bounced = document.querySelector('[data-client-row="c2"]') as HTMLElement;

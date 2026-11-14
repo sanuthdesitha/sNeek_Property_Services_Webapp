@@ -92,9 +92,9 @@ function AddressChip({ address, fallbackLabel }: { address: DeliveryAddress; fal
       )}
     >
       {bounced ? <span aria-hidden>▲</span> : null}
-      <span className="min-w-0 break-all">{address.email}</span>
-      {bounced ? <span className="text-[0.6875rem]">on bounce list</span> : null}
-      {!bounced && address.source === "client_email" ? <span className={cn("text-[0.6875rem]", MUTED)}>{fallbackLabel ?? "client email"}</span> : null}
+      <span className="min-w-0 [overflow-wrap:anywhere]">{address.email}</span>
+      {bounced ? <span className="whitespace-nowrap text-[0.6875rem]">on bounce list</span> : null}
+      {!bounced && address.source === "client_email" ? <span className={cn("whitespace-nowrap text-[0.6875rem]", MUTED)}>{fallbackLabel ?? "client email"}</span> : null}
     </span>
   );
 }
@@ -106,7 +106,7 @@ function RouteChips({ custom, fallback, emptyText }: { custom: DeliveryAddress[]
   return (
     <span className="flex min-w-0 flex-wrap gap-1.5">
       {custom.map((address) => <AddressChip key={address.email} address={address} />)}
-      {fallback.map((address) => <AddressChip key={address.email} address={address} fallbackLabel={custom.length ? "client email, added" : "client email, fallback"} />)}
+      {fallback.map((address) => <AddressChip key={address.email} address={address} fallbackLabel={custom.length ? "client email" : "fallback"} />)}
     </span>
   );
 }
@@ -150,7 +150,7 @@ function DeliveryTable({ rows, timeZone, selected, onOpen, frozen }: { rows: Del
   return (
     <>
       <div className="overflow-x-auto max-sm:hidden" role="region" aria-label="Client delivery profiles" tabIndex={0}>
-        <table className="w-full min-w-[760px] text-left text-[0.8125rem]">
+        <table className="w-full min-w-[640px] text-left text-[0.8125rem]">
           <thead className="bg-[hsl(var(--e-surface-raised))] text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
             <tr>
               <th scope="col" className="px-3 py-2 font-medium">Client</th>
@@ -663,7 +663,7 @@ export function DeliveryProfilesScreen() {
         </p>
       ) : null}
 
-      <div className={cn("grid min-w-0 grid-cols-1 gap-4", selectedRow && "lg:grid-cols-[minmax(0,1fr)_380px]")}>
+      <div className={cn("grid min-w-0 grid-cols-1 gap-4", selectedRow && "lg:grid-cols-[minmax(0,1fr)_360px]")}>
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <label className="sr-only" htmlFor="delivery-search">Search client or address</label>
@@ -673,7 +673,7 @@ export function DeliveryProfilesScreen() {
               value={query}
               onChange={(event) => { setQuery(event.target.value); setShown(PAGE_SIZE); }}
               placeholder="Search client or address"
-              className="h-10 min-w-0 flex-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-3 text-[16px] sm:max-w-[16rem] sm:text-[0.8125rem] max-sm:h-11"
+              className="h-10 w-full min-w-0 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-3 text-[16px] sm:w-56 sm:text-[0.8125rem] max-sm:h-11"
             />
             <EFilterChips label="Show clients" chips={chips} active={filter} onChange={(key) => { setFilter(key); setShown(PAGE_SIZE); }} phoneLayout="carousel" />
           </div>

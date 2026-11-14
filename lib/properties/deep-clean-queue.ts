@@ -25,6 +25,10 @@ import {
 
 const TZ = "Australia/Sydney";
 
+function readableDay(day: string): string {
+  return formatInTimeZone(new Date(`${day}T12:00:00Z`), "UTC", "EEE d MMM");
+}
+
 function sydneyDay(at: Date): string {
   return formatInTimeZone(at, TZ, "yyyy-MM-dd");
 }
@@ -155,9 +159,9 @@ export async function deepCleanHistory(propertyId: string): Promise<HistoryEntry
     const plan = plans[index];
     const automated = Boolean(plan && typeof plan === "object" && "automation" in plan && plan.automation);
     let text = ACTION_WORDS[row.action] ?? row.action;
-    if (row.action === "DEEP_CLEAN_BASELINE_VERIFIED" && plan?.baseline) text = `Baseline ${numbers.get(plan.baseline.jobId) ?? "job"} verified · due ${plan.baseline.dueDay}`;
-    if (row.action === "DEEP_CLEAN_PROPOSAL_CREATED" && plan?.proposal) text = `Proposal due ${plan.proposal.dueDay}, needs a date`;
-    if (row.action === "DEEP_CLEAN_PROPOSAL_SCHEDULED" && plan?.proposal) text = `${plan.proposal.jobId ? numbers.get(plan.proposal.jobId) ?? "Job" : "Job"} draft created for ${plan.proposal.scheduledDay}`;
+    if (row.action === "DEEP_CLEAN_BASELINE_VERIFIED" && plan?.baseline) text = `Baseline ${numbers.get(plan.baseline.jobId) ?? "job"} verified · due ${readableDay(plan.baseline.dueDay)}`;
+    if (row.action === "DEEP_CLEAN_PROPOSAL_CREATED" && plan?.proposal) text = `Proposal due ${readableDay(plan.proposal.dueDay)}, needs a date`;
+    if (row.action === "DEEP_CLEAN_PROPOSAL_SCHEDULED" && plan?.proposal) text = `${plan.proposal.jobId ? numbers.get(plan.proposal.jobId) ?? "Job" : "Job"} draft created for ${plan.proposal.scheduledDay ? readableDay(plan.proposal.scheduledDay) : "a day"}`;
     return { at: row.createdAt.toISOString(), text, actor: automated ? "daily check" : row.user?.name || row.user?.email || null };
   });
 }

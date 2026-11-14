@@ -62,6 +62,7 @@ describe("System health summary from real state", () => {
     expect(view.summary.sentence).toContain("Nothing needs you.");
     expect(view.summary.sentence).toContain("Maps and address search (key present)");
     expect(view.summary.sentence).not.toContain("Everything else");
+    expect(view.summary.sentence).toContain("Not set up: Card payments.");
     expect(area(view, "scheduled").state).toBe("working");
     expect(area(view, "payments")).toMatchObject({ state: "not_set_up", word: "Not set up" });
   });
@@ -105,7 +106,7 @@ describe("a worker that stopped reporting", () => {
     expect(area(view, "scheduled")).toMatchObject({ state: "unknown", word: "Cannot tell from here" });
     expect(area(view, "queue").state).toBe("unknown");
     expect(view.tasks!.every((row) => row.state === "unknown")).toBe(true);
-    expect(view.tasks![0].lastRunText).toMatch(/^Cannot tell · last recorded: ok/);
+    expect(view.tasks![0].lastRunText).toMatch(/^Last recorded: ok/);
     expect(view.tasks![0].nextAt).toBeNull();
     expect(view.summary.items[0]).toMatchObject({ key: "worker", title: "Background worker" });
     expect(view.summary.items[0].text).toContain("has not reported since 13:40");

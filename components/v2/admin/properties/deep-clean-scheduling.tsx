@@ -26,6 +26,7 @@ import { EToneRowCell, ETonePill, toneMutedClass, toneNoticeClass, tonePhoneBand
 import { ESidePanel } from "@/components/v2/ui/side-panel";
 import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
 import { CollapsibleFigures } from "@/components/v2/ui/collapsible-figures";
+import { useIsPhone } from "@/components/v2/ui/use-phone";
 import { addCalendarMonths } from "@/lib/properties/cadence-ledger";
 import { DEEP_CLEAN_CADENCE_MONTHS } from "@/lib/scheduling-rules/constants";
 import {
@@ -161,8 +162,9 @@ const STEPS: Array<{ title: string; text: string; yours?: boolean }> = [
 ];
 
 function RuleStrip() {
+  const phone = useIsPhone();
   return (
-    <details className="group rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] sm:border-0 sm:bg-transparent" open>
+    <details className="group rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] sm:border-0 sm:bg-transparent" open={!phone}>
       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3.5 text-[0.875rem] font-semibold sm:hidden">
         How the rule works <span aria-hidden className="group-open:rotate-90">▸</span>
       </summary>
@@ -239,14 +241,13 @@ function QueueTable({ rows, today, selected, onChoose, onVerify, frozen, canMana
   return (
     <>
       <div className="overflow-x-auto max-sm:hidden" role="region" aria-label="Deep-clean queue" tabIndex={0}>
-        <table className="w-full min-w-[720px] text-left text-[0.8125rem]">
+        <table className="w-full min-w-[600px] text-left text-[0.8125rem]">
           <thead className="bg-[hsl(var(--e-surface-raised))] text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
             <tr>
               <th scope="col" className="px-3 py-2 font-medium">Property</th>
               <th scope="col" className="px-3 py-2 font-medium">Last verified deep clean</th>
               <th scope="col" className="px-3 py-2 font-medium">Due</th>
               <th scope="col" className="px-3 py-2 font-medium">State</th>
-              <th scope="col" className="px-3 py-2 font-medium"><span className="sr-only">Action</span></th>
             </tr>
           </thead>
           <tbody>
@@ -272,8 +273,8 @@ function QueueTable({ rows, today, selected, onChoose, onVerify, frozen, canMana
                         {row.proposal.jobNumber ?? "Job"} · {row.proposal.scheduledDay ? dayLabel(row.proposal.scheduledDay) : ""} · {row.proposal.assigned ? "assigned" : "unassigned"}
                       </span>
                     ) : null}
+                    <div className="mt-1.5">{rowAction(row, () => onChoose(row.propertyId), () => onVerify(row.propertyId), frozen, canManage)}</div>
                   </td>
-                  <td className="px-3 py-2.5 text-right">{rowAction(row, () => onChoose(row.propertyId), () => onVerify(row.propertyId), frozen, canManage)}</td>
                 </tr>
               );
             })}
@@ -527,6 +528,7 @@ function VerifySection({ propertyId, propertyName, detail, onVerified, onClose }
           </div>
           {ready.plan.baseline && !ready.baselineValid ? <ETonePill tone="problem" className="border border-[hsl(var(--e-border))]">Evidence changed</ETonePill> : null}
         </div>
+        {ready.plan.baseline && !ready.baselineValid && ready.changeReason ? <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-band-problem-fg))]">Since it was verified, {ready.changeReason}.</p> : null}
         <p className={cn("mt-1 text-[0.8125rem]", MUTED)}>The last 50 completed deep-clean jobs here. A job without submitted photos or video cannot be chosen; a job label or one matching photo is not proof.</p>
         {ready.candidateDetails.length === 0 ? (
           <p className="mt-3 text-[0.8125rem]">No completed deep clean is recorded at this property, so there is nothing to verify and the due date stays unknown.</p>

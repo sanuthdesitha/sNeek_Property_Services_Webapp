@@ -391,7 +391,7 @@ export function buildTaskRow(row: TaskFacts, facts: HealthFacts, clock: Clock): 
   let lastRunText = lastRunWords(row, clock);
   if (!known) {
     state = "unknown";
-    lastRunText = row.lastRun ? `Cannot tell · last recorded: ${lastRunText.charAt(0).toLowerCase()}${lastRunText.slice(1)}` : "Cannot tell · no run recorded";
+    lastRunText = row.lastRun ? `Last recorded: ${lastRunText.charAt(0).toLowerCase()}${lastRunText.slice(1)}` : "No run recorded";
   } else if (!row.lastRun) {
     state = "unknown";
   } else if (row.lastRun.ok === false) {
@@ -504,11 +504,13 @@ function areaAttentionText(area: HealthArea): string {
 function summarySentence(needs: number, areas: HealthArea[]): string {
   const head = needs === 0 ? "Nothing needs you." : needs === 1 ? "1 thing needs you." : `${needs} things need you.`;
   const unconfirmed = areas.filter((area) => area.state === "unknown");
+  const notSetUp = areas.filter((area) => area.state === "not_set_up");
+  const setUpText = notSetUp.length ? ` Not set up: ${notSetUp.map((area) => area.title).join(", ")}.` : "";
   if (unconfirmed.length === 0) {
-    return `${head} Everything else ${needs === 0 ? "checked " : ""}is working.`;
+    return `${head} Everything else that is set up is working.${setUpText}`;
   }
   const names = unconfirmed.map((area) => `${area.title} (${area.word.toLowerCase()})`).join(", ");
-  return `${head} Not confirmed working: ${names}.`;
+  return `${head} Not confirmed working: ${names}.${setUpText}`;
 }
 
 function supportAreaLine(area: HealthArea): string {

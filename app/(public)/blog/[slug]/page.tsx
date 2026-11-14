@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://sneekproservices.com.au";
 
-// No generateStaticParams: every post page renders per request so a scheduled
+// No static params: every post page renders per request so a scheduled
 // post is never prerendered before its publish time (lib/public-site/blog-visibility).
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
