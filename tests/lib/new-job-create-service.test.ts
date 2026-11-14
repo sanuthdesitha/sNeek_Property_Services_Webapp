@@ -45,6 +45,7 @@ beforeEach(() => {
   m.carry.mockResolvedValue({ attached: 2 });
   m.preferred.mockResolvedValue({ assigned: true, cleanerId: "tom" });
   m.lifecycle.mockResolvedValue({ sent: true, recipients: ["a@x.au"] });
+  m.audit.mockResolvedValue({});
 });
 
 describe("parity: the New job request path creates what the old path creates", () => {
