@@ -38,8 +38,7 @@
     ".next/types/**/*.ts",
     ".next-dev/types/**/*.ts",
     ".next-prod.__build/types/**/*.ts",
-    ".next-tour/types/**/*.ts",
-    ".next-onb/types/**/*.ts"
+    ".next-tour/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
