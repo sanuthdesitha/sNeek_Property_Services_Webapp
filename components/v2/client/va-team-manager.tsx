@@ -336,7 +336,7 @@ function TeamCard({
       <EConfirmModal
         open={removeTeamOpen}
         onClose={() => setRemoveTeamOpen(false)}
-        title="Remove this team"
+        title={`Remove ${team.name}?`}
         description={`Everyone on ${team.name} loses access to your properties straight away, with the team's permissions and property list. This cannot be undone.`}
         confirmLabel="Remove team"
         loading={busy}

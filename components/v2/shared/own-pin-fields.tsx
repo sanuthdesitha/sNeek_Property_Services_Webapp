@@ -211,7 +211,7 @@ export function OwnPinFields({
         <p id={helpId} role="alert" className={PROBLEM}>
           Too many wrong tries. Try again at {timeOf(lockedUntil!, timezone)}.
         </p>
-        <p className={NOTE}>The button stays off; Cancel keeps what you entered.</p>
+        <p className={NOTE}>The button stays off until then.</p>
       </div>
     );
   }

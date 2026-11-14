@@ -97,6 +97,18 @@ export const SETTINGS_DESTINATIONS = [
     href: "/v2/admin/notifications",
   },
   {
+    // Caps per person, automatic pauses when something loops, the emergency
+    // stop and what was not sent (own page; reads: ADMIN and ops managers with
+    // the notifications pack; changes: ADMIN with their PIN).
+    key: "sending-safeguards",
+    label: "Sending safeguards",
+    description:
+      "Limits on emails, SMS and push per person, automatic pauses, the emergency stop and what was not sent.",
+    group: "notifications",
+    adminOnly: false,
+    href: "/v2/admin/notifications/safeguards",
+  },
+  {
     key: "notifications",
     label: "Scheduled notifications",
     description: "Reminder schedules and default delivery channels.",

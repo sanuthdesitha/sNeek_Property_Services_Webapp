@@ -840,7 +840,7 @@ function VaTeamEditor({
       <EConfirmModal
         open={deleteTeamOpen}
         onClose={() => setDeleteTeamOpen(false)}
-        title="Delete assistant team"
+        title={`Delete ${team.name}?`}
         description={`Every assistant on ${team.name} loses access immediately, along with the team's permissions and property scope. This cannot be undone.`}
         confirmLabel="Delete team"
         requireSecurity

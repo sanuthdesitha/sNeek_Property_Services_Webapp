@@ -9,6 +9,7 @@ const m = vi.hoisted(() => ({
   receivables: vi.fn(),
   maintenanceCount: vi.fn(),
   maintenanceFind: vi.fn(),
+  safeguards: vi.fn(async () => ({ emergencyStop: false, paused: 0 })),
   ok: (value: unknown) => vi.fn(async () => value),
 }));
 
@@ -50,6 +51,7 @@ vi.mock("@/lib/dashboard/immediate-attention", () => ({ getAdminAttentionSummary
 vi.mock("@/lib/jobs/continuation-requests", () => ({ listContinuationRequests: m.continuations }));
 vi.mock("@/lib/inventory/shopping-runs", () => ({ listShoppingRunsForAdmin: m.shopping }));
 vi.mock("@/lib/finance/receivables", () => ({ getOutstandingReceivables: m.receivables }));
+vi.mock("@/lib/notifications/safeguards/overview", () => ({ safeguardAttention: m.safeguards }));
 
 import { buildWorkQueue } from "@/lib/dashboard/work-queue";
 import type { WorkQueueKind } from "@/lib/dashboard/work-queue-types";
@@ -172,6 +174,22 @@ describe("buildWorkQueue", () => {
     expect(queue.items.some((row) => row.kind === "continuation")).toBe(true);
     expect(queue.items.some((row) => row.kind === "clock-adjustment")).toBe(false);
     expect(JSON.stringify(queue)).not.toContain("private database detail");
+  });
+
+  it("puts a sending-safeguards card first when the emergency stop is on or sending is paused, only for viewers with the notifications pack", async () => {
+    m.safeguards.mockResolvedValueOnce({ emergencyStop: true, paused: 2 });
+    const stopped = await buildWorkQueue(ADMIN, { now: NOW });
+    const card = stopped.items.find((row) => row.kind === "sending-paused");
+    expect(card).toMatchObject({ urgency: "now", href: "/v2/admin/notifications/safeguards" });
+    expect(card?.title).toMatch(/Emergency stop is on/);
+    m.safeguards.mockResolvedValueOnce({ emergencyStop: false, paused: 3 });
+    expect((await buildWorkQueue(ADMIN, { now: NOW })).items.find((row) => row.kind === "sending-paused")?.title).toBe("3 sending pauses active");
+    m.safeguards.mockResolvedValueOnce({ emergencyStop: false, paused: 0 });
+    expect((await buildWorkQueue(ADMIN, { now: NOW })).items.some((row) => row.kind === "sending-paused")).toBe(false);
+    const { allOpsLevels } = await import("@/lib/rbac/ops-catalog");
+    m.safeguards.mockResolvedValueOnce({ emergencyStop: true, paused: 0 });
+    const manager = await buildWorkQueue({ levels: { ...allOpsLevels("manage"), communications: "off" }, readOnly: false }, { now: NOW });
+    expect(manager.items.some((row) => row.kind === "sending-paused")).toBe(false);
   });
 
   it("omits money rows for a manager without finance", async () => {

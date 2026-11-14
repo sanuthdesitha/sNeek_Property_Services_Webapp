@@ -5,6 +5,8 @@ import { DEFAULT_NOTIFICATION_AUDIENCE_CONTROLS } from "@/lib/notifications/audi
 const m = vi.hoisted(() => ({ settings: vi.fn(), prefs: vi.fn(), fetch: vi.fn() }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: m.settings }));
 vi.mock("@/lib/notifications/preferences", () => ({ getUserNotificationPreferences: m.prefs }));
+// Provider outcomes only; the sending safeguards have their own tests (tests/lib/safeguards-*).
+vi.mock("@/lib/notifications/safeguards/gate", () => ({ guardOutbound: async () => ({ allowed: true, eventId: null, messageClass: "NORMAL" }), recordOutboundOutcome: async () => undefined }));
 const user = vi.fn(); const devices = vi.fn();
 const prisma = { user: { findUnique: user }, userPushDevice: { findMany: devices, updateMany: vi.fn() } } as any;
 const notification = { id: "n1", userId: "u1", subject: "Laundry", body: "Pickup needed", jobId: null };

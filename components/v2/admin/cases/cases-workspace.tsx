@@ -358,7 +358,7 @@ export function CasesWorkspace() {
       <EConfirmModal
         open={deleteOpen && Boolean(open)}
         onClose={() => setDeleteOpen(false)}
-        title="Delete case"
+        title="Delete this case?"
         description="This permanently removes the case, its comments, and attachments. This cannot be undone."
         confirmLabel="Delete case"
         requireSecurity

@@ -394,7 +394,7 @@ export function ClientActions({
       <EConfirmModal
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}
-        title="Delete client"
+        title={`Delete ${client.name}?`}
         description={`This removes ${client.name} and their portal access. Properties and job history rules from the API apply.`}
         confirmLabel="Delete client"
         requireSecurity

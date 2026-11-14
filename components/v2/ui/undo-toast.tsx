@@ -23,6 +23,7 @@ export function undoToast({ title, description, onUndo }: { title: string; descr
     action: (
       <ToastAction
         altText={`Undo: ${title}`}
+        className="max-sm:min-h-11 max-sm:px-4"
         onClick={() => {
           onUndo();
           handle.dismiss();
