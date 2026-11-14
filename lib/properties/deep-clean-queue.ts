@@ -114,11 +114,12 @@ export async function deepCleanCandidates(propertyId: string, now = new Date()):
     if (parseJobInternalNotes(job.internalNotes).isDraft) continue;
     const media = (job.formSubmissions[0]?.media ?? []).filter((item) => item.s3Key?.trim());
     const qa = await getAuthoritativeQaReview(job.id);
+    const qaNotes = qa && !qa.passed ? (await db.qAReview.findUnique({ where: { id: qa.id }, select: { notes: true } }))?.notes ?? null : null;
     const photos = media.filter((item) => item.mediaType === "PHOTO").length;
     const videos = media.filter((item) => item.mediaType === "VIDEO").length;
     let blocked: string | null = null;
     if (photos + videos === 0) blocked = "no submitted proof";
-    else if (qa && !qa.passed) blocked = `QA failed${qa.notes ? ` (${qa.notes.slice(0, 80)})` : ""}`;
+    else if (qa && !qa.passed) blocked = `QA failed${qaNotes ? ` (${qaNotes.slice(0, 80)})` : ""}`;
     candidates.push({
       id: job.id,
       jobNumber: job.jobNumber,
@@ -126,7 +127,7 @@ export async function deepCleanCandidates(propertyId: string, now = new Date()):
       cleaners: job.assignments.map((assignment) => assignment.user?.name || assignment.user?.email || "Cleaner"),
       photos,
       videos,
-      qa: qa ? { passed: qa.passed, score: Math.round(qa.score), notes: qa.notes ?? null } : null,
+      qa: qa ? { passed: qa.passed, score: Math.round(qa.score), notes: qaNotes } : null,
       blocked,
     });
   }

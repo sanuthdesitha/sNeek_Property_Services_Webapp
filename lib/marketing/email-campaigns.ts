@@ -131,9 +131,18 @@ async function claimRecipient(campaignId: string, email: string): Promise<boolea
 async function recordSkipped(campaignId: string, email: string) {
   try {
     const reason = await skipReasonFor(email);
-    await (db as any).campaignSend.create({ data: { campaignId, email, status: CAMPAIGN_SEND_STATUS.skipped, error: reason } });
+    try {
+      await (db as any).campaignSend.create({ data: { campaignId, email, status: CAMPAIGN_SEND_STATUS.skipped, error: reason } });
+    } catch (err: any) {
+      if (err?.code !== "P2002") throw err;
+      // A retry of a FAILED address that has since been suppressed.
+      await (db as any).campaignSend.updateMany({
+        where: { campaignId, email, status: CAMPAIGN_SEND_STATUS.failed },
+        data: { status: CAMPAIGN_SEND_STATUS.skipped, error: reason },
+      });
+    }
   } catch {
-    /* already recorded, or the ledger is unavailable: the count is only informational */
+    /* the ledger is unavailable: the count is only informational */
   }
 }
 

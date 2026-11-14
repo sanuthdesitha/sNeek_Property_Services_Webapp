@@ -61,7 +61,7 @@ export function ProfileWorkspace(props: ProfileWorkspaceProps) {
       <nav aria-label="Profile sections" className={cn("min-w-0", phone ? (open ? "hidden" : "") : "max-lg:hidden max-sm:block")}>
         <SectionList summaries={props.summaries} phone={phone} onOpen={(id) => {
           if (phone) setOpen(id);
-          else document.getElementById(id)?.scrollIntoView({ block: "start" });
+          else document.getElementById(id)?.scrollIntoView?.({ block: "start" });
         }} />
       </nav>
 

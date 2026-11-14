@@ -12,18 +12,24 @@ vi.mock("@/components/v2/admin/marketing/email-block-editor", () => ({ EmailBloc
 const fetchMock = vi.fn();
 const row = { id: "campaign", name: "One person", subject: "Hello", htmlBody: "<p>Hello</p>", audience: { type: "single_recipient", filters: { email: "person@example.com" } }, status: "draft", scheduledAt: null, sentAt: null, recipientCount: null, createdAt: "2026-09-21T00:00:00Z" };
 const response = (body: unknown) => ({ ok: true, json: async () => body });
+const v2Row = { ...row, updatedAt: "2026-09-21T00:00:00Z", sends: { sent: 0, failed: 0, skipped: 0 }, report: null };
+const reachBody = { reach: { withEmail: 1, willSend: 1, unsubscribed: 0, bounceList: 0, noEmail: 0 } };
 beforeEach(() => { notices.toast.mockReset(); fetchMock.mockReset(); vi.stubGlobal("fetch", fetchMock); fetchMock.mockImplementation(async (url: string) => response(url.includes("segments") ? { segments: [] } : url.includes("audience-preview") ? { count: 1 } : { campaign: row, sent: 1 })); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 it.each([0, 1])("v2 shows failed status and truthful counts when %s emails were sent before a refusal", async sent => {
   const onToast = vi.fn();
-  fetchMock.mockImplementation(async (url: string) => response(url.endsWith("/send") ? { sent, failed: 1, suppressed: 2 } : { segments: [] }));
-  render(<EmailCampaignsManager initialCampaigns={[{ ...row, audience: { type: "all_clients" } }]} onToast={onToast} brand={{} as never} />);
-  fireEvent.click(screen.getByRole("button", { name: "Send now" }));
-  await screen.findByText("failed", { exact: true });
-  expect(onToast).toHaveBeenCalledWith({ title: "Campaign has failed deliveries", description: `${sent} sent, 1 failed, 2 suppressed.`, tone: "danger" });
+  const broadcast = { ...v2Row, audience: { type: "segment", filters: { segmentId: "all_active_clients" } } };
+  fetchMock.mockImplementation(async (url: string) => response(url.endsWith("/send") ? { sent, failed: 1, suppressed: 2 } : url.includes("/reach") ? reachBody : url.includes("segments") ? { segments: [] } : { campaign: broadcast }));
+  render(<EmailCampaignsManager initialCampaigns={[broadcast]} onToast={onToast} brand={{ companyName: "sNeek", logoUrl: "" }} />);
+  fireEvent.click(screen.getAllByRole("button", { name: "One person" })[0]!);
+  fireEvent.click(screen.getByRole("radio", { name: "Send now" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Send now to 1" }));
+  expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/send"))).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Send to 1 now" }));
+  await waitFor(() => expect(onToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Campaign has failed sends", tone: "danger" })));
+  expect(onToast.mock.calls[0][0].description).toContain(`${sent} sent, 1 failed, 2 skipped`);
   expect(onToast.mock.calls.some(([notice]) => notice.title === "Campaign sent")).toBe(false);
-  expect(screen.getByText(new RegExp(`Recipients processed: ${sent}`))).toBeInTheDocument();
-  expect(screen.queryByText(/^Sent \d/)).not.toBeInTheDocument();
+  expect(screen.getAllByText(`${sent} sent, 1 failed`).length).toBeGreaterThan(0);
   expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/send"))).toHaveLength(1);
 });
 it.each([0, 1])("legacy shows failed status and truthful counts when %s emails were sent before a refusal", async sent => {
@@ -63,21 +69,25 @@ it("invalid email never queries an audience; failed preview offers explicit retr
   await screen.findByText("1 matching recipient: person@example.com");
 });
 it("editing a saved single recipient preserves its narrow audience on save", async () => {
-  render(<EmailCampaignsManager initialCampaigns={[row]} onToast={vi.fn()} brand={{} as never} />);
-  fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+  fetchMock.mockImplementation(async (url: string) => response(url.includes("/reach") ? reachBody : url.includes("segments") ? { segments: [] } : url.includes("audience-preview") ? { count: 1 } : { campaign: v2Row }));
+  render(<EmailCampaignsManager initialCampaigns={[v2Row]} onToast={vi.fn()} brand={{ companyName: "sNeek", logoUrl: "" }} />);
+  fireEvent.click(screen.getAllByRole("button", { name: "One person" })[0]!);
   expect(screen.getByRole("textbox", { name: "Recipient email" })).toHaveValue("person@example.com");
   fireEvent.change(screen.getByRole("textbox", { name: "Recipient email" }), { target: { value: " Other@Example.com " } });
-  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-  await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => url === "/api/admin/email-campaigns/campaign" && init.method === "PATCH")).toBe(true));
-  const [, init] = fetchMock.mock.calls.find(([url, init]) => url === "/api/admin/email-campaigns/campaign" && init.method === "PATCH")!;
+  fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => url === "/api/admin/email-campaigns/campaign" && init?.method === "PATCH")).toBe(true));
+  const [, init] = fetchMock.mock.calls.find(([url, init]) => url === "/api/admin/email-campaigns/campaign" && init?.method === "PATCH")!;
   expect(JSON.parse(init.body).audience).toEqual({ type: "single_recipient", filters: { email: "other@example.com" } });
 });
 it("send confirmation identifies the exact saved recipient and sends only after confirmation", async () => {
-  render(<EmailCampaignsManager initialCampaigns={[row]} onToast={vi.fn()} brand={{} as never} />);
-  fireEvent.click(screen.getByRole("button", { name: "Send now" }));
+  fetchMock.mockImplementation(async (url: string) => response(url.endsWith("/send") ? { sent: 1, failed: 0, suppressed: 0 } : url.includes("/reach") ? reachBody : url.includes("segments") ? { segments: [] } : url.includes("audience-preview") ? { count: 1 } : { campaign: v2Row }));
+  render(<EmailCampaignsManager initialCampaigns={[v2Row]} onToast={vi.fn()} brand={{ companyName: "sNeek", logoUrl: "" }} />);
+  fireEvent.click(screen.getAllByRole("button", { name: "One person" })[0]!);
+  fireEvent.click(screen.getByRole("radio", { name: "Send now" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Send now to 1" }));
   expect(screen.getByRole("dialog")).toHaveTextContent("person@example.com");
   expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/send"))).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "Send to this recipient" }));
+  fireEvent.click(screen.getByRole("button", { name: "Send to 1 now" }));
   await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/send"))).toHaveLength(1));
 });
 it("wizard saves a single-recipient payload and blocks blank email", async () => {

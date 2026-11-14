@@ -1,8 +1,8 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { getRecognitionBoard, listStaffDirectory } from "@/lib/workforce/service";
-import { EPageHeader } from "@/components/v2/ui/primitives";
-import { WorkforceSubnav } from "@/components/v2/admin/workforce/workforce-subnav";
+import { loadWorkforceAreaSummary } from "@/lib/workforce/area-counts";
+import { WorkforceArea } from "@/components/v2/admin/workforce/workforce-area";
 import {
   RecognitionBoard,
   type LeaderRow,
@@ -10,15 +10,16 @@ import {
   type RecognitionStaff,
 } from "@/components/v2/admin/workforce/recognition-board";
 
-export const metadata = { title: "Recognition · Estate workforce" };
+export const metadata = { title: "Recognition · Workforce" };
 export const dynamic = "force-dynamic";
 
 export default async function WorkforceRecognitionPage() {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
-  const [board, directory] = await Promise.all([
+  const [board, directory, summary] = await Promise.all([
     getRecognitionBoard().catch(() => null),
     listStaffDirectory().catch(() => []),
+    loadWorkforceAreaSummary(),
   ]);
 
   const mapEntry = (r: any): RecognitionEntry => ({
@@ -55,14 +56,13 @@ export default async function WorkforceRecognitionPage() {
     .map((u) => ({ id: u.id, name: u.name ?? u.email, role: u.role }));
 
   return (
-    <div className="space-y-6">
-      <EPageHeader
-        eyebrow="Workforce"
-        title="Recognition"
-        description="Celebrate strong work, keep the wall fresh and see who's leading the team."
-      />
-      <WorkforceSubnav active="recognition" />
+    <WorkforceArea active="recognition" summary={summary}>
+      {board === null ? (
+        <div role="alert" className="mb-4 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4 text-[0.875rem]">
+          The kudos wall and leaders could not be loaded; what is shown below may be incomplete. Reload to try again.
+        </div>
+      ) : null}
       <RecognitionBoard wall={wall} spotlight={spotlight} leaderboard={leaderboard} staff={staff} />
-    </div>
+    </WorkforceArea>
   );
 }

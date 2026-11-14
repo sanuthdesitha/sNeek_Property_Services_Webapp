@@ -83,7 +83,7 @@ export function TwoStepCard({ timeZone, readOnlyReason, prompted }: { timeZone: 
 
   // Opened from the sign-in prompt (?setup=two-step): bring the card into view.
   React.useEffect(() => {
-    if (prompted) cardRef.current?.scrollIntoView({ block: "start" });
+    if (prompted) cardRef.current?.scrollIntoView?.({ block: "start" });
   }, [prompted]);
 
   async function start(method: Method) {

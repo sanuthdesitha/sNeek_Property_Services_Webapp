@@ -24,6 +24,14 @@ export type ReleaseNote = {
 
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    release: "2026.11.16-delivery",
+    date: "2026-11-16",
+    author: "Delivery profiles",
+    items: [
+      { change: "The invoice Send box has a Change recipients link to the client's delivery profile (who gets its invoices and reports).", covered: { tourKey: "admin.finance.send", version: 2, stepIds: ["send"] } },
+    ],
+  },
+  {
     release: "2026.11.16",
     date: "2026-11-16",
     author: "Tutorials launch",

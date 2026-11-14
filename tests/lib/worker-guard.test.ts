@@ -23,7 +23,7 @@ describe("createWorkerGuard", () => {
     const d = deps();
     const guard = createWorkerGuard(d);
     const handler = guard.safeHandler("tomorrow-prep-dispatch", async () => { throw new Error("database unavailable"); }, 1_000);
-    for (let run = 0; run < FAILURE_ALERT_AFTER + 4; run += 1) await expect(handler()).resolves.toBeUndefined();
+    for (let run = 0; run < FAILURE_ALERT_AFTER + 4; run += 1) await expect(handler()).resolves.toMatchObject({ sneekRun: { ok: false } });
     expect(d.raiseFailure).toHaveBeenCalledTimes(1);
     expect(d.raiseFailure).toHaveBeenCalledWith("tomorrow-prep-dispatch", FAILURE_ALERT_AFTER, "Error: database unavailable");
     expect(d.recordFailure).toHaveBeenCalledTimes(FAILURE_ALERT_AFTER + 4);
@@ -75,5 +75,31 @@ describe("createWorkerGuard", () => {
     }, 1_000);
     for (let retry = 0; retry < 3; retry += 1) await handler();
     expect(provider).toHaveBeenCalledTimes(1);
+  });
+
+  it("one rule since 2026-11-16: administrators are told on the second failure in a row, once", async () => {
+    expect(FAILURE_ALERT_AFTER).toBe(2);
+    const d = deps();
+    const guard = createWorkerGuard(d);
+    const handler = guard.safeHandler("ical-sync", async () => { throw new Error("feed down"); }, 1_000);
+    await handler();
+    expect(d.raiseFailure).not.toHaveBeenCalled();
+    await handler();
+    expect(d.raiseFailure).toHaveBeenCalledTimes(1);
+    await handler();
+    expect(d.raiseFailure).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a run record pg-boss stores as the job output, with the error redacted", async () => {
+    const d = deps();
+    const guard = createWorkerGuard(d);
+    const ok = guard.safeHandler("ical-sync", async () => "anything", 1_000);
+    await expect(ok()).resolves.toMatchObject({ sneekRun: { ok: true } });
+    const failing = guard.safeHandler("xero-invoice-sync", async () => { throw new Error("401 from https://api.xero.com/x?token=abc for admin@example.com"); }, 1_000);
+    const output = await failing();
+    expect(output.sneekRun.ok).toBe(false);
+    expect(output.sneekRun.error).toContain("401 from https://api.xero.com/x?[redacted]");
+    expect(output.sneekRun.error).not.toContain("admin@example.com");
+    expect(output.sneekRun.error).not.toContain("token=abc");
   });
 });

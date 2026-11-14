@@ -1,29 +1,21 @@
 "use client";
 
-import { useRestorableState } from "@/hooks/use-restorable-state";
-
+/**
+ * Discounts and plans tab (board "Marketing", 2026-11-16): discount codes and
+ * public plans as tables with their rules and usage; each opens its editor
+ * (every existing field kept). "Ended" is worked out from the end date;
+ * nothing is deleted when a code ends. Codes apply on the public quote page.
+ */
 import { useMemo, useState } from "react";
-import { Plus, Rocket, Tag } from "lucide-react";
+import { Plus } from "lucide-react";
 import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
 import { type MarketedJobTypeValue } from "@/lib/marketing/job-types";
 import { formatCurrency } from "@/lib/utils";
-import {
-  EBadge,
-  EButton,
-  ECard,
-  ECardBody,
-  ECardHeader,
-  ECardTitle,
-  EEmptyState,
-  EStatCard,
-} from "@/components/v2/ui/primitives";
-import {
-  EConfirmModal,
-  EField,
-  EInput,
-  ESwitch,
-  ETextarea,
-} from "@/components/v2/admin/estate-kit";
+import { EButton, ECard } from "@/components/v2/ui/primitives";
+import { EPill } from "@/components/v2/ui/pill";
+import { EConfirmDialog } from "@/components/v2/ui/confirm-dialog";
+import { EField, EInput, EModal, ESelect, ESwitch, ETextarea } from "@/components/v2/admin/estate-kit";
+import { formatOrgDay, isoToZonedInput, zonedInputToIso } from "@/lib/public-site/zoned-time";
 
 const serviceOptions = MARKETED_SERVICES.map((s) => ({ value: s.jobType, label: s.shortLabel }));
 const cadenceOptions = ["Weekly", "Fortnightly", "Monthly", "Quarterly", "Per booking", "Custom"];
@@ -64,12 +56,24 @@ type PlanRow = {
 
 type Toast = { title: string; description?: string; tone: "success" | "danger" };
 
-function toDateTimeInput(value: string | null) {
-  return value ? value.slice(0, 16) : "";
+type CodeLiveState = "active" | "inactive" | "ended" | "not_started" | "used_up";
+
+/** Worked out from the stored rules; nothing is deleted when a code ends. */
+export function discountLiveState(row: CampaignRow, now: Date = new Date()): CodeLiveState {
+  if (row.endsAt && new Date(row.endsAt).getTime() < now.getTime()) return "ended";
+  if (!row.isActive) return "inactive";
+  if (row.startsAt && new Date(row.startsAt).getTime() > now.getTime()) return "not_started";
+  if (typeof row.usageLimit === "number" && row.usageCount >= row.usageLimit) return "used_up";
+  return "active";
 }
-function toIsoOrNull(value: string) {
-  return value ? new Date(value).toISOString() : null;
-}
+
+const LIVE_LABEL: Record<CodeLiveState, { label: string; tone: "ok" | "neutral" | "info" | "warn" }> = {
+  active: { label: "Active", tone: "ok" },
+  inactive: { label: "Switched off", tone: "neutral" },
+  ended: { label: "Ended", tone: "neutral" },
+  not_started: { label: "Starts later", tone: "info" },
+  used_up: { label: "Used up", tone: "warn" },
+};
 
 function CheckRow({
   label,
@@ -97,12 +101,16 @@ export function MarketingCampaignsManager({
   initialCampaigns,
   initialPlans,
   onToast,
+  timeZone = "Australia/Sydney",
 }: {
   initialCampaigns: CampaignRow[];
   initialPlans: PlanRow[];
   onToast: (t: Toast) => void;
+  timeZone?: string;
 }) {
-  const [tab, setTab] = useRestorableState<"campaigns" | "plans">("campaigns-manager:tab", "campaigns");
+  const [editor, setEditor] = useState<"code" | "plan" | null>(null);
+  const toDateTimeInput = (value: string | null) => isoToZonedInput(value, timeZone);
+  const toIsoOrNull = (value: string) => zonedInputToIso(value, timeZone);
   const [campaigns, setCampaigns] = useState(initialCampaigns);
   const [plans, setPlans] = useState(initialPlans);
   const [campaignSaving, setCampaignSaving] = useState(false);
@@ -142,8 +150,6 @@ export function MarketingCampaignsManager({
     sortOrder: "0",
   });
 
-  const activeCampaignCount = useMemo(() => campaigns.filter((c) => c.isActive).length, [campaigns]);
-  const publishedPlanCount = useMemo(() => plans.filter((p) => p.isPublished).length, [plans]);
 
   const campaignFieldErrors = useMemo(
     () => ({
@@ -222,8 +228,9 @@ export function MarketingCampaignsManager({
     }
     if (editingCampaignId) setCampaigns((cur) => cur.map((r) => (r.id === body.id ? body : r)));
     else setCampaigns((cur) => [body, ...cur]);
-    onToast({ title: editingCampaignId ? "Campaign updated" : "Campaign created", tone: "success" });
+    onToast({ title: editingCampaignId ? "Discount code saved" : "Discount code created", tone: "success" });
     resetCampaignForm();
+    setEditor(null);
   }
 
   async function savePlan() {
@@ -257,8 +264,9 @@ export function MarketingCampaignsManager({
     }
     if (editingPlanId) setPlans((cur) => cur.map((r) => (r.id === body.id ? body : r)));
     else setPlans((cur) => [...cur, body].sort((a, b) => a.sortOrder - b.sortOrder));
-    onToast({ title: editingPlanId ? "Plan updated" : "Plan created", tone: "success" });
+    onToast({ title: editingPlanId ? "Plan saved" : "Plan created", tone: "success" });
     resetPlanForm();
+    setEditor(null);
   }
 
   async function runDelete() {
@@ -276,280 +284,268 @@ export function MarketingCampaignsManager({
     if (kind === "campaign") {
       setCampaigns((cur) => cur.filter((r) => r.id !== id));
       if (editingCampaignId === id) resetCampaignForm();
-      onToast({ title: "Campaign removed", tone: "success" });
+      setEditor(null);
+      onToast({ title: "Discount code deleted", tone: "success" });
     } else {
       setPlans((cur) => cur.filter((r) => r.id !== id));
       if (editingPlanId === id) resetPlanForm();
-      onToast({ title: "Plan removed", tone: "success" });
+      setEditor(null);
+      onToast({ title: "Plan deleted", tone: "success" });
     }
     setConfirmState(null);
   }
 
-  const tabBtn = (key: "campaigns" | "plans", label: string) => (
-    <button
-      type="button"
-      onClick={() => setTab(key)}
-      aria-current={tab === key ? "page" : undefined}
-      className={`rounded-[var(--e-radius)] px-3 py-1.5 text-[0.8125rem] font-[550] transition-colors ${
-        tab === key
-          ? "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]"
-          : "text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"
-      }`}
-    >
-      {label}
-    </button>
-  );
+  function editCode(campaign: CampaignRow) {
+    setEditingCampaignId(campaign.id);
+    setCampaignForm({
+      code: campaign.code,
+      title: campaign.title,
+      description: campaign.description ?? "",
+      discountType: campaign.discountType,
+      discountValue: String(campaign.discountValue),
+      minSubtotal: campaign.minSubtotal ? String(campaign.minSubtotal) : "",
+      jobTypes: campaign.jobTypes ?? [],
+      usageLimit: campaign.usageLimit ? String(campaign.usageLimit) : "",
+      startsAt: toDateTimeInput(campaign.startsAt),
+      endsAt: toDateTimeInput(campaign.endsAt),
+      isActive: campaign.isActive,
+    });
+    setEditor("code");
+  }
+
+  function editPlan(plan: PlanRow) {
+    setEditingPlanId(plan.id);
+    setPlanForm({
+      slug: plan.slug,
+      name: plan.name,
+      tagline: plan.tagline ?? "",
+      description: plan.description ?? "",
+      serviceTypes: plan.serviceTypes ?? [],
+      cadenceOptions: plan.cadenceOptions ?? [],
+      startingPrice: typeof plan.startingPrice === "number" ? String(plan.startingPrice) : "",
+      priceLabel: plan.priceLabel ?? "",
+      featuresText: (plan.features ?? []).join("\n"),
+      themeKey: plan.themeKey ?? "",
+      ctaLabel: plan.ctaLabel ?? "Register interest",
+      ctaHref: plan.ctaHref ?? "/contact",
+      isPublished: plan.isPublished,
+      sortOrder: String(plan.sortOrder ?? 0),
+    });
+    setEditor("plan");
+  }
+
+  function rulesOf(campaign: CampaignRow): string {
+    const parts: string[] = [];
+    if (campaign.minSubtotal) parts.push(`min ${formatCurrency(campaign.minSubtotal)}`);
+    const services = (campaign.jobTypes ?? []).map((jt) => serviceOptions.find((o) => o.value === jt)?.label ?? jt);
+    parts.push(services.length ? services.join(", ") : "all services");
+    if (campaign.startsAt || campaign.endsAt) {
+      const start = campaign.startsAt ? formatOrgDay(campaign.startsAt, timeZone) : "now";
+      const end = campaign.endsAt ? formatOrgDay(campaign.endsAt, timeZone) : "no end";
+      parts.push(`${start} – ${end}`);
+    }
+    return parts.join(" · ");
+  }
+
+  const cellClass = "px-3 py-2.5 align-top";
+  const headClass = "px-3 py-2 font-[600]";
 
   return (
-    <div className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-3">
-        <EStatCard label="Active campaigns" value={activeCampaignCount} icon={<Tag className="h-4 w-4" />} />
-        <EStatCard label="Published plans" value={publishedPlanCount} icon={<Rocket className="h-4 w-4" />} />
-        <EStatCard label="Quote-ready services" value={serviceOptions.length} />
-      </div>
-
-      <div className="inline-flex items-center gap-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1">
-        {tabBtn("campaigns", "Discount campaigns")}
-        {tabBtn("plans", "Subscription plans")}
-      </div>
-
-      {tab === "campaigns" ? (
-        <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <ECard>
-            <ECardHeader className="pb-3"><ECardTitle className="text-[0.95rem]">{editingCampaignId ? "Edit campaign" : "New campaign"}</ECardTitle></ECardHeader>
-            <ECardBody className="space-y-4 pt-0">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <EField label="Code">
-                  <EInput value={campaignForm.code} onChange={(e) => setCampaignForm((c) => ({ ...c, code: e.target.value.toUpperCase() }))} placeholder="WELCOME10" />
-                  {campaignFieldErrors.code ? <p className="text-[0.75rem] text-[hsl(var(--e-danger))]">{campaignFieldErrors.code}</p> : null}
-                </EField>
-                <EField label="Title">
-                  <EInput value={campaignForm.title} onChange={(e) => setCampaignForm((c) => ({ ...c, title: e.target.value }))} placeholder="Welcome offer" />
-                  {campaignFieldErrors.title ? <p className="text-[0.75rem] text-[hsl(var(--e-danger))]">{campaignFieldErrors.title}</p> : null}
-                </EField>
-              </div>
-              <EField label="Description">
-                <ETextarea rows={3} value={campaignForm.description} onChange={(e) => setCampaignForm((c) => ({ ...c, description: e.target.value }))} />
-              </EField>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <EField label="Type"><EInput value={campaignForm.discountType} onChange={(e) => setCampaignForm((c) => ({ ...c, discountType: e.target.value.toUpperCase() }))} placeholder="PERCENT or FIXED" /></EField>
-                <EField label="Value"><EInput type="number" min={0} value={campaignForm.discountValue} onChange={(e) => setCampaignForm((c) => ({ ...c, discountValue: e.target.value }))} /></EField>
-                <EField label="Min subtotal"><EInput type="number" min={0} value={campaignForm.minSubtotal} onChange={(e) => setCampaignForm((c) => ({ ...c, minSubtotal: e.target.value }))} placeholder="Optional" /></EField>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <EField label="Starts at"><EInput type="datetime-local" value={campaignForm.startsAt} onChange={(e) => setCampaignForm((c) => ({ ...c, startsAt: e.target.value }))} /></EField>
-                <EField label="Ends at"><EInput type="datetime-local" value={campaignForm.endsAt} onChange={(e) => setCampaignForm((c) => ({ ...c, endsAt: e.target.value }))} /></EField>
-              </div>
-              <EField label="Usage limit"><EInput type="number" min={1} value={campaignForm.usageLimit} onChange={(e) => setCampaignForm((c) => ({ ...c, usageLimit: e.target.value }))} placeholder="Optional" /></EField>
-              <div className="space-y-2">
-                <label className="text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">Applies to services</label>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {serviceOptions.map((s) => (
-                    <CheckRow
-                      key={s.value}
-                      label={s.label}
-                      checked={campaignForm.jobTypes.includes(s.value)}
-                      onChange={(checked) => setCampaignForm((c) => ({ ...c, jobTypes: checked ? [...c.jobTypes, s.value] : c.jobTypes.filter((v) => v !== s.value) }))}
-                    />
-                  ))}
-                </div>
-              </div>
-              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
-                <ESwitch checked={campaignForm.isActive} onCheckedChange={(v) => setCampaignForm((c) => ({ ...c, isActive: v }))} label="Campaign active" />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <EButton onClick={saveCampaign} disabled={!canSaveCampaign}>{campaignSaving ? "Saving…" : editingCampaignId ? "Save changes" : "Create campaign"}</EButton>
-                <EButton type="button" variant="outline" onClick={resetCampaignForm}>Reset</EButton>
-              </div>
-            </ECardBody>
-          </ECard>
-
-          <div className="space-y-4">
-            {campaigns.length === 0 ? (
-              <EEmptyState
-                eyebrow="Campaigns"
-                title="No campaigns yet"
-                description="Create discount campaigns here and the public quote wizard can validate them by code."
-                action={<EButton onClick={resetCampaignForm}><Plus className="h-4 w-4" />New campaign</EButton>}
-              />
-            ) : (
-              campaigns.map((campaign) => (
-                <ECard key={campaign.id}>
-                  <ECardBody className="space-y-4 p-5">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <Tag className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" />
-                          <p className="font-semibold text-[hsl(var(--e-foreground))]">{campaign.title}</p>
-                          {!campaign.isActive ? <EBadge tone="neutral" soft>Inactive</EBadge> : null}
-                        </div>
-                        <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                          {campaign.code} · {campaign.discountType === "PERCENT" ? `${campaign.discountValue}% off` : formatCurrency(campaign.discountValue)}
-                          {campaign.minSubtotal ? ` · min ${formatCurrency(campaign.minSubtotal)}` : ""}
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <EButton variant="outline" size="sm" onClick={() => {
-                          setEditingCampaignId(campaign.id);
-                          setTab("campaigns");
-                          setCampaignForm({
-                            code: campaign.code,
-                            title: campaign.title,
-                            description: campaign.description ?? "",
-                            discountType: campaign.discountType,
-                            discountValue: String(campaign.discountValue),
-                            minSubtotal: campaign.minSubtotal ? String(campaign.minSubtotal) : "",
-                            jobTypes: campaign.jobTypes ?? [],
-                            usageLimit: campaign.usageLimit ? String(campaign.usageLimit) : "",
-                            startsAt: toDateTimeInput(campaign.startsAt),
-                            endsAt: toDateTimeInput(campaign.endsAt),
-                            isActive: campaign.isActive,
-                          });
-                        }}>Edit</EButton>
-                        <EButton variant="danger" size="sm" onClick={() => setConfirmState({ kind: "campaign", id: campaign.id })}>Delete</EButton>
-                      </div>
-                    </div>
-                    <p className="text-[0.8125rem] leading-6 text-[hsl(var(--e-muted-foreground))]">{campaign.description || "No description provided."}</p>
-                    <div className="flex flex-wrap gap-2">
-                      {(campaign.jobTypes ?? []).length > 0
-                        ? (campaign.jobTypes ?? []).map((jt) => (
-                            <EBadge key={jt} tone="neutral">{serviceOptions.find((o) => o.value === jt)?.label ?? jt}</EBadge>
-                          ))
-                        : <EBadge tone="neutral">All services</EBadge>}
-                    </div>
-                  </ECardBody>
-                </ECard>
-              ))
-            )}
-          </div>
+    <div className="grid min-w-0 grid-cols-1 items-start gap-4 xl:grid-cols-2">
+      <ECard className="min-w-0 overflow-hidden">
+        <div className="flex items-center justify-between gap-2 p-4 pb-2">
+          <h2 className="text-[0.9375rem] font-[600]">Discount codes</h2>
+          <EButton variant="outline" size="sm" onClick={() => { resetCampaignForm(); setEditor("code"); }}>
+            <Plus className="h-3.5 w-3.5" aria-hidden /> New code
+          </EButton>
         </div>
-      ) : (
-        <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <ECard>
-            <ECardHeader className="pb-3"><ECardTitle className="text-[0.95rem]">{editingPlanId ? "Edit subscription plan" : "New subscription plan"}</ECardTitle></ECardHeader>
-            <ECardBody className="space-y-4 pt-0">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <EField label="Slug"><EInput value={planForm.slug} onChange={(e) => setPlanForm((c) => ({ ...c, slug: e.target.value.toLowerCase().replace(/\s+/g, "-") }))} placeholder="weekly-reset" /></EField>
-                <EField label="Name"><EInput value={planForm.name} onChange={(e) => setPlanForm((c) => ({ ...c, name: e.target.value }))} /></EField>
-              </div>
-              <EField label="Tagline"><EInput value={planForm.tagline} onChange={(e) => setPlanForm((c) => ({ ...c, tagline: e.target.value }))} /></EField>
-              <EField label="Description"><ETextarea rows={4} value={planForm.description} onChange={(e) => setPlanForm((c) => ({ ...c, description: e.target.value }))} /></EField>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <EField label="Starting price"><EInput type="number" min={0} value={planForm.startingPrice} onChange={(e) => setPlanForm((c) => ({ ...c, startingPrice: e.target.value }))} /></EField>
-                <EField label="Price label"><EInput value={planForm.priceLabel} onChange={(e) => setPlanForm((c) => ({ ...c, priceLabel: e.target.value }))} placeholder="From $170 per week" /></EField>
-                <EField label="Sort order"><EInput type="number" min={0} value={planForm.sortOrder} onChange={(e) => setPlanForm((c) => ({ ...c, sortOrder: e.target.value }))} /></EField>
-              </div>
-              <div className="space-y-2">
-                <label className="text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">Service types</label>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {serviceOptions.map((s) => (
-                    <CheckRow key={s.value} label={s.label} checked={planForm.serviceTypes.includes(s.value)} onChange={(checked) => setPlanForm((c) => ({ ...c, serviceTypes: checked ? [...c.serviceTypes, s.value] : c.serviceTypes.filter((v) => v !== s.value) }))} />
-                  ))}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">Cadence options</label>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {cadenceOptions.map((c) => (
-                    <CheckRow key={c} label={c} checked={planForm.cadenceOptions.includes(c)} onChange={(checked) => setPlanForm((f) => ({ ...f, cadenceOptions: checked ? [...f.cadenceOptions, c] : f.cadenceOptions.filter((v) => v !== c) }))} />
-                  ))}
-                </div>
-              </div>
-              <EField label="Features (one per line)"><ETextarea rows={5} value={planForm.featuresText} onChange={(e) => setPlanForm((c) => ({ ...c, featuresText: e.target.value }))} /></EField>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <EField label="Theme key"><EInput value={planForm.themeKey} onChange={(e) => setPlanForm((c) => ({ ...c, themeKey: e.target.value }))} placeholder="ocean" /></EField>
-                <EField label="CTA label"><EInput value={planForm.ctaLabel} onChange={(e) => setPlanForm((c) => ({ ...c, ctaLabel: e.target.value }))} /></EField>
-                <EField label="CTA href"><EInput value={planForm.ctaHref} onChange={(e) => setPlanForm((c) => ({ ...c, ctaHref: e.target.value }))} /></EField>
-              </div>
-              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
-                <ESwitch checked={planForm.isPublished} onCheckedChange={(v) => setPlanForm((c) => ({ ...c, isPublished: v }))} label="Published on the public site" />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <EButton onClick={savePlan} disabled={planSaving}>{planSaving ? "Saving…" : editingPlanId ? "Save changes" : "Create plan"}</EButton>
-                <EButton type="button" variant="outline" onClick={resetPlanForm}>Reset</EButton>
-              </div>
-            </ECardBody>
-          </ECard>
-
-          <div className="space-y-4">
-            {plans.length === 0 ? (
-              <EEmptyState
-                eyebrow="Plans"
-                title="No subscription plans yet"
-                description="Create public-facing plan ideas here. Marketing records only in this phase, not live client subscriptions."
-                action={<EButton onClick={resetPlanForm}><Plus className="h-4 w-4" />New plan</EButton>}
-              />
-            ) : (
-              plans.map((plan) => (
-                <ECard key={plan.id}>
-                  <ECardBody className="space-y-4 p-5">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <Rocket className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" />
-                          <p className="font-semibold text-[hsl(var(--e-foreground))]">{plan.name}</p>
-                          {!plan.isPublished ? <EBadge tone="neutral" soft>Hidden</EBadge> : null}
-                        </div>
-                        <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                          {plan.priceLabel || (typeof plan.startingPrice === "number" ? formatCurrency(plan.startingPrice) : "Custom pricing")}
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <EButton variant="outline" size="sm" onClick={() => {
-                          setEditingPlanId(plan.id);
-                          setTab("plans");
-                          setPlanForm({
-                            slug: plan.slug,
-                            name: plan.name,
-                            tagline: plan.tagline ?? "",
-                            description: plan.description ?? "",
-                            serviceTypes: plan.serviceTypes ?? [],
-                            cadenceOptions: plan.cadenceOptions ?? [],
-                            startingPrice: typeof plan.startingPrice === "number" ? String(plan.startingPrice) : "",
-                            priceLabel: plan.priceLabel ?? "",
-                            featuresText: (plan.features ?? []).join("\n"),
-                            themeKey: plan.themeKey ?? "",
-                            ctaLabel: plan.ctaLabel ?? "Register interest",
-                            ctaHref: plan.ctaHref ?? "/contact",
-                            isPublished: plan.isPublished,
-                            sortOrder: String(plan.sortOrder ?? 0),
-                          });
-                        }}>Edit</EButton>
-                        <EButton variant="danger" size="sm" onClick={() => setConfirmState({ kind: "plan", id: plan.id })}>Delete</EButton>
-                      </div>
-                    </div>
-                    <p className="text-[0.8125rem] leading-6 text-[hsl(var(--e-muted-foreground))]">{plan.description || "No description provided."}</p>
-                    <div className="flex flex-wrap gap-2">
-                      {(plan.serviceTypes ?? []).map((jt) => (
-                        <EBadge key={jt} tone="neutral">{serviceOptions.find((o) => o.value === jt)?.label ?? jt}</EBadge>
-                      ))}
-                    </div>
-                    {(plan.features ?? []).length > 0 ? (
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {(plan.features ?? []).map((f) => (
-                          <div key={f} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{f}</div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </ECardBody>
-                </ECard>
-              ))
-            )}
+        {campaigns.length === 0 ? (
+          <p className="px-4 py-6 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No discount codes yet.</p>
+        ) : (
+          <div role="region" aria-label="Discount codes" className="overflow-x-auto">
+            <table className="w-full text-left text-[0.8125rem] max-sm:block">
+              <thead className="bg-[hsl(var(--e-surface-raised))] text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))] max-sm:sr-only">
+                <tr><th scope="col" className={headClass}>Code</th><th scope="col" className={headClass}>Value</th><th scope="col" className={headClass}>Rules</th><th scope="col" className={headClass}>Used</th><th scope="col" className={headClass}>Live</th></tr>
+              </thead>
+              <tbody className="max-sm:block">
+                {campaigns.map((campaign) => {
+                  const live = LIVE_LABEL[discountLiveState(campaign)];
+                  return (
+                    <tr key={campaign.id} className="border-t border-[hsl(var(--e-border))] max-sm:grid max-sm:grid-cols-2 max-sm:gap-1 max-sm:py-2">
+                      <td className={`${cellClass} max-sm:col-span-2`}>
+                        <button type="button" onClick={() => editCode(campaign)} className="rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-gold-soft))] px-1.5 py-0.5 font-mono text-[0.75rem] font-[600] text-[hsl(var(--e-gold-ink))] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]">
+                          {campaign.code}
+                        </button>
+                        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{campaign.title}</p>
+                      </td>
+                      <td className={`${cellClass} tabular-nums`}>{campaign.discountType === "PERCENT" ? `${campaign.discountValue}%` : formatCurrency(campaign.discountValue)}</td>
+                      <td className={`${cellClass} text-[0.75rem] max-sm:col-span-2 max-sm:row-start-3`}>{rulesOf(campaign)}</td>
+                      <td className={`${cellClass} tabular-nums text-[0.75rem]`}>{typeof campaign.usageLimit === "number" ? `${campaign.usageCount} of ${campaign.usageLimit}` : `${campaign.usageCount} · no limit`}</td>
+                      <td className={cellClass}><EPill tone={live.tone}>{live.label}</EPill></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        </div>
-      )}
+        )}
+        <p className="border-t border-[hsl(var(--e-border))] px-4 py-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          Codes apply on the public quote page. &ldquo;Ended&rdquo; is worked out from the end date; nothing is deleted when it ends.
+        </p>
+      </ECard>
 
-      <EConfirmModal
+      <ECard className="min-w-0 overflow-hidden">
+        <div className="flex items-center justify-between gap-2 p-4 pb-2">
+          <h2 className="text-[0.9375rem] font-[600]">Public plans</h2>
+          <EButton variant="outline" size="sm" onClick={() => { resetPlanForm(); setEditor("plan"); }}>
+            <Plus className="h-3.5 w-3.5" aria-hidden /> New plan
+          </EButton>
+        </div>
+        {plans.length === 0 ? (
+          <p className="px-4 py-6 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No public plans yet.</p>
+        ) : (
+          <div role="region" aria-label="Public plans" className="overflow-x-auto">
+            <table className="w-full text-left text-[0.8125rem] max-sm:block">
+              <thead className="bg-[hsl(var(--e-surface-raised))] text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))] max-sm:sr-only">
+                <tr><th scope="col" className={headClass}>Plan</th><th scope="col" className={headClass}>Price label</th><th scope="col" className={headClass}>Cadences</th><th scope="col" className={headClass}>On site</th></tr>
+              </thead>
+              <tbody className="max-sm:block">
+                {plans.map((plan) => (
+                  <tr key={plan.id} className="border-t border-[hsl(var(--e-border))] max-sm:grid max-sm:grid-cols-2 max-sm:gap-1 max-sm:py-2">
+                    <td className={`${cellClass} max-sm:col-span-2`}>
+                      <button type="button" onClick={() => editPlan(plan)} className="text-left font-[600] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]">
+                        {plan.name}
+                      </button>
+                      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">/{plan.slug} · order {plan.sortOrder}</p>
+                    </td>
+                    <td className={cellClass}>{plan.priceLabel || (typeof plan.startingPrice === "number" ? `From ${formatCurrency(plan.startingPrice)}` : "Custom pricing")}</td>
+                    <td className={`${cellClass} text-[0.75rem]`}>{(plan.cadenceOptions ?? []).join(", ").toLowerCase() || "–"}</td>
+                    <td className={cellClass}><EPill tone={plan.isPublished ? "ok" : "neutral"}>{plan.isPublished ? "Published" : "Hidden"}</EPill></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="border-t border-[hsl(var(--e-border))] px-4 py-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          Published plans show on the public plans page. The editor keeps every field: tagline, description, features, call to action, theme and services.
+        </p>
+      </ECard>
+
+      <EModal open={editor === "code"} onClose={() => (campaignSaving ? undefined : setEditor(null))} eyebrow="Discount code" title={editingCampaignId ? `Edit ${campaignForm.code || "code"}` : "New discount code"} wide>
+        <fieldset disabled={campaignSaving} className="space-y-4">
+          <legend className="sr-only">Discount code</legend>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <EField label="Code">
+              <EInput value={campaignForm.code} onChange={(e) => setCampaignForm((c) => ({ ...c, code: e.target.value.toUpperCase() }))} placeholder="WELCOME10" />
+            </EField>
+            <EField label="Title">
+              <EInput value={campaignForm.title} onChange={(e) => setCampaignForm((c) => ({ ...c, title: e.target.value }))} placeholder="Welcome offer" />
+            </EField>
+          </div>
+          {campaignFieldErrors.code || campaignFieldErrors.title ? (
+            <p className="text-[0.75rem] text-[hsl(var(--e-danger))]">{campaignFieldErrors.code || campaignFieldErrors.title}</p>
+          ) : null}
+          <EField label="Description">
+            <ETextarea rows={3} value={campaignForm.description} onChange={(e) => setCampaignForm((c) => ({ ...c, description: e.target.value }))} />
+          </EField>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <EField label="Type">
+              <ESelect value={campaignForm.discountType} onChange={(e) => setCampaignForm((c) => ({ ...c, discountType: e.target.value }))}>
+                <option value="PERCENT">Percent off</option>
+                <option value="FIXED">Dollar amount off</option>
+              </ESelect>
+            </EField>
+            <EField label="Value"><EInput type="number" min={0} value={campaignForm.discountValue} onChange={(e) => setCampaignForm((c) => ({ ...c, discountValue: e.target.value }))} /></EField>
+            <EField label="Minimum quote"><EInput type="number" min={0} value={campaignForm.minSubtotal} onChange={(e) => setCampaignForm((c) => ({ ...c, minSubtotal: e.target.value }))} placeholder="Optional" /></EField>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <EField label="Starts (organisation time)"><EInput type="datetime-local" value={campaignForm.startsAt} onChange={(e) => setCampaignForm((c) => ({ ...c, startsAt: e.target.value }))} /></EField>
+            <EField label="Ends (organisation time)"><EInput type="datetime-local" value={campaignForm.endsAt} onChange={(e) => setCampaignForm((c) => ({ ...c, endsAt: e.target.value }))} /></EField>
+          </div>
+          <EField label="Usage limit"><EInput type="number" min={1} value={campaignForm.usageLimit} onChange={(e) => setCampaignForm((c) => ({ ...c, usageLimit: e.target.value }))} placeholder="Optional" /></EField>
+          <div className="space-y-2">
+            <p className="text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">Applies to services (none ticked: all services)</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {serviceOptions.map((s) => (
+                <CheckRow key={s.value} label={s.label} checked={campaignForm.jobTypes.includes(s.value)} onChange={(checked) => setCampaignForm((c) => ({ ...c, jobTypes: checked ? [...c.jobTypes, s.value] : c.jobTypes.filter((v) => v !== s.value) }))} />
+              ))}
+            </div>
+          </div>
+          <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
+            <ESwitch checked={campaignForm.isActive} onCheckedChange={(v) => setCampaignForm((c) => ({ ...c, isActive: v }))} label="Code switched on" />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <EButton onClick={saveCampaign} disabled={!canSaveCampaign}>{campaignSaving ? "Saving…" : editingCampaignId ? "Save code" : "Create code"}</EButton>
+            <EButton type="button" variant="outline" onClick={() => setEditor(null)}>Cancel</EButton>
+            {editingCampaignId ? (
+              <EButton type="button" variant="ghost" className="ml-auto text-[hsl(var(--e-danger))]" onClick={() => setConfirmState({ kind: "campaign", id: editingCampaignId })}>Delete code…</EButton>
+            ) : null}
+          </div>
+        </fieldset>
+      </EModal>
+
+      <EModal open={editor === "plan"} onClose={() => (planSaving ? undefined : setEditor(null))} eyebrow="Public plan" title={editingPlanId ? `Edit ${planForm.name || "plan"}` : "New public plan"} wide>
+        <fieldset disabled={planSaving} className="space-y-4">
+          <legend className="sr-only">Public plan</legend>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <EField label="Address (slug)"><EInput value={planForm.slug} onChange={(e) => setPlanForm((c) => ({ ...c, slug: e.target.value.toLowerCase().replace(/\s+/g, "-") }))} placeholder="weekly-reset" /></EField>
+            <EField label="Name"><EInput value={planForm.name} onChange={(e) => setPlanForm((c) => ({ ...c, name: e.target.value }))} /></EField>
+          </div>
+          <EField label="Tagline"><EInput value={planForm.tagline} onChange={(e) => setPlanForm((c) => ({ ...c, tagline: e.target.value }))} /></EField>
+          <EField label="Description"><ETextarea rows={4} value={planForm.description} onChange={(e) => setPlanForm((c) => ({ ...c, description: e.target.value }))} /></EField>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <EField label="Starting price"><EInput type="number" min={0} value={planForm.startingPrice} onChange={(e) => setPlanForm((c) => ({ ...c, startingPrice: e.target.value }))} /></EField>
+            <EField label="Price label"><EInput value={planForm.priceLabel} onChange={(e) => setPlanForm((c) => ({ ...c, priceLabel: e.target.value }))} placeholder="From $170 per week" /></EField>
+            <EField label="Order on the page"><EInput type="number" min={0} value={planForm.sortOrder} onChange={(e) => setPlanForm((c) => ({ ...c, sortOrder: e.target.value }))} /></EField>
+          </div>
+          <div className="space-y-2">
+            <p className="text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">Services it covers</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {serviceOptions.map((s) => (
+                <CheckRow key={s.value} label={s.label} checked={planForm.serviceTypes.includes(s.value)} onChange={(checked) => setPlanForm((c) => ({ ...c, serviceTypes: checked ? [...c.serviceTypes, s.value] : c.serviceTypes.filter((v) => v !== s.value) }))} />
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <p className="text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">Cadences</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {cadenceOptions.map((c) => (
+                <CheckRow key={c} label={c} checked={planForm.cadenceOptions.includes(c)} onChange={(checked) => setPlanForm((f) => ({ ...f, cadenceOptions: checked ? [...f.cadenceOptions, c] : f.cadenceOptions.filter((v) => v !== c) }))} />
+              ))}
+            </div>
+          </div>
+          <EField label="Features (one per line)"><ETextarea rows={5} value={planForm.featuresText} onChange={(e) => setPlanForm((c) => ({ ...c, featuresText: e.target.value }))} /></EField>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <EField label="Theme"><EInput value={planForm.themeKey} onChange={(e) => setPlanForm((c) => ({ ...c, themeKey: e.target.value }))} placeholder="ocean" /></EField>
+            <EField label="Call to action label"><EInput value={planForm.ctaLabel} onChange={(e) => setPlanForm((c) => ({ ...c, ctaLabel: e.target.value }))} /></EField>
+            <EField label="Call to action link"><EInput value={planForm.ctaHref} onChange={(e) => setPlanForm((c) => ({ ...c, ctaHref: e.target.value }))} /></EField>
+          </div>
+          <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
+            <ESwitch checked={planForm.isPublished} onCheckedChange={(v) => setPlanForm((c) => ({ ...c, isPublished: v }))} label="Published on the public site" />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <EButton onClick={savePlan} disabled={planSaving}>{planSaving ? "Saving…" : editingPlanId ? "Save plan" : "Create plan"}</EButton>
+            <EButton type="button" variant="outline" onClick={() => setEditor(null)}>Cancel</EButton>
+            {editingPlanId ? (
+              <EButton type="button" variant="ghost" className="ml-auto text-[hsl(var(--e-danger))]" onClick={() => setConfirmState({ kind: "plan", id: editingPlanId })}>Delete plan…</EButton>
+            ) : null}
+          </div>
+        </fieldset>
+      </EModal>
+
+      <EConfirmDialog
         open={Boolean(confirmState)}
         onClose={() => setConfirmState(null)}
-        title={confirmState?.kind === "plan" ? "Delete subscription plan" : "Delete campaign"}
+        tier="destructive"
+        title={confirmState?.kind === "plan" ? "Delete this public plan?" : "Delete this discount code?"}
         description={
           confirmState?.kind === "plan"
-            ? "This will remove the plan from the public subscriptions catalogue."
-            : "This will remove the campaign from the public marketing tools."
+            ? "It is removed from the public plans page and from this list. This cannot be undone. To keep it, switch off Published instead."
+            : "The code stops working on the quote page and is removed from this list. This cannot be undone. To keep its history, switch it off instead."
         }
-        confirmLabel={confirmState?.kind === "plan" ? "Delete plan" : "Delete campaign"}
-        loading={confirmLoading}
+        confirmLabel={confirmState?.kind === "plan" ? "Delete plan" : "Delete code"}
+        busy={confirmLoading}
         onConfirm={runDelete}
       />
     </div>

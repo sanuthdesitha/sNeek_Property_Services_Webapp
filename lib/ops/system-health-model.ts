@@ -399,10 +399,9 @@ export function buildTaskRow(row: TaskFacts, facts: HealthFacts, clock: Clock): 
   } else if (row.lastRun.ok === null) {
     state = "unknown";
   } else {
-    const expected = row.cron ? previousCronRun(row.cron, clock.now, timeZone) : null;
-    const late = expected !== null
-      && new Date(row.lastRun.at).getTime() < expected.getTime() - 60_000
-      && clock.now.getTime() - expected.getTime() > LATE_GRACE_MS;
+    // The last run that should have happened, allowing it time to start and finish.
+    const expected = row.cron ? previousCronRun(row.cron, new Date(clock.now.getTime() - LATE_GRACE_MS), timeZone) : null;
+    const late = expected !== null && new Date(row.lastRun.at).getTime() < expected.getTime() - 60_000;
     state = late ? "attention" : "working";
     if (late && expected) lastRunText = `Late: due ${formatHealthTime(expected.toISOString(), clock)}, last ran ${formatHealthTime(row.lastRun.at, clock)}`;
   }

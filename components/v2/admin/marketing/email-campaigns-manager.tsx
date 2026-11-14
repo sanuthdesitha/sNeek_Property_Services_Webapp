@@ -1,153 +1,85 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
-import {
-  EBadge,
-  EButton,
-  ECard,
-  ECardBody,
-  ECardHeader,
-  ECardTitle,
-  EEmptyState,
-} from "@/components/v2/ui/primitives";
-import { EConfirmModal, EField, EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
-import { SingleCampaignRecipient, normalizedRecipientEmail, validRecipientEmail } from "@/components/admin/single-campaign-recipient";
-import {
-  defaultDesign,
-  parseEmailHtml,
-  renderEmailHtml,
-  type EmailDesign,
-} from "@/lib/templates/email-blocks";
-import {
-  EmailBlockEditor,
-  EmailPreview,
-  type BrandChrome,
-  type PickableAsset,
-} from "@/components/v2/admin/marketing/email-block-editor";
-
-type CampaignRow = {
-  id: string;
-  name: string;
-  subject: string;
-  htmlBody: string;
-  audience: any;
-  status: string;
-  scheduledAt: string | null;
-  sentAt: string | null;
-  recipientCount: number | null;
-  createdAt: string;
-  createdBy?: { name: string | null; email: string };
-};
-
-export type CampaignStatsRow = {
-  sent: number;
-  delivered: number;
-  opened: number;
-  clicked: number;
-  bounced: number;
-  complained: number;
-  deliveryRate: number;
-  openRate: number;
-  clickRate: number;
-  bounceRate: number;
-  complaintRate: number;
-};
-
-type SegmentRow = { id: string; label: string; description: string; count: number };
-
-type AudienceType = "all_clients" | "inactive_clients" | "service_type" | "segment" | "single_recipient";
-
-type FormState = {
-  name: string;
-  subject: string;
-  htmlBody: string;
-  audienceType: AudienceType;
-  recipientEmail: string;
-  segmentId: string;
-  inactiveDays: string;
-  jobTypes: string[];
-  status: "draft" | "scheduled";
-  scheduledAt: string;
-};
+/**
+ * Email campaigns tab (board "Marketing", 2026-11-16): the campaign list with
+ * the email service's figures, then the who / what / when editor for the
+ * chosen row or a new campaign. Delivered, opened, clicked and bounced come
+ * from the email service's reports; until it reports, the cell says "not
+ * recorded", never 0. A campaign with failed sends is banded and offers
+ * "Retry the N", which sends only to those addresses.
+ */
+import * as React from "react";
+import { Plus, Search } from "lucide-react";
+import { EButton, ECard } from "@/components/v2/ui/primitives";
+import { EPill, type EPillTone } from "@/components/v2/ui/pill";
+import { EFilterChips } from "@/components/v2/ui/filter-chips";
+import { EConfirmDialog } from "@/components/v2/ui/confirm-dialog";
+import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
+import { toneNoticeClass, toneRowCellClass } from "@/components/v2/ui/tone-band";
+import { EInput } from "@/components/v2/admin/estate-kit";
+import { formatOrgDateTime } from "@/lib/public-site/zoned-time";
+import type { EmailCampaignRow, SegmentOption } from "@/lib/marketing/workspace-types";
+import type { BrandChrome, PickableAsset } from "@/components/v2/admin/marketing/email-block-editor";
+import { CampaignEditor, audienceFormFrom, audienceLabel, type SegmentsState } from "./campaign-editor";
 
 type Toast = { title: string; description?: string; tone: "success" | "danger" };
 
-const EMPTY_FORM: FormState = {
-  name: "",
-  subject: "",
-  htmlBody: "",
-  audienceType: "all_clients",
-  recipientEmail: "",
-  segmentId: "all_active_clients",
-  inactiveDays: "60",
-  jobTypes: [],
-  status: "draft",
-  scheduledAt: "",
-};
+type Filter = "all" | "draft" | "scheduled" | "sent" | "failed";
 
-function toInputDateTime(value: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+const NEW_KEY = "new";
+
+export function campaignStateOf(row: EmailCampaignRow): Exclude<Filter, "all"> | "sending" {
+  if (row.status === "scheduled") return "scheduled";
+  if (row.status === "sent") return "sent";
+  if (row.status === "failed") return "failed";
+  if (row.status === "sending") return "sending";
+  return "draft";
 }
 
-function formFromCampaign(row: CampaignRow): FormState {
-  const audience = row.audience && typeof row.audience === "object" ? row.audience : {};
-  const filters = audience.filters && typeof audience.filters === "object" ? audience.filters : {};
-  const audienceType: AudienceType =
-    audience.type === "inactive_clients" || audience.type === "service_type" || audience.type === "segment" || audience.type === "single_recipient"
-      ? audience.type
-      : "all_clients";
+const STATE_PILL: Record<ReturnType<typeof campaignStateOf>, { label: string; tone: EPillTone }> = {
+  draft: { label: "Draft", tone: "neutral" },
+  scheduled: { label: "Scheduled", tone: "info" },
+  sending: { label: "Sending", tone: "warn" },
+  sent: { label: "Sent", tone: "ok" },
+  failed: { label: "Failed", tone: "bad" },
+};
+
+function normaliseRow(row: Partial<EmailCampaignRow> & { id: string }): EmailCampaignRow {
   return {
-    name: row.name,
-    subject: row.subject,
-    htmlBody: row.htmlBody,
-    audienceType,
-    recipientEmail: typeof filters.email === "string" ? filters.email : "",
-    segmentId: typeof filters.segmentId === "string" ? filters.segmentId : "all_active_clients",
-    inactiveDays: filters.daysSinceLastBooking ? String(filters.daysSinceLastBooking) : "60",
-    jobTypes: Array.isArray(filters.jobTypes) ? filters.jobTypes : [],
-    status: row.status === "scheduled" ? "scheduled" : "draft",
-    scheduledAt: toInputDateTime(row.scheduledAt),
+    name: "",
+    subject: "",
+    htmlBody: "",
+    audience: null,
+    status: "draft",
+    scheduledAt: null,
+    sentAt: null,
+    recipientCount: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    sends: { sent: 0, failed: 0, skipped: 0 },
+    report: null,
+    ...row,
   };
 }
 
-function statusTone(status: string): "neutral" | "warning" | "success" | "info" {
-  if (status === "sent") return "success";
-  if (status === "scheduled") return "warning";
-  if (status === "sending") return "info";
-  return "neutral";
+function readParam(name: string): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get(name);
 }
 
-function pct(value: number) {
-  return `${Math.round(value * 1000) / 10}%`;
+function writeOpen(value: string | null) {
+  const url = new URL(window.location.href);
+  if (value) url.searchParams.set("open", value);
+  else url.searchParams.delete("open");
+  window.history.replaceState(window.history.state, "", url.toString());
 }
 
-function StatsStrip({ stats }: { stats: CampaignStatsRow }) {
-  const cells: Array<{ label: string; value: string; sub?: string }> = [
-    { label: "Sent", value: String(stats.sent) },
-    { label: "Delivered", value: String(stats.delivered), sub: pct(stats.deliveryRate) },
-    { label: "Opened", value: String(stats.opened), sub: pct(stats.openRate) },
-    { label: "Clicked", value: String(stats.clicked), sub: pct(stats.clickRate) },
-    { label: "Bounced", value: String(stats.bounced), sub: pct(stats.bounceRate) },
-    { label: "Complaints", value: String(stats.complained), sub: pct(stats.complaintRate) },
-  ];
-  return (
-    <div className="mt-3 grid grid-cols-3 gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-2 sm:grid-cols-6">
-      {cells.map((cell) => (
-        <div key={cell.label}>
-          <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">{cell.label}</p>
-          <p className="text-[0.9375rem] font-semibold text-[hsl(var(--e-foreground))]">
-            {cell.value}
-            {cell.sub ? <span className="ml-1 text-[0.75rem] font-normal text-[hsl(var(--e-muted-foreground))]">{cell.sub}</span> : null}
-          </p>
-        </div>
-      ))}
-    </div>
-  );
+/** A figure from the email service; "not recorded" until it reports (never 0). */
+function ReportCell({ row, value }: { row: EmailCampaignRow; value: (report: NonNullable<EmailCampaignRow["report"]>) => number }) {
+  const state = campaignStateOf(row);
+  if (state === "draft" || state === "scheduled") return <span className="text-[hsl(var(--e-muted-foreground))]">–</span>;
+  if (!row.report) return <span className="italic text-[hsl(var(--e-muted-foreground))]">not recorded</span>;
+  return <span className="tabular-nums">{value(row.report).toLocaleString("en-AU")}</span>;
 }
 
 export function EmailCampaignsManager({
@@ -155,377 +87,343 @@ export function EmailCampaignsManager({
   onToast,
   assets = [],
   brand,
-  stats = {},
+  timeZone = "Australia/Sydney",
   externalDraft = null,
   onExternalDraftConsumed,
+  onOpenTemplates,
 }: {
-  initialCampaigns: CampaignRow[];
+  initialCampaigns: EmailCampaignRow[];
   onToast: (t: Toast) => void;
   assets?: PickableAsset[];
   brand: BrandChrome;
-  stats?: Record<string, CampaignStatsRow>;
-  /** A draft handed over from the template gallery — opened for editing on arrival. */
-  externalDraft?: CampaignRow | null;
+  timeZone?: string;
+  /** A draft made in the template gallery — opened for editing on arrival. */
+  externalDraft?: (Partial<EmailCampaignRow> & { id: string }) | null;
   onExternalDraftConsumed?: () => void;
+  onOpenTemplates?: () => void;
 }) {
-  const [campaigns, setCampaigns] = useState(initialCampaigns);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [design, setDesign] = useState<EmailDesign>(() => defaultDesign());
-  const [mode, setMode] = useState<"blocks" | "html">("blocks");
-  const [saving, setSaving] = useState(false);
-  const [sendingId, setSendingId] = useState<string | null>(null);
-  const [testingId, setTestingId] = useState<string | null>(null);
-  const [confirmId, setConfirmId] = useState<string | null>(null);
-  const [sendConfirmId, setSendConfirmId] = useState<string | null>(null);
-  const [confirmLoading, setConfirmLoading] = useState(false);
-  const [segments, setSegments] = useState<SegmentRow[]>([]);
-  const [segmentsLoading, setSegmentsLoading] = useState(false);
+  const [campaigns, setCampaigns] = React.useState<EmailCampaignRow[]>(initialCampaigns);
+  const [query, setQuery] = React.useState("");
+  const [filter, setFilter] = React.useState<Filter>("all");
+  const [openKey, setOpenKey] = React.useState<string | null>(null);
+  const [segments, setSegments] = React.useState<SegmentsState>({ status: "loading" });
+  const [retryRow, setRetryRow] = React.useState<EmailCampaignRow | null>(null);
+  const [retrying, setRetrying] = React.useState(false);
+  const [retryError, setRetryError] = React.useState<string | null>(null);
+  const editorRef = React.useRef<HTMLElement | null>(null);
 
-  // Live audience sizes for the picker — resolved server-side so the count shown
-  // is exactly what the sender would produce.
-  useEffect(() => {
-    let cancelled = false;
-    setSegmentsLoading(true);
-    fetch("/api/admin/marketing/segments")
-      .then((r) => r.json())
-      .then((body) => {
-        if (!cancelled && Array.isArray(body?.segments)) setSegments(body.segments);
-      })
-      .catch(() => undefined)
-      .finally(() => { if (!cancelled) setSegmentsLoading(false); });
-    return () => { cancelled = true; };
+  React.useEffect(() => {
+    setOpenKey(readParam("open"));
   }, []);
 
-  function loadCampaign(row: CampaignRow) {
-    setEditingId(row.id);
-    setForm(formFromCampaign(row));
-    setDesign(parseEmailHtml(row.htmlBody));
-    setMode("blocks");
-  }
+  // Audience sizes for the picker, counted on the server exactly as the sender would.
+  React.useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/admin/marketing/segments", { signal: controller.signal })
+      .then(async (res) => {
+        const body = await res.json().catch(() => null);
+        if (controller.signal.aborted) return;
+        if (!res.ok || !Array.isArray(body?.segments)) setSegments({ status: "error" });
+        else setSegments({ status: "ready", segments: body.segments as SegmentOption[] });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setSegments({ status: "error" });
+      });
+    return () => controller.abort();
+  }, []);
 
-  // Template gallery handoff: prepend the new draft and open it.
-  useEffect(() => {
+  React.useEffect(() => {
     if (!externalDraft) return;
-    setCampaigns((cur) => (cur.some((c) => c.id === externalDraft.id) ? cur : [externalDraft, ...cur]));
-    loadCampaign(externalDraft);
+    const row = normaliseRow(externalDraft);
+    setCampaigns((current) => (current.some((item) => item.id === row.id) ? current : [row, ...current]));
+    open(row.id);
     onExternalDraftConsumed?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalDraft?.id]);
 
-  function resetForm() {
-    setEditingId(null);
-    setForm(EMPTY_FORM);
-    setDesign(defaultDesign());
-    setMode("blocks");
+  function open(key: string | null) {
+    setOpenKey(key);
+    writeOpen(key);
+    if (key) window.setTimeout(() => editorRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }), 0);
   }
 
-  const selectedSegment = useMemo(
-    () => segments.find((s) => s.id === form.segmentId) ?? null,
-    [segments, form.segmentId],
-  );
-
-  /** In blocks mode the design IS the source of truth; HTML mode edits raw. */
-  function currentHtml(): string {
-    return mode === "blocks" ? renderEmailHtml(design) : form.htmlBody;
-  }
-
-  function buildPayload() {
-    return {
-      name: form.name,
-      subject: form.subject,
-      htmlBody: currentHtml(),
-      audience: {
-        type: form.audienceType,
-        filters:
-          form.audienceType === "single_recipient" ? { email: normalizedRecipientEmail(form.recipientEmail) } : form.audienceType === "segment"
-            ? { segmentId: form.segmentId }
-            : form.audienceType === "inactive_clients"
-              ? { daysSinceLastBooking: Number(form.inactiveDays || 60) }
-              : form.audienceType === "service_type"
-                ? { jobTypes: form.jobTypes }
-                : {},
-      },
-      status: form.status,
-      scheduledAt: form.status === "scheduled" && form.scheduledAt ? new Date(form.scheduledAt).toISOString() : null,
-    };
-  }
-
-  async function saveCampaign() {
-    if (form.audienceType === "single_recipient" && !validRecipientEmail(form.recipientEmail)) { onToast({ title: "Enter a valid recipient email", tone: "danger" }); return; }
-    setSaving(true);
-    try {
-      const response = await fetch(editingId ? `/api/admin/email-campaigns/${editingId}` : "/api/admin/email-campaigns", {
-        method: editingId ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPayload()),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error ?? "Could not save campaign.");
-      const campaign = body.campaign as CampaignRow;
-      setCampaigns((cur) => {
-        const next = editingId ? cur.map((i) => (i.id === campaign.id ? campaign : i)) : [campaign, ...cur];
-        return [...next].sort((l, r) => new Date(r.createdAt).getTime() - new Date(l.createdAt).getTime());
-      });
-      onToast({ title: editingId ? "Campaign updated" : "Campaign created", tone: "success" });
-      resetForm();
-    } catch (error: any) {
-      onToast({ title: "Save failed", description: error?.message ?? "Could not save campaign.", tone: "danger" });
-    } finally {
-      setSaving(false);
+  const counts = React.useMemo(() => {
+    const result: Record<Filter, number> = { all: campaigns.length, draft: 0, scheduled: 0, sent: 0, failed: 0 };
+    for (const row of campaigns) {
+      const state = campaignStateOf(row);
+      if (state !== "sending") result[state] += 1;
     }
+    return result;
+  }, [campaigns]);
+
+  const visible = React.useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return campaigns.filter((row) => {
+      if (filter !== "all" && campaignStateOf(row) !== filter) return false;
+      if (!q) return true;
+      return `${row.name} ${row.subject}`.toLowerCase().includes(q);
+    });
+  }, [campaigns, query, filter]);
+
+  const openRow = openKey && openKey !== NEW_KEY ? campaigns.find((row) => row.id === openKey) ?? null : null;
+  const editorOpen = openKey === NEW_KEY || Boolean(openRow);
+
+  function upsert(row: EmailCampaignRow) {
+    setCampaigns((current) => (current.some((item) => item.id === row.id) ? current.map((item) => (item.id === row.id ? row : item)) : [row, ...current]));
   }
 
-  async function sendCampaign(id: string, confirmed = false) {
-    const campaign = campaigns.find(row => row.id === id);
-    if (campaign?.audience?.type === "single_recipient") {
-      const email = campaign.audience.filters?.email;
-      if (typeof email !== "string" || !validRecipientEmail(email)) { onToast({ title: "Fix the recipient email before sending", tone: "danger" }); return; }
-      if (!confirmed) { setSendConfirmId(id); return; }
-    }
-    setSendingId(id);
+  async function retry() {
+    if (!retryRow || retrying) return;
+    setRetrying(true);
+    setRetryError(null);
     try {
-      const response = await fetch(`/api/admin/email-campaigns/${id}/send`, { method: "POST" });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error ?? "Could not send campaign.");
-      setCampaigns((cur) =>
-        cur.map((i) => (i.id === id ? { ...i, status: body.failed > 0 ? "failed" : "sent", sentAt: body.failed > 0 ? null : new Date().toISOString(), recipientCount: body.sent ?? i.recipientCount } : i))
-      );
+      const res = await fetch(`/api/admin/email-campaigns/${retryRow.id}/retry`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error ?? "The failed sends were not retried.");
+      const previous = retryRow.sends ?? { sent: 0, failed: 0, skipped: 0 };
+      const retried = Number(body.retried ?? previous.failed);
+      const sent = Number(body.sent ?? 0);
+      const failed = Number(body.failed ?? 0);
+      const sends = { sent: previous.sent + sent, failed, skipped: previous.skipped + Math.max(0, retried - sent - failed) };
+      upsert({ ...retryRow, sends, status: failed > 0 ? "failed" : "sent", sentAt: failed > 0 ? null : new Date().toISOString(), recipientCount: sends.sent });
       onToast({
-        title: body.failed > 0 ? "Campaign has failed deliveries" : "Campaign processed",
-        description: `${body.sent ?? 0} sent, ${body.failed ?? 0} failed, ${body.suppressed ?? 0} suppressed.`,
-        tone: body.failed > 0 ? "danger" : "success",
+        title: failed > 0 ? "Some emails failed again" : "Failed emails retried",
+        description: `${sent} handed to the email service, ${failed} failed, ${Math.max(0, retried - sent - failed)} skipped.`,
+        tone: failed > 0 ? "danger" : "success",
       });
-    } catch (error: any) {
-      onToast({ title: "Send failed", description: error?.message ?? "Could not send campaign.", tone: "danger" });
+      setRetryRow(null);
+    } catch (error) {
+      setRetryError(error instanceof Error ? error.message : "The failed sends were not retried.");
     } finally {
-      setSendingId(null);
-      setSendConfirmId(null);
+      setRetrying(false);
     }
   }
 
-  async function sendTest(id: string) {
-    setTestingId(id);
-    try {
-      const response = await fetch(`/api/admin/email-campaigns/${id}/test-send`, { method: "POST" });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error ?? "Could not send the test.");
-      onToast({ title: "Test sent", description: `Check ${body.to}.`, tone: "success" });
-    } catch (error: any) {
-      onToast({ title: "Test send failed", description: error?.message, tone: "danger" });
-    } finally {
-      setTestingId(null);
-    }
+  function stateLine(row: EmailCampaignRow): string {
+    const state = campaignStateOf(row);
+    if (state === "draft") return `edited ${formatOrgDateTime(row.updatedAt, timeZone)}`;
+    if (state === "scheduled") return formatOrgDateTime(row.scheduledAt, timeZone);
+    if (state === "sending") return "Sending now";
+    if (state === "failed") return row.sends ? `${row.sends.sent} sent, ${row.sends.failed} failed` : "Failed; counts not recorded";
+    return formatOrgDateTime(row.sentAt, timeZone);
   }
 
-  async function deleteCampaign() {
-    if (!confirmId) return;
-    setConfirmLoading(true);
-    try {
-      const response = await fetch(`/api/admin/email-campaigns/${confirmId}`, { method: "DELETE" });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error ?? "Could not delete campaign.");
-      setCampaigns((cur) => cur.filter((i) => i.id !== confirmId));
-      if (editingId === confirmId) resetForm();
-      onToast({ title: "Campaign deleted", tone: "success" });
-      setConfirmId(null);
-    } catch (error: any) {
-      onToast({ title: "Delete failed", description: error?.message ?? "Could not delete campaign.", tone: "danger" });
-    } finally {
-      setConfirmLoading(false);
-    }
-  }
+  const sentTo = (row: EmailCampaignRow) => {
+    const state = campaignStateOf(row);
+    if (state === "draft" || state === "scheduled") return <span className="text-[hsl(var(--e-muted-foreground))]">–</span>;
+    const value = row.sends ? row.sends.sent + row.sends.failed : row.recipientCount;
+    return value === null ? <span className="italic text-[hsl(var(--e-muted-foreground))]">not recorded</span> : <span className="tabular-nums">{value.toLocaleString("en-AU")}</span>;
+  };
 
-  const previewDesign = mode === "blocks" ? design : parseEmailHtml(form.htmlBody);
-  const canSave = Boolean(form.name.trim() && form.subject.trim() && currentHtml().trim());
+  const retryButton = (row: EmailCampaignRow) =>
+    campaignStateOf(row) === "failed" && row.sends && row.sends.failed > 0 ? (
+      <EButton
+        variant="outline"
+        size="sm"
+        className="mt-1"
+        onClick={(event) => {
+          event.stopPropagation();
+          setRetryError(null);
+          setRetryRow(row);
+        }}
+      >
+        Retry the {row.sends.failed}
+      </EButton>
+    ) : null;
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-      <div className="space-y-6">
-        <ECard>
-          <ECardHeader className="pb-3">
-            <ECardTitle className="text-[0.95rem]">{editingId ? "Edit email campaign" : "New email campaign"}</ECardTitle>
-            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Compose with blocks, pick an audience, then send now or schedule it.</p>
-          </ECardHeader>
-          <ECardBody className="space-y-4 pt-0">
-            <EField label="Name"><EInput value={form.name} onChange={(e) => setForm((c) => ({ ...c, name: e.target.value }))} placeholder="Campaign name" /></EField>
-            <EField label="Subject"><EInput value={form.subject} onChange={(e) => setForm((c) => ({ ...c, subject: e.target.value }))} placeholder="Subject line" /></EField>
+    <div className="space-y-5">
+      <ECard className="min-w-0 overflow-hidden">
+        <div className="flex flex-wrap items-center gap-2 p-3">
+          <div className="relative w-full sm:w-[220px]">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[hsl(var(--e-text-faint))]" aria-hidden />
+            <EInput aria-label="Search campaigns" className="pl-9 max-sm:text-[1rem]" placeholder="Search campaigns" value={query} onChange={(e) => setQuery(e.target.value)} />
+          </div>
+          <EFilterChips
+            label="Campaign state"
+            active={filter}
+            onChange={setFilter}
+            phoneLayout="carousel"
+            chips={[
+              { key: "all", label: "All", count: counts.all },
+              { key: "draft", label: "Drafts", count: counts.draft },
+              { key: "scheduled", label: "Scheduled", count: counts.scheduled },
+              { key: "sent", label: "Sent", count: counts.sent },
+              ...(counts.failed > 0 ? [{ key: "failed" as const, label: "Failed", count: counts.failed }] : []),
+            ]}
+          />
+          <EButton size="sm" className="ml-auto max-sm:hidden" onClick={() => open(NEW_KEY)}>
+            <Plus className="h-3.5 w-3.5" aria-hidden /> New email campaign
+          </EButton>
+        </div>
 
-            <EField label="Audience">
-              <ESelect value={form.audienceType} onChange={(e) => setForm((c) => ({ ...c, audienceType: e.target.value as AudienceType }))}>
-                <option value="segment">Named segment</option>
-                <option value="all_clients">All active clients</option>
-                <option value="single_recipient">One recipient</option>
-                <option value="inactive_clients">Inactive clients</option>
-                <option value="service_type">Clients by service type</option>
-              </ESelect>
-            </EField>
-
-            {form.audienceType === "single_recipient" ? <SingleCampaignRecipient email={form.recipientEmail} onChange={recipientEmail => setForm(current => ({ ...current, recipientEmail }))} /> : null}
-            {form.audienceType === "segment" ? (
-              <div className="space-y-2">
-                <EField label="Segment">
-                  <ESelect value={form.segmentId} onChange={(e) => setForm((c) => ({ ...c, segmentId: e.target.value }))}>
-                    {segments.length === 0 ? <option value={form.segmentId}>{segmentsLoading ? "Loading…" : form.segmentId}</option> : null}
-                    {segments.map((segment) => (
-                      <option key={segment.id} value={segment.id}>{segment.label} — {segment.count} recipient{segment.count === 1 ? "" : "s"}</option>
-                    ))}
-                  </ESelect>
-                </EField>
-                {selectedSegment ? (
-                  <p className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-2.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                    {selectedSegment.description}
-                    <span className="ml-1 font-[550] text-[hsl(var(--e-foreground))]">
-                      Resolves to {selectedSegment.count} recipient{selectedSegment.count === 1 ? "" : "s"} right now.
-                    </span>
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-
-            {form.audienceType === "inactive_clients" ? (
-              <EField label="No booking for at least X days">
-                <EInput type="number" min="1" step="1" value={form.inactiveDays} onChange={(e) => setForm((c) => ({ ...c, inactiveDays: e.target.value }))} />
-              </EField>
-            ) : null}
-            {form.audienceType === "service_type" ? (
-              <div className="space-y-2">
-                <label className="text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">Service types</label>
-                <div className="grid gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3 md:grid-cols-2">
-                  {MARKETED_SERVICES.map((service) => {
-                    const checked = form.jobTypes.includes(service.jobType);
+        {campaigns.length === 0 ? (
+          <p className="border-t border-[hsl(var(--e-border))] px-4 py-10 text-center text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            No email campaigns yet. Start one, or make one from a template.
+          </p>
+        ) : visible.length === 0 ? (
+          <p className="border-t border-[hsl(var(--e-border))] px-4 py-10 text-center text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No campaigns match this search or state.</p>
+        ) : (
+          <>
+            <div role="region" aria-label="Email campaigns" className="overflow-x-auto border-t border-[hsl(var(--e-border))] max-sm:hidden">
+              <table className="w-full min-w-[860px] text-left text-[0.8125rem]">
+                <thead className="bg-[hsl(var(--e-surface-raised))] text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">
+                  <tr>
+                    <th scope="col" className="px-3 py-2 font-[600]">Campaign</th>
+                    <th scope="col" className="px-3 py-2 font-[600]">Audience</th>
+                    <th scope="col" className="px-3 py-2 font-[600]">State</th>
+                    <th scope="col" className="px-3 py-2 text-right font-[600]">Sent to</th>
+                    <th scope="col" className="px-3 py-2 text-right font-[600]">Delivered</th>
+                    <th scope="col" className="px-3 py-2 text-right font-[600]">Opened</th>
+                    <th scope="col" className="px-3 py-2 text-right font-[600]">Clicked</th>
+                    <th scope="col" className="px-3 py-2 text-right font-[600]">Bounced</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((row) => {
+                    const state = campaignStateOf(row);
+                    const pill = STATE_PILL[state];
+                    const failed = state === "failed";
+                    const partly = failed && Boolean(row.sends && row.sends.sent > 0);
                     return (
-                      <label key={service.jobType} className="flex cursor-pointer items-center gap-2 text-[0.8125rem] text-[hsl(var(--e-foreground))]">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => setForm((c) => ({ ...c, jobTypes: e.target.checked ? [...c.jobTypes, service.jobType] : c.jobTypes.filter((i) => i !== service.jobType) }))}
-                          className="h-4 w-4 accent-[hsl(var(--e-primary))]"
-                        />
-                        <span>{service.label}</span>
-                      </label>
+                      <tr key={row.id} onClick={() => open(row.id)} className={`cursor-pointer border-t border-[hsl(var(--e-border))] ${row.id === openKey ? "bg-[hsl(var(--e-primary-soft))]" : "hover:bg-[hsl(var(--e-muted))]"}`}>
+                        <td className={`px-3 py-2.5 ${failed ? toneRowCellClass("problem") : ""}`}>
+                          <button
+                            type="button"
+                            className="text-left font-[600] [overflow-wrap:anywhere] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              open(row.id);
+                            }}
+                          >
+                            {row.name}
+                          </button>
+                          {failed ? <span className="ml-1.5 whitespace-nowrap rounded-full bg-[hsl(var(--e-surface))] px-1.5 text-[0.6875rem] font-[600] text-[hsl(var(--e-band-problem-fg))]">{partly ? "Partly failed" : "Failed"}</span> : null}
+                          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))] [overflow-wrap:anywhere]">&ldquo;{row.subject}&rdquo;</p>
+                        </td>
+                        <td className="px-3 py-2.5 text-[0.75rem]">{audienceLabel(audienceFormFrom(row.audience))}</td>
+                        <td className="px-3 py-2.5">
+                          <EPill tone={pill.tone}>{pill.label}</EPill>
+                          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{stateLine(row)}</p>
+                          {retryButton(row)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right">{sentTo(row)}</td>
+                        <td className="px-3 py-2.5 text-right"><ReportCell row={row} value={(report) => report.delivered} /></td>
+                        <td className="px-3 py-2.5 text-right"><ReportCell row={row} value={(report) => report.opened} /></td>
+                        <td className="px-3 py-2.5 text-right"><ReportCell row={row} value={(report) => report.clicked} /></td>
+                        <td className="px-3 py-2.5 text-right"><ReportCell row={row} value={(report) => report.bounced} /></td>
+                      </tr>
                     );
                   })}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <EField label="Status">
-                <ESelect value={form.status} onChange={(e) => setForm((c) => ({ ...c, status: e.target.value as FormState["status"] }))}>
-                  <option value="draft">Draft</option>
-                  <option value="scheduled">Scheduled</option>
-                </ESelect>
-              </EField>
-              <EField label="Schedule at (Sydney)">
-                <EInput type="datetime-local" value={form.scheduledAt} onChange={(e) => setForm((c) => ({ ...c, scheduledAt: e.target.value }))} disabled={form.status !== "scheduled"} />
-              </EField>
+                </tbody>
+              </table>
             </div>
-            {form.status === "scheduled" ? (
-              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                Scheduled campaigns are picked up by the <code>email-campaign-dispatch</code> job, which ticks every 5 minutes and claims each campaign atomically so it can never be sent twice.
-              </p>
-            ) : null}
-
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => { setDesign(parseEmailHtml(form.htmlBody || renderEmailHtml(design))); setMode("blocks"); }}
-                className={`rounded-[var(--e-radius)] px-2.5 py-1 text-[0.8125rem] font-[550] ${mode === "blocks" ? "bg-[hsl(var(--e-primary))] text-[hsl(var(--e-primary-foreground))]" : "border border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))]"}`}
-              >
-                Blocks
-              </button>
-              <button
-                type="button"
-                onClick={() => { setForm((c) => ({ ...c, htmlBody: renderEmailHtml(design) })); setMode("html"); }}
-                className={`rounded-[var(--e-radius)] px-2.5 py-1 text-[0.8125rem] font-[550] ${mode === "html" ? "bg-[hsl(var(--e-primary))] text-[hsl(var(--e-primary-foreground))]" : "border border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))]"}`}
-              >
-                Raw HTML
-              </button>
-            </div>
-
-            {mode === "blocks" ? (
-              <EmailBlockEditor design={design} onChange={setDesign} assets={assets} brand={brand} />
-            ) : (
-              <EField label="HTML body">
-                <ETextarea
-                  rows={16}
-                  value={form.htmlBody}
-                  onChange={(e) => setForm((c) => ({ ...c, htmlBody: e.target.value }))}
-                  placeholder="<p>Hello from sNeek…</p>"
-                  className="font-mono text-[0.8125rem]"
-                />
-              </EField>
-            )}
-
-            <div className="flex flex-wrap justify-end gap-2">
-              <EButton type="button" variant="outline" onClick={resetForm}>Reset</EButton>
-              <EButton type="button" onClick={saveCampaign} disabled={saving || !canSave}>
-                {saving ? "Saving…" : editingId ? "Save changes" : "Create campaign"}
-              </EButton>
-            </div>
-          </ECardBody>
-        </ECard>
-      </div>
-
-      <div className="space-y-6">
-        <EmailPreview design={previewDesign} brand={brand} height={520} />
-
-        <ECard>
-          <ECardHeader className="pb-3">
-            <ECardTitle className="text-[0.95rem]">Campaigns</ECardTitle>
-            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Draft, scheduled, and sent client email campaigns.</p>
-          </ECardHeader>
-          <ECardBody className="space-y-3 pt-0">
-            {campaigns.length === 0 ? (
-              <EEmptyState eyebrow="Email" title="No email campaigns yet" description="Start from the Templates tab, or build one from blocks." />
-            ) : (
-              campaigns.map((campaign) => {
-                const stat = stats[campaign.id];
+            <ul aria-label="Email campaigns" className="divide-y divide-[hsl(var(--e-border))] border-t border-[hsl(var(--e-border))] sm:hidden">
+              {visible.map((row) => {
+                const state = campaignStateOf(row);
+                const pill = STATE_PILL[state];
                 return (
-                  <div key={campaign.id} className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-[0.9375rem] font-semibold text-[hsl(var(--e-foreground))]">{campaign.name}</p>
-                          <EBadge tone={statusTone(campaign.status)} soft>{campaign.status.replace(/_/g, " ")}</EBadge>
-                        </div>
-                        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{campaign.subject}</p>
-                        <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-                          {campaign.scheduledAt ? `Scheduled ${new Date(campaign.scheduledAt).toLocaleString("en-AU")}` : ""}
-                          {campaign.sentAt ? `Sent ${new Date(campaign.sentAt).toLocaleString("en-AU")}` : ""}
-                          {` · Recipients processed: ${campaign.recipientCount ?? 0}`}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <EButton variant="outline" size="sm" onClick={() => loadCampaign(campaign)}>Edit</EButton>
-                        <EButton variant="outline" size="sm" onClick={() => sendTest(campaign.id)} disabled={testingId === campaign.id}>
-                          {testingId === campaign.id ? "Sending…" : "Send test to me"}
-                        </EButton>
-                        <EButton size="sm" onClick={() => sendCampaign(campaign.id)} disabled={sendingId === campaign.id}>{sendingId === campaign.id ? "Sending…" : "Send now"}</EButton>
-                        <EButton variant="danger" size="sm" onClick={() => setConfirmId(campaign.id)}>Delete</EButton>
-                      </div>
+                  <li key={row.id} className={`space-y-1 px-4 py-3 ${state === "failed" ? toneRowCellClass("problem") : ""}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <button type="button" className="min-h-11 text-left font-[600] [overflow-wrap:anywhere]" onClick={() => open(row.id)}>
+                        {row.name}
+                      </button>
+                      <EPill tone={pill.tone}>{pill.label}</EPill>
                     </div>
-                    {stat && (stat.sent > 0 || stat.delivered > 0 || stat.opened > 0) ? <StatsStrip stats={stat} /> : null}
-                  </div>
+                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                      {audienceLabel(audienceFormFrom(row.audience))} · {stateLine(row)}
+                    </p>
+                    {state === "sent" || state === "failed" ? (
+                      <p className="text-[0.75rem]">
+                        Sent to {sentTo(row)} · delivered <ReportCell row={row} value={(report) => report.delivered} /> · opened <ReportCell row={row} value={(report) => report.opened} />
+                      </p>
+                    ) : null}
+                    {retryButton(row)}
+                  </li>
                 );
-              })
-            )}
-          </ECardBody>
-        </ECard>
-      </div>
+              })}
+            </ul>
+          </>
+        )}
+        <p className="border-t border-[hsl(var(--e-border))] px-3 py-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          Delivered, opened, clicked and bounced come from the email service&apos;s reports. Until it reports, the cell says &ldquo;not recorded&rdquo;, never 0. Unsubscribed and bounce-list addresses are skipped and counted on the campaign.
+        </p>
+      </ECard>
 
-      <EConfirmModal open={Boolean(sendConfirmId)} onClose={() => setSendConfirmId(null)} title="Send to one recipient" tier="ordinary"
-        description={`Send this campaign only to ${campaigns.find(row => row.id === sendConfirmId)?.audience?.filters?.email ?? ""}? Eligibility and preferences are checked again when sending.`}
-        confirmLabel="Send to this recipient" loading={Boolean(sendingId)} onConfirm={() => { if (sendConfirmId) void sendCampaign(sendConfirmId, true); }} />
-      <EConfirmModal
-        open={Boolean(confirmId)}
-        onClose={() => setConfirmId(null)}
-        title="Delete email campaign"
-        description="This will remove the saved campaign from the marketing workspace."
-        confirmLabel="Delete campaign"
-        loading={confirmLoading}
-        onConfirm={deleteCampaign}
+      <section ref={editorRef} aria-labelledby="campaign-editor-heading" className="scroll-mt-4 space-y-2">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 id="campaign-editor-heading" className="e-serif text-[1.375rem] leading-tight">
+            {openKey === NEW_KEY ? "New email campaign" : openRow ? openRow.name : "Email campaign editor"}
+          </h2>
+          <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Who, what, when. Opens from a row or New email campaign.</span>
+          {editorOpen ? (
+            <EButton variant="ghost" size="sm" className="ml-auto" onClick={() => open(null)}>
+              Close editor
+            </EButton>
+          ) : null}
+        </div>
+        {editorOpen ? (
+          <CampaignEditor
+            key={openKey ?? "none"}
+            campaign={openRow}
+            segments={segments}
+            assets={assets}
+            brand={brand}
+            timeZone={timeZone}
+            onOpenTemplates={() => onOpenTemplates?.()}
+            onSaved={(row, message) => {
+              upsert(row);
+              if (openKey === NEW_KEY) open(row.id);
+              onToast({ title: message, tone: "success" });
+            }}
+            onSent={(row, result) => {
+              const failed = result.failed > 0;
+              upsert({
+                ...row,
+                status: failed ? "failed" : "sent",
+                sentAt: failed ? null : new Date().toISOString(),
+                recipientCount: result.sent,
+                sends: { sent: result.sent, failed: result.failed, skipped: result.suppressed },
+              });
+              onToast({
+                title: failed ? "Campaign has failed sends" : "Campaign handed to the email service",
+                description: `${result.sent} sent, ${result.failed} failed, ${result.suppressed} skipped. Handed over is not delivered; the figures fill in as the email service reports.`,
+                tone: failed ? "danger" : "success",
+              });
+            }}
+            onDeleted={(id) => {
+              setCampaigns((current) => current.filter((row) => row.id !== id));
+              open(null);
+              onToast({ title: "Campaign deleted", tone: "success" });
+            }}
+          />
+        ) : (
+          <p className={`rounded-[var(--e-radius)] px-3 py-3 text-[0.8125rem] ${toneNoticeClass("info")}`}>
+            Choose a campaign above, or start a new one. The audience count, the skipped addresses and the send time show together before anything is scheduled.
+          </p>
+        )}
+      </section>
+
+      <EPhoneActionBar
+        label="Campaign actions"
+        hidden={editorOpen}
+        primary={
+          <EButton onClick={() => open(NEW_KEY)}>
+            <Plus className="h-4 w-4" aria-hidden /> New email campaign
+          </EButton>
+        }
+      />
+
+      <EConfirmDialog
+        open={Boolean(retryRow)}
+        onClose={() => setRetryRow(null)}
+        tier="ordinary"
+        title={`Retry the ${retryRow?.sends?.failed ?? 0} failed emails?`}
+        description={`Only those ${retryRow?.sends?.failed ?? 0} people are sent "${retryRow?.name ?? ""}" again, one email each, if they are still in the audience and have not unsubscribed. Nobody already sent to gets it twice.`}
+        confirmLabel={`Retry the ${retryRow?.sends?.failed ?? 0}`}
+        busy={retrying}
+        error={retryError ?? undefined}
+        onConfirm={() => retry()}
       />
     </div>
   );
