@@ -24,6 +24,20 @@ export type ReleaseNote = {
 
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    release: "2026.11.17-qa-maintenance-tours",
+    date: "2026-11-17",
+    author: "QA and Maintenance page tours",
+    items: [
+      { change: "QA Today page tour: figures, visit order (locked when the office set it), starting the next inspection, All inspections.", covered: { tourKey: "qa.today", version: 1, stepIds: ["figures", "visitOrder", "start", "queue", "help"] } },
+      { change: "QA inspection page tour: the three steps, the cleaner's photos, damage, grading, rework, pass or fail, AI suggestions.", covered: { tourKey: "qa.inspection", version: 1, stepIds: ["steps", "submitted", "inspect", "grade", "rework", "result", "aiReview"] } },
+      { change: "QA Reviews (history) page tour.", covered: { tourKey: "qa.reviews", version: 1, stepIds: ["row", "verdict", "open"] } },
+      { change: "Maintenance Today page tour: Accept or Can't take it, Other price, Due today.", covered: { tourKey: "maintenance.today", version: 1, stepIds: ["newAssignment", "price", "due", "help"] } },
+      { change: "Maintenance Tickets page tour: by day (today, later, overdue while open) or by stage.", covered: { tourKey: "maintenance.tickets", version: 1, stepIds: ["view", "filters", "days", "card"] } },
+      { change: "Maintenance ticket visit page tour: stages, issue, cost, access, travel, clock in, finish photos, complete.", covered: { tourKey: "maintenance.visit", version: 1, stepIds: ["stages", "issue", "cost", "access", "travel", "clockIn", "photos", "complete"] } },
+      { change: "The QA and Maintenance welcome screens are unchanged; their Today pages now carry the new tours' controls.", noVisibleChange: "Only data-tour markers were added on Today; recorded for welcome.qa and welcome.maintenance with the script's no-visible-change reason." },
+    ],
+  },
+  {
     release: "2026.11.16-everyday-dialogs",
     date: "2026-11-16",
     author: "Everyday dialogs and sheets",

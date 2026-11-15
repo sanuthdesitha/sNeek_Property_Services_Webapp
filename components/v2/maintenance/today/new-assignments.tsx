@@ -13,6 +13,7 @@ import {
   MaintenanceAssignmentActions,
   type AssignmentActionState,
 } from "@/components/v2/portal/maintenance-assignment-actions";
+import { tourTarget } from "@/lib/tutorials/targets";
 import { describePay, resolveAssignmentPay } from "@/lib/maintenance/instructions";
 
 const TZ = "Australia/Sydney";
@@ -40,12 +41,12 @@ export function NewAssignments({ entries }: { entries: readonly NewAssignmentEnt
   return (
     <section aria-labelledby="maintenance-new" className="space-y-3">
       <h2 id="maintenance-new" className="e-eyebrow">New for you</h2>
-      {entries.map((entry) => {
+      {entries.map((entry, index) => {
         const pay = resolveAssignmentPay(entry.assignment);
         const place = [entry.item.property?.name, entry.item.property?.suburb].filter(Boolean).join(", ");
         const before = entry.item.scheduledFor ? formatInTimeZone(entry.item.scheduledFor, TZ, "EEE d MMM, HH:mm") : null;
         return (
-          <ECard key={entry.item.id} className="border-[hsl(var(--e-gold))]">
+          <ECard key={entry.item.id} className="border-[hsl(var(--e-gold))]" {...(index === 0 ? tourTarget("maintenance.today.newAssignment") : {})}>
             <ECardBody className="space-y-2 pt-4">
               <div className="flex items-start justify-between gap-3">
                 <p className="min-w-0 text-[0.9375rem] font-[600] [overflow-wrap:anywhere]">{entry.item.title}</p>
@@ -68,7 +69,10 @@ export function NewAssignments({ entries }: { entries: readonly NewAssignmentEnt
               {entry.item.description ? (
                 <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{entry.item.description}</p>
               ) : null}
-              <MaintenanceAssignmentActions assignment={entry.assignment} />
+              <MaintenanceAssignmentActions
+                assignment={entry.assignment}
+                priceTourTarget={index === 0 ? tourTarget("maintenance.today.price") : undefined}
+              />
             </ECardBody>
           </ECard>
         );

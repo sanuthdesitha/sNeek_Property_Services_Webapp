@@ -59,6 +59,7 @@ import { VisitCostCard } from "@/components/v2/maintenance/visit/visit-cost-card
 import { OutcomeChoice } from "@/components/v2/maintenance/visit/outcome-choice";
 import { DEFAULT_VISIT_OUTCOME, outcomeWithOriginal } from "@/lib/maintenance/visit-outcomes";
 import { OfflineNotice } from "@/components/v2/maintenance/visit/offline-notice";
+import { tourTarget } from "@/lib/tutorials/targets";
 
 /* ── Types (mirror the GET /api/maintenance/[id] contract) ─────────────────── */
 
@@ -402,8 +403,11 @@ export function VisitWorkspace({
     item.shareAccess &&
     Boolean(prop?.accessCode || prop?.alarmCode || prop?.keyLocation || prop?.accessNotes || prop?.accessInfo);
 
+  // Tutorials: no tour starts while the visit's clock runs (clocked in, not finished).
+  const clockRunning = Boolean(item.clockInAt) && !isResolved;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-tour-busy={clockRunning ? "clock" : undefined}>
       <BackLink />
 
       <EPageHeader
@@ -437,7 +441,9 @@ export function VisitWorkspace({
       ) : null}
 
       {/* Board: the stage strip follows the visit in order. Read-only. */}
-      <EStageBar label="Visit stages" stages={visitStages(item)} />
+      <div {...tourTarget("maintenance.visit.stages")}>
+        <EStageBar label="Visit stages" stages={visitStages(item)} />
+      </div>
 
       <OfflineNotice />
 
@@ -476,7 +482,7 @@ export function VisitWorkspace({
       {/* Order follows the visit: what the job is, how to get in and get there,
           the visit itself, then who to call. */}
       {/* What to fix / before photos */}
-      <ECard>
+      <ECard {...tourTarget("maintenance.visit.issue")}>
         <ECardHeader>
           <ECardTitle className="flex items-center gap-2 text-[1rem]">
             <ShieldAlert className="h-4 w-4" /> Reported issue
@@ -496,16 +502,18 @@ export function VisitWorkspace({
         </ECardBody>
       </ECard>
 
-      <VisitCostCard
-        cost={{
-          quotedCost: item.quotedCost ?? null,
-          costApprovalStatus: item.costApprovalStatus ?? null,
-          costDecidedAt: item.costDecidedAt ?? null,
-        }}
-      />
+      <div {...tourTarget("maintenance.visit.cost")}>
+        <VisitCostCard
+          cost={{
+            quotedCost: item.quotedCost ?? null,
+            costApprovalStatus: item.costApprovalStatus ?? null,
+            costDecidedAt: item.costDecidedAt ?? null,
+          }}
+        />
+      </div>
 
       {/* Access panel */}
-      <ECard>
+      <ECard {...tourTarget("maintenance.visit.access")}>
         <ECardHeader>
           <ECardTitle className="flex items-center gap-2 text-[1rem]">
             <KeyRound className="h-4 w-4" /> Access details
@@ -579,41 +587,47 @@ export function VisitWorkspace({
               or complete the job straight away.
             </p>
 
-            <LifecycleStep done={Boolean(item.enRouteAt)} timestamp={item.enRouteAt} title="On the way (optional)">
-              {!item.enRouteAt ? (
-                <EButton variant="outline" className="w-full" disabled={busy != null} onClick={handleStartDriving}>
-                  {busy === "EN_ROUTE" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Car className="h-4 w-4" />}
-                  Start driving
-                </EButton>
-              ) : null}
-            </LifecycleStep>
+            <div {...tourTarget("maintenance.visit.travel")}>
+              <LifecycleStep done={Boolean(item.enRouteAt)} timestamp={item.enRouteAt} title="On the way (optional)">
+                {!item.enRouteAt ? (
+                  <EButton variant="outline" className="w-full" disabled={busy != null} onClick={handleStartDriving}>
+                    {busy === "EN_ROUTE" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Car className="h-4 w-4" />}
+                    Start driving
+                  </EButton>
+                ) : null}
+              </LifecycleStep>
 
-            <LifecycleStep done={Boolean(item.arrivedAt)} timestamp={item.arrivedAt} title="Arrived (optional)">
-              {!item.arrivedAt ? (
-                <EButton variant="outline" className="w-full" disabled={busy != null} onClick={handleArrived}>
-                  {busy === "ARRIVED" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Flag className="h-4 w-4" />}
-                  I&apos;ve arrived
-                </EButton>
-              ) : null}
-            </LifecycleStep>
+              <LifecycleStep done={Boolean(item.arrivedAt)} timestamp={item.arrivedAt} title="Arrived (optional)">
+                {!item.arrivedAt ? (
+                  <EButton variant="outline" className="w-full" disabled={busy != null} onClick={handleArrived}>
+                    {busy === "ARRIVED" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Flag className="h-4 w-4" />}
+                    I&apos;ve arrived
+                  </EButton>
+                ) : null}
+              </LifecycleStep>
+            </div>
 
-            <LifecycleStep done={Boolean(item.clockInAt)} timestamp={item.clockInAt} title="On site">
-              {!item.clockInAt ? (
-                <EButton variant="primary" className="w-full" disabled={busy != null} onClick={handleClockIn}>
-                  {busy === "CLOCK_IN" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock className="h-4 w-4" />}
-                  Clock in / Start work
-                </EButton>
-              ) : null}
-            </LifecycleStep>
+            <div {...tourTarget("maintenance.visit.clockIn")}>
+              <LifecycleStep done={Boolean(item.clockInAt)} timestamp={item.clockInAt} title="On site">
+                {!item.clockInAt ? (
+                  <EButton variant="primary" className="w-full" disabled={busy != null} onClick={handleClockIn}>
+                    {busy === "CLOCK_IN" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock className="h-4 w-4" />}
+                    Clock in / Start work
+                  </EButton>
+                ) : null}
+              </LifecycleStep>
+            </div>
 
             <LifecycleStep done={false} timestamp={null} title="Finish & complete" hideConnector>
               <div className="space-y-4">
-                <EField label="Finish photos or video">
-                  <MediaCapture value={finishMedia} onChange={setFinishMedia} mode="both" folder="maintenance" multiple stamp={{ tag: "maintenance", address: fullAddress || undefined, reference: prop?.name ?? undefined, contextLabel: "Completion evidence" }} />
-                </EField>
+                <div {...tourTarget("maintenance.visit.photos")}>
+                  <EField label="Finish photos or video">
+                    <MediaCapture value={finishMedia} onChange={setFinishMedia} mode="both" folder="maintenance" multiple stamp={{ tag: "maintenance", address: fullAddress || undefined, reference: prop?.name ?? undefined, contextLabel: "Completion evidence" }} />
+                  </EField>
+                </div>
 
                 {!showComplete ? (
-                  <EButton variant="gold" className="w-full" onClick={() => setShowComplete(true)}>
+                  <EButton variant="gold" className="w-full" onClick={() => setShowComplete(true)} {...tourTarget("maintenance.visit.complete")}>
                     <CheckCircle2 className="h-4 w-4" /> Complete job
                   </EButton>
                 ) : (

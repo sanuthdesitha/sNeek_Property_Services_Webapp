@@ -26,6 +26,7 @@ import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import { EField, EInput, EModal, ETextarea } from "@/components/v2/admin/estate-kit";
 import { describePay, resolveAssignmentPay } from "@/lib/maintenance/instructions";
+import type { TourTargetProps } from "@/lib/tutorials/targets";
 
 export interface AssignmentActionState {
   id: string;
@@ -44,8 +45,11 @@ type Dialog = "decline" | "complete" | "price" | null;
 
 export function MaintenanceAssignmentActions({
   assignment,
+  priceTourTarget,
 }: {
   assignment: AssignmentActionState;
+  /** The Today tour's "Other price" target (maintenance portal, first offer only). */
+  priceTourTarget?: TourTargetProps;
 }) {
   const router = useRouter();
   const [dialog, setDialog] = React.useState<Dialog>(null);
@@ -126,7 +130,7 @@ export function MaintenanceAssignmentActions({
       </div>
 
       {pay ? (
-        <div className="flex flex-wrap items-center gap-2 text-[0.75rem]">
+        <div className="flex flex-wrap items-center gap-2 text-[0.75rem]" {...priceTourTarget}>
           <span className="font-[600] text-[hsl(var(--e-foreground))]">{describePay(pay)}</span>
           {pay.payer === "CLIENT" ? (
             <EBadge tone="neutral" soft>

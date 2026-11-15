@@ -25,11 +25,27 @@
   },
   "welcome.qa": {
     "version": 1,
-    "fingerprint": "dafda6c527af9023"
+    "fingerprint": "dafda6c527af9023",
+    "noVisibleChange": [
+      {
+        "fingerprint": "e720e53ca0d91196",
+        "reason": "Welcome cards unchanged; the new controls marked on Today belong to the new QA Today page tour.",
+        "by": "QA and Maintenance page tours",
+        "date": "2026-11-15"
+      }
+    ]
   },
   "welcome.maintenance": {
     "version": 1,
-    "fingerprint": "606343b9d1491773"
+    "fingerprint": "606343b9d1491773",
+    "noVisibleChange": [
+      {
+        "fingerprint": "8dc620597ba92bef",
+        "reason": "Welcome cards unchanged; the new controls marked on Today belong to the new Maintenance Today page tour.",
+        "by": "QA and Maintenance page tours",
+        "date": "2026-11-15"
+      }
+    ]
   },
   "admin.command": {
     "version": 1,
@@ -78,5 +94,29 @@
   "laundry.pickup.practice": {
     "version": 1,
     "fingerprint": "4580b1c85b4616a2"
+  },
+  "qa.today": {
+    "version": 1,
+    "fingerprint": "57af19db9a0a62e1"
+  },
+  "qa.inspection": {
+    "version": 1,
+    "fingerprint": "5ccb21e859c2d12e"
+  },
+  "qa.reviews": {
+    "version": 1,
+    "fingerprint": "8349c9d00f90fc62"
+  },
+  "maintenance.today": {
+    "version": 1,
+    "fingerprint": "667fbd5d584a638f"
+  },
+  "maintenance.tickets": {
+    "version": 1,
+    "fingerprint": "1f5fa99230edfaf4"
+  },
+  "maintenance.visit": {
+    "version": 1,
+    "fingerprint": "ede1ccfdd6e20127"
   }
 }
