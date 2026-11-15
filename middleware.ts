@@ -377,7 +377,10 @@ async function routeRequest(original: NextRequest, event: NextFetchEvent) {
       if (path.startsWith("/api/")) return NextResponse.json({ error: "Account context required. Reload this tab.", code: "ACCOUNT_CONTEXT_REQUIRED" }, { status: 409 });
       if (original.method === "GET" && !path.startsWith("/_next/")) return NextResponse.redirect(new URL(bindAccountUrl(referringContext.contextId, publicOrigin)(path + original.nextUrl.search), publicOrigin));
     }
-    const request = new NextRequest(original, { headers });
+    // The method is passed explicitly: on the edge runtime a NextRequest built
+    // from another request with only `headers` came out as GET, so the
+    // view-only Test as refusal below never saw a write (found 2026-11-17).
+    const request = new NextRequest(original, { headers, method: original.method });
     const response = await (normalMiddleware as any)(request, event) as NextResponse | undefined;
     // NextAuth returns nothing for its own /api/auth/* base path. Returning that
     // as-is forwarded the ORIGINAL headers, so the trusted path metadata was

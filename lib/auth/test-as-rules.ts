@@ -59,6 +59,8 @@ export const TEST_AS_RULES: readonly TestAsRule[] = [
     how: "Middleware refuses every unsafe method while a view-only ticket is present (IMPERSONATION_READ_ONLY); a few routes repeat it.",
     enforcement: [
       { file: "middleware.ts", contains: "IMPERSONATION_READ_ONLY" },
+      // The choke point must see the real method (edge runtime, 2026-11-17).
+      { file: "middleware.ts", contains: "new NextRequest(original, { headers, method: original.method })" },
       { file: "lib/auth/impersonation.ts", contains: "export function isReadOnlySafeMethod" },
       route("me/jobs-views", "IMPERSONATION_READ_ONLY"),
       route("cleaner/inventory/held-stock", 'session.impersonation?.mode === "READ_ONLY"'),

@@ -354,7 +354,7 @@ export function PortalShell({
           </button>
           <span className="e-serif min-w-0 truncate text-[1.05rem] font-[520] lg:hidden">{wordmark}</span>
           <p className="hidden min-w-0 truncate text-sm text-[hsl(var(--e-muted-foreground))] lg:block">
-            {roleLabel || accent} / <span className="font-medium text-[hsl(var(--e-foreground))]">{nav.find((item) => item.href === bestMatchHref)?.label || "Details"}</span>
+            {roleLabel || accent} / <span className="font-medium text-[hsl(var(--e-foreground))]">{nav.find((item) => item.href === bestMatchHref)?.label || (pathname?.endsWith("/access-denied") ? "Access" : "Details")}</span>
           </p>
           <div className="ml-auto flex items-center gap-1">
             <HelpControls pageLabel={nav.find((item) => item.href === bestMatchHref)?.label || roleLabel || "This page"} />
