@@ -126,6 +126,10 @@ describe.skipIf(!url)("onboarding workspace (explicit local DB)", () => {
   }, 60_000);
 
   afterAll(async () => {
+    // The fixture administrators own properties, jobs and history rows created
+    // above, so they are deactivated rather than deleted: an active fixture
+    // administrator left behind would receive other suites' administrator alerts.
+    await m.client?.user.updateMany({ where: { id: { in: [adminId, otherAdminId] } }, data: { isActive: false } });
     await m.client?.$disconnect();
   });
 
