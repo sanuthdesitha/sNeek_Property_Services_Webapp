@@ -27,7 +27,10 @@ function context(partial: Partial<AutoRunContext> = {}): AutoRunContext {
   return { progress: undefined, setting: undefined, viewer: admin, recordable: true, toursOn: true, roleToursOn: true, legacyWelcomeSeen: false, ...partial };
 }
 
-const jobs = findTour("admin.jobs")!;
+// Pinned to the Jobs tour's first version so these engine cases do not move when the
+// real tour is bumped (it went to version 2 on 2026-11-16, "Everyday dialogs and sheets").
+const liveJobs = findTour("admin.jobs")!;
+const jobs: TourDefinition = { ...liveJobs, version: 1, steps: liveJobs.steps.map((step) => ({ ...step, since: 1 })) };
 
 /** The Jobs tour after a release that changed step 2 (board "Tutorials", section 6). */
 const jobsV2: TourDefinition = {

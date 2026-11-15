@@ -7,10 +7,11 @@
  */
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
-import { Loader2, Wallet } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { EActionDialog } from "@/components/v2/ui/action-dialog";
+import { EFacts, EFactRow, ENote } from "@/components/v2/ui/form-dialog-parts";
 import { EBadge, EButton, EEyebrow } from "@/components/v2/ui/primitives";
-import { EConfirmModal, EField, EInput, EModal, ESelect, ETableShell, ETextarea } from "@/components/v2/admin/estate-kit";
+import { EConfirmModal, EField, EInput, EModal, ESelect, ETableShell } from "@/components/v2/admin/estate-kit";
 import {
   PAY_METHODS,
   PAY_METHOD_LABEL,
@@ -34,20 +35,32 @@ function Figure({ label, value, gold = false }: { label: string; value: string; 
   );
 }
 
+/**
+ * Record a payment (board "Everyday dialogs and sheets", 2026-11): the money
+ * facts first, the amount starting at what is still owing, then date, method
+ * and reference. The request body is unchanged. Recording happens here only:
+ * nothing is pushed to Xero (payments are only ever read in from Xero), and
+ * the existing receipt email to the client still follows a recorded payment.
+ * A failed save keeps every field; the fields freeze while saving.
+ */
 export function RecordPaymentDialog({ invoice, onClose, onDone }: DialogProps) {
   const [amount, setAmount] = useState(invoice.amountOwing.toFixed(2));
   const [method, setMethod] = useState("BANK_TRANSFER");
   const [paidDate, setPaidDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [reference, setReference] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const value = Number(amount);
+  const validAmount = amount.trim() !== "" && Number.isFinite(value) && value > 0;
 
   async function submit() {
-    const value = Number(amount);
-    if (!amount.trim() || Number.isNaN(value) || value <= 0) {
-      toast({ title: "Enter a valid amount", variant: "destructive" });
+    if (saving) return;
+    if (!validAmount) {
+      setError("Enter the amount received.");
       return;
     }
     setSaving(true);
+    setError(null);
     try {
       const result = await patchInvoice<{ status?: string }>(invoice.id, {
         recordPayment: {
@@ -58,7 +71,7 @@ export function RecordPaymentDialog({ invoice, onClose, onDone }: DialogProps) {
         },
       });
       if (!result.ok) {
-        toast({ title: "Could not record payment", description: result.body.error, variant: "destructive" });
+        setError(result.body.error ?? "The payment was not recorded.");
         return;
       }
       toast({
@@ -68,70 +81,74 @@ export function RecordPaymentDialog({ invoice, onClose, onDone }: DialogProps) {
       onDone();
       onClose();
     } catch {
-      toast({ title: "Could not reach the server", variant: "destructive" });
+      setError("Could not reach the server. Nothing is known to have been recorded; your entries are kept.");
     } finally {
       setSaving(false);
     }
   }
 
+  const receiptLine = invoice.client?.email
+    ? `A receipt is emailed to ${invoice.client.email}, as before.`
+    : "No client email on file, so no receipt is sent.";
+
   return (
-    <EModal open onClose={() => !saving && onClose()} eyebrow="Commercial" title={`Record payment · ${invoice.invoiceNumber}`}>
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3 sm:grid-cols-3">
-          <Figure label="Invoice total" value={money(invoice.totalAmount)} />
-          <Figure label="Already paid" value={money(invoice.paidAmount ?? 0)} />
-          <Figure label="Outstanding" value={money(invoice.amountOwing)} gold />
-        </div>
-        <fieldset disabled={saving} className="space-y-4">
-          <EField
-            label="Amount received"
-            hint="Defaults to the outstanding balance. A smaller amount records a partial payment (status stays Part paid)."
-          >
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-                $
-              </span>
-              <EInput
-                type="number"
-                inputMode="decimal"
-                step="0.01"
-                min="0"
-                aria-label="Amount received"
-                className="pl-6"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-            </div>
-          </EField>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <EField label="Payment method">
-              <ESelect aria-label="Payment method" value={method} onChange={(e) => setMethod(e.target.value)}>
-                {PAY_METHODS.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </ESelect>
-            </EField>
-            <EField label="Paid date">
-              <EInput type="date" aria-label="Paid date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
-            </EField>
-          </div>
-          <EField label="Reference / notes" hint="e.g. bank reference, receipt number, part-payment note.">
-            <ETextarea rows={2} aria-label="Reference / notes" value={reference} onChange={(e) => setReference(e.target.value)} />
-          </EField>
-        </fieldset>
-        <div className="flex justify-end gap-2 pt-1">
-          <EButton variant="ghost" onClick={onClose} disabled={saving}>
-            Cancel
+    <EActionDialog
+      open
+      layout="form"
+      eyebrow={[invoice.invoiceNumber, invoice.client?.name].filter(Boolean).join(" · ")}
+      title="Record a payment"
+      phoneTitle={`Payment · ${invoice.invoiceNumber}`}
+      busy={saving}
+      onClose={onClose}
+      footer={(
+        <>
+          <EButton variant="outline" size="sm" className="max-sm:hidden" onClick={onClose} disabled={saving}>Cancel</EButton>
+          <EButton size="sm" onClick={() => void submit()} disabled={saving}>
+            {saving ? "Recording…" : validAmount ? `Record ${money(value)}` : "Record payment"}
           </EButton>
-          <EButton variant="gold" onClick={submit} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
-            Record payment
-          </EButton>
+        </>
+      )}
+    >
+      <EFacts label="Invoice money">
+        <EFactRow label="Invoice total" value={money(invoice.totalAmount)} />
+        <EFactRow label="Already paid" value={money(invoice.paidAmount ?? 0)} />
+        <EFactRow label="Still owing" value={money(invoice.amountOwing)} strong />
+      </EFacts>
+      <fieldset disabled={saving} className="min-w-0 space-y-3">
+        <EField label="Amount received" hint="Starts at what is owing. Less than that leaves it Part paid.">
+          <EInput
+            type="number"
+            inputMode="decimal"
+            step="0.01"
+            min="0"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="e-tnum max-sm:h-11 max-sm:text-[1rem]"
+          />
+        </EField>
+        <div className="grid grid-cols-2 gap-3">
+          <EField label="Paid on">
+            <EInput type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} className="max-sm:h-11 max-sm:text-[1rem]" />
+          </EField>
+          <EField label="Method">
+            <ESelect value={method} onChange={(e) => setMethod(e.target.value)} className="max-sm:h-11 max-sm:text-[1rem]">
+              {PAY_METHODS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </ESelect>
+          </EField>
         </div>
-      </div>
-    </EModal>
+        <EField label="Reference, optional">
+          <EInput value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. CBA 13/11 HVS" className="max-sm:h-11 max-sm:text-[1rem]" />
+        </EField>
+      </fieldset>
+      <ENote>
+        Saving records this payment on {invoice.invoiceNumber} here: Paid when it covers what is owing, otherwise Part paid. It is not sent to Xero; payments only come in from Xero. {receiptLine}
+      </ENote>
+      {error ? <ENote tone="problem" role="alert">Not recorded: {error}</ENote> : null}
+    </EActionDialog>
   );
 }
 

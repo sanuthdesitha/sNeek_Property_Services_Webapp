@@ -142,11 +142,10 @@ export function CalendarWorkspace({ readOnly = false }: { readOnly?: boolean }) 
   ].filter(Boolean).join(" ") || null;
 
   const cleanerRows = data?.cleanerRows ?? [];
-  const busyMoving = move.state.phase === "checking";
   const phoneList = phone && (view === "day" || view === "week");
   const moveSheetOpen = phone && moveTarget !== null;
 
-  // Phones: a saved move closes the sheet; the status line says what was saved.
+  // A saved move closes the sheet or window; the status line says what was saved.
   const movedJobId = move.state.phase === "done" ? move.state.request.job.id : null;
   useEffect(() => {
     if (movedJobId && moveTarget?.job.id === movedJobId) setMoveTarget(null);
@@ -225,7 +224,7 @@ export function CalendarWorkspace({ readOnly = false }: { readOnly?: boolean }) 
           moveState={move.state}
           readOnly={readOnly}
           onCheck={(draft) => void move.request({ job: moveTarget.job, ...draft })}
-          onSave={() => void move.confirm()}
+          onSave={(tellClient) => void move.confirm(tellClient)}
           onDiscardCheck={move.dismiss}
           onClose={closeMoveSheet}
           onAssignQa={() => {
@@ -240,16 +239,15 @@ export function CalendarWorkspace({ readOnly = false }: { readOnly?: boolean }) 
           key={moveTarget.job.id}
           target={moveTarget}
           cleaners={cleanerRows}
-          busy={busyMoving}
-          onClose={() => setMoveTarget(null)}
-          onSubmit={(result) => {
-            const job = moveTarget.job;
-            setMoveTarget(null);
-            void move.request({ job, ...result });
-          }}
+          moveState={move.state}
+          onCheck={(draft) => void move.request({ job: moveTarget.job, ...draft })}
+          onSave={(tellClient) => void move.confirm(tellClient)}
+          onDiscardCheck={move.dismiss}
+          onClose={closeMoveSheet}
         />
       ) : null}
-      {moveSheetOpen ? null : <CalendarMoveConfirm state={move.state} onConfirm={() => void move.confirm()} onClose={move.dismiss} />}
+      {/* A drag's confirmation; "Move or reassign…" confirms inside its own window. */}
+      {moveTarget ? null : <CalendarMoveConfirm state={move.state} onConfirm={(tellClient) => void move.confirm(tellClient)} onClose={move.dismiss} />}
       {move.reassignPreview ? <ReassignNoteDialog preview={move.reassignPreview} onClose={move.clearReassignPreview} /> : null}
       <CalendarAssignDialogs
         assignJob={assignJob}

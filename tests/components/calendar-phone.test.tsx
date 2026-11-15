@@ -102,7 +102,9 @@ describe("Calendar on a phone", () => {
     expect(within(sheet).getByText("No clashes or roster gaps found.")).toBeVisible();
     // No confirmation dialog on top of the sheet: the sheet is the confirmation.
     expect(screen.queryByRole("button", { name: "Confirm move" })).toBeNull();
-    await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: "Save move" })); });
+    // Changed 2026-11: a cleaner swap asks "Tell the client?" here, starting at Don't tell (owner default).
+    expect(sheet.querySelector<HTMLInputElement>('input[name^="tell-client"][value="no"]')).toBeChecked();
+    await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: "Give to Aiko T." })); });
     const assign = callsTo("/api/admin/jobs/jane-job/assign")[0];
     expect(assign.body).toEqual({ userIds: ["u2"], primaryUserId: "u2" });
     await answer(assign, {});
@@ -114,8 +116,8 @@ describe("Calendar on a phone", () => {
     await renderPhoneDay();
     fireEvent.click(within(card("Bondi Studio")).getByRole("button", { name: "Move or reassign" }));
     const sheet = screen.getByRole("dialog", { name: "Move or reassign" });
-    fireEvent.change(within(sheet).getByLabelText("Day"), { target: { value: "2026-11-13" } });
-    fireEvent.change(within(sheet).getByLabelText("Start"), { target: { value: "12:00" } });
+    fireEvent.change(within(sheet).getByLabelText("Date"), { target: { value: "2026-11-13" } });
+    fireEvent.change(within(sheet).getByLabelText("Time"), { target: { value: "12:00" } });
     await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: "Check move" })); });
     const check = callsTo("/api/admin/calendar/check-move")[0];
     expect(check.body).toEqual({ jobId: "jane-job", toDate: "2026-11-13", fromCleanerId: null, toCleanerId: null, toStartTime: "12:00" });
@@ -124,24 +126,24 @@ describe("Calendar on a phone", () => {
       time: { fromStart: "10:00", toStart: "12:00", fromDue: "14:00", toDue: "16:00" },
       plan: { reschedule: { date: "2026-11-13", expectedUpdatedAt: "2026-11-01T00:00:00.000Z", startTime: "12:00", dueTime: "16:00" }, assign: null },
     });
-    await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: "Save move" })); });
+    await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: "Move to Fri 13 Nov 12:00" })); });
     const reschedule = callsTo("/reschedule/")[0];
     expect(reschedule.url).toBe("/api/admin/phase4/reschedule/jane-job/apply");
-    expect(reschedule.body).toEqual({ date: "2026-11-13", expectedUpdatedAt: "2026-11-01T00:00:00.000Z", reason: "Moved on the calendar", startTime: "12:00", dueTime: "16:00" });
+    expect(reschedule.body).toEqual({ date: "2026-11-13", expectedUpdatedAt: "2026-11-01T00:00:00.000Z", reason: "Moved on the calendar", startTime: "12:00", dueTime: "16:00", notifyClient: true });
   });
 
   it("a refused move says nothing was changed and offers no save", async () => {
     await renderPhoneDay();
     fireEvent.click(within(card("Bondi Studio")).getByRole("button", { name: "Move or reassign" }));
     const sheet = screen.getByRole("dialog", { name: "Move or reassign" });
-    fireEvent.change(within(sheet).getByLabelText("Day"), { target: { value: "2026-11-13" } });
+    fireEvent.change(within(sheet).getByLabelText("Date"), { target: { value: "2026-11-13" } });
     await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: "Check move" })); });
     await answer(callsTo("/api/admin/calendar/check-move")[0], {
       jobId: "jane-job", propertyName: "Bondi Studio", fromDate: "2026-11-11", toDate: "2026-11-13", toCleanerName: null,
       blockers: ["The booking ends before this day."], warnings: [], plan: { reschedule: null, assign: null },
     });
     expect(within(sheet).getByRole("alert")).toHaveTextContent("This move cannot be made. Nothing was changed.");
-    expect(within(sheet).queryByRole("button", { name: "Save move" })).toBeNull();
+    expect(within(sheet).queryByRole("button", { name: /^Move to/ })).toBeNull();
     expect(posts()).toEqual(["/api/admin/calendar/check-move"]);
   });
 

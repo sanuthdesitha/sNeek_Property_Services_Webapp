@@ -88,7 +88,8 @@ describe("tutorial provider", () => {
     expect(await screen.findByRole("dialog", { name: "Tour step 5 of 5" }, { timeout: 4000 })).toBeInTheDocument();
     await waitFor(() => expect(writes.some((entry) => entry.body.missingSteps?.includes("bulk"))).toBe(true));
     fireEvent.click(within(screen.getByRole("dialog", { name: "Tour step 5 of 5" })).getByRole("button", { name: "Done" }));
-    await waitFor(() => expect(writes.at(-1)?.body).toMatchObject({ tourKey: "admin.jobs", status: "DONE", version: 1000 }));
+    // Jobs tour version 2 since 2026-11-16 ("Everyday dialogs and sheets"): recorded as 2000.
+    await waitFor(() => expect(writes.at(-1)?.body).toMatchObject({ tourKey: "admin.jobs", status: "DONE", version: 2000 }));
   }, 15000);
 
   it("Escape pauses: the header offers Continue, and Continue resumes the same step", async () => {

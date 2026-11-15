@@ -5,10 +5,14 @@
  * and when, purchase quantity, note) in a dialog. Unknown quantities stay
  * blank and are saved as unknown, never zero. Changing property clears the
  * item; a failed save keeps everything typed and its request id.
+ * Laid out on the everyday dialog pattern (board "Everyday dialogs and
+ * sheets", 2026-11); fields, request and wording rules unchanged.
  */
 import * as React from "react";
+import { EActionDialog } from "@/components/v2/ui/action-dialog";
+import { ENote, preventEnterSubmit } from "@/components/v2/ui/form-dialog-parts";
 import { EButton } from "@/components/v2/ui/primitives";
-import { EField, EInput, EModal, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
+import { EField, EInput, ESelect } from "@/components/v2/admin/estate-kit";
 import { countOrNull, localInputToIso, newRequestId, postUrgentStock } from "./urgent-api";
 
 type Option = { id: string; name: string };
@@ -79,37 +83,51 @@ export function ReportNeedDialog({ open, initialPropertyId, onClose, onReported 
     }
   }
 
+  const formId = React.useId();
+  const PHONE_FIELD = "max-sm:h-11 max-sm:text-[1rem]";
   return (
-    <EModal open={open} onClose={() => (saving ? undefined : onClose())} eyebrow="Urgent needs" title="Report a need" size="wide">
-      <form onSubmit={submit}>
-        <fieldset disabled={saving} className="space-y-3">
-          <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">Leave unknown quantities blank. Reporting a need does not buy anything; it stays open until it is resolved.</p>
-          {loadError ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{loadError}</p> : null}
-          <EField label="Property">
-            <ESelect required value={draft.propertyId} onChange={(event) => patch({ propertyId: event.target.value, itemId: "" })}>
-              <option value="">{properties ? "Choose property" : "Loading properties…"}</option>
-              {(properties ?? []).map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
-            </ESelect>
-          </EField>
-          <EField label="Item">
-            <ESelect required value={draft.itemId} disabled={!draft.propertyId || items === null} onChange={(event) => patch({ itemId: event.target.value })}>
-              <option value="">{!draft.propertyId ? "Choose a property first" : items === null ? "Loading items…" : items.length ? "Choose item" : "No configured inventory items"}</option>
-              {(items ?? []).map((item) => <option key={item.itemId} value={item.itemId}>{item.item.name} ({item.item.unit})</option>)}
-            </ESelect>
-          </EField>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <EField label="Observed count (blank = unknown)"><EInput type="number" min="0" max="1000000" step="any" value={draft.observed} onChange={(event) => patch({ observed: event.target.value })} /></EField>
-            <EField label="When that count was observed"><EInput type="datetime-local" step="1" required={draft.observed !== ""} value={draft.observedAt} onChange={(event) => patch({ observedAt: event.target.value })} /></EField>
+    <EActionDialog
+      open={open}
+      layout="form"
+      eyebrow="Stock · urgent"
+      title="Report a stock need"
+      phoneTitle="Report a stock need"
+      busy={saving}
+      onClose={onClose}
+      footer={(
+        <>
+          <EButton type="button" size="sm" variant="outline" className="max-sm:hidden" onClick={onClose} disabled={saving}>Cancel</EButton>
+          <EButton type="submit" form={formId} size="sm" disabled={saving}>{saving ? "Reporting…" : "Report need"}</EButton>
+        </>
+      )}
+    >
+      <form id={formId} onSubmit={submit} onKeyDown={preventEnterSubmit}>
+        <fieldset disabled={saving} className="min-w-0 space-y-3">
+          {loadError ? <ENote tone="problem" role="alert">{loadError}</ENote> : null}
+          <div className="grid grid-cols-2 gap-3">
+            <EField label="Property">
+              <ESelect required value={draft.propertyId} onChange={(event) => patch({ propertyId: event.target.value, itemId: "" })} className={PHONE_FIELD}>
+                <option value="">{properties ? "Choose property" : "Loading properties…"}</option>
+                {(properties ?? []).map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
+              </ESelect>
+            </EField>
+            <EField label="Item">
+              <ESelect required value={draft.itemId} disabled={!draft.propertyId || items === null} onChange={(event) => patch({ itemId: event.target.value })} className={PHONE_FIELD}>
+                <option value="">{!draft.propertyId ? "Choose a property first" : items === null ? "Loading items…" : items.length ? "Choose item" : "No configured inventory items"}</option>
+                {(items ?? []).map((item) => <option key={item.itemId} value={item.itemId}>{item.item.name} ({item.item.unit})</option>)}
+              </ESelect>
+            </EField>
           </div>
-          <EField label="Purchase quantity requested (blank = unknown)"><EInput type="number" min="0.001" max="1000000" step="any" value={draft.purchase} onChange={(event) => patch({ purchase: event.target.value })} /></EField>
-          <EField label="What is needed and why?"><ETextarea required maxLength={2000} value={draft.note} onChange={(event) => patch({ note: event.target.value })} /></EField>
-          {error ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{error}</p> : null}
-          <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
-            <EButton type="button" size="sm" variant="outline" onClick={onClose}>Cancel</EButton>
-            <EButton type="submit" size="sm">{saving ? "Saving…" : "Save report"}</EButton>
+          <div className="grid grid-cols-2 gap-3">
+            <EField label="Count seen"><EInput type="number" inputMode="decimal" min="0" max="1000000" step="any" placeholder="Unknown" value={draft.observed} onChange={(event) => patch({ observed: event.target.value })} className={PHONE_FIELD} /></EField>
+            <EField label="Seen at"><EInput type="datetime-local" step="1" required={draft.observed !== ""} value={draft.observedAt} onChange={(event) => patch({ observedAt: event.target.value })} className={PHONE_FIELD} /></EField>
           </div>
+          <EField label="How many to buy"><EInput type="number" inputMode="decimal" min="0.001" max="1000000" step="any" placeholder="Unknown" value={draft.purchase} onChange={(event) => patch({ purchase: event.target.value })} className={PHONE_FIELD} /></EField>
+          <EField label="What and why"><EInput required maxLength={2000} value={draft.note} onChange={(event) => patch({ note: event.target.value })} placeholder="e.g. Last 2 rolls, guests in at 15:00" className={PHONE_FIELD} /></EField>
+          <ENote>Empty stays &ldquo;unknown&rdquo;, never 0. A count seen needs the time it was seen. This records a need; it does not buy anything or prove delivery.</ENote>
+          {error ? <ENote tone="problem" role="alert">Not reported: {error}</ENote> : null}
         </fieldset>
       </form>
-    </EModal>
+    </EActionDialog>
   );
 }

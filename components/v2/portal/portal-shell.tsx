@@ -88,11 +88,11 @@ export function PortalShell({
   headerActions?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const { canAccess, levels } = useOpsAccess();
+  const { canAccess, levels, seedRole } = useOpsAccess();
   const pathname = usePathname();
   const { data: session } = useSession();
   // Until the session is known nothing is hidden; the server guard still applies.
-  const viewerRole = session?.user?.role;
+  const viewerRole = session?.user?.role ?? seedRole ?? undefined;
   const hideAdminOnly = Boolean(viewerRole) && viewerRole !== "ADMIN";
   const permittedNav = suppliedNav
     .filter((item) => !(item.adminOnly && hideAdminOnly))

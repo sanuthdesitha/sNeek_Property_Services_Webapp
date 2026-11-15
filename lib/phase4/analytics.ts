@@ -1,4 +1,4 @@
-import { JobStatus } from "@prisma/client";
+import { JobStatus, type Job } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { getBranchById, listBranches, resolveBranchPropertyIds } from "@/lib/phase3/branches";
@@ -343,7 +343,7 @@ export function rescheduleWindowError(startTime: string | null, dueTime: string 
   return null;
 }
 
-export async function applyReschedule(input: {
+export type RescheduleInput = {
   jobId: string;
   date: string;
   startTime?: string | null;
@@ -353,7 +353,36 @@ export async function applyReschedule(input: {
   userId: string;
   reason?: string | null;
   expectedUpdatedAt?: string;
-}) {
+  /**
+   * The client's schedule-update email. Omitted: sent automatically as before
+   * (gated by the automation switch and the client's choice). false: the
+   * person chose not to tell the client, so it is not sent. true: the person
+   * chose to tell them; it goes through the same gated send. Cleaner notices
+   * are unchanged either way.
+   */
+  notifyClient?: boolean;
+};
+
+/** What happened to the client's schedule-update email ("not_asked" when no client email was due). */
+export type RescheduleClientNotice =
+  | { status: "not_asked" }
+  | { status: "skipped_by_choice" }
+  | { status: "sent"; recipients: string[] }
+  | { status: "not_sent"; reason: string };
+
+export async function applyReschedule(input: RescheduleInput) {
+  return (await applyRescheduleWithNotice(input)).job;
+}
+
+/** The client email outcome in words; the lifecycle send's skip codes are not shown raw. */
+function clientNoticeReason(skipped: string | undefined): string {
+  if (skipped === "no-recipients" || skipped === "no-client") return "No client email on file.";
+  if (skipped === "client-opted-out") return "The client has turned these emails off.";
+  return "The email service did not accept it (automatic client emails may be switched off).";
+}
+
+/** `applyReschedule`, also reporting what happened to the client's email. */
+export async function applyRescheduleWithNotice(input: RescheduleInput): Promise<{ job: Job; clientNotice: RescheduleClientNotice }> {
   const date = parseDateOnly(input.date);
   if (!date) throw new Error("Invalid date.");
   const job = await db.job.findUnique({ where: { id: input.jobId } });
@@ -365,7 +394,7 @@ export async function applyReschedule(input: {
   const endTime = input.endTime !== undefined ? input.endTime || null : job.endTime;
   const windowError = rescheduleWindowError(startTime, dueTime) ?? rescheduleWindowError(startTime, endTime);
   if (windowError) throw new Error(windowError);
-  if (job.scheduledDate.getTime() === date.getTime() && job.startTime === startTime && job.dueTime === dueTime && job.endTime === endTime) return job;
+  if (job.scheduledDate.getTime() === date.getTime() && job.startTime === startTime && job.dueTime === dueTime && job.endTime === endTime) return { job, clientNotice: { status: "not_asked" } };
   const updated = await db.$transaction(async (tx) => {
   const guarded = await tx.job.updateMany({ where: { id: job.id, updatedAt: job.updatedAt }, data: { manuallyRescheduledAt: new Date() } });
   if (guarded.count !== 1) throw new Error("This job changed. Reload before rescheduling.");
@@ -430,6 +459,7 @@ export async function applyReschedule(input: {
     (job.startTime ?? "") !== (updated.startTime ?? "") ||
     (job.dueTime ?? "") !== (updated.dueTime ?? "");
   const finished = ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"].includes(job.status);
+  let clientNotice: RescheduleClientNotice = { status: "not_asked" };
   if (scheduleChanged && !finished && !parseJobInternalNotes(job.internalNotes).isDraft) {
     const assigned = await db.jobAssignment.findMany({ where: { jobId: job.id, removedAt: null },
       include: { user: { select: { id: true, role: true, name: true, email: true, phone: true, isActive: true } } } });
@@ -442,15 +472,20 @@ export async function applyReschedule(input: {
       web: { subject: inbox.title, body: inbox.body },
       email: { subject: email.subject, html: email.html },
       sms: wording.render("rescheduled", "SMS", { schedule }).body }).catch(() => {});
-    await sendLifecycleEmail({
-      jobId: updated.id,
-      stage: "SCHEDULE_UPDATED",
-      mode: "auto",
-      extra: { reason: input.reason ?? undefined },
-    }).catch(() => {});
+    if (input.notifyClient === false) {
+      clientNotice = { status: "skipped_by_choice" };
+    } else {
+      const sent = await sendLifecycleEmail({
+        jobId: updated.id,
+        stage: "SCHEDULE_UPDATED",
+        mode: "auto",
+        extra: { reason: input.reason ?? undefined },
+      }).catch(() => null);
+      clientNotice = sent?.sent ? { status: "sent", recipients: sent.recipients } : { status: "not_sent", reason: clientNoticeReason(sent?.skipped) };
+    }
   }
 
-  return updated;
+  return { job: updated, clientNotice };
 }
 
 export async function getBranchContext(branchId: string | null | undefined) {

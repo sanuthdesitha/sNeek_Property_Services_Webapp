@@ -13,12 +13,15 @@
  * frozen while sending. The result lists each person and transport as
  * accepted, skipped or failed (never "delivered").
  * GET/POST /api/admin/jobs/[id]/office-message re-check everything.
+ * Laid out on the everyday dialog pattern (board "Everyday dialogs and
+ * sheets", 2026-11): context line, chips, message, Send by, After sending.
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { X } from "lucide-react";
 import { EActionDialog } from "@/components/v2/ui/action-dialog";
 import { EButton } from "@/components/v2/ui/primitives";
+import { EFacts } from "@/components/v2/ui/form-dialog-parts";
 import { EPill } from "@/components/v2/ui/pill";
 import { TransportChoice, chosenTransports, initialTransportChoice, type TransportCatalog, type TransportChoiceState } from "@/components/v2/admin/office-actions/transport-choice";
 import {
@@ -109,17 +112,20 @@ export function MessageTeamDialog({ jobId, onClose }: { jobId: string; onClose: 
   return (
     <EActionDialog
       open
-      title="Message team"
+      layout="form"
+      title="Message the team"
+      phoneTitle="Message the team"
       eyebrow={preview?.job.label}
       description="Only the cleaners assigned to this job. Remove anyone who should not get it."
       busy={sending}
       onClose={onClose}
+      footerNote={done ? undefined : "Your text is kept if sending fails."}
       footer={
         done ? (
           <EButton size="sm" onClick={onClose}>Done</EButton>
         ) : (
           <>
-            <EButton size="sm" variant="outline" disabled={sending} onClick={onClose}>Cancel</EButton>
+            <EButton size="sm" variant="outline" className="max-sm:hidden" disabled={sending} onClick={onClose}>Cancel</EButton>
             <EButton size="sm" disabled={!preview || sending || blocked !== null} title={blocked ?? undefined} onClick={() => void submit()}>
               {sending ? "Sending…" : send.status === "failed" ? "Try again" : `Send to ${recipients.length}`}
             </EButton>
@@ -132,13 +138,13 @@ export function MessageTeamDialog({ jobId, onClose }: { jobId: string; onClose: 
       {preview && !done ? (
         <fieldset disabled={sending} className="flex flex-col gap-3 text-[0.8125rem]">
           <div>
-            <p className="mb-1 font-[550]">To</p>
+            <p className="mb-1 text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">To</p>
             <ul aria-label="Recipients" className="flex flex-wrap gap-1.5">
               {recipients.map((recipient) => (
-                <li key={recipient.id} className="inline-flex items-center gap-1 rounded-full border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] py-0.5 pl-2.5 pr-1">
+                <li key={recipient.id} className="inline-flex min-h-8 items-center gap-1 rounded-full border border-[hsl(var(--e-primary)/0.4)] bg-[hsl(var(--e-primary-soft))] py-0.5 pl-3 pr-1 font-[550] max-sm:min-h-11">
                   <span>{recipient.name}</span>
                   {!recipient.hasPhone ? <span className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">· no phone</span> : null}
-                  <button type="button" aria-label={`Remove ${recipient.name}`} onClick={() => setRemoved((current) => new Set(current).add(recipient.id))} className="inline-flex h-6 w-6 items-center justify-center rounded-full hover:bg-[hsl(var(--e-muted))]">
+                  <button type="button" aria-label={`Remove ${recipient.name}`} onClick={() => setRemoved((current) => new Set(current).add(recipient.id))} className="inline-flex h-6 w-6 items-center justify-center rounded-full hover:bg-[hsl(var(--e-muted))] max-sm:h-10 max-sm:w-10">
                     <X aria-hidden className="h-3.5 w-3.5" />
                   </button>
                 </li>
@@ -150,8 +156,8 @@ export function MessageTeamDialog({ jobId, onClose }: { jobId: string; onClose: 
             They see the title &ldquo;{preview.title}&rdquo; above your message, linked to this job. <Link href="/v2/admin/notifications?type=job.office_message" className="underline">Edit the wording</Link>
           </p>
           <label className="flex flex-col gap-1">
-            <span className="font-[550]">Message</span>
-            <textarea data-autofocus value={body} maxLength={preview.bodyMax} rows={4} onChange={(event) => setBody(event.target.value)} className="min-h-[6rem] rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] p-2" />
+            <span className="text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">Message</span>
+            <textarea data-autofocus value={body} maxLength={preview.bodyMax} rows={3} onChange={(event) => setBody(event.target.value)} className="min-h-[5rem] rounded-[10px] border border-[hsl(var(--e-input))] bg-[hsl(var(--e-surface))] p-2.5 text-[0.875rem] max-sm:text-[1rem]" />
             <span className="self-end text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">{body.length} / {preview.bodyMax}</span>
           </label>
           <TransportChoice options={preview} value={choice} onChange={setChoice} disabled={sending} catalog={JOB_MESSAGE_CATALOG} />
@@ -166,8 +172,10 @@ export function MessageTeamDialog({ jobId, onClose }: { jobId: string; onClose: 
 function MessageResult({ result }: { result: JobOfficeMessageResult }) {
   const people = Array.from(new Map(result.outcomes.map((outcome) => [outcome.userId, outcome.name])).entries());
   return (
-    <div role="status" className="flex flex-col gap-2 text-[0.8125rem]">
-      <p>{result.replayed ? "This message was already sent; nothing was sent again. What was recorded:" : "What each transport answered (accepted is not proof it was read):"}</p>
+    <EFacts label="After sending">
+      <div role="status" className="flex flex-col gap-2">
+      <p className="font-[600]">After sending</p>
+      <p className="text-[hsl(var(--e-text-secondary))]">{result.replayed ? "This message was already sent; nothing was sent again. What was recorded:" : "What each transport answered (accepted is not proof it was read):"}</p>
       <ul className="flex flex-col gap-1.5">
         {people.map(([userId, name]) => (
           <li key={userId}>
@@ -185,6 +193,7 @@ function MessageResult({ result }: { result: JobOfficeMessageResult }) {
         ))}
       </ul>
       {result.refused.length ? <p className="text-[hsl(var(--e-muted-foreground))]">Not sent to {result.refused.length}: no longer assigned to this job.</p> : null}
-    </div>
+      </div>
+    </EFacts>
   );
 }

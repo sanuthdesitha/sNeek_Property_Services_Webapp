@@ -1,15 +1,13 @@
 "use client";
 
 /**
- * Quick assign for an unassigned job (moved unchanged from the workspace):
- * pick cleaners, the first becomes primary, and the job's existing assign
- * route applies its own rules.
+ * Quick assign for an unassigned job from the Jobs list. Since 2026-11 it is
+ * the shared `AssignDialog` (the same window as the job page and Calendar);
+ * the request body is unchanged: { userIds, primaryUserId, confirmLeaveConflict? }.
+ * `assignCleaners` stays for the peek panel's one-click suggestion.
  */
-import { useEffect, useState } from "react";
-import { toast } from "@/hooks/use-toast";
-import { EButton } from "@/components/v2/ui/primitives";
-import { JobDialog } from "./job-dialog";
-import { ECheck, jobTypeLabel, scheduledLabel } from "./job-row";
+import { AssignDialog, type AssignTarget } from "./assign-dialog";
+import { jobTypeLabel, scheduledLabel } from "./job-row";
 import type { JobsPersonOption } from "./jobs-constants";
 import type { JobListRow } from "./jobs-query";
 
@@ -34,84 +32,17 @@ export async function assignCleaners(jobId: string, userIds: string[], confirmLe
   if (!res.ok) throw new Error(body.error ?? "Could not assign job.");
 }
 
+/** Quick assign from the Jobs list: the shared assign dialog for an unassigned job. */
 export function QuickAssignDialog({ job, cleaners, onClose, onAssigned }: QuickAssignProps) {
-  const [selected, setSelected] = useState<string[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [leaveConflict, setLeaveConflict] = useState<string | null>(null);
-  useEffect(() => {
-    setSelected([]);
-    setLeaveConflict(null);
-  }, [job?.id]);
-
-  async function submit(confirmLeaveConflict = false) {
-    if (!job || selected.length === 0) {
-      toast({ title: "Select at least one cleaner.", variant: "destructive" });
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await assignCleaners(job.id, selected, confirmLeaveConflict);
-      toast({ title: "Assigned", description: `${selected.length} cleaner(s) assigned.` });
-      onAssigned();
-    } catch (error) {
-      if (error instanceof LeaveConflictError) {
-        setLeaveConflict(error.message);
-        return;
+  const target: AssignTarget | null = job
+    ? {
+        kind: "job",
+        jobId: job.id,
+        context: [job.jobNumber ? String(job.jobNumber) : null, job.property?.name ?? "Unassigned job", `${scheduledLabel(job.scheduledDate, "EEE d MMM")}${job.startTime ? ` ${job.startTime}` : ""}`].filter(Boolean).join(" · "),
+        phoneTitle: `Assign · ${job.property?.name ?? jobTypeLabel(job.jobType)}, ${scheduledLabel(job.scheduledDate, "EEE d MMM")}`,
+        initialAssignedIds: [],
+        initialPrimaryId: null,
       }
-      toast({ title: "Assign failed", description: error instanceof Error ? error.message : "Could not assign job.", variant: "destructive" });
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <JobDialog open={Boolean(job)} title="Assign cleaners" busy={submitting} onClose={onClose}>
-      <div className="space-y-4">
-        <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-muted)/0.5)] p-3">
-          <p className="e-serif text-[0.9375rem] font-[520]">{job?.property?.name ?? "Unassigned job"}</p>
-          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-            {jobTypeLabel(job?.jobType)} · {scheduledLabel(job?.scheduledDate, "dd MMM yyyy")}
-            {job?.startTime ? ` · ${job.startTime}` : ""}
-          </p>
-        </div>
-        <div className="max-h-64 space-y-1 overflow-y-auto">
-          {cleaners.length === 0 ? (
-            <p className="py-4 text-center text-[0.8125rem] text-[hsl(var(--e-text-faint))]">No active cleaner accounts.</p>
-          ) : cleaners.map((cleaner) => {
-            const checked = selected.includes(cleaner.id);
-            return (
-              <button
-                key={cleaner.id}
-                type="button"
-                onClick={() => {
-                  setLeaveConflict(null);
-                  setSelected((current) => (checked ? current.filter((id) => id !== cleaner.id) : [...current, cleaner.id]));
-                }}
-                className={"flex w-full items-center gap-3 rounded-[var(--e-radius)] border px-3 py-2 text-left " +
-                  (checked ? "border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))]" : "border-transparent hover:bg-[hsl(var(--e-muted))]")}
-              >
-                <ECheck checked={checked} onChange={() => {}} label={cleaner.name} />
-                <span className="min-w-0">
-                  <span className="block truncate text-[0.875rem] font-[550]">{cleaner.name || cleaner.email}</span>
-                  <span className="block truncate text-[0.75rem] text-[hsl(var(--e-text-faint))]">{cleaner.email}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        {leaveConflict ? (
-          <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.4)] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-warning))]">
-            <span className="min-w-0 [overflow-wrap:anywhere]">{leaveConflict}</span>
-            <EButton size="sm" variant="outline" disabled={submitting} onClick={() => void submit(true)}>Assign anyway</EButton>
-          </div>
-        ) : null}
-        <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
-          <EButton variant="outline" onClick={onClose} disabled={submitting}>Cancel</EButton>
-          <EButton onClick={() => void submit()} disabled={submitting || selected.length === 0}>
-            {submitting ? "Assigning…" : `Assign${selected.length > 0 ? ` (${selected.length})` : ""}`}
-          </EButton>
-        </div>
-      </div>
-    </JobDialog>
-  );
+    : null;
+  return <AssignDialog open={Boolean(job)} target={target} cleaners={cleaners} onClose={onClose} onAssigned={() => onAssigned()} />;
 }

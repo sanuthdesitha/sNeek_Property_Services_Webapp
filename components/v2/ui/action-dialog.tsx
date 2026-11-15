@@ -34,6 +34,18 @@ export type EActionDialogProps = {
   footerClassName?: string;
   /** A wider panel from 640px up, for a read-only preview (photos, a rendered record). Phones keep the sheet. */
   wide?: boolean;
+  /**
+   * "form" (board "Everyday dialogs and sheets", 2026-11): a 480px window with
+   * the context line above a serif title and no rule under the header; on a
+   * phone the close control reads "Cancel" in the sheet's title bar, so a
+   * footer Cancel can be hidden there (`max-sm:hidden`) and the one primary
+   * action docks full width. Additive: "default" is unchanged.
+   */
+  layout?: "default" | "form";
+  /** Form layout: a shorter title for the phone sheet ("Assign · Glebe House, Sat 21 Nov"); the context line is then hidden on a phone. */
+  phoneTitle?: React.ReactNode;
+  /** Form layout: the "what will happen" line, left of the buttons from 640px up and under the docked button on a phone. */
+  footerNote?: React.ReactNode;
 };
 
 const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -50,7 +62,8 @@ function initialFocus(root: HTMLElement): HTMLElement {
   return items.find((element) => !element.hasAttribute("data-dialog-close")) ?? items[0] ?? root;
 }
 
-export function EActionDialog({ open, title, eyebrow, description, busy = false, onClose, children, footer, footerClassName, wide = false }: EActionDialogProps) {
+export function EActionDialog({ open, title, eyebrow, description, busy = false, onClose, children, footer, footerClassName, wide = false, layout = "default", phoneTitle, footerNote }: EActionDialogProps) {
+  const form = layout === "form";
   const titleId = React.useId();
   const descriptionId = React.useId();
   const panelRef = React.useRef<HTMLDivElement>(null);
@@ -142,30 +155,52 @@ export function EActionDialog({ open, title, eyebrow, description, busy = false,
           aria-busy={busy}
           tabIndex={-1}
           onKeyDown={onKeyDown}
-          className={cn("relative z-10 my-8 w-full rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-3)] focus:outline-none", wide ? "max-w-4xl" : "max-w-md", PHONE_SHEET_PANEL_CLASS)}
+          className={cn("relative z-10 my-8 w-full rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-3)] focus:outline-none", wide ? "max-w-4xl" : form ? "max-w-[30rem]" : "max-w-md", PHONE_SHEET_PANEL_CLASS)}
         >
           <span aria-hidden className={PHONE_SHEET_GRAB_CLASS} />
-          <div className="flex items-start justify-between gap-3 border-b border-[hsl(var(--e-border))] px-5 py-3.5">
+          <div className={cn("flex items-start justify-between gap-3 px-5", form ? "pb-1 pt-4 max-sm:items-center max-sm:pt-3" : "border-b border-[hsl(var(--e-border))] py-3.5")}>
             <div className="min-w-0">
-              {eyebrow ? <p className="e-eyebrow mb-1">{eyebrow}</p> : null}
-              <h2 id={titleId} className="text-[1rem] font-[650] [overflow-wrap:anywhere]">{title}</h2>
+              {eyebrow ? <p className={cn("e-eyebrow mb-1", form && phoneTitle ? "max-sm:hidden" : null)}>{eyebrow}</p> : null}
+              <h2 id={titleId} className={cn("[overflow-wrap:anywhere]", form ? "text-[1.375rem] font-[500] leading-tight max-sm:text-[1.0625rem] max-sm:font-[650]" : "text-[1rem] font-[650]")}>
+                {form && phoneTitle ? (
+                  <>
+                    <span className="e-serif max-sm:hidden">{title}</span>
+                    <span className="sm:hidden">{phoneTitle}</span>
+                  </>
+                ) : form ? <span className="e-serif max-sm:!font-sans">{title}</span> : title}
+              </h2>
             </div>
             <button
               type="button"
               onClick={onClose}
               disabled={busy}
               data-dialog-close
-              aria-label="Close"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full max-sm:h-11 max-sm:w-11 border border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-muted))] disabled:opacity-50"
+              aria-label={form ? undefined : "Close"}
+              className={cn(
+                "flex h-8 w-8 shrink-0 items-center justify-center rounded-full max-sm:h-11 max-sm:w-11 border border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-muted))] disabled:opacity-50",
+                form ? "max-sm:w-auto max-sm:rounded-[10px] max-sm:border-transparent max-sm:px-2 max-sm:text-[0.9375rem] max-sm:font-[550] max-sm:text-[hsl(var(--e-foreground))]" : null,
+              )}
             >
-              <X aria-hidden className="h-4 w-4" />
+              <X aria-hidden className={cn("h-4 w-4", form ? "max-sm:hidden" : null)} />
+              {form ? (
+                <>
+                  <span className="sr-only max-sm:hidden">Close</span>
+                  <span className="sm:hidden">Cancel</span>
+                </>
+              ) : null}
             </button>
           </div>
-          <div className="max-h-[70vh] space-y-3 overflow-y-auto px-5 py-4 text-[0.875rem] max-sm:max-h-none max-sm:overflow-visible">
+          <div className={cn("max-h-[70vh] space-y-3 overflow-y-auto px-5 text-[0.875rem] max-sm:max-h-none max-sm:overflow-visible", form ? "pb-4 pt-3" : "py-4")}>
             {description ? <div id={descriptionId} className="text-[hsl(var(--e-text-secondary))]">{description}</div> : null}
             {children}
           </div>
-          {footer ? <div className={cn("border-t border-[hsl(var(--e-border))] px-5 py-3 max-sm:sticky max-sm:bottom-0 max-sm:bg-[hsl(var(--e-surface))]", footerClassName ?? "flex flex-wrap justify-end gap-2 max-sm:[&>*]:flex-1")}>{footer}</div> : null}
+          {footer && form ? (
+            <div className="mx-5 flex items-center gap-3 border-t border-[hsl(var(--e-border))] py-3 max-sm:sticky max-sm:bottom-0 max-sm:mx-0 max-sm:flex-col max-sm:items-stretch max-sm:gap-1.5 max-sm:bg-[hsl(var(--e-surface))] max-sm:px-4">
+              {footerNote ? <div className="min-w-0 flex-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))] max-sm:order-2">{footerNote}</div> : <span className="flex-1 max-sm:hidden" />}
+              <div className={cn("flex flex-wrap justify-end gap-2 max-sm:order-1 max-sm:[&>*]:h-11 max-sm:[&>*]:flex-1 max-sm:[&>*]:text-[0.9375rem]", footerClassName)}>{footer}</div>
+            </div>
+          ) : null}
+          {footer && !form ? <div className={cn("border-t border-[hsl(var(--e-border))] px-5 py-3 max-sm:sticky max-sm:bottom-0 max-sm:bg-[hsl(var(--e-surface))]", footerClassName ?? "flex flex-wrap justify-end gap-2 max-sm:[&>*]:flex-1")}>{footer}</div> : null}
         </div>
       </div>
     </EstatePortal>

@@ -37,6 +37,8 @@ export function CalendarAssignDialogs({ assignJob, qaJob, cleaners, inspectors, 
         jobId={assignJob?.id ?? null}
         jobLabel={assignJob?.propertyName ?? "Job"}
         jobSubLabel={assignJob ? subLabel(assignJob) : undefined}
+        context={assignJob ? [assignJob.jobNumber, assignJob.propertyName, `${mediumDayLabel(assignJob.day)}${assignJob.startTime ? ` ${assignJob.startTime}` : ""}`].filter(Boolean).join(" · ") : undefined}
+        phoneTitle={assignJob ? `Assign · ${assignJob.propertyName}, ${mediumDayLabel(assignJob.day)}` : undefined}
         cleaners={cleaners}
         initialAssignedIds={assignJob?.cleaners.map((cleaner) => cleaner.id) ?? []}
         initialPrimaryId={assignJob?.cleaners.find((cleaner) => cleaner.isPrimary)?.id ?? null}

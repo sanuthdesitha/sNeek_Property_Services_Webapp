@@ -63,13 +63,20 @@ export function JobAssignPanel({
 }) {
   const router = useRouter();
   const [cleaners, setCleaners] = useState<AssignCleaner[]>([]);
+  const [cleanersState, setCleanersState] = useState<"loading" | "failed" | "ready">("loading");
   const [modalOpen, setModalOpen] = useState(false);
   const [resending, setResending] = useState<"email" | "sms" | null>(null);
 
   useEffect(() => {
-    fetch("/api/admin/users?role=CLEANER")
-      .then((r) => r.json().catch(() => []))
+    const controller = new AbortController();
+    fetch("/api/admin/users?role=CLEANER", { signal: controller.signal })
+      .then(async (r) => {
+        const rows: unknown = await r.json().catch(() => null);
+        if (!r.ok || !Array.isArray(rows)) throw new Error("Could not load cleaners.");
+        return rows;
+      })
       .then((rows) => {
+        if (controller.signal.aborted) return;
         const next: AssignCleaner[] = Array.isArray(rows)
           ? rows
               .map((row: any) => ({
@@ -80,8 +87,14 @@ export function JobAssignPanel({
               .filter((row: AssignCleaner) => row.id)
           : [];
         setCleaners(next);
+        setCleanersState("ready");
       })
-      .catch(() => setCleaners([]));
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setCleaners([]);
+        setCleanersState("failed");
+      });
+    return () => controller.abort();
   }, []);
 
   const assignedIds = assignments.map((a) => a.userId);
@@ -154,6 +167,8 @@ export function JobAssignPanel({
         jobLabel={jobLabel}
         jobSubLabel={jobSubLabel}
         cleaners={cleaners}
+        cleanersState={cleanersState}
+        phoneTitle={`Assign · ${jobLabel}`}
         initialAssignedIds={assignedIds}
         initialPrimaryId={primaryId}
         onAssigned={() => router.refresh()}

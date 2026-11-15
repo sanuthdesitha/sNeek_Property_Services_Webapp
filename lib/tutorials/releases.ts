@@ -24,6 +24,16 @@ export type ReleaseNote = {
 
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    release: "2026.11.16-everyday-dialogs",
+    date: "2026-11-16",
+    author: "Everyday dialogs and sheets",
+    items: [
+      { change: "One Assign window for Jobs quick assign, the bulk bar, the job page and the Calendar; leave and expired police checks or visas show in the list before saving.", covered: { tourKey: "admin.jobs", version: 2, stepIds: ["unassigned"] } },
+      { change: "Record payment window: money facts first and a plain line that nothing is sent to Xero.", noVisibleChange: "Inside the Record payment window only; the Send tour's steps and targets are unchanged." },
+      { change: "The admin rail no longer starts with only My profile while permissions load.", noVisibleChange: "Fix: the rail shows the same entries as before, without the empty first moment." },
+    ],
+  },
+  {
     release: "2026.11.16-delivery",
     date: "2026-11-16",
     author: "Delivery profiles",

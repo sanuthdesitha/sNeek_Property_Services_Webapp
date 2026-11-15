@@ -196,11 +196,11 @@ export const TOURS: readonly TourDefinition[] = [
     roles: ADMIN_OFFICE,
     route: "/v2/admin/jobs",
     title: "Jobs",
-    version: 1,
+    version: 2,
     offerWalkthrough: "admin.jobs.create",
     steps: [
       { id: "filters", target: "admin.jobs.filters", since: 1, title: "Find the right jobs", body: "Filter by day, status or cleaner. Your last filter is remembered on this device." },
-      { id: "unassigned", target: "admin.jobs.unassigned", since: 1, title: "Unassigned jobs", body: "Unassigned jobs wait here. Assign them before offers close at 6:00 pm the day before." },
+      { id: "unassigned", target: "admin.jobs.unassigned", since: 2, title: "Unassigned jobs", body: "Unassigned jobs wait here; offers close 6:00 pm the day before. Assign shows leave and expired checks before you save." },
       { id: "row", target: "admin.jobs.row", since: 1, title: "Open a job", body: "Click a job to open its full page: checklist, photos, money and history." },
       { id: "bulk", target: "admin.jobs.bulk", since: 1, title: "Several at once", body: "Tick several jobs to assign, move or message them together." },
       { id: "new", target: "admin.jobs.new", since: 1, title: "New job", body: "New job makes a one-off job. Bookings from iCal appear on their own." },
