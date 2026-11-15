@@ -42,6 +42,8 @@ describe("one-time display", () => {
     render(<BackupCodesDisplay codes={CODES} createdLabel="Tue 17 Nov 2026, 9:42 am" accountEmail="a@x.invalid" onDone={onDone} />);
     const list = screen.getByRole("list", { name: "Backup codes" });
     expect(within(list).getAllByRole("listitem").map((item) => item.textContent)).toEqual(CODES);
+    // No tour or welcome may open over the codes while they are on screen.
+    expect(list.closest("[data-tour-busy]")?.getAttribute("data-tour-busy")).toBe("backup-codes");
     expect(screen.getByText(/Each code works once/)).toBeInTheDocument();
     expect(screen.getByText(/They will not be shown again/)).toBeInTheDocument();
 

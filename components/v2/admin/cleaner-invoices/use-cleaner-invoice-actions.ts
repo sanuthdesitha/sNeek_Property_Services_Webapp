@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * Runs a cleaner-invoice action from the list or the review page: Approve and
- * Push to Xero go straight to their endpoints; everything else opens its
- * dialog. The server's refusal is shown as given.
+ * Runs a cleaner-invoice action from the list or the review page: Push to Xero
+ * goes straight to its endpoint; everything else, Approve included (tier A
+ * since 2026-11-17), opens its dialog. The server's refusal is shown as given.
  */
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -42,7 +42,8 @@ export function useCleanerInvoiceActions(onDone: () => void, reviewHref: (row: C
     (action: CleanerUiAction, row: CleanerRow) => {
       switch (action) {
         case "approve":
-          void direct(row, { url: `/api/admin/cleaner-invoices/${row.id}`, init: { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "APPROVED" }) } }, "Invoice approved", "Could not approve");
+          // Tier A since 2026-11-17: Approve asks first (it opens the invoice to Xero and payment).
+          setDialog({ kind: "approve", row });
           return;
         case "push-xero":
           void direct(row, { url: `/api/admin/cleaner-invoices/${row.id}/xero-push`, init: { method: "POST" } }, "Pushed to Xero", "Xero push failed");

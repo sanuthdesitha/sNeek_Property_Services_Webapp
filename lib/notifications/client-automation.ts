@@ -5,6 +5,7 @@ import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { renderAutomationTemplate, type AutomationValue } from "@/lib/messages/template-variables";
 
 const REVIEW_THROTTLE_MS = 3 * 24 * 60 * 60 * 1000;
 const DATABASE_URL = process.env.DATABASE_URL?.trim() || "";
@@ -28,10 +29,21 @@ function formatDate(value: Date | null | undefined) {
   }).format(new Date(value));
 }
 
-function renderTemplate(template: string, variables: Record<string, string>) {
-  return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_match, key: string) => {
-    return variables[key] ?? "";
-  });
+/**
+ * Fills a rule's template. Dotted names ({{client.firstName}},
+ * {{job.scheduledFor | date short}}) fill the same way as in the inbox; the
+ * old snake_case names ({{client_name}}) keep working as aliases
+ * (lib/messages/template-variables.ts, owner default 2026-11-17).
+ */
+function renderTemplate(template: string, variables: AutomationVariables) {
+  return renderAutomationTemplate(template, variables.dotted, variables.legacy);
+}
+
+type AutomationVariables = { legacy: Record<string, string>; dotted: Record<string, AutomationValue> };
+
+function firstAndLast(name: string | null | undefined): { first: string; last: string } {
+  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  return { first: parts[0] ?? "", last: parts.slice(1).join(" ") };
 }
 
 async function getAutomationContext(jobId: string) {
@@ -153,15 +165,38 @@ async function buildAutomationPayload(input: {
 }) {
   const feedback = await ensureFeedbackRecord(input.jobId, input.client.id);
   const feedbackUrl = resolveAppUrl(`/feedback/${feedback.token}`);
-  const variables = {
-    client_name: input.client.name || input.recipient.name || "Client",
-    property_name: input.context.property.name,
-    property_address: input.context.property.address,
-    cleaner_name: input.cleaner?.name || "Your cleaner",
-    next_clean_date: formatDate(input.context.scheduledDate),
-    job_type: formatJobType(input.context.jobType),
-    feedback_url: feedbackUrl,
-    job_number: input.context.jobNumber || "",
+  const clientName = firstAndLast(input.client.name);
+  const cleanerName = firstAndLast(input.cleaner?.name);
+  const variables: AutomationVariables = {
+    // Old names, exactly as before (aliases).
+    legacy: {
+      client_name: input.client.name || input.recipient.name || "Client",
+      property_name: input.context.property.name,
+      property_address: input.context.property.address,
+      cleaner_name: input.cleaner?.name || "Your cleaner",
+      next_clean_date: formatDate(input.context.scheduledDate),
+      job_type: formatJobType(input.context.jobType),
+      feedback_url: feedbackUrl,
+      job_number: input.context.jobNumber || "",
+    },
+    // Dotted names, filled from the same records the inbox would read.
+    dotted: {
+      "client.name": input.client.name,
+      "client.firstName": clientName.first,
+      "client.lastName": clientName.last,
+      "client.email": input.client.email,
+      "client.phone": input.client.phone,
+      "property.name": input.context.property.name,
+      "property.address": input.context.property.address,
+      "property.suburb": input.context.property.suburb,
+      "cleaner.name": input.cleaner?.name ?? null,
+      "cleaner.firstName": cleanerName.first,
+      "job.jobNumber": input.context.jobNumber,
+      "job.jobType": input.context.jobType,
+      "job.scheduledFor": input.context.scheduledDate,
+      "job.scheduledDate": input.context.scheduledDate,
+      "feedback.url": feedbackUrl,
+    },
   };
 
   const defaultSubject = (await loadNotificationWording("client.post_job")).line("rule-default-subject", "INBOX", { propertyName: input.context.property.name });

@@ -119,6 +119,9 @@ const DICTIONARY: Record<string, Entry> = {
   caseUrl: { label: "Case link", sample: "https://app.sneek.au/v2/admin/cases/1", format: "url" },
   maintenanceUrl: { label: "Repair link", sample: "https://app.sneek.au/v2/admin/maintenance/1", format: "url" },
   propertyUrl: { label: "Property link", sample: "https://app.sneek.au/admin/properties/1", format: "url" },
+  // Amenities survey link to the client (checklist.amenities_link, 2026-11-17).
+  surveyUrl: { label: "Amenities survey link", sample: "https://app.sneek.au/amenities/7Q2L", format: "url" },
+  expiresOn: { label: "Link expiry date", sample: "Sat 28 Nov 2026" },
   integrationsUrl: { label: "Integrations link", sample: "https://app.sneek.au/admin/integrations", format: "url" },
   // Job offer
   cleanerNoteParagraph: { label: "Cleaner note paragraph (empty when none)", sample: "<p><strong>Cleaner note:</strong> Can start at 11</p>", format: "html" },

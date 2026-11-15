@@ -93,7 +93,7 @@ describe("/api/admin/ai/settings", () => {
     const response = await getSettings();
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.routes).toHaveLength(8); expect(body.routing.revision).toBe(0); expect(body.encryptionReady).toBe(true);
+    expect(body.routes).toHaveLength(9); /* social_post added 2026-11-17 */ expect(body.routing.revision).toBe(0); expect(body.encryptionReady).toBe(true);
   });
   it("returns 409 with the current settings on a stale save", async () => {
     m.saveRouting.mockRejectedValue(new AiSettingsConflict({ ...DEFAULT_AI_ROUTING, revision: 4 }));

@@ -1,3 +1,4 @@
+import { footerTextToHtml } from "./theme-rules";
 import { reportDocumentStatus } from "./document-status";
 import { isDeviceException } from "@/lib/forms/device-status";
 import { withReportGeneration } from "./generation-lease";
@@ -534,9 +535,9 @@ function buildQaSummaryHtml(
 }
 
 /** Generate and store a job report HTML + PDF. */
-export async function generateJobReport(jobId: string, themeId?: string | null): Promise<void> {
-  return withReportGeneration(jobId, async ({ storageId, publish }) => {
-  const job = await db.job.findUnique({
+/** The job and everything the report reads (shared by generation and the theme preview). */
+async function loadReportJob(jobId: string) {
+  return db.job.findUnique({
     where: { id: jobId },
     include: {
       property: { include: { client: true } },
@@ -576,6 +577,12 @@ export async function generateJobReport(jobId: string, themeId?: string | null):
       },
     },
   });
+
+}
+
+export async function generateJobReport(jobId: string, themeId?: string | null): Promise<void> {
+  return withReportGeneration(jobId, async ({ storageId, publish }) => {
+  const job = await loadReportJob(jobId);
 
   if (!job) throw new Error(`Job ${jobId} not found`);
 
@@ -711,7 +718,8 @@ function buildReportHtml({ job, submission, qa, qaSubmission, localDate, setting
   const showFooter = isSectionVisible(themeRec, "footer");
   const showQaSummary = isSectionVisible(themeRec, "qa-summary");
   const renderedTitle = `${reportDocumentStatus(submission)} — ${renderTitle(themeRec, { job, property: job.property }) || `${companyName} Cleaning Report`}`;
-  const customFooter = themeRec?.footerHtml?.trim() || "";
+  // Plain text with links (owner default 2026-11-17): escaped here, so a stored tag cannot break the PDF.
+  const customFooter = footerTextToHtml(themeRec?.footerHtml);
   // Theme-selected skin. Themes without an explicit template keep their old
   // "classic" look; when NO theme exists at all we default to the modern
   // "estate" skin (which is also the seeded default theme).
@@ -987,3 +995,23 @@ ${c.footerHtml}
 </body>
 </html>`;
 }
+
+
+/**
+ * Report themes preview (board "Report themes", 2026-11-17): the report HTML
+ * for a recent job drawn with an UNSAVED theme, by the same builder that makes
+ * the PDF. Read only: no verification code is allocated, nothing is uploaded,
+ * no PDF is rendered or stored and no Report row is written.
+ */
+export async function renderReportThemePreview(jobId: string, theme: ReportThemeRecord): Promise<string | null> {
+  const job = await loadReportJob(jobId);
+  if (!job) return null;
+  const submission = job.formSubmissions[0];
+  const qa = job.qaReviews[0];
+  const qaSubmission = job.qaFormSubmissions?.[0] ?? null;
+  const localDate = format(toZonedTime(job.scheduledDate, TZ), "dd MMMM yyyy");
+  const settings = await getAppSettings();
+  return buildReportHtml({ job, submission, qa, qaSubmission, localDate, settings, theme, verification: null });
+}
+
+export type { ReportThemeRecord };

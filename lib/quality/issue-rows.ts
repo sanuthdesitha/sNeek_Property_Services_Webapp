@@ -7,6 +7,7 @@
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import { caseIdFromItemKey } from "./case-origin";
+import { fixOwedAge, type FixOwedAge } from "./fix-age";
 
 export const ISSUE_ROW_INCLUDE = {
   job: {
@@ -69,13 +70,36 @@ export type QualityIssueRow = {
   payAdjustment: IssuePayAdjustment | null;
   /** Set when the office raised this issue from a case (Cases → "Raise QA issue for cleaner"). */
   raisedFromCaseId?: string | null;
+  /**
+   * How long the fix has been owed, by the 48-hour rule (lib/quality/fix-age.ts),
+   * worked out on the server when the row was read. Null when no fix is owed.
+   * Optional: absent from older callers.
+   */
+  fixOwed?: FixOwedAge | null;
+  /** The inspection record this issue was raised in (QaAssignment id), when known. */
+  inspectionAssignmentId?: string | null;
 };
 
 function personName(person: { name: string | null; email: string } | null): string {
   return person?.name ?? person?.email ?? "";
 }
 
-export async function toIssueRows(issues: IssueWithRelations[]): Promise<QualityIssueRow[]> {
+/** QaAssignment id per QA submission, so an issue can link to its inspection record. */
+async function assignmentIdsBySubmission(issues: IssueWithRelations[]): Promise<Map<string, string>> {
+  const submissionIds = Array.from(
+    new Set(issues.map((issue) => issue.qaSubmissionId).filter((id): id is string => Boolean(id))),
+  );
+  if (submissionIds.length === 0) return new Map();
+  // A failed lookup only drops the link; the issue itself still reads.
+  const submissions = await db.qaFormSubmission
+    .findMany({ where: { id: { in: submissionIds } }, select: { id: true, assignmentId: true } })
+    .catch(() => []);
+  const map = new Map<string, string>();
+  for (const submission of submissions) if (submission.assignmentId) map.set(submission.id, submission.assignmentId);
+  return map;
+}
+
+export async function toIssueRows(issues: IssueWithRelations[], now: Date = new Date()): Promise<QualityIssueRow[]> {
   const payAdjustmentIds = Array.from(
     new Set(issues.map((issue) => issue.payAdjustmentId).filter((id): id is string => Boolean(id))),
   );
@@ -86,6 +110,7 @@ export async function toIssueRows(issues: IssueWithRelations[]): Promise<Quality
       })
     : [];
   const payMap = new Map(payAdjustments.map((pa) => [pa.id, pa]));
+  const assignmentBySubmission = await assignmentIdsBySubmission(issues);
 
   return issues.map((issue) => {
     const pa = issue.payAdjustmentId ? payMap.get(issue.payAdjustmentId) : undefined;
@@ -136,6 +161,8 @@ export async function toIssueRows(issues: IssueWithRelations[]): Promise<Quality
           : { id: issue.payAdjustmentId, status: null, requestedAmount: null, approvedAmount: null, source: null }
         : null,
       raisedFromCaseId: caseIdFromItemKey(issue.itemKey),
+      fixOwed: fixOwedAge(issue.rectificationStatus, issue.createdAt, now),
+      inspectionAssignmentId: issue.qaSubmissionId ? assignmentBySubmission.get(issue.qaSubmissionId) ?? null : null,
     };
   });
 }

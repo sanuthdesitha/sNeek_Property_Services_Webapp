@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { format } from "date-fns";
+import { applyTemplateFilter } from "./template-variables";
 
 export interface VariableContext {
   client?: { id: string };
@@ -17,12 +17,12 @@ export interface VariableContext {
  *   {{property.suburb}}
  *   {{quote.totalAmount | currency}}
  *
- * Filters: date [short|long], time, currency, upper, lower
+ * Filters: date [short|day|long], time, currency, upper, lower
  */
 export async function resolveTemplate(
   template: string,
   ctx: VariableContext,
-  options: { escapeHtml?: boolean; strictVariables?: boolean; firstNameFallback?: string } = {},
+  options: { escapeHtml?: boolean; strictVariables?: boolean; firstNameFallback?: string; /** Written where a value is empty (the editor preview: "[not filled]"). */ missingText?: string } = {},
 ): Promise<string> {
   const cache: Record<string, any> = Object.create(null);
 
@@ -99,33 +99,8 @@ export async function resolveTemplate(
     return cache[key];
   }
 
-  function applyFilter(value: any, filter: string): string {
-    const [name, ...args] = filter.split(/\s+/);
-    if (value === null || value === undefined) return "";
-    switch (name) {
-      case "date": {
-        const d = value instanceof Date ? value : new Date(value);
-        if (isNaN(d.getTime())) return "";
-        return format(d, args[0] === "short" ? "EEE d MMM" : "PPpp");
-      }
-      case "time": {
-        const d = value instanceof Date ? value : new Date(value);
-        if (isNaN(d.getTime())) return "";
-        return format(d, "h:mm a");
-      }
-      case "currency":
-        return `$${Number(value).toLocaleString("en-AU", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })}`;
-      case "upper":
-        return String(value).toUpperCase();
-      case "lower":
-        return String(value).toLowerCase();
-      default:
-        return String(value);
-    }
-  }
+  // Filters are shared with client automations (lib/messages/template-variables.ts).
+  const applyFilter = applyTemplateFilter;
 
   const tokens = Array.from(template.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g));
   const replacements = new Map<string, string>();
@@ -150,7 +125,8 @@ export async function resolveTemplate(
       : value === undefined || value === null
         ? ""
         : String(value);
-    replacements.set(match[0], options.escapeHtml ? rendered.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]!)) : rendered);
+    const shown = rendered === "" && options.missingText !== undefined ? options.missingText : rendered;
+    replacements.set(match[0], options.escapeHtml ? shown.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]!)) : shown);
   }
 
   // Only source tokens are replaced: recipient values cannot introduce a second

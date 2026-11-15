@@ -35,6 +35,8 @@ function readOnlyDb() {
     appSetting: { findUnique: m.appSetting, upsert: m.appSetting },
     qaFormTemplate: { findUnique: m.qaFind, update: m.qaUpdate, delete: m.qaDelete, create: m.qaCreate, findFirst: m.qaFirst },
     qaFormSubmission: { count: m.submissions },
+    // The QA template save locks its row before the stale-write check (2026-11-17).
+    $queryRaw: vi.fn(async () => []),
   };
 }
 

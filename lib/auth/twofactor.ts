@@ -66,9 +66,16 @@ export function signTwoFaOk(email: string): string {
 
 export function verifyTwoFaOk(cookieValue: string | undefined, email: string): boolean {
   if (!cookieValue) return false;
-  const parts = cookieValue.split(".");
-  if (parts.length !== 3) return false;
-  const [em, expStr, sig] = parts;
+  // "<email>.<expiry>.<signature>": an email has dots of its own (example.com),
+  // so read the expiry and signature from the right (2026-11-17 fix: splitting
+  // on every dot refused every real address, so two-step sign-in never passed).
+  const sigDot = cookieValue.lastIndexOf(".");
+  const expDot = sigDot > 0 ? cookieValue.lastIndexOf(".", sigDot - 1) : -1;
+  if (sigDot <= 0 || expDot <= 0) return false;
+  const em = cookieValue.slice(0, expDot);
+  const expStr = cookieValue.slice(expDot + 1, sigDot);
+  const sig = cookieValue.slice(sigDot + 1);
+  if (!/^\d+$/.test(expStr)) return false;
   const expected = createHmac("sha256", secret()).update(`${em}.${expStr}`).digest("hex");
   if (!safeEqual(sig, expected)) return false;
   if (em !== email.toLowerCase()) return false;

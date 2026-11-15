@@ -216,3 +216,75 @@ export function OpsMapLegend({ showDrivers = true }: { showDrivers?: boolean }) 
     </div>
   );
 }
+
+// ── Route stops (route map, 2026-11-17) ────────────────────────────────────
+
+/** The ink that reads on a route colour token: its paired Estate "-foreground" token. */
+export function routeInkToken(colourToken: string): string {
+  return colourToken === "--e-muted-foreground" ? "--e-surface" : `${colourToken}-foreground`;
+}
+
+export type RouteStopPinLook = {
+  /** "M1": the cleaner's letter and the stop number; "?" for a job with nobody on it. */
+  text: string;
+  /** Estate colour token of the route ("--e-info"); null for a job with nobody on it. */
+  colourToken: string | null;
+  /** The pin sits at the suburb centre (the property has no saved position): dashed ring. */
+  atSuburb: boolean;
+  selected: boolean;
+};
+
+/**
+ * A route stop pin: a 30px round badge in the route's colour carrying the
+ * cleaner's letter and the stop number (30px on phones too, so letters stay
+ * readable), or a diamond with "?" for a job with nobody on it. Same focus,
+ * shadow and selected ring as the Live ops pills. The accessible name says the
+ * whole stop, so neither colour nor shape is the only signal.
+ */
+export function RouteStopPin({ look, ariaLabel, onActivate }: { look: RouteStopPinLook; ariaLabel: string; onActivate: () => void }) {
+  const unassigned = look.colourToken === null;
+  const ring = look.selected ? "ring-2 ring-[hsl(var(--e-ring))] ring-offset-2 ring-offset-[hsl(var(--e-surface))]" : "";
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      aria-pressed={look.selected}
+      title={ariaLabel}
+      data-pin-kind={unassigned ? "route-unassigned" : "route-stop"}
+      data-pin-text={look.text}
+      onClick={onActivate}
+      className={cn("relative inline-flex h-[30px] w-[30px] cursor-pointer items-center justify-center", FOCUS, "rounded-full")}
+    >
+      {unassigned ? (
+        <span
+          aria-hidden
+          className={cn(
+            "absolute inset-[3px] rotate-45 rounded-[4px] border-2 border-[hsl(var(--e-foreground))] bg-[hsl(var(--e-surface))] shadow-[0_2px_6px_hsl(160_30%_10%/0.18)]",
+            look.atSuburb && "border-dashed",
+            ring,
+          )}
+        />
+      ) : (
+        <span
+          aria-hidden
+          className={cn(
+            "absolute inset-0 rounded-full border-2 border-[hsl(var(--e-surface))] shadow-[0_2px_6px_hsl(160_30%_10%/0.25)]",
+            look.atSuburb && "border-dashed border-[hsl(var(--e-foreground))]",
+            ring,
+          )}
+          style={{ backgroundColor: `hsl(var(${look.colourToken}))` }}
+        />
+      )}
+      <span
+        aria-hidden
+        className={cn(
+          "relative text-[11px] font-bold leading-none tracking-[-0.02em]",
+          unassigned && "text-[hsl(var(--e-foreground))]",
+        )}
+        style={unassigned ? undefined : { color: `hsl(var(${routeInkToken(look.colourToken as string)}))` }}
+      >
+        {look.text}
+      </span>
+    </button>
+  );
+}

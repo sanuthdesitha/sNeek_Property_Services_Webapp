@@ -10,7 +10,7 @@ import type { CapabilityKey } from "@/lib/rbac/capabilities";
 
 export type AgentScopeKey =
   | "jobs" | "laundry" | "cases" | "approvals" | "stock" | "properties"
-  | "people_staff" | "people_clients" | "finance" | "payroll";
+  | "people_staff" | "people_clients" | "finance" | "payroll" | "social";
 
 export type AgentScopeDefinition = {
   key: AgentScopeKey;
@@ -33,6 +33,8 @@ export const AGENT_SCOPES: readonly AgentScopeDefinition[] = [
   { key: "people_clients", label: "Client lookup", description: "Find clients by name or email.", opsArea: "clients" },
   { key: "finance", label: "Invoices", description: "Recent client invoices and their status.", opsArea: "finance", capability: "invoices.view" },
   { key: "payroll", label: "Pay requests", description: "Cleaner pay requests waiting for a decision.", opsArea: "payroll" },
+  // Social post generator (2026-11-17): off unless ticked, like every pack.
+  { key: "social", label: "Marketing photos", description: "Photos usable for social posts (only properties whose owner gave marketing permission) as cleaned copies, their scores and recent social posts. Never addresses, clients, cleaners, originals or tokens.", opsArea: "marketing" },
 ];
 
 export const AGENT_SCOPE_KEYS: readonly AgentScopeKey[] = AGENT_SCOPES.map((scope) => scope.key);

@@ -11,7 +11,6 @@ import { FormsTabNav } from "@/components/v2/admin/forms/library/forms-tab-nav";
 import { FORMS_TAB_LABEL } from "@/components/v2/admin/forms/library/forms-tab-labels";
 import { JobFormsLibrary } from "@/components/v2/admin/forms/library/job-forms-library";
 import { FormsHeaderActions } from "@/components/v2/admin/forms/library/forms-header-actions";
-import { ValidationEnforcementCard } from "@/components/v2/admin/forms/library/validation-enforcement-card";
 import { getAppSettings } from "@/lib/settings";
 import { FormStatsPanel } from "@/components/v2/admin/forms/library/form-stats-panel";
 import { ChecklistBlocksTab, MessageTemplatesTab, ResultsViewChips } from "@/components/v2/admin/forms/library/forms-subviews";
@@ -35,7 +34,7 @@ export const dynamic = "force-dynamic";
  */
 const TAB_ORDER: FormsLibraryTab[] = ["forms", "qa", "blocks", "messages", "stats"];
 
-type SearchParams = Record<string, string | string[] | undefined> & { tab?: string; view?: string; templateId?: string; weeks?: string };
+type SearchParams = Record<string, string | string[] | undefined> & { tab?: string; view?: string; templateId?: string; weeks?: string; qsort?: string; qall?: string };
 
 function firstParam(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -62,7 +61,9 @@ export default async function EstateFormsPage({ searchParams }: { searchParams: 
       ? requested.tab
       : null
     : (allowed[0] ?? null);
-  const counts = await getFormsTabCounts({ forms: allowed.includes("forms"), qa: allowed.includes("qa") });
+  const counts = await getFormsTabCounts({ forms: allowed.includes("forms"), qa: allowed.includes("qa"), messages: tab === "messages" });
+  // Message templates: operations managers write only with the communications pack at Manage (the API refuses otherwise).
+  const canWriteMessages = !levels || canUseOpsPath(levels, "/api/admin/message-templates", "POST");
 
   return (
     <div className="space-y-5">
@@ -85,25 +86,30 @@ export default async function EstateFormsPage({ searchParams }: { searchParams: 
         ) : null}
         {tab === "forms" ? <JobFormsLibrary canWrite={canWrite} /> : null}
         {tab === "qa" ? (
-          <div className="space-y-4">
-            <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-              Inspection scoring forms per job type, with optional per-property overrides.
-            </p>
-            <QaTemplatesManager canWrite={canWrite} />
-          </div>
+          <QaTemplatesManager canWrite={canWrite} />
         ) : null}
         {tab === "blocks" ? <ChecklistBlocksTab view={requested.legacyChecklists || searchParams?.view === "service" ? "service" : "library"} /> : null}
-        {tab === "messages" ? <MessageTemplatesTab view={searchParams?.view === "messages" ? "messages" : "notifications"} /> : null}
+        {tab === "messages" ? <MessageTemplatesTab view={searchParams?.view === "messages" ? "messages" : "notifications"} canWrite={canWriteMessages} messageCount={counts.messages} /> : null}
         {tab === "stats" ? (
           <div className="space-y-4">
-            <ResultsViewChips view={searchParams?.view === "submissions" ? "submissions" : "stats"} />
             {searchParams?.view === "submissions" ? (
-              <SubmissionsView initial={readSubmissionsView(searchString(searchParams))} canWrite={canWrite} />
-            ) : (
               <>
-                <ValidationEnforcementCard canWrite={canWrite} timezone={(await getAppSettings()).timezone || "Australia/Sydney"} />
-                <FormStatsPanel searchParams={{ templateId: firstParam(searchParams?.templateId), weeks: firstParam(searchParams?.weeks) }} />
+                <ResultsViewChips view="submissions" />
+                <SubmissionsView initial={readSubmissionsView(searchString(searchParams))} canWrite={canWrite} />
               </>
+            ) : (
+              // The one checks switch sits beside the weekly chart inside the panel.
+              <FormStatsPanel
+                leading={<ResultsViewChips view="stats" />}
+                canWrite={canWrite}
+                timezone={(await getAppSettings()).timezone || "Australia/Sydney"}
+                searchParams={{
+                  templateId: firstParam(searchParams?.templateId),
+                  weeks: firstParam(searchParams?.weeks),
+                  qsort: firstParam(searchParams?.qsort),
+                  qall: firstParam(searchParams?.qall),
+                }}
+              />
             )}
           </div>
         ) : null}

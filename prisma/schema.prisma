@@ -6174,6 +6174,8 @@ model SocialPostGroup {
   reviewedById         String?
   plannedFor           DateTime?
   plannedById          String?
+  /// "4:5" | "1:1" | "1.91:1": every photo is cropped to this shape.
+  ratio                String    @default("4:5")
   /// Before/after layout: SIDE | STACK | SLIDES
   splitLayout          String?
   frameKey             String?

@@ -10,7 +10,7 @@ import * as React from "react";
 import { MarketingCampaignsManager } from "@/components/v2/admin/marketing/campaigns-manager";
 import { EmailCampaignsManager } from "@/components/v2/admin/marketing/email-campaigns-manager";
 import { TemplateGallery } from "@/components/v2/admin/marketing/template-gallery";
-import { SocialManager } from "@/components/v2/admin/marketing/social-manager";
+import { SocialTab, type SocialGroupRow } from "@/components/v2/admin/marketing/social/social-tab";
 import { AssetLibrary } from "@/components/v2/admin/marketing/asset-library";
 import { useEstateToast, EToastViewport } from "@/components/v2/admin/marketing/toast";
 import type { BrandChrome } from "@/components/v2/admin/marketing/email-block-editor";
@@ -44,6 +44,7 @@ export function MarketingHub({
   plans,
   emailCampaigns,
   socialPosts,
+  socialGroups = null,
   assets,
   brand,
   timeZone,
@@ -53,6 +54,8 @@ export function MarketingHub({
   /** null: the campaigns could not be loaded (never shown as "no campaigns"). */
   emailCampaigns: EmailCampaignRow[] | null;
   socialPosts: SocialPostRow[] | null;
+  /** Posts made from jobs (social post generator); null when they could not be loaded. */
+  socialGroups?: SocialGroupRow[] | null;
   assets: LibraryAssetRow[] | null;
   brand: BrandChrome;
   timeZone: string;
@@ -73,7 +76,7 @@ export function MarketingHub({
 
   const counts: Partial<Record<MarketingTab, number | null>> = {
     email: emailCampaigns ? emailCampaigns.length : null,
-    social: socialPosts ? socialPosts.filter((post) => post.status !== "CANCELLED").length : null,
+    social: socialPosts ? socialPosts.filter((post) => post.status !== "CANCELLED").length + (socialGroups?.length ?? 0) : null,
   };
 
   return (
@@ -122,7 +125,7 @@ export function MarketingHub({
             <LoadFailed what="Discount codes and plans" />
           )
         ) : null}
-        {tab === "social" ? socialPosts ? <SocialManager initialPosts={socialPosts} onToast={push} timeZone={timeZone} /> : <LoadFailed what="Social posts" /> : null}
+        {tab === "social" ? socialPosts ? <SocialTab initialPosts={socialPosts} initialGroups={socialGroups} onToast={push} timeZone={timeZone} /> : <LoadFailed what="Social posts" /> : null}
         {tab === "templates" ? (
           <TemplateGallery
             brand={brand}

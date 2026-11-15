@@ -58,6 +58,11 @@ const patchSchema = z.object({
   cleanerReimbursementPaidAt: z.string().optional().nullable(),
   reimbursementNote: z.string().max(1000).optional().nullable(),
   shoppingTime: shoppingTimeSchema.optional(),
+  /**
+   * Approving a claimed reimbursement with no receipt on the run: the typed
+   * reason that overrides the receipt rule (kept in the audit row).
+   */
+  approvalOverrideNote: z.string().max(1000).optional().nullable(),
 });
 
 export async function GET(
@@ -137,9 +142,18 @@ export async function PATCH(
             paidAt: body.shoppingTime.paidAt ?? undefined,
           }
         : undefined,
+      // The approver is the actual signed-in person, never the tested account.
+      reimbursementApproval: {
+        actorId: session.impersonation?.actorId ?? session.user.id,
+        overrideNote: body.approvalOverrideNote ?? null,
+      },
     });
     return NextResponse.json(saved);
   } catch (err: any) {
+    // The reimbursement approval rule (lib/inventory/shopping-reimbursement-approval.ts).
+    if (err?.name === "ShoppingReimbursementRefusal" && typeof err.code === "string") {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
     const status =
       err.message === "UNAUTHORIZED"
         ? 401

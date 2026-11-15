@@ -1,148 +1,260 @@
 "use client";
 
 /**
- * Read-only sections of the cleaner invoice review page: lines from the
- * submitted snapshot, the change note, the payment record and claim (with the
- * proof thumbnails), the submitted-vs-expected comparison and the history.
- * Moved from the old "View lines" modal and extended.
+ * Read-only sections of the cleaner invoice review page (board "Cleaner
+ * invoice", 2026-11-17): the pay-rule band, the lines as submitted with rate
+ * snapshots, the status notice, the submitted-against-expected comparison, the
+ * Xero card and the history. Every amount is the stored one; a missing figure
+ * is written in words, never shown as zero.
  */
-import { formatInTimeZone } from "date-fns-tz";
-import { ECard, EEyebrow } from "@/components/v2/ui/primitives";
-import { ETableShell } from "@/components/v2/admin/estate-kit";
+import * as React from "react";
+import Link from "next/link";
+import { cn } from "@/lib/utils";
+import { EToneCard, EToneNotice } from "@/components/v2/ui/tone-band";
 import { EvidenceThumbs } from "@/components/v2/shared/evidence-thumbs";
 import type { CleanerInvoiceReview } from "@/lib/cleaner/invoice-review";
 import { SubmissionBlock } from "../expected-invoice-cards";
-import { CLEANER_PAY_METHOD_LABEL, fmtDay, fmtStamp, money, type CleanerRow } from "../cleaner-invoice-model";
+import { CLEANER_PAY_METHOD_LABEL, fmtDay, type CleanerRow } from "../cleaner-invoice-model";
+import { aud, audOr, plural, stamp } from "../../pay-records/format";
+import { HistoryList, MUTED, RailCard, SMALL } from "../../pay-records/record-parts";
 
-const MUTED = "text-[0.75rem] text-[hsl(var(--e-muted-foreground))]";
+const FIRST_LINES = 8;
 
-type LineRow = { label?: string; description?: string; hours?: number; rate?: number; amount?: number; unitAmount?: number; quantity?: number; jobNumber?: string };
-
-function linesOf(lineData: unknown): LineRow[] {
-  const data = lineData as { lines?: unknown } | unknown[] | null;
-  if (Array.isArray(data)) return data as LineRow[];
-  return Array.isArray((data as { lines?: unknown } | null)?.lines) ? ((data as { lines: LineRow[] }).lines) : [];
+function firstName(row: CleanerRow): string {
+  return row.cleanerName.split(" ")[0] || row.cleanerName;
 }
 
-export function LinesCard({ row }: { row: CleanerRow }) {
-  const lines = linesOf(row.lineData);
+/** The owner's pay rule (2026-11-13), written whenever the invoice holds a pay request. */
+export function PayRuleBand({ review }: { review: CleanerInvoiceReview }) {
+  const { payRequests, row } = review;
+  if ("error" in payRequests) {
+    return <p role="alert" className={cn(SMALL, "text-[hsl(var(--e-danger))]")}>The pay requests on this invoice could not be read: {payRequests.error}</p>;
+  }
+  if (!payRequests.length) return null;
+  const name = firstName(row);
   return (
-    <ECard className="space-y-3 px-4 py-3.5">
-      <EEyebrow>Lines as submitted</EEyebrow>
-      {lines.length ? (
-        <ETableShell headers={[{ label: "Description" }, { label: "Hours" }, { label: "Rate" }, { label: "Amount", align: "right" }]}>
-          {lines.map((line, index) => (
-            <tr key={index} className="border-t border-[hsl(var(--e-border))]">
-              <td className="px-4 py-2 text-[0.8125rem]">{line.description ?? line.label ?? line.jobNumber ?? "Line"}</td>
-              <td className="px-4 py-2 text-[0.8125rem]">{line.hours != null ? Number(line.hours).toFixed(2) : "—"}</td>
-              <td className="px-4 py-2 text-[0.8125rem]">{line.rate != null ? money(line.rate) : "—"}</td>
-              <td className="px-4 py-2 text-right text-[0.8125rem]">
-                {line.amount != null ? money(line.amount) : line.unitAmount != null ? money(line.unitAmount * (line.quantity ?? 1)) : "—"}
-              </td>
-            </tr>
-          ))}
-          <tr className="border-t-2 border-[hsl(var(--e-border-strong))]">
-            <td colSpan={3} className="px-4 py-2 text-[0.8125rem] font-[600]">Total (stored)</td>
-            <td className="px-4 py-2 text-right text-[0.8125rem] font-[600]">{money(row.totalAmount)}</td>
-          </tr>
-        </ETableShell>
-      ) : (
-        <p className={MUTED}>No line snapshot stored for this submission. Total {money(row.totalAmount)}.</p>
-      )}
-    </ECard>
+    <EToneCard
+      tone="info"
+      aria-label="Pay rule"
+      header={
+        <div>
+          <b>{name} is paid what they asked for</b>
+          <p className="text-[0.75rem] opacity-90">Owner rule, 13 Nov: when a pay request was sent to the client at a different rate, the client&apos;s amount never changes the payee&apos;s pay.</p>
+        </div>
+      }
+      pill={plural(payRequests.length, "pay request")}
+    >
+      <ul className="space-y-1">
+        {payRequests.map((request) => (
+          <li key={request.id} className={SMALL}>
+            {request.jobNumber ? `${request.jobNumber} ` : ""}{request.title}:{" "}
+            <b>{name} asked {audOr(request.requestedAmount, "an amount that is not stored")}, paid {audOr(request.paidAmount, "an amount that is not stored")}.</b>
+            {request.clientCharge ? (
+              <span className={MUTED}> {request.clientCharge.label}, read only, billed on the client&apos;s invoice and not paid to {name}.</span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </EToneCard>
   );
 }
 
-export function NotesCard({ row }: { row: CleanerRow }) {
-  const blocks: React.ReactNode[] = [];
-  if (row.status === "CHANGES_REQUESTED") {
-    blocks.push(
-      <div key="changes" className="rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.45)] bg-[hsl(var(--e-warning)/0.08)] p-3 text-[0.8125rem]">
-        <p className="mb-1 font-medium text-[hsl(var(--e-warning))]">Sent back for changes <span className="ml-2 font-normal text-[hsl(var(--e-muted-foreground))]">{fmtStamp(row.changesRequestedAt)}</span></p>
-        <p className="whitespace-pre-wrap text-[hsl(var(--e-text-secondary))]">{row.changesRequestedNote || "No reason recorded."}</p>
-        <p className={`mt-1.5 ${MUTED}`}>Everything on it was released, so the payee can rebuild the invoice for this period and resend it as a new submission.</p>
-      </div>,
+export function LinesCard({ review }: { review: CleanerInvoiceReview }) {
+  const { lines, row } = review;
+  const [showAll, setShowAll] = React.useState(false);
+  if ("error" in lines) {
+    return (
+      <section aria-label="Lines as submitted" className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-4 py-3.5">
+        <h2 className="text-[0.9375rem] font-[600]">Lines as submitted</h2>
+        <p role="alert" className={cn(SMALL, "text-[hsl(var(--e-danger))]")}>The lines could not be read: {lines.error}. Total (stored) {aud(row.totalAmount)}.</p>
+      </section>
     );
   }
-  if (row.status === "PAID") {
-    blocks.push(
-      <div key="paid" className="rounded-[var(--e-radius)] border border-[hsl(var(--e-success)/0.35)] bg-[hsl(var(--e-success)/0.06)] p-3 text-[0.8125rem]">
-        <p className="mb-1 font-medium text-[hsl(var(--e-success))]">Payment recorded</p>
-        <div className="flex flex-wrap gap-4">
-          <span>Amount paid: {money(row.paidAmount ?? row.totalAmount)}</span>
-          {row.paymentMethod ? <span>Method: {CLEANER_PAY_METHOD_LABEL[row.paymentMethod] ?? row.paymentMethod}</span> : null}
-          {row.paidBankAccount ? <span>Bank account: {row.paidBankAccount}</span> : null}
-          {row.paidDate ? <span>Paid on: {fmtDay(row.paidDate)}</span> : null}
-          {row.paidAt ? <span>Recorded: {fmtStamp(row.paidAt)}</span> : null}
-        </div>
-        {row.paidNote ? <p className={`mt-1.5 ${MUTED}`}>Comments: {row.paidNote}</p> : null}
-      </div>,
-    );
+  const visible = showAll ? lines : lines.slice(0, FIRST_LINES);
+  return (
+    <section aria-labelledby="ci-lines" className="min-w-0 overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 px-4 pb-2 pt-3.5">
+        <h2 id="ci-lines" className="text-[0.9375rem] font-[600]">Lines as submitted</h2>
+        <p className={cn("text-[0.75rem]", MUTED)}>The snapshot {firstName(row)} sent. Nothing here is edited; a wrong line is sent back with Request changes.</p>
+      </div>
+      {lines.length ? (
+        <>
+          <div className="overflow-x-auto max-sm:hidden" role="region" aria-label="Invoice lines" tabIndex={0}>
+            <table className="w-full min-w-[40rem] text-[0.875rem]">
+              <thead className="bg-[hsl(var(--e-surface-raised))] text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                <tr>
+                  <th scope="col" className="px-3 py-2 text-left font-[500]">Line</th>
+                  <th scope="col" className="px-3 py-2 text-right font-[500]">Hours</th>
+                  <th scope="col" className="px-3 py-2 text-right font-[500]">Rate snapshot</th>
+                  <th scope="col" className="px-3 py-2 text-right font-[500]">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((line) => (
+                  <tr key={line.index} className="border-t border-[hsl(var(--e-border))]">
+                    <td className="px-3 py-2">
+                      {line.jobId ? <Link href={`/v2/admin/jobs/${line.jobId}`} className="underline underline-offset-2">{line.jobNumber ?? "Job"}</Link> : null}
+                      {line.jobId ? " · " : null}
+                      {line.description}
+                    </td>
+                    <td className={cn("e-tnum px-3 py-2 text-right", line.hours === null && MUTED)}>{line.hours === null ? "–" : line.hours.toFixed(2)}</td>
+                    <td className={cn("e-tnum px-3 py-2 text-right", line.rateSnapshot === null && MUTED)}>{line.rateSnapshot === null ? "–" : `${aud(line.rateSnapshot)}/h`}</td>
+                    <td className={cn("e-tnum px-3 py-2 text-right", line.amount === null && MUTED)}>{line.amount === null ? "–" : aud(line.amount)}</td>
+                  </tr>
+                ))}
+                {lines.length > FIRST_LINES ? (
+                  <tr className="border-t border-[hsl(var(--e-border))]">
+                    <td colSpan={4} className={cn("px-3 py-2", SMALL, MUTED)}>
+                      <button type="button" className="underline underline-offset-2" onClick={() => setShowAll((value) => !value)}>
+                        {showAll ? "Show fewer lines" : `${lines.length - FIRST_LINES} more lines · Show all ${lines.length}`}
+                      </button>
+                    </td>
+                  </tr>
+                ) : null}
+                <tr className="border-t-2 border-[hsl(var(--e-border-strong))]">
+                  <td colSpan={3} className="px-3 py-2 font-[600]">Total (stored) <span className={cn("font-normal", SMALL, MUTED)}>· as stored on the submission</span></td>
+                  <td className="e-tnum px-3 py-2 text-right font-[600]">{aud(row.totalAmount)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <ul className="divide-y divide-[hsl(var(--e-border))] border-t border-[hsl(var(--e-border))] px-4 sm:hidden" aria-label="Invoice lines">
+            {visible.map((line) => (
+              <li key={line.index} className={cn("flex justify-between gap-3 py-2", SMALL)}>
+                <span className="min-w-0 break-words">{line.jobNumber ? `${line.jobNumber} ` : ""}{line.description}{line.hours !== null ? ` · ${line.hours.toFixed(2)} h` : ""}</span>
+                <b className="e-tnum shrink-0">{line.amount === null ? "–" : aud(line.amount)}</b>
+              </li>
+            ))}
+            {lines.length > FIRST_LINES ? (
+              <li className={cn("flex justify-between py-2", SMALL)}>
+                <span className={MUTED}>{showAll ? "All lines shown" : `${lines.length - FIRST_LINES} more lines`}</span>
+                <button type="button" className="underline underline-offset-2" onClick={() => setShowAll((value) => !value)}>{showAll ? "Show fewer" : "Show all"}</button>
+              </li>
+            ) : null}
+            <li className={cn("flex justify-between py-2 font-[600]", SMALL)}><span>Total (stored)</span><span className="e-tnum">{aud(row.totalAmount)}</span></li>
+          </ul>
+        </>
+      ) : (
+        <p className={cn("px-4 pb-3", SMALL, MUTED)}>No line snapshot stored for this submission. Total (stored) {aud(row.totalAmount)}.</p>
+      )}
+      <p className={cn("border-t border-[hsl(var(--e-border))] px-4 py-2 text-[0.75rem]", MUTED)}>
+        A line with no hours or rate says &quot;–&quot;, never 0. Rates are the assignment snapshots; a rate change made later never alters a submitted invoice.
+      </p>
+    </section>
+  );
+}
+
+/** What the status means now, in a tone band (no left line). */
+export function StatusNotice({ review }: { review: CleanerInvoiceReview }) {
+  const { row } = review;
+  const name = firstName(row);
+  switch (row.status) {
+    case "XERO_EXPORTING":
+      return <EToneNotice tone="attention" title="Xero export pending">The push did not finish. Nothing is paid. Retry, or record a payment if you paid outside Xero.</EToneNotice>;
+    case "SENDING":
+      return <EToneNotice tone="problem" title="Delivery review: send interrupted">Money reserved. Review delivery: confirmed received (keep) or not delivered (reverse and release), each with the evidence written.</EToneNotice>;
+    case "CHANGES_REQUESTED":
+      return (
+        <EToneNotice tone="attention" title={`Sent back for changes ${row.changesRequestedAt ? `· ${stamp(row.changesRequestedAt, review.timezone)}` : ""}`}>
+          <p className="whitespace-pre-wrap">{row.changesRequestedNote || "No reason recorded."}</p>
+          <p className="mt-1">Everything on it was released, so {name} can rebuild and resend it as a new submission.</p>
+        </EToneNotice>
+      );
+    case "PAID":
+      return (
+        <EToneNotice tone="good" title="Paid">
+          Amount paid {aud(row.paidAmount ?? row.totalAmount)}
+          {row.paymentMethod ? ` · ${CLEANER_PAY_METHOD_LABEL[row.paymentMethod] ?? row.paymentMethod}` : ""}
+          {row.paidBankAccount ? ` · to ${row.paidBankAccount}` : ""}
+          {row.paidDate ? ` · paid ${fmtDay(row.paidDate)}` : ""}
+          {review.paymentRecordedBy ? ` · recorded by ${review.paymentRecordedBy}` : ""}. Nothing can change.
+          {row.paidNote ? <span className="mt-1 block">Comments: {row.paidNote}</span> : null}
+        </EToneNotice>
+      );
+    default:
+      break;
   }
   if (row.paidClaimedAt) {
-    blocks.push(
-      <div key="claim" className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3 text-[0.8125rem]">
-        <p className="mb-1 font-medium">Payee claimed payment <span className="ml-2 font-normal text-[hsl(var(--e-muted-foreground))]">{fmtStamp(row.paidClaimedAt)}</span></p>
-        {row.paidClaimedNote ? <p className="mb-2 text-[hsl(var(--e-muted-foreground))]">“{row.paidClaimedNote}”</p> : null}
+    return (
+      <EToneCard tone="attention" header={<b>Payment claimed {stamp(row.paidClaimedAt, review.timezone)}</b>} pill={`${name} says paid`}>
+        {row.paidClaimedNote ? <p className={cn("mb-2", SMALL)}>&ldquo;{row.paidClaimedNote}&rdquo;</p> : null}
         {row.paidClaimedProofUrls.length ? (
-          <>
-            <p className={`mb-1.5 ${MUTED}`}>Proof attached ({row.paidClaimedProofUrls.length})</p>
-            <EvidenceThumbs items={row.paidClaimedProofUrls} alt="Payment proof" docLabel="Open receipt" />
-          </>
+          <EvidenceThumbs items={row.paidClaimedProofUrls} alt="Payment proof" docLabel="Open receipt" />
         ) : (
-          <p className={MUTED}>No proof attached.</p>
+          <p className={cn(SMALL, MUTED)}>No proof attached.</p>
         )}
-      </div>,
+        {row.status === "PAID_CLAIMED" ? <p className={cn("mt-2 text-[0.75rem]", MUTED)}>Record payment confirms it. Reject payment claim returns it and keeps the claim and proof on record.</p> : null}
+      </EToneCard>
     );
   }
-  if (!blocks.length) return null;
-  return <section aria-label="Notes and payment" className="space-y-2.5">{blocks}</section>;
+  return null;
 }
 
-export function ComparisonCard({ comparison }: { comparison: CleanerInvoiceReview["comparison"] }) {
+export function ComparisonCard({ review }: { review: CleanerInvoiceReview }) {
+  const { comparison, row } = review;
   return (
-    <ECard className="space-y-2.5 px-4 py-3.5">
-      <EEyebrow>Submitted vs expected</EEyebrow>
-      {comparison.status === "not-applicable" ? <p className={MUTED}>{comparison.reason}</p> : null}
-      {comparison.status === "error" ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">The comparison could not be computed: {comparison.message}</p> : null}
+    <RailCard title="Submitted against expected">
+      {comparison.status === "not-applicable" ? <p className={cn(SMALL, MUTED)}>{comparison.reason}</p> : null}
+      {comparison.status === "error" ? <p role="alert" className={cn(SMALL, "text-[hsl(var(--e-danger))]")}>The comparison could not be computed: {comparison.message}</p> : null}
       {comparison.status === "ready" ? (
-        comparison.expected ? (
-          <>
-            <p className="text-[0.8125rem]">
-              Current forecast for this payee, {fmtDay(`${comparison.start}T12:00:00Z`)} – {fmtDay(`${comparison.end}T12:00:00Z`)}:{" "}
-              <span className="e-tnum font-[600]">{money(comparison.expected.expectedTotal)}</span> ({comparison.expected.jobCount} jobs)
-              {comparison.expected.rateMissingCount ? `, ${comparison.expected.rateMissingCount} with no rate (understated)` : ""}.
-            </p>
-            <SubmissionBlock submission={comparison.expected.submission} />
-            <p className={MUTED}>The forecast is today&apos;s unpaid work for the period, not a snapshot of what was submitted.</p>
-          </>
-        ) : (
-          <p className={MUTED}>Nothing unpaid is forecast for this payee in this period.</p>
-        )
+        <>
+          <dl className={cn("grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-2 gap-y-1", SMALL)}>
+            <dt className={MUTED}>This invoice</dt>
+            <dd><b className="e-tnum">{aud(row.totalAmount)}</b> · {plural(row.jobCount, "job")}</dd>
+            <dt className={MUTED}>Forecast now</dt>
+            <dd>{comparison.expected ? <><b className="e-tnum">{aud(comparison.expected.expectedTotal)}</b> · {plural(comparison.expected.jobCount, "job")}</> : "Nothing unpaid is forecast"}</dd>
+            {comparison.expected?.rateMissingCount ? (
+              <>
+                <dt className={MUTED}>No rate</dt>
+                <dd>{plural(comparison.expected.rateMissingCount, "job")}, so the forecast is understated</dd>
+              </>
+            ) : null}
+          </dl>
+          {comparison.expected ? <SubmissionBlock submission={comparison.expected.submission} /> : null}
+          <p className={cn("text-[0.75rem]", MUTED)}>The forecast is today&apos;s unpaid work for this payee in the period, not a copy of what was sent. Nothing is added to the invoice automatically; the next invoice picks up anything missing.</p>
+        </>
       ) : null}
-    </ECard>
+    </RailCard>
   );
 }
 
-export function HistoryCard({ history }: { history: CleanerInvoiceReview["history"] }) {
+function connectionLine(xero: Exclude<CleanerInvoiceReview["xero"], { error: string }>, timezone: string): string {
+  const connection = xero.connection;
+  if (connection.status === "connected") return `Xero is connected (${connection.tenantName}${connection.lastRefreshedAt ? `, renewed ${stamp(connection.lastRefreshedAt, timezone)}` : ""}).`;
+  if (connection.status === "attention") return `Xero needs attention: ${connection.reason ?? "check Settings, Xero"}.`;
+  if (connection.status === "not-connected") return "Xero is not connected, so a push would fail until it is connected in Settings.";
+  return `The Xero connection could not be read: ${connection.message}`;
+}
+
+export function XeroCard({ review }: { review: CleanerInvoiceReview }) {
+  const { xero, row } = review;
   return (
-    <ECard className="space-y-2.5 px-4 py-3.5">
-      <EEyebrow>History</EEyebrow>
-      {"error" in history ? (
-        <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">History could not be read: {history.error}</p>
-      ) : history.length ? (
-        <ul className="space-y-1.5">
-          {history.map((entry) => (
-            <li key={entry.id} className="text-[0.8125rem]">
-              <span className="e-tnum text-[hsl(var(--e-muted-foreground))]">{formatInTimeZone(new Date(entry.at), "Australia/Sydney", "d MMM yyyy, HH:mm")}</span>{" "}
-              <span className="break-words">{entry.label}</span>
-              {entry.actor ? <span className="text-[hsl(var(--e-muted-foreground))]"> by {entry.actor}</span> : null}
-            </li>
-          ))}
-        </ul>
+    <RailCard title="Xero">
+      {"error" in xero ? (
+        <p role="alert" className={cn(SMALL, "text-[hsl(var(--e-danger))]")}>The Xero state could not be read: {xero.error}</p>
       ) : (
-        <p className={MUTED}>Nothing recorded yet.</p>
+        <>
+          {xero.state === "pushed" ? (
+            <p className={SMALL}><b>In Xero</b> as draft bill {xero.billId?.slice(0, 8)}…{xero.exportedAt ? `, pushed ${stamp(xero.exportedAt, review.timezone)}` : ""}. It can be paid but not reversed or deleted here; void it in Xero first.</p>
+          ) : xero.state === "pending" ? (
+            <EToneNotice tone="attention" title="The push did not finish">
+              Its money stays reserved. {xero.lastFailure ? `Last attempt ${stamp(xero.lastFailure.at, review.timezone)}: ${xero.lastFailure.reason}` : "No reason was recorded."} Retry push, or record a payment if it was paid outside Xero.
+            </EToneNotice>
+          ) : (
+            <p className={SMALL}><b>Not in Xero.</b> {row.status === "SUBMITTED" ? `After approval, "Push to Xero" creates a draft bill for ${firstName(row)}.` : row.status === "APPROVED" ? `"Push to Xero" creates a draft bill for ${firstName(row)}.` : "Nothing is sent to Xero from this state."}</p>
+          )}
+          <p className={cn("text-[0.75rem]", MUTED)}>{connectionLine(xero, review.timezone)}</p>
+        </>
       )}
-    </ECard>
+    </RailCard>
+  );
+}
+
+export function HistoryCard({ review }: { review: CleanerInvoiceReview }) {
+  return (
+    <RailCard title="History">
+      <HistoryList entries={review.history} timezone={review.timezone} />
+      <p className={cn("text-[0.75rem]", MUTED)}>Times in {review.timezone.replace(/_/g, " ")}. Up to 50 entries from the audit log.</p>
+    </RailCard>
   );
 }

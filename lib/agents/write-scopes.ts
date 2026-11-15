@@ -15,7 +15,7 @@
 import type { OpsFeature } from "@/lib/rbac/ops-catalog";
 import type { CapabilityKey } from "@/lib/rbac/capabilities";
 
-export type AgentWriteScopeKey = "jobs_reschedule" | "cases_write" | "stock_acknowledge";
+export type AgentWriteScopeKey = "jobs_reschedule" | "cases_write" | "stock_acknowledge" | "social_drafts";
 
 export type AgentWriteScopeDefinition = {
   key: AgentWriteScopeKey;
@@ -46,6 +46,12 @@ export const AGENT_WRITE_SCOPES: readonly AgentWriteScopeDefinition[] = [
     description: "Ask to mark an urgent stock need as acknowledged. It places no order and proves no delivery.",
     opsAreas: ["inventory"],
     capability: "inventory.urgent_stock_act",
+  },
+  {
+    key: "social_drafts",
+    label: "Ask to create social drafts",
+    description: "Ask to create a social post DRAFT from eligible photos, with captions and alt text. A person approves it into the drafts list; it is never posted or planned by the agent.",
+    opsAreas: ["marketing"],
   },
 ];
 

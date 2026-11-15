@@ -1,539 +1,290 @@
 "use client";
 
-import { useRestorableState } from "@/hooks/use-restorable-state";
-
 /**
- * Estate message-template designer — manages the standalone marketing / lifecycle
- * message templates (MessageTemplate model) via /api/admin/message-templates and
- * /api/admin/message-templates/[id]. Separate set from the notification templates.
+ * Forms › Message templates › Message templates (board "Message templates",
+ * 2026-11-17). The list is grouped by the category each template already
+ * stores, with its channel and where it is used on every row; the editor sits
+ * beside it (below it under 1024px; on a phone it replaces the list with a
+ * back button). Same endpoints as before:
  *
- * Body shape matches the v1 endpoints exactly:
- *   POST  { name, triggerType, jobType, channel, subject, body, isActive }
- *   PATCH { ...same, all optional }
- *   DELETE by id
+ *   GET    /api/admin/message-templates          → MessageTemplate[]
+ *   GET    /api/admin/message-templates/usage    → { usage }  (automations, campaigns)
+ *   POST   /api/admin/message-templates          { name, triggerType, jobType, channel, category, subject, body, isActive }
+ *   PATCH  /api/admin/message-templates/[id]     { …, expectedUpdatedAt } (409 when someone saved since)
+ *   DELETE /api/admin/message-templates/[id]
+ *
+ * Unsaved changes are kept when another template is clicked, after a tier A
+ * question. Loading, could not load and none yet are separate states; a failed
+ * read never shows an empty list.
  */
-
 import * as React from "react";
-import { Loader2, Plus, Search, Save, Trash2, MessageSquare } from "lucide-react";
-import { EBadge, EButton, EEmptyState } from "@/components/v2/ui/primitives";
+import { Plus, Search } from "lucide-react";
+import { useRestorableState } from "@/hooks/use-restorable-state";
+import { EButton, ECard } from "@/components/v2/ui/primitives";
+import { EPill } from "@/components/v2/ui/pill";
+import { EConfirmDialog } from "@/components/v2/ui/confirm-dialog";
+import { EInput } from "@/components/v2/admin/estate-kit";
+import { cn } from "@/lib/utils";
+import { MessageTemplateEditor } from "./message-template-editor";
 import {
-  EConfirmModal,
-  EField,
-  EInput,
-  EModal,
-  ESelect,
-  ESwitch,
-  ETableShell,
-  ETextarea,
-} from "@/components/v2/admin/estate-kit";
-import { VariableChips } from "@/components/v2/admin/templates/estate-email-designer";
+  EMPTY_DRAFT,
+  FIRST_CATEGORIES,
+  draftOf,
+  groupByCategory,
+  isMessageTemplateRecord,
+  matchesFilter,
+  sameDraft,
+  usageSummary,
+  type ListFilter,
+  type MessageTemplateDraft,
+  type MessageTemplateRecord,
+  type TemplateUsage,
+} from "./message-template-model";
 
-type MessageTemplate = {
-  id: string;
-  name: string;
-  triggerType: "POST_JOB" | "REVIEW_REQUEST" | "DISCOUNT" | "NEXT_CLEAN" | "MANUAL";
-  jobType: string | null;
-  channel: "EMAIL" | "SMS";
-  subject: string | null;
-  body: string;
-  isActive: boolean;
-};
+type LoadState = { status: "loading" | "failed" | "ready"; rows: MessageTemplateRecord[] };
+type UsageState = { status: "loading" | "failed" | "ready"; usage: Record<string, TemplateUsage> };
+type Selection = { id: string | "new"; draft: MessageTemplateDraft } | null;
 
-const TRIGGERS: MessageTemplate["triggerType"][] = [
-  "POST_JOB",
-  "REVIEW_REQUEST",
-  "DISCOUNT",
-  "NEXT_CLEAN",
-  "MANUAL",
+const FILTERS: ReadonlyArray<{ key: ListFilter; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "email", label: "Email" },
+  { key: "sms", label: "SMS" },
+  { key: "off", label: "Switched off" },
 ];
 
-const TRIGGER_LABEL: Record<MessageTemplate["triggerType"], string> = {
-  POST_JOB: "Post-job",
-  REVIEW_REQUEST: "Review request",
-  DISCOUNT: "Discount",
-  NEXT_CLEAN: "Next clean",
-  MANUAL: "Manual",
-};
-
-// Merge variables the message-template engine supports (per the MessageTemplate model).
-const MESSAGE_VARS = [
-  "client_name",
-  "property_address",
-  "cleaner_name",
-  "next_clean_date",
-  "job_type",
-  "feedback_url",
-];
-
-const EMPTY: Omit<MessageTemplate, "id"> = {
-  name: "",
-  triggerType: "MANUAL",
-  jobType: null,
-  channel: "EMAIL",
-  subject: "",
-  body: "",
-  isActive: true,
-};
-
-export function MessageTemplatesWorkspace() {
-  const [templates, setTemplates] = React.useState<MessageTemplate[]>([]);
-  const [loading, setLoading] = React.useState(true);
+export function MessageTemplatesWorkspace({ canWrite = true }: { canWrite?: boolean }) {
+  const [load, setLoad] = React.useState<LoadState>({ status: "loading", rows: [] });
+  const [usage, setUsage] = React.useState<UsageState>({ status: "loading", usage: {} });
+  const [attempt, setAttempt] = React.useState(0);
   const [query, setQuery] = useRestorableState("message-templates-workspace:query", "");
-  const [editing, setEditing] = React.useState<MessageTemplate | "new" | null>(
-    null
-  );
-
-  const load = React.useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/admin/message-templates");
-      if (res.ok) setTemplates((await res.json()) as MessageTemplate[]);
-    } catch {
-      /* ignore */
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [storedFilter, setFilter] = useRestorableState<ListFilter>("message-templates-workspace:filter", "all");
+  // A remembered value is checked before use.
+  const filter: ListFilter = FILTERS.some((option) => option.key === storedFilter) ? storedFilter : "all";
+  const [selection, setSelection] = React.useState<Selection>(null);
+  const [pending, setPending] = React.useState<{ next: Selection } | null>(null);
+  const [showAllCategories, setShowAllCategories] = React.useState(false);
 
   React.useEffect(() => {
-    void load();
-  }, [load]);
+    const controller = new AbortController();
+    setLoad((current) => ({ status: "loading", rows: current.rows }));
+    fetch("/api/admin/message-templates", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const body: unknown = await response.json().catch(() => null);
+        if (controller.signal.aborted) return;
+        if (!response.ok || !Array.isArray(body)) throw new Error("load");
+        setLoad({ status: "ready", rows: body.filter(isMessageTemplateRecord) });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setLoad((current) => ({ status: "failed", rows: current.rows }));
+      });
+    fetch("/api/admin/message-templates/usage", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => null)) as { usage?: Record<string, TemplateUsage> } | null;
+        if (controller.signal.aborted) return;
+        if (!response.ok || !body?.usage) throw new Error("usage");
+        setUsage({ status: "ready", usage: body.usage });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setUsage({ status: "failed", usage: {} });
+      });
+    return () => controller.abort();
+  }, [attempt]);
 
-  const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return templates;
-    return templates.filter(
-      (t) =>
-        t.name.toLowerCase().includes(q) ||
-        TRIGGER_LABEL[t.triggerType].toLowerCase().includes(q) ||
-        t.channel.toLowerCase().includes(q)
-    );
-  }, [templates, query]);
+  const rows = load.rows;
+  const record = selection && selection.id !== "new" ? rows.find((row) => row.id === selection.id) ?? null : null;
+  const dirty = Boolean(selection && (selection.id === "new" ? !sameDraft(selection.draft, EMPTY_DRAFT) : record && !sameDraft(selection.draft, draftOf(record))));
 
-  if (loading) {
-    return (
-      <div className="flex items-center gap-2 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] px-4 py-10 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading message templates…
-      </div>
-    );
+  // Opening the first template once the list arrives, on wide screens only (a phone keeps the list).
+  React.useEffect(() => {
+    if (selection || load.status !== "ready" || rows.length === 0) return;
+    if (typeof window !== "undefined" && window.matchMedia?.("(min-width: 1024px)").matches) {
+      const first = groupByCategory(rows)[0]?.rows[0];
+      if (first) setSelection({ id: first.id, draft: draftOf(first) });
+    }
+  }, [load.status, rows, selection]);
+
+  function choose(next: Selection) {
+    if (dirty && canWrite) {
+      setPending({ next });
+      return;
+    }
+    setSelection(next);
   }
 
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="relative max-w-sm flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--e-text-faint))]" />
-          <EInput
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search message templates…"
-            className="pl-9"
-          />
-        </div>
-        <EButton variant="gold" size="sm" onClick={() => setEditing("new")}>
-          <Plus className="mr-1 h-3.5 w-3.5" /> New template
-        </EButton>
-      </div>
+  function upsert(saved: MessageTemplateRecord) {
+    setLoad((current) => {
+      const exists = current.rows.some((row) => row.id === saved.id);
+      return { ...current, rows: exists ? current.rows.map((row) => (row.id === saved.id ? saved : row)) : [...current.rows, saved] };
+    });
+    setSelection({ id: saved.id, draft: draftOf(saved) });
+  }
 
-      {templates.length === 0 ? (
-        <div className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] p-6">
-          <EEmptyState
-            eyebrow="Message templates"
-            title="No message templates yet"
-            description="Create reusable post-job, review-request and marketing messages."
-            action={
-              <EButton variant="gold" size="sm" onClick={() => setEditing("new")}>
-                <Plus className="mr-1 h-3.5 w-3.5" /> New template
-              </EButton>
-            }
-          />
-        </div>
-      ) : (
-        <div className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
-          <ETableShell
-            headers={[
-              { label: "Name" },
-              { label: "Trigger" },
-              { label: "Channel" },
-              { label: "Status" },
-              { label: "", align: "right" },
-            ]}
-          >
-            {filtered.map((t) => (
-              <tr
-                key={t.id}
-                className="cursor-pointer transition-colors hover:bg-[hsl(var(--e-muted)/0.4)]"
-                onClick={() => setEditing(t)}
-              >
-                <td className="px-4 py-3 font-[550] text-[hsl(var(--e-foreground))]">
-                  {t.name}
-                </td>
-                <td className="px-4 py-3 text-[hsl(var(--e-text-secondary))]">
-                  {TRIGGER_LABEL[t.triggerType]}
-                </td>
-                <td className="px-4 py-3 text-[hsl(var(--e-text-secondary))]">
-                  {t.channel}
-                </td>
-                <td className="px-4 py-3">
-                  {t.isActive ? (
-                    <EBadge tone="success" soft>
-                      Active
-                    </EBadge>
-                  ) : (
-                    <EBadge tone="neutral" soft>
-                      Inactive
-                    </EBadge>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <EButton
-                    variant="outline"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditing(t);
-                    }}
-                  >
-                    Edit
-                  </EButton>
-                </td>
-              </tr>
-            ))}
-          </ETableShell>
+  const visible = rows.filter((row) => matchesFilter(row, filter, query));
+  const groups = groupByCategory(visible);
+  const shownGroups = showAllCategories || query.trim() ? groups : groups.slice(0, FIRST_CATEGORIES);
+  const hiddenGroups = groups.slice(shownGroups.length);
+  const offCount = rows.filter((row) => !row.isActive).length;
 
-          {filtered.length === 0 ? (
-            <div className="p-6">
-              <EEmptyState
-                eyebrow="Message templates"
-                title="No matching templates"
-                description="Try a different search term."
-              />
-            </div>
+  const list = (
+    <ECard className="min-w-0 overflow-hidden p-0">
+      <div className="space-y-3 p-3">
+        <div className="flex gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--e-text-faint))]" aria-hidden="true" />
+            <EInput
+              type="search"
+              aria-label="Search message templates"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search name, wording or category"
+              className="pl-9 max-sm:h-11 max-sm:text-base"
+            />
+          </div>
+          {canWrite ? (
+            <EButton size="sm" className="max-sm:hidden" onClick={() => choose({ id: "new", draft: { ...EMPTY_DRAFT } })}>
+              <Plus className="h-3.5 w-3.5" /> New
+            </EButton>
           ) : null}
         </div>
-      )}
+        <div role="group" aria-label="Show" className="flex flex-wrap gap-1.5">
+          {FILTERS.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              aria-pressed={filter === option.key}
+              onClick={() => setFilter(option.key)}
+              className={cn(
+                "inline-flex min-h-8 items-center rounded-[var(--e-radius-pill)] border px-3 text-[0.8125rem] font-[550] max-sm:min-h-11",
+                filter === option.key ? "border-[hsl(var(--e-primary))] bg-[hsl(var(--e-primary-soft))] text-[hsl(var(--e-primary))]" : "border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-text-secondary))]",
+              )}
+            >
+              {option.label}
+              {option.key === "off" && load.status === "ready" ? ` ${offCount}` : ""}
+            </button>
+          ))}
+        </div>
+      </div>
 
-      {editing ? (
-        <MessageEditor
-          initial={editing === "new" ? null : editing}
-          onClose={() => setEditing(null)}
-          onDone={() => {
-            setEditing(null);
-            void load();
-          }}
-        />
+      {load.status === "loading" && rows.length === 0 ? (
+        <div role="status" className="space-y-2 border-t border-[hsl(var(--e-border))] p-3">
+          <span className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">Loading message templates…</span>
+          {[0, 1, 2, 3].map((index) => <div key={index} className="h-10 animate-pulse rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))]" />)}
+        </div>
+      ) : load.status === "failed" && rows.length === 0 ? (
+        <div role="alert" className="space-y-2 border-t border-[hsl(var(--e-border))] p-4 text-[0.8125rem]">
+          <p>Message templates could not be loaded. Try again.</p>
+          <EButton size="sm" variant="outline" onClick={() => setAttempt((n) => n + 1)}>Try again</EButton>
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="border-t border-[hsl(var(--e-border))] p-4 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+          No message templates yet. Create reusable booking, follow-up and feedback messages.
+        </p>
+      ) : (
+        <>
+          {load.status === "failed" ? (
+            <p role="alert" className="border-t border-[hsl(var(--e-border))] px-3 py-2 text-[0.75rem] text-[hsl(var(--e-danger))]">
+              The list could not be refreshed; showing the last one loaded. <button type="button" className="font-[600] underline" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+            </p>
+          ) : null}
+          {groups.length === 0 ? (
+            <p className="border-t border-[hsl(var(--e-border))] p-4 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">No templates match. Clear the search or choose All.</p>
+          ) : null}
+          {shownGroups.map((group) => (
+            <section key={group.category} aria-labelledby={`category-${group.category}`} className="border-t border-[hsl(var(--e-border))]">
+              <h4 id={`category-${group.category}`} className="px-3 pb-1 pt-3 text-[0.6875rem] font-[600] uppercase tracking-[0.12em] text-[hsl(var(--e-gold-ink))]">
+                {group.label} · {group.rows.length}
+              </h4>
+              <ul>
+                {group.rows.map((row) => {
+                  const active = selection?.id === row.id;
+                  return (
+                    <li key={row.id} className="border-t border-[hsl(var(--e-border))] first:border-t-0">
+                      <button
+                        type="button"
+                        aria-current={active ? "true" : undefined}
+                        onClick={() => choose({ id: row.id, draft: draftOf(row) })}
+                        className={cn(
+                          "flex min-h-[3.25rem] w-full items-start justify-between gap-2 px-3 py-2 text-left hover:bg-[hsl(var(--e-surface-raised))]",
+                          active && "bg-[hsl(var(--e-primary-soft))]",
+                        )}
+                      >
+                        <span className="min-w-0">
+                          <span className={cn("block break-words text-[0.875rem] font-[550]", !row.isActive && "text-[hsl(var(--e-text-secondary))]")}>{row.name}</span>
+                          <span className="block text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+                            {usageSummary(row, usage.usage[row.id], usage.status === "failed")}
+                          </span>
+                        </span>
+                        <EPill tone={row.isActive ? "ok" : "neutral"}>{row.isActive ? "On" : "Off"}</EPill>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+          {hiddenGroups.length > 0 ? (
+            <div className="flex items-center justify-between gap-2 border-t border-[hsl(var(--e-border))] px-3 py-2.5 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+              <span className="min-w-0">
+                {hiddenGroups.map((group) => group.label).join(", ")} · {hiddenGroups.reduce((sum, group) => sum + group.rows.length, 0)} more
+              </span>
+              <button type="button" className="min-h-11 font-[600] text-[hsl(var(--e-primary))] underline" onClick={() => setShowAllCategories(true)}>Show</button>
+            </div>
+          ) : null}
+        </>
+      )}
+    </ECard>
+  );
+
+  const editor = selection ? (
+    <MessageTemplateEditor
+      key={selection.id}
+      record={record}
+      draft={selection.draft}
+      onDraftChange={(draft) => setSelection((current) => (current ? { ...current, draft } : current))}
+      usage={record ? usage.usage[record.id] ?? { automations: [], campaigns: [] } : null}
+      usageFailed={usage.status === "failed"}
+      canWrite={canWrite}
+      onSaved={upsert}
+      onDeleted={(id) => {
+        setLoad((current) => ({ ...current, rows: current.rows.filter((row) => row.id !== id) }));
+        setSelection(null);
+      }}
+      onDiscard={() => setSelection(record ? { id: record.id, draft: draftOf(record) } : null)}
+      onBack={() => choose(null)}
+    />
+  ) : (
+    <ECard className="hidden min-w-0 p-6 text-[0.875rem] text-[hsl(var(--e-text-secondary))] lg:block">
+      {load.status === "ready" && rows.length === 0 ? "Create a template to start." : "Choose a template to see and edit it."}
+    </ECard>
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,25rem)_minmax(0,1fr)]">
+        {/* On a phone the open editor replaces the list (Back returns to it). */}
+        <div className={cn("min-w-0", selection && "max-sm:hidden")}>{list}</div>
+        <div className="min-w-0">{editor}</div>
+      </div>
+      {canWrite && !selection ? (
+        <div className="sm:hidden">
+          <EButton className="w-full" onClick={() => choose({ id: "new", draft: { ...EMPTY_DRAFT } })}>
+            <Plus className="h-4 w-4" /> New template
+          </EButton>
+        </div>
       ) : null}
+
+      <EConfirmDialog
+        open={pending !== null}
+        onClose={() => setPending(null)}
+        tier="ordinary"
+        title="Leave without saving your changes?"
+        description="The changes to this template are not saved. Leaving drops them."
+        confirmLabel="Leave without saving"
+        onConfirm={() => {
+          setSelection(pending?.next ?? null);
+          setPending(null);
+        }}
+      />
     </div>
   );
-}
-
-function MessageEditor({
-  initial,
-  onClose,
-  onDone,
-}: {
-  initial: MessageTemplate | null;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [form, setForm] = React.useState<Omit<MessageTemplate, "id">>(
-    initial
-      ? {
-          name: initial.name,
-          triggerType: initial.triggerType,
-          jobType: initial.jobType,
-          channel: initial.channel,
-          subject: initial.subject ?? "",
-          body: initial.body,
-          isActive: initial.isActive,
-        }
-      : { ...EMPTY }
-  );
-  const [saving, setSaving] = React.useState(false);
-  const [deleting, setDeleting] = React.useState(false);
-  const [confirmDelete, setConfirmDelete] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-
-  const subjectRef = React.useRef<HTMLInputElement>(null);
-
-  function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
-    setForm((f) => ({ ...f, [key]: value }));
-  }
-
-  /** Caret insert for the (ref-forwarding) subject EInput. */
-  function insertSubjectToken(token: string) {
-    const value = form.subject ?? "";
-    const el = subjectRef.current;
-    const insert = `{{${token}}}`;
-    if (!el) {
-      set("subject", `${value}${insert}`);
-      return;
-    }
-    const start = el.selectionStart ?? value.length;
-    const end = el.selectionEnd ?? value.length;
-    set("subject", value.slice(0, start) + insert + value.slice(end));
-    requestAnimationFrame(() => {
-      el.focus();
-      const pos = start + insert.length;
-      el.setSelectionRange(pos, pos);
-    });
-  }
-
-  /** ETextarea isn't ref-forwarding → append to the body. */
-  function appendBodyToken(token: string) {
-    set("body", `${form.body}{{${token}}}`);
-  }
-
-  async function save() {
-    if (!form.name.trim() || !form.body.trim()) {
-      setError("Name and body are required.");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    const payload = {
-      name: form.name,
-      triggerType: form.triggerType,
-      jobType: form.jobType || null,
-      channel: form.channel,
-      subject: form.channel === "EMAIL" ? form.subject || null : null,
-      body: form.body,
-      isActive: form.isActive,
-    };
-    try {
-      const res = await fetch(
-        initial
-          ? `/api/admin/message-templates/${initial.id}`
-          : "/api/admin/message-templates",
-        {
-          method: initial ? "PATCH" : "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }
-      );
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        setError(e.error ?? "Save failed.");
-        return;
-      }
-      onDone();
-    } catch {
-      setError("Network error while saving.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function remove() {
-    if (!initial) return;
-    setDeleting(true);
-    try {
-      const res = await fetch(`/api/admin/message-templates/${initial.id}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        setError(e.error ?? "Delete failed.");
-        setConfirmDelete(false);
-        return;
-      }
-      onDone();
-    } catch {
-      setError("Network error while deleting.");
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  const bodySegments = Math.max(1, Math.ceil((form.body.length || 1) / 160));
-
-  return (
-    <>
-      <EModal
-        open
-        onClose={onClose}
-        size="xl"
-        eyebrow={initial ? "Edit message template" : "New message template"}
-        title={form.name || "Untitled template"}
-      >
-        <div className="space-y-5">
-          {error ? (
-            <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-danger)/0.4)] bg-[hsl(var(--e-danger)/0.08)] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-danger))]">
-              {error}
-            </div>
-          ) : null}
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <EField label="Name" className="sm:col-span-2">
-              <EInput
-                value={form.name}
-                onChange={(e) => set("name", e.target.value)}
-                placeholder="e.g. Post-job thank-you"
-              />
-            </EField>
-
-            <EField label="Trigger">
-              <ESelect
-                value={form.triggerType}
-                onChange={(e) =>
-                  set("triggerType", e.target.value as MessageTemplate["triggerType"])
-                }
-              >
-                {TRIGGERS.map((t) => (
-                  <option key={t} value={t}>
-                    {TRIGGER_LABEL[t]}
-                  </option>
-                ))}
-              </ESelect>
-            </EField>
-
-            <EField label="Channel">
-              <ESelect
-                value={form.channel}
-                onChange={(e) =>
-                  set("channel", e.target.value as MessageTemplate["channel"])
-                }
-              >
-                <option value="EMAIL">Email</option>
-                <option value="SMS">SMS</option>
-              </ESelect>
-            </EField>
-
-            <EField
-              label="Job type"
-              hint="Leave blank to apply to all job types."
-              className="sm:col-span-2"
-            >
-              <EInput
-                value={form.jobType ?? ""}
-                onChange={(e) => set("jobType", e.target.value || null)}
-                placeholder="All job types"
-              />
-            </EField>
-          </div>
-
-          {form.channel === "EMAIL" ? (
-            <div className="space-y-2">
-              <EField label="Subject">
-                <EInput
-                  ref={subjectRef}
-                  value={form.subject ?? ""}
-                  onChange={(e) => set("subject", e.target.value)}
-                  placeholder="Email subject (supports {{variables}})"
-                />
-              </EField>
-              <VariableChips
-                variables={MESSAGE_VARS}
-                onInsert={insertSubjectToken}
-              />
-            </div>
-          ) : null}
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">
-                Body
-              </span>
-              {form.channel === "SMS" ? (
-                <EBadge tone="neutral" soft>
-                  {form.body.length} chars · {bodySegments} segment
-                  {bodySegments > 1 ? "s" : ""}
-                </EBadge>
-              ) : null}
-            </div>
-            <ETextarea
-              rows={form.channel === "SMS" ? 4 : 8}
-              value={form.body}
-              onChange={(e) => set("body", e.target.value)}
-              placeholder="Message body (supports {{variables}})"
-            />
-            <VariableChips variables={MESSAGE_VARS} onInsert={appendBodyToken} />
-          </div>
-
-          {/* Preview */}
-          <div>
-            <p className="mb-1.5 flex items-center gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--e-gold-ink))]">
-              <MessageSquare className="h-3.5 w-3.5" /> Preview
-            </p>
-            <div className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))] p-3 text-[0.8125rem] text-[hsl(var(--e-foreground))]">
-              {form.channel === "EMAIL" && form.subject ? (
-                <p className="mb-1 font-[600]">
-                  {fillMessageSample(form.subject)}
-                </p>
-              ) : null}
-              <p className="whitespace-pre-wrap">
-                {fillMessageSample(form.body) || (
-                  <span className="text-[hsl(var(--e-text-faint))]">
-                    Nothing to preview yet.
-                  </span>
-                )}
-              </p>
-            </div>
-          </div>
-
-          <ESwitch
-            checked={form.isActive}
-            onCheckedChange={(v) => set("isActive", v)}
-            label="Active"
-          />
-
-          <div className="flex items-center justify-between gap-2 border-t border-[hsl(var(--e-border))] pt-4">
-            {initial ? (
-              <EButton
-                variant="ghost"
-                size="sm"
-                onClick={() => setConfirmDelete(true)}
-                disabled={saving || deleting}
-              >
-                <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
-              </EButton>
-            ) : (
-              <span />
-            )}
-            <div className="flex gap-2">
-              <EButton variant="outline" size="sm" onClick={onClose} disabled={saving}>
-                Cancel
-              </EButton>
-              <EButton variant="gold" size="sm" onClick={save} disabled={saving}>
-                {saving ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Save className="mr-1 h-3.5 w-3.5" />
-                )}
-                {initial ? "Save changes" : "Create template"}
-              </EButton>
-            </div>
-          </div>
-        </div>
-      </EModal>
-
-      <EConfirmModal
-        open={confirmDelete}
-        onClose={() => setConfirmDelete(false)}
-        title="Delete message template?"
-        description="This removes the template and unlinks it from any automation rules. This cannot be undone."
-        confirmLabel="Delete template"
-        danger
-        loading={deleting}
-        onConfirm={remove}
-      />
-    </>
-  );
-}
-
-const MESSAGE_SAMPLE: Record<string, string> = {
-  client_name: "Harborview Estates",
-  property_address: "42 Marina Parade",
-  cleaner_name: "Jordan Lee",
-  next_clean_date: "14 Jul 2026",
-  job_type: "End of lease",
-  feedback_url: "https://app.sneek.com/review/abc",
-};
-
-function fillMessageSample(text: string): string {
-  let out = text;
-  for (const v of MESSAGE_VARS) {
-    out = out.split(`{{${v}}}`).join(MESSAGE_SAMPLE[v] ?? `[${v}]`);
-  }
-  return out.replace(/\{\{\s*([\w.]+)\s*\}\}/g, "[$1]");
 }

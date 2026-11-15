@@ -15,6 +15,8 @@ import {
   isShoppingExpenseAvailableForSettlement,
   isShoppingTimeAvailableForSettlement,
 } from "@/lib/finance/shopping-settlement";
+import { shoppingCostCoverage, shoppingLineCost } from "@/lib/inventory/shopping-line-cost";
+import { isReimbursementApproval, reimbursementApprovalRefusal, type ShoppingReimbursementApprovalInput } from "@/lib/inventory/shopping-reimbursement-approval";
 
 const SHOPPING_RUNS_KEY = "inventory_shopping_runs_v1";
 
@@ -224,6 +226,14 @@ export type ShoppingRunAdminView = ShoppingRunRecord & {
   ownerEmail: string;
   paidByDisplay: string;
   clientAllocations: ShoppingRunClientAllocation[];
+  /** The run's own stored dates, for its history (2026-11-17). Null when not recorded. */
+  dates: {
+    createdAt: string;
+    startedAt: string | null;
+    submittedAt: string | null;
+    approvedAt: string | null;
+    closedAt: string | null;
+  };
 };
 
 type StoredData = {
@@ -401,16 +411,24 @@ function sanitizePayment(
   };
 }
 
+/**
+ * The amount a bought line adds to the actual total. A line with no cost
+ * entered adds nothing (as before); lib/inventory/shopping-line-cost.ts is the
+ * one rule, and the screens and PDFs show such a line as "Not entered".
+ */
 function computeActualLineCost(
   row: Pick<ShoppingRunRow, "actualLineCost" | "actualPurchasedQty" | "actualUnitCost">
 ) {
-  if (row.actualLineCost != null && Number.isFinite(Number(row.actualLineCost))) {
-    return Math.max(0, Number(row.actualLineCost));
-  }
-  if (row.actualUnitCost != null && Number.isFinite(Number(row.actualUnitCost))) {
-    return Math.max(0, Number(row.actualPurchasedQty)) * Math.max(0, Number(row.actualUnitCost));
-  }
-  return 0;
+  const cost = shoppingLineCost({ ...row, purchased: true });
+  return cost.state === "costed" ? cost.lineCost : 0;
+}
+
+/** A bought line's cost for a document: the amount, "Not entered" when missing, "-" when not bought. */
+function lineCostText(row: Pick<ShoppingRunRow, "purchased" | "actualLineCost" | "actualPurchasedQty" | "actualUnitCost">, prefix: string): string {
+  const cost = shoppingLineCost(row);
+  if (cost.state === "not-bought") return "-";
+  if (cost.state === "missing") return "Not entered";
+  return `${prefix}${cost.lineCost.toFixed(2)}`;
 }
 
 function requiresClientReimbursement(payment: ShoppingRunPayment, hasClient = true) {
@@ -1504,6 +1522,13 @@ export async function listShoppingRunsForAdminDetailed(): Promise<ShoppingRunAdm
 
     return {
       ...run,
+      dates: {
+        createdAt: dbRun.createdAt.toISOString(),
+        startedAt: dbRun.startedAt?.toISOString?.() ?? null,
+        submittedAt: dbRun.submittedAt?.toISOString?.() ?? null,
+        approvedAt: dbRun.approvedAt?.toISOString?.() ?? null,
+        closedAt: dbRun.closedAt?.toISOString?.() ?? null,
+      },
       ownerName: dbRun.owner?.name?.trim() || dbRun.owner?.email || "Unknown user",
       ownerEmail: dbRun.owner?.email ?? "",
       paidByDisplay:
@@ -2114,6 +2139,13 @@ export async function updateShoppingRunByAdmin(input: {
     note?: string | null;
     paidAt?: string | null;
   };
+  /**
+   * Who approves a cleaner's claimed reimbursement and, when no receipt is
+   * attached, the typed note that overrides the receipt rule (owner default
+   * 2026-11-17). Checked under the run lock; see
+   * lib/inventory/shopping-reimbursement-approval.ts.
+   */
+  reimbursementApproval?: ShoppingReimbursementApprovalInput;
 }) {
   await ensureLegacyShoppingRunsMigrated();
   await db.$transaction(async tx => {
@@ -2132,6 +2164,39 @@ export async function updateShoppingRunByAdmin(input: {
     },
     current.ownerScope
   );
+  // Approving a claimed reimbursement (PENDING_APPROVAL → payable): the
+  // receipt rule and the audit row, under this lock, so a double click or two
+  // people at once approve once and write one history row.
+  const nextReimbursementStatus = input.cleanerReimbursementStatus ?? current.cleanerReimbursementStatus;
+  const approvalRefusal = reimbursementApprovalRefusal({
+    from: current.cleanerReimbursementStatus,
+    to: nextReimbursementStatus,
+    receiptCount: payment.receipts.length,
+    approval: input.reimbursementApproval ?? null,
+  });
+  if (approvalRefusal) throw approvalRefusal;
+  if (isReimbursementApproval(current.cleanerReimbursementStatus, nextReimbursementStatus)) {
+    const coverage = shoppingCostCoverage(current.rows);
+    const approvedTotals = computeShoppingRunTotals(current.rows, payment, true);
+    await tx.auditLog.create({
+      data: {
+        userId: input.reimbursementApproval!.actorId,
+        action: "SHOPPING_REIMBURSEMENT_APPROVED",
+        entity: "ShoppingRun",
+        entityId: input.id,
+        before: { cleanerReimbursementStatus: current.cleanerReimbursementStatus },
+        after: {
+          cleanerReimbursementStatus: nextReimbursementStatus,
+          amount: approvedTotals.reimbursableCleanerAmount,
+          boughtLines: coverage.boughtLines,
+          costedLines: coverage.costedLines,
+          missingCosts: coverage.missing,
+          receiptCount: payment.receipts.length,
+          receiptOverrideNote: payment.receipts.length ? null : input.reimbursementApproval!.overrideNote?.trim() ?? null,
+        },
+      },
+    });
+  }
   const payerChanged = payment.method !== current.payment.method || payment.paidByScope !== current.payment.paidByScope || (payment.paidByUserId ?? null) !== (current.payment.paidByUserId ?? null);
   if (payerChanged) {
     const [billedCharge, legacySettlement] = await Promise.all([
@@ -2488,7 +2553,6 @@ export function buildShoppingRunHtml(input: {
             <tbody>
               ${lines
                 .map((line) => {
-                  const actual = line.purchased ? computeActualLineCost(line) : 0;
                   return `
                     <tr>
                       <td>${line.include ? "[x]" : "[ ]"}</td>
@@ -2497,7 +2561,7 @@ export function buildShoppingRunHtml(input: {
                       <td class="right">${line.include ? line.plannedQty : 0} ${escapeHtml(line.unit)}</td>
                       <td class="right">${line.purchased ? line.actualPurchasedQty : 0} ${escapeHtml(line.unit)}</td>
                       <td>${line.purchased ? "Yes" : "No"}</td>
-                      <td class="right">${line.purchased ? `${actual.toFixed(2)}` : "-"}</td>
+                      <td class="right">${lineCostText(line, "")}</td>
                       <td>${escapeHtml(line.note ?? "")}</td>
                     </tr>
                   `;
@@ -2711,14 +2775,13 @@ export function buildShoppingRunClientReimbursementHtml(input: {
   );
   const rowsHtml = rows
     .map((row) => {
-      const actual = row.purchased ? computeActualLineCost(row) : 0;
       return `
         <tr>
           <td>${escapeHtml(row.propertyName)}</td>
           <td>${escapeHtml(row.itemName)}</td>
           <td>${row.purchased ? row.actualPurchasedQty : 0}</td>
           <td>${escapeHtml(row.unit)}</td>
-          <td>${row.purchased ? `$${actual.toFixed(2)}` : "-"}</td>
+          <td>${lineCostText(row, "$")}</td>
           <td>${escapeHtml(row.note ?? "")}</td>
         </tr>
       `;

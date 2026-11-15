@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
 import { ClientSettingsPanel, type SettingsComms } from "@/components/v2/client/settings-panel";
+import { MarketingConsentCard } from "@/components/v2/client/marketing-consent-card";
 import { ChevronRight, UserCog } from "lucide-react";
 
 export const metadata = { title: "Settings · Estate client" };
@@ -45,6 +46,7 @@ export default async function ClientSettingsPage() {
         }
       />
       <ClientSettingsPanel comms={comms} />
+      <MarketingConsentCard />
       <Link
         href="/v2/client/profile"
         className="flex min-h-12 items-center justify-between gap-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-4 py-3 text-[0.875rem] font-[550] hover:bg-[hsl(var(--e-muted))] focus-visible:outline focus-visible:outline-2"

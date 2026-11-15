@@ -39,6 +39,25 @@ export async function qaRevisionCounts(templateIds: string[]): Promise<Map<strin
   return new Map(rows.map((row) => [String(row.entityId), row._count._all]));
 }
 
+export const QA_USED_BY_DAYS = 30;
+
+/** Inspections (QA form submissions) filled in on each template in the last 30 days. */
+export async function qaInspectionCounts(templateIds: string[], now: Date = new Date()): Promise<Map<string, number>> {
+  if (templateIds.length === 0) return new Map();
+  const rows = await db.qaFormSubmission.groupBy({
+    by: ["templateId"],
+    where: { templateId: { in: templateIds }, createdAt: { gte: new Date(now.getTime() - QA_USED_BY_DAYS * 86_400_000) } },
+    _count: { _all: true },
+  });
+  return new Map(rows.map((row) => [row.templateId, row._count._all]));
+}
+
+export class QaTemplateConflictError extends Error {
+  constructor(readonly current: QaFormTemplate) {
+    super("Someone else saved this QA template after you opened it. Your changes are kept; load theirs to continue.");
+  }
+}
+
 /** Record one content revision inside the save's transaction; returns its number. */
 export async function recordQaRevision(
   tx: Tx,

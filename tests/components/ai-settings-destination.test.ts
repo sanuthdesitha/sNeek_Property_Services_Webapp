@@ -7,7 +7,7 @@ describe("AI settings destination", () => {
     expect(settingsHref("ai")).toBe("/v2/admin/ai");
     expect(settingsHref("ai-workflows")).toBe("/v2/admin/ai#photo-checks");
     expect(settingsHref("ollama")).toBe("/v2/admin/ai?section=ollama");
-    expect(SETTINGS_DESTINATIONS.filter((item) => item.group === "ai").map((item) => item.key)).toEqual(["ai", "ai-workflows", "ollama"]);
+    expect(SETTINGS_DESTINATIONS.filter((item) => item.group === "ai").map((item) => item.key)).toEqual(["ai", "ai-workflows", "social-ai", "ollama"]);
   });
 
   it("lists AI for operations managers (read) but keeps Ollama setup for administrators", () => {

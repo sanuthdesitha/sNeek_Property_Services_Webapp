@@ -114,7 +114,8 @@ export function TwoStepCard({ timeZone, readOnlyReason, prompted }: { timeZone: 
 
   React.useEffect(() => {
     const controller = new AbortController();
-    setLoad({ kind: "loading" });
+    // A refresh after a change keeps the card (and any new codes on screen) in place.
+    setLoad((previous) => (previous.kind === "ready" ? previous : { kind: "loading" }));
     void (async () => {
       try {
         const res = await fetch("/api/auth/2fa/settings", { cache: "no-store", signal: controller.signal });

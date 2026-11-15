@@ -22,22 +22,29 @@ const review = (status = "SUBMITTED"): CleanerInvoiceReview => ({
   stages: cleanerInvoiceStages(row(status), null),
   history: [{ id: "h", at: "2026-10-16T00:00:00Z", label: "Submitted by the payee", actor: "Sam" }],
   comparison: { status: "not-applicable", reason: "Shown only while waiting." },
+  lines: [{ index: 0, description: "Shopping evidence", hours: null, rateSnapshot: null, amount: 12, jobId: null, jobNumber: null }],
+  payRequests: [],
+  xero: { state: "none", billId: null, exportedAt: null, lastFailure: null, connection: { status: "not-connected" } },
+  paymentRecordedBy: null,
+  timezone: "Australia/Sydney",
 });
 afterEach(cleanup);
 
 it("shows the snapshotted lines, one h1, the stage bar, PDF and history", () => {
   render(<CleanerInvoiceReviewPage review={review()} role="ADMIN" backHref="/v2/admin/finance?tab=cleaner-invoices" />);
   expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-  expect(screen.getByText("Shopping evidence")).toBeVisible();
+  // The desktop table and the phone list both carry the line; CSS shows one.
+  expect(screen.getAllByText("Shopping evidence")[0]).toBeVisible();
   expect(screen.getAllByText("$12.00").length).toBeGreaterThan(0);
   expect(screen.getByRole("link", { name: "PDF" })).toHaveAttribute("href", "/api/admin/cleaner-invoices/inv/pdf?inline=1");
   expect(screen.getByText("Submitted by the payee")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Approve" })).toBeVisible();
+  // Approve asks first since 2026-11-17 (tier A).
+  expect(screen.getByRole("button", { name: "Approve…" })).toBeVisible();
 });
 
 it("hides Approve from an operations manager and says who can approve", () => {
   render(<CleanerInvoiceReviewPage review={review()} role="OPS_MANAGER" backHref="/v2/admin/finance?tab=cleaner-invoices" />);
-  expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Approve…" })).toBeNull();
   expect(screen.getByText("Only an administrator can approve cleaner invoices.")).toBeVisible();
 });
 

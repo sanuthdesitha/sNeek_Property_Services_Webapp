@@ -11,6 +11,15 @@ import { getExpectedInvoicesForPeriod, type ExpectedCleanerInvoice } from "./exp
 import { withPayees } from "./invoice-admin-list";
 import type { CleanerInvoiceRow } from "./invoice-admin-list-types";
 import { CLEANER_INVOICE_STATUS_LABEL, type CleanerInvoiceStatus } from "./invoice-transitions";
+import { getAppSettings } from "@/lib/settings";
+import {
+  cleanerInvoiceLines,
+  cleanerInvoicePayRequests,
+  cleanerInvoiceXero,
+  type CleanerInvoiceLineView,
+  type CleanerPayRequestView,
+  type CleanerXeroView,
+} from "./invoice-review-extras";
 
 export type CleanerHistoryEntry = { id: string; at: string; label: string; actor: string | null };
 
@@ -28,7 +37,29 @@ export type CleanerInvoiceReview = {
   stages: CleanerStageView;
   history: CleanerHistoryEntry[] | { error: string };
   comparison: CleanerExpectedComparison;
+  /** The stored lines with rate snapshots (2026-11-17). */
+  lines: CleanerInvoiceLineView[] | { error: string };
+  /** Pay requests this invoice billed, for the pay-rule band. */
+  payRequests: CleanerPayRequestView[] | { error: string };
+  xero: CleanerXeroView | { error: string };
+  /** Who recorded the payment, from the audit row; null when not recorded. */
+  paymentRecordedBy: string | null;
+  /** The organisation timezone history is shown in. */
+  timezone: string;
 };
+
+export type CleanerInvoiceReviewOptions = {
+  /** The viewer has finance access, so the client charge of a pay request is shown (read only). */
+  showClientCharge: boolean;
+};
+
+async function part<T>(work: () => Promise<T>, fallback: string): Promise<T | { error: string }> {
+  try {
+    return await work();
+  } catch (error) {
+    return { error: error instanceof Error && error.message ? error.message : fallback };
+  }
+}
 
 /** Stages from stored state; approval of a legacy row (no audit) reads "passed", not done. */
 export function cleanerInvoiceStages(row: Pick<CleanerInvoiceRow, "status" | "xeroBillId">, approvedAt: string | null): CleanerStageView {
@@ -75,6 +106,8 @@ export function describeCleanerAudit(action: string, after: unknown): string {
     }
     case "CLEANER_INVOICE_PAY_CLAIMED":
       return "Payee said it has been paid";
+    case "CLEANER_INVOICE_XERO_PUSH_FAILED":
+      return `Push to Xero did not finish${field(after, "reason") ? `: ${field(after, "reason")}` : ""}`;
     case "CLEANER_INVOICE_DELIVERY_REVIEWED":
       return `Delivery reviewed: ${field(after, "resolution") === "CONFIRMED_SENT" ? "confirmed received" : "confirmed not delivered"}`;
     default:
@@ -82,7 +115,7 @@ export function describeCleanerAudit(action: string, after: unknown): string {
   }
 }
 
-async function readHistory(row: CleanerInvoiceRow): Promise<{ entries: CleanerHistoryEntry[]; approvedAt: string | null } | { error: string }> {
+async function readHistory(row: CleanerInvoiceRow): Promise<{ entries: CleanerHistoryEntry[]; approvedAt: string | null; paymentRecordedBy: string | null } | { error: string }> {
   try {
     const rows = await db.auditLog.findMany({
       where: { entity: "CleanerInvoiceSubmission", entityId: row.id },
@@ -98,7 +131,12 @@ async function readHistory(row: CleanerInvoiceRow): Promise<{ entries: CleanerHi
     }));
     entries.push({ id: "record:created", at: row.createdAt, label: "Submitted by the payee", actor: row.cleanerName });
     const approval = rows.find((audit) => audit.action === "CLEANER_INVOICE_STATUS_UPDATE" && field(audit.after, "status") === "APPROVED");
-    return { entries: entries.sort((a, b) => b.at.localeCompare(a.at)), approvedAt: approval ? approval.createdAt.toISOString() : null };
+    const payment = rows.find((audit) => audit.action === "CLEANER_INVOICE_STATUS_UPDATE" && field(audit.after, "status") === "PAID");
+    return {
+      entries: entries.sort((a, b) => b.at.localeCompare(a.at)),
+      approvedAt: approval ? approval.createdAt.toISOString() : null,
+      paymentRecordedBy: payment ? payment.user?.name || payment.user?.email || null : null,
+    };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "History could not be read." };
   }
@@ -119,16 +157,28 @@ async function readComparison(row: CleanerInvoiceRow): Promise<CleanerExpectedCo
   }
 }
 
-export async function loadCleanerInvoiceReview(id: string): Promise<CleanerInvoiceReview | null> {
+export async function loadCleanerInvoiceReview(id: string, options: CleanerInvoiceReviewOptions = { showClientCharge: false }): Promise<CleanerInvoiceReview | null> {
   const submission = await db.cleanerInvoiceSubmission.findUnique({ where: { id } });
   if (!submission) return null;
   const [row] = await withPayees([submission]);
-  const [history, comparison] = await Promise.all([readHistory(row), readComparison(row)]);
+  const [history, comparison, lines, payRequests, xero, settings] = await Promise.all([
+    readHistory(row),
+    readComparison(row),
+    part(() => cleanerInvoiceLines(row), "The lines could not be read."),
+    part(() => cleanerInvoicePayRequests(row.id, options), "The pay requests could not be read."),
+    part(() => cleanerInvoiceXero(row), "The Xero state could not be read."),
+    getAppSettings().catch(() => null),
+  ]);
   const approvedAt = "error" in history ? null : history.approvedAt;
   return {
     row,
     stages: cleanerInvoiceStages(row, approvedAt),
     history: "error" in history ? history : history.entries,
     comparison,
+    lines,
+    payRequests,
+    xero,
+    paymentRecordedBy: "error" in history ? null : history.paymentRecordedBy,
+    timezone: settings?.timezone || "Australia/Sydney",
   };
 }

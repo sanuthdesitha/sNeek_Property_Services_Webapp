@@ -46,6 +46,12 @@ export type AssignTarget =
       phoneTitle?: string;
       initialAssignedIds?: string[];
       initialPrimaryId?: string | null;
+      /**
+       * Route map (2026-11-17): cleaners ticked when the dialog opens for a job
+       * with nobody on it (the suggestion "picked"). Only a starting draft:
+       * nothing is saved until Assign, and the server checks it as usual.
+       */
+      suggestedIds?: string[];
     }
   | { kind: "bulk"; jobIds: string[]; context: string };
 
@@ -69,7 +75,9 @@ function targetKey(target: AssignTarget | null): string {
 }
 
 function initialDraft(target: AssignTarget | null): Draft {
-  const selected = target?.kind === "job" ? [...(target.initialAssignedIds ?? [])] : [];
+  const assigned = target?.kind === "job" ? target.initialAssignedIds ?? [] : [];
+  const suggested = target?.kind === "job" && assigned.length === 0 ? target.suggestedIds ?? [] : [];
+  const selected = target?.kind === "job" ? [...(assigned.length > 0 ? assigned : suggested)] : [];
   const primary = target?.kind === "job" ? target.initialPrimaryId ?? selected[0] ?? null : null;
   return { key: targetKey(target), selected, primary, search: "" };
 }

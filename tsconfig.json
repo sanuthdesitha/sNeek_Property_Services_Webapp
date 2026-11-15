@@ -38,7 +38,10 @@
     ".next/types/**/*.ts",
     ".next-dev/types/**/*.ts",
     ".next-prod.__build/types/**/*.ts",
-    ".next-2fa/types/**/*.ts"
+    ".next-2fa/types/**/*.ts",
+    ".next-route/types/**/*.ts",
+    ".next-forms/types/**/*.ts",
+    ".next-pay/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

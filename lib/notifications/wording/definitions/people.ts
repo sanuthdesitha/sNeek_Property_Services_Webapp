@@ -5,6 +5,7 @@ import { CLIENT_UPDATE_WORDING } from "./client-updates";
 import { LEAD_ALERTS_WORDING } from "./office-alerts";
 import { POST_JOB_WORDING } from "./post-job";
 import { WORKFORCE_WORDING } from "./workforce";
+import { ADDRESS_UPDATE_WORDING } from "./address-update";
 import { CLIENT_DOCUMENT_PARTS } from "./client-documents";
 import { CLIENT_APPROVAL_PARTS, INVITATION_PARTS } from "./client-approvals";
 
@@ -25,6 +26,7 @@ export const PEOPLE_WORDING: readonly TypeWordingDefinition[] = [
   editable("account.invitations", INVITATION_PARTS, "A temporary password the template leaves out is still appended automatically (credential fail-safe)."),
   elsewhere("money.finance_events", "Each finance event's email is an Email design (\"Finance: …\", under this type's details); SMS and push wording stay in Preferences, Finance notification templates.", "/v2/admin/notifications?tab=preferences#finance-notifications"),
   WORKFORCE_WORDING,
+  ADDRESS_UPDATE_WORDING,
   LEAD_ALERTS_WORDING,
   composed("marketing.campaigns", "Each campaign's email and SMS are written in the campaign editor (Growth).", "/v2/admin/growth"),
   inCode("system.provider_tests", "Provider and device diagnostics: their fixed wording is what identifies a test message, so it is not editable on purpose."),

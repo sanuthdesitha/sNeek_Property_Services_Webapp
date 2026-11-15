@@ -7,12 +7,12 @@ import * as React from "react";
 import { ECard } from "@/components/v2/ui/primitives";
 
 /** Thin intensity bar (row-level fill). */
-export function EBar({ value, max }: { value: number; max: number }) {
+export function EBar({ value, max, tone = "gold" }: { value: number; max: number; /** Fill colour; gold by default (unchanged), primary on Results and stats. */ tone?: "gold" | "primary" }) {
   const pct = max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0;
   return (
     <div className="h-2.5 w-full overflow-hidden rounded-[var(--e-radius-pill)] bg-[hsl(var(--e-muted))]">
       <div
-        className="h-full rounded-[var(--e-radius-pill)] bg-[hsl(var(--e-gold))]"
+        className={`h-full rounded-[var(--e-radius-pill)] ${tone === "primary" ? "bg-[hsl(var(--e-primary))]" : "bg-[hsl(var(--e-gold))]"}`}
         style={{ width: `${pct}%` }}
       />
     </div>

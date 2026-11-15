@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { TwoStepConfirmDialog } from "@/components/shared/two-step-confirm-dialog";
+import { REASON_CHOICES } from "@/lib/confirmations/reasons";
+import { sensitiveVerificationText, type SensitiveCredentialsInput } from "@/lib/security/pin-rules";
 
 type Payout = {
   id: string;
@@ -80,21 +83,37 @@ export function PayrollRunDetail({ runId }: { runId: string }) {
     }
   }
 
-  async function changeRunStatus(status: string) {
-    const res = await fetch(`/api/admin/payroll/runs/${runId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    if (res.ok) setRun(await res.json());
-    else alert((await res.json().catch(() => ({}))).error || "Failed to update status");
+  // Since 2026-11-17 the run-wide status is ADMIN only, with a reason and the
+  // person's own PIN verified by the PATCH route; processing also asks for the PIN.
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+  const [processOpen, setProcessOpen] = useState(false);
+  const [statusSaving, setStatusSaving] = useState(false);
+
+  async function changeRunStatus(status: string, credentials?: SensitiveCredentialsInput, reason?: string) {
+    setStatusSaving(true);
+    try {
+      const res = await fetch(`/api/admin/payroll/runs/${runId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, expectedStatus: run?.status, reason, security: credentials ?? {} }),
+      });
+      if (res.ok) {
+        setRun(await res.json());
+        setPendingStatus(null);
+      } else {
+        const error = (await res.json().catch(() => ({}))).error;
+        alert(error ? sensitiveVerificationText(error) : "Failed to update status");
+      }
+    } finally {
+      setStatusSaving(false);
+    }
   }
 
   async function changePayoutStatus(payoutId: string, payoutStatus: string) {
     const res = await fetch(`/api/admin/payroll/runs/${runId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ payoutId, payoutStatus }),
+      body: JSON.stringify({ payoutId, payoutStatus, expectedPayoutStatus: run?.payouts.find((payout) => payout.id === payoutId)?.status }),
     });
     if (res.ok) setRun(await res.json());
     else alert((await res.json().catch(() => ({}))).error || "Failed to update payout");
@@ -120,16 +139,20 @@ export function PayrollRunDetail({ runId }: { runId: string }) {
     }
   }
 
-  async function handleProcess() {
-    if (!confirm("This will process all payouts. Continue?")) return;
+  async function handleProcess(credentials?: SensitiveCredentialsInput) {
     setProcessing(true);
     try {
-      const res = await fetch(`/api/admin/payroll/runs/${runId}/process`, { method: "POST" });
+      const res = await fetch(`/api/admin/payroll/runs/${runId}/process`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials ?? {} }),
+      });
       if (!res.ok) {
-        const err = await res.json();
-        alert(err.error || "Failed to process");
+        const err = await res.json().catch(() => ({}));
+        alert(err.error ? sensitiveVerificationText(err.error) : "Failed to process");
         return;
       }
+      setProcessOpen(false);
       const result = await res.json();
       alert(`Processed: ${result.successCount} succeeded, ${result.failCount} failed`);
       await loadRun();
@@ -228,10 +251,13 @@ export function PayrollRunDetail({ runId }: { runId: string }) {
                 {confirming ? "Confirming..." : "Confirm Run"}
               </Button>
             )}
-            {(isConfirmed || isFailed) && (
-              <Button onClick={handleProcess} disabled={processing} variant="default">
+            {isConfirmed && (
+              <Button onClick={() => setProcessOpen(true)} disabled={processing} variant="default">
                 {processing ? "Processing..." : "Process Payouts"}
               </Button>
+            )}
+            {isFailed && (
+              <span className="text-xs text-muted-foreground">Processing is only for a Confirmed run. Set it back to Confirmed (Retry after failure) to process again.</span>
             )}
             {!isDraft && (
               <Button onClick={handleDownloadAba} disabled={generatingAba} variant="outline">
@@ -247,7 +273,8 @@ export function PayrollRunDetail({ runId }: { runId: string }) {
               <span className="text-xs text-muted-foreground">Set status manually:</span>
               <select
                 value={run.status}
-                onChange={(e) => changeRunStatus(e.target.value)}
+                onChange={(e) => setPendingStatus(e.target.value)}
+                disabled={statusSaving}
                 className="h-8 rounded-md border border-input bg-background px-2 text-xs"
                 title="Manually override the run status"
               >
@@ -259,6 +286,30 @@ export function PayrollRunDetail({ runId }: { runId: string }) {
           </div>
         </CardContent>
       </Card>
+
+      <TwoStepConfirmDialog
+        open={processOpen}
+        onOpenChange={(open) => !processing && setProcessOpen(open)}
+        title="Send payouts?"
+        description={`$${run.grandTotal.toFixed(2)} to ${run.payouts.length} people. Stripe Connect payouts go now; bank transfers stay Pending until marked paid.`}
+        confirmLabel="Send payouts"
+        cancelLabel="Cancel"
+        loading={processing}
+        requireSecurityVerification
+        onConfirm={(credentials) => handleProcess(credentials)}
+      />
+      <TwoStepConfirmDialog
+        open={pendingStatus !== null}
+        onOpenChange={(open) => !statusSaving && !open && setPendingStatus(null)}
+        title={`Change this run to ${pendingStatus ?? ""}?`}
+        description="Only for payments made outside this page. Payout statuses are not changed; the change is written to the run's history."
+        confirmLabel="Change status"
+        cancelLabel="Cancel"
+        loading={statusSaving}
+        requireSecurityVerification
+        reasonChoices={REASON_CHOICES.payrollRunStatus}
+        onConfirm={(credentials, reason) => (pendingStatus ? changeRunStatus(pendingStatus, credentials, reason) : undefined)}
+      />
 
       {/* Payouts */}
       <Card>

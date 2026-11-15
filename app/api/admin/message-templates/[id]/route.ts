@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
-import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import {
+  MessageTemplateConflictError,
+  MessageTemplateNotFoundError,
+  messageTemplatePatch,
+  updateMessageTemplate,
+} from "@/lib/messages/template-admin";
 
-const patchSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  triggerType: z.enum(["POST_JOB", "REVIEW_REQUEST", "DISCOUNT", "NEXT_CLEAN", "MANUAL"]).optional(),
-  jobType: z.string().optional().nullable(),
-  channel: z.enum(["EMAIL", "SMS"]).optional(),
-  subject: z.string().max(500).optional().nullable(),
-  body: z.string().min(1).optional(),
-  isActive: z.boolean().optional(),
-});
+function errorStatus(err: any, fallback: number): number {
+  if (err instanceof MessageTemplateNotFoundError || err?.code === "P2025") return 404;
+  return err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : fallback;
+}
 
 export async function GET(
   _req: NextRequest,
@@ -24,29 +24,29 @@ export async function GET(
     if (!template) return NextResponse.json({ error: "Not found." }, { status: 404 });
     return NextResponse.json(template);
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 500;
-    return NextResponse.json({ error: err.message ?? "Failed" }, { status });
+    return NextResponse.json({ error: err.message ?? "Failed" }, { status: errorStatus(err, 500) });
   }
 }
 
+/** Save. With `expectedUpdatedAt` a template someone else saved since answers 409 with theirs. */
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const body = patchSchema.parse(await req.json());
-    const template = await db.messageTemplate.update({
-      where: { id: params.id },
-      data: body,
-    });
+    const body = messageTemplatePatch.parse(await req.json());
+    const template = await updateMessageTemplate(params.id, body);
     return NextResponse.json(template);
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message ?? "Failed" }, { status });
+    if (err instanceof MessageTemplateConflictError) {
+      return NextResponse.json({ error: err.message, current: err.current }, { status: 409 });
+    }
+    return NextResponse.json({ error: err.message ?? "Failed" }, { status: errorStatus(err, 400) });
   }
 }
 
+/** Delete (tier B in the editor). Automation rules lose the template (the relation sets it to null). */
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string } }
@@ -61,7 +61,6 @@ export async function DELETE(
     await db.messageTemplate.delete({ where: { id: params.id } });
     return NextResponse.json({ ok: true });
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message ?? "Failed" }, { status });
+    return NextResponse.json({ error: err.message ?? "Failed" }, { status: errorStatus(err, 400) });
   }
 }

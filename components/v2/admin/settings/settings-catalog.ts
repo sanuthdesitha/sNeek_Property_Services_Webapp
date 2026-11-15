@@ -272,6 +272,17 @@ export const SETTINGS_DESTINATIONS = [
     adminOnly: true,
   },
   {
+    // Social post generator (2026-11-17): linked accounts, the marketing
+    // permission register, brand frames and caption templates. Operations
+    // managers read it with the Marketing pack; connecting is ADMIN with PIN.
+    key: "social-accounts",
+    label: "Social accounts and permissions",
+    description: "Connect the business's Facebook Page and Instagram, record which owners allow their homes in marketing, brand frames and caption templates.",
+    group: "operations",
+    adminOnly: false,
+    href: "/v2/admin/marketing/social-accounts",
+  },
+  {
     key: "portals",
     label: "Portal visibility",
     description: "Choose which features clients and cleaners can see.",
@@ -328,6 +339,15 @@ export const SETTINGS_DESTINATIONS = [
     group: "ai",
     adminOnly: false,
     href: "/v2/admin/ai#photo-checks",
+  },
+  {
+    // Social post generator (2026-11-17): no AI, a local model, or Claude with your login.
+    key: "social-ai",
+    label: "Social post help",
+    description: "Three ways to get captions and photo picks for social posts: no AI (free), a local model, or Claude with your login through the agent connection.",
+    group: "ai",
+    adminOnly: false,
+    href: "/v2/admin/marketing/social-ai",
   },
   {
     // The old Ollama tab opens the Local Ollama setup on the AI page.

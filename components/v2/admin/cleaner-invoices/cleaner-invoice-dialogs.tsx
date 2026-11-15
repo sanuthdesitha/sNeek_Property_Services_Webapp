@@ -18,7 +18,9 @@ import { CLEANER_PAY_METHODS, CLEANER_PAY_METHOD_LABEL, bankFromLineData, fmtDay
 
 export type CleanerDialog =
   | null
-  | { kind: "record-payment" | "request-changes" | "reverse" | "delete" | "reject-claim" | "review-delivery"; row: CleanerRow };
+  | { kind: "record-payment" | "request-changes" | "reverse" | "delete" | "reject-claim" | "review-delivery"; row: CleanerRow }
+  /** Tier A since 2026-11-17 (board "Cleaner invoice"); `note` names what the pay requests are paid at. */
+  | { kind: "approve"; row: CleanerRow; note?: string };
 
 type Send = { url: string; method: "PATCH" | "POST" | "DELETE"; body?: unknown };
 
@@ -185,13 +187,23 @@ function DeliveryDialog({ row, onClose, onDone }: { row: CleanerRow; onClose: ()
  * Tiers (board "Confirmations and deletes", 2026-11-14): reverse is B (it
  * removes the invoice from the pay run; the cleaner can resend), delete is C
  * (own PIN, verified by the DELETE route since 2026-11-14), reject a payment
- * claim is A.
+ * claim is A. Approve is A since 2026-11-17 (board "Cleaner invoice"; it used
+ * to save on one click); the server still allows administrators only.
  */
 function ConfirmDialog({ dialog, onClose, onDone }: { dialog: Exclude<CleanerDialog, null>; onClose: () => void; onDone: () => void }) {
   const { busy, run } = useRun(onDone, onClose);
   const { row } = dialog;
   type Copy = { tier: ConfirmTier; title: string; description: string; confirm: string; request: (security?: SensitiveCredentialsInput) => Send; success: string };
+  const firstName = row.cleanerName.split(" ")[0] || row.cleanerName;
   const copy: Copy = {
+    approve: {
+      tier: "ordinary" as const,
+      title: `Approve ${firstName}'s invoice for ${money(row.totalAmount)}?`,
+      description: `It can then be pushed to Xero and paid.${dialog.kind === "approve" && dialog.note ? ` ${dialog.note}` : ""}`,
+      confirm: "Approve invoice",
+      request: () => ({ url: `/api/admin/cleaner-invoices/${row.id}`, method: "PATCH", body: { status: "APPROVED" } }) as Send,
+      success: "Invoice approved",
+    },
     reverse: {
       tier: "destructive" as const,
       title: "Reverse this invoice?",
@@ -216,7 +228,7 @@ function ConfirmDialog({ dialog, onClose, onDone }: { dialog: Exclude<CleanerDia
       request: () => ({ url: `/api/admin/cleaner-invoices/${row.id}`, method: "PATCH", body: { status: "SUBMITTED" } }) as Send,
       success: "Claim rejected.",
     },
-  }[dialog.kind as "reverse" | "delete" | "reject-claim"];
+  }[dialog.kind as "approve" | "reverse" | "delete" | "reject-claim"];
   return (
     <EConfirmModal
       open

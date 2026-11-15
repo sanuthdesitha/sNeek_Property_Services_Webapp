@@ -65,7 +65,7 @@ export function orderRouteStops<T extends RouteOrderInput>(stops: readonly T[], 
 
 /** Rough minutes from the previous stop (0 for the first) and the route total. */
 export function roughTravel(stops: readonly Pick<RouteOrderInput, "suburb">[]): { fromPrevious: number[]; total: number } {
-  const fromPrevious = stops.map((stop, index) => {
+  const fromPrevious = stops.map((stop, index): number => {
     if (index === 0) return 0;
     const previous = stops[index - 1];
     return normalisedSuburb(previous.suburb) === normalisedSuburb(stop.suburb) ? DISPATCH_SAME_SUBURB_TRAVEL_MIN : DISPATCH_OTHER_SUBURB_TRAVEL_MIN;

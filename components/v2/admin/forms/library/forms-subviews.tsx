@@ -59,19 +59,32 @@ export function ChecklistBlocksTab({ view }: { view: BlocksView }) {
   );
 }
 
-export function MessageTemplatesTab({ view }: { view: MessagesView }) {
+export function MessageTemplatesTab({ view, canWrite = true, messageCount = null }: { view: MessagesView; canWrite?: boolean; messageCount?: number | null }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <EChipTabs
+          className="max-w-full"
+          tabs={[
+            { key: "notifications", label: "Notification templates", href: "/v2/admin/forms?tab=messages&view=notifications", active: view === "notifications", icon: <Bell className="h-3.5 w-3.5" /> },
+            { key: "messages", label: "Message templates", href: "/v2/admin/forms?tab=messages&view=messages", active: view === "messages", icon: <MessageSquare className="h-3.5 w-3.5" />, ...(typeof messageCount === "number" ? { count: messageCount } : {}) },
+          ]}
+        />
+        {view === "messages" ? (
+          <p className="min-w-0 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+            Wording of automatic notifications:{" "}
+            <Link href="/v2/admin/notifications" className="font-[550] text-[hsl(var(--e-primary))] underline">Notifications › Types and wording</Link>
+            {" · "}Email colours and layout:{" "}
+            <Link href="/v2/admin/notifications/email-look" className="font-[550] text-[hsl(var(--e-primary))] underline">Notifications › Email look</Link>
+          </p>
+        ) : null}
+      </div>
       <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-        Design the email, SMS and message copy sNeek sends across every event.
+        {view === "messages"
+          ? "Ready-made messages the office inserts when writing to a client, cleaner or laundry partner, and the messages client automations and campaigns send."
+          : "Design the email, SMS and message copy sNeek sends across every event."}
       </p>
-      <EChipTabs
-        tabs={[
-          { key: "notifications", label: "Notification templates", href: "/v2/admin/forms?tab=messages&view=notifications", active: view === "notifications", icon: <Bell className="h-3.5 w-3.5" /> },
-          { key: "messages", label: "Message templates", href: "/v2/admin/forms?tab=messages&view=messages", active: view === "messages", icon: <MessageSquare className="h-3.5 w-3.5" /> },
-        ]}
-      />
-      {view === "messages" ? <MessageTemplatesWorkspace /> : <NotificationTemplatesWorkspace />}
+      {view === "messages" ? <MessageTemplatesWorkspace canWrite={canWrite} /> : <NotificationTemplatesWorkspace />}
     </div>
   );
 }

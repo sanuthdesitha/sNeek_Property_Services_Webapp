@@ -8,7 +8,8 @@
  *
  * Copy (clipboard), Download as a .txt file and Print (the same plain text in
  * a hidden frame, built with DOM text nodes, no HTML strings). The codes are
- * never written to storage, the URL or the console.
+ * never written to storage, the URL or the console. While they are on screen
+ * the section is marked busy, so no tour or welcome opens over them.
  */
 import * as React from "react";
 import { Copy, Download, Printer } from "lucide-react";
@@ -87,7 +88,8 @@ export function BackupCodesDisplay({ codes, createdLabel, accountEmail, onDone, 
   }
 
   return (
-    <section aria-labelledby={headingId} className="space-y-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface-raised))] p-4">
+    // data-tour-busy: no tour or welcome may cover the codes while they are on screen.
+    <section aria-labelledby={headingId} data-tour-busy="backup-codes" className="space-y-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface-raised))] p-4">
       <div>
         <h3 id={headingId} className="text-[0.9375rem] font-[600]">Your backup codes</h3>
         <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Made {createdLabel}</p>

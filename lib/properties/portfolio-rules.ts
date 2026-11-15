@@ -67,7 +67,14 @@ export function flagsFor(facts: FlagFacts): PortfolioFlag[] {
 export function matchesChip(flags: readonly PortfolioFlag[], chip: PortfolioChip | null): boolean {
   if (chip === null) return true;
   if (chip === "attention") return flags.length > 0;
+  if (chip === "missing-details") return false;
   return flags.includes(chip);
+}
+
+/** A row against a chip; "Missing required details" reads the row's missing fields, not its flags. */
+export function matchesRowChip(row: Pick<PortfolioRow, "flags" | "missingRequired">, chip: PortfolioChip | null): boolean {
+  if (chip === "missing-details") return (row.missingRequired?.length ?? 0) > 0;
+  return matchesChip(row.flags, chip);
 }
 
 /** Average of the authoritative scores, withheld below the minimum sample. */

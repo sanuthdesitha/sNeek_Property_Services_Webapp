@@ -732,6 +732,22 @@ async function main() {
     await boss.work("media-integrity", safeHandler("media-integrity", async () => { const { processPhotoIntegrityQueue } = await import("@/lib/media/photo-integrity-queue"); await processPhotoIntegrityQueue(); }));
   }
 
+  // Social post generator (2026-11-17): photo scores (sharp, no AI), posts a
+  // person planned for a time (re-checked then; no automatic retries), and
+  // reach figures read once a day from the network when it returns them.
+  if (jobEnabled("social-photo-score")) {
+    await boss.schedule("social-photo-score", "*/10 * * * *", {}, { tz: TZ });
+    await boss.work("social-photo-score", safeHandler("social-photo-score", async () => { const { processSocialScoreQueue } = await import("@/lib/marketing/social/score-queue"); await processSocialScoreQueue(); }));
+  }
+  if (jobEnabled("social-planned-posts")) {
+    await boss.schedule("social-planned-posts", "*/5 * * * *", {}, { tz: TZ });
+    await boss.work("social-planned-posts", safeHandler("social-planned-posts", async () => { const { processPlannedSocialPosts } = await import("@/lib/marketing/social/scheduled"); await processPlannedSocialPosts(); }));
+  }
+  if (jobEnabled("social-insights")) {
+    await boss.schedule("social-insights", "23 4 * * *", {}, { tz: TZ });
+    await boss.work("social-insights", safeHandler("social-insights", async () => { const { collectSocialInsights } = await import("@/lib/marketing/social/insights"); await collectSocialInsights(); }));
+  }
+
   if (jobEnabled("ai-photo-review")) {
     await boss.schedule("ai-photo-review", "*/5 * * * *", {}, { tz: TZ });
     await boss.work("ai-photo-review", safeHandler("ai-photo-review", async () => { const { processPhotoReviewQueue } = await import("@/lib/ai/photo-review"); await processPhotoReviewQueue(); }));

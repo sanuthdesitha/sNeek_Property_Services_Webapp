@@ -23,9 +23,11 @@ import {
   flagsFor,
   isCalendarLinked,
   isOneOffSite,
-  matchesChip,
+  matchesRowChip,
   qaFigureOf,
 } from "./portfolio-rules";
+import { getPropertyFormConfig } from "@/lib/property-form/config-store";
+import { missingRequiredForProperty } from "@/lib/property-form/missing-required";
 import {
   loadLateLaundry,
   loadLatestSyncErrors,
@@ -56,6 +58,25 @@ async function readActiveProperties(ids?: string[]) {
       client: { select: { id: true, name: true } },
       integration: { select: { isEnabled: true, icalUrl: true, syncStatus: true, syncError: true, lastSyncAt: true } },
       _count: { select: { jobs: true } },
+      // For "Missing required details" (presence only; the access code is never read out).
+      clientId: true,
+      state: true,
+      postcode: true,
+      linenBufferSets: true,
+      defaultCheckinTime: true,
+      defaultCheckoutTime: true,
+      hasBalcony: true,
+      inventoryEnabled: true,
+      cleaningDurationMinutes: true,
+      assignedCleaningHours: true,
+      cleanerServiceRate: true,
+      sofaBedCount: true,
+      laundryBagLabel: true,
+      laundryBagColor: true,
+      setupGuide: true,
+      notes: true,
+      accessCode: true,
+      customFields: true,
     },
     orderBy: [{ client: { name: "asc" } }, { name: "asc" }],
   });
@@ -72,12 +93,14 @@ export async function buildPortfolioRows(options: ScopeOptions, now: Date = new 
   const ids = scope.map((property) => property.id);
   const errorIds = scope.filter((property) => property.integration?.syncStatus === "ERROR").map((property) => property.id);
 
-  const [syncErrors, nextCleans, qaScores, lateLaundry, openCare] = await Promise.all([
+  const [syncErrors, nextCleans, qaScores, lateLaundry, openCare, formConfig] = await Promise.all([
     loadLatestSyncErrors(errorIds),
     loadNextCleans(ids, now),
     loadQaScores(ids, now),
     loadLateLaundry(ids, now),
     loadOpenCare(ids),
+    // A config that cannot be read leaves the missing-details column unknown, never "nothing missing".
+    getPropertyFormConfig().catch(() => null),
   ]);
 
   const rows = scope.map<PortfolioRow>((property) => {
@@ -109,6 +132,15 @@ export async function buildPortfolioRows(options: ScopeOptions, now: Date = new 
         laundryEnabled: property.laundryEnabled !== false,
         laundryTeamSize: extractLaundryTeamUserIds(property.accessInfo).length,
       }),
+      ...(formConfig
+        ? {
+            missingRequired: missingRequiredForProperty(formConfig, {
+              ...property,
+              bedrooms: property.bedrooms,
+              hasAccessCode: Boolean(property.accessCode && property.accessCode.trim()),
+            }).map((field) => field.label),
+          }
+        : {}),
     };
   });
   return { rows, oneOffCount };
@@ -125,7 +157,7 @@ export function matchesFilters(row: PortfolioRow, filters: PortfolioFilters): bo
 
 export function filterAndSortRows(rows: PortfolioRow[], filters: PortfolioFilters, sort: PortfolioSort, dir: "asc" | "desc"): PortfolioRow[] {
   return rows
-    .filter((row) => matchesFilters(row, filters) && matchesChip(row.flags, filters.chip))
+    .filter((row) => matchesFilters(row, filters) && matchesRowChip(row, filters.chip))
     .sort(comparePortfolioRows(sort, dir));
 }
 
@@ -135,7 +167,7 @@ export async function listPortfolio(filters: PortfolioFilters, query: ListQuery<
 
   const unchipped = rows.filter((row) => matchesFilters(row, filters));
   const counts = Object.fromEntries(
-    PORTFOLIO_CHIPS.map((chip) => [chip, unchipped.filter((row) => matchesChip(row.flags, chip)).length]),
+    PORTFOLIO_CHIPS.map((chip) => [chip, unchipped.filter((row) => matchesRowChip(row, chip)).length]),
   ) as Record<PortfolioChip, number>;
   const matched = filterAndSortRows(rows, filters, query.sort, query.dir);
   const page = matched.slice(query.skip, query.skip + query.take);

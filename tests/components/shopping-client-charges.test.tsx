@@ -8,31 +8,32 @@ beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("fetch", fetchMock); fetchM
 it("requires treatment and independent client rate before approval, then sends revision and refreshes", async () => {
   render(<ShoppingClientCharges runId="run" />);
   const approve = await screen.findByRole("button", { name: "Approve for next invoice" }); expect(approve).toBeDisabled();
-  fireEvent.change(screen.getByLabelText("Treatment for charge"), { target: { value: "RECHARGE" } }); expect(approve).toBeDisabled();
-  fireEvent.change(screen.getByLabelText("Client rate for charge"), { target: { value: "40" } }); expect(approve).toBeEnabled();
+  fireEvent.change(screen.getByLabelText("Treatment for House A"), { target: { value: "RECHARGE" } }); expect(approve).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Client rate for House A"), { target: { value: "40" } }); expect(approve).toBeEnabled();
   fetchMock.mockImplementation((_url, init) => init?.method === "PATCH" ? response({ ok: true }) : response({ charges: [{ ...charge, revision: 3, hourlyRate: 40, treatment: "RECHARGE", status: "APPROVED", labourAmount: 20 }] }));
   fireEvent.click(approve);
-  await screen.findByText("Approved for the next invoice");
+  await screen.findByText("Approved for next invoice");
   const request = fetchMock.mock.calls.find(call => call[1]?.method === "PATCH"); expect(JSON.parse(request![1].body)).toMatchObject({ id: "charge", expectedRevision: 2, hourlyRate: 40, shoppingMinutes: 30, status: "APPROVED" });
 });
 it("keeps rejected edits visible and never presents a failed approval as saved", async () => {
-  render(<ShoppingClientCharges runId="run" />); await screen.findByLabelText("Client rate for charge");
-  fireEvent.change(screen.getByLabelText("Client rate for charge"), { target: { value: "25" } });
+  render(<ShoppingClientCharges runId="run" />); await screen.findByLabelText("Client rate for House A");
+  fireEvent.change(screen.getByLabelText("Client rate for House A"), { target: { value: "25" } });
   fetchMock.mockImplementation(() => response({ error: "Shopping billing changed. Refresh before reviewing." }, 409));
-  fireEvent.click(screen.getByRole("button", { name: "Save pending review" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("Shopping billing changed"); expect(screen.getByLabelText("Client rate for charge")).toHaveValue(25);
-  expect(screen.queryByText("Approved for the next invoice")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Save, still to review" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Shopping billing changed"); expect(screen.getByLabelText("Client rate for House A")).toHaveValue(25);
+  expect(screen.queryByText("Approved for next invoice")).not.toBeInTheDocument();
+  expect(screen.getByRole("alert")).toHaveTextContent("Your entries are kept");
 });
 it("locks invoiced allocations and never automatically sends a mutation", async () => {
   fetchMock.mockImplementation(() => response({ charges: [{ ...charge, invoiceId: "invoice" }] })); render(<ShoppingClientCharges runId="run" />);
-  await screen.findByText("Included in an invoice. This charge is locked."); expect(screen.queryByRole("button", { name: "Approve for next invoice" })).not.toBeInTheDocument(); expect(fetchMock.mock.calls.every(call => !call[1]?.method)).toBe(true);
+  await screen.findByText("Invoiced, locked"); await screen.findByText("On an invoice. A change now needs a credit note on that invoice."); expect(screen.queryByRole("button", { name: "Approve for next invoice" })).not.toBeInTheDocument(); expect(fetchMock.mock.calls.every(call => !call[1]?.method)).toBe(true);
 });
-it("shows server failures instead of successful empty allocation state", async () => { fetchMock.mockImplementation(() => response({ error: "Unavailable" }, 503)); render(<ShoppingClientCharges runId="run" />); await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Unavailable")); expect(screen.queryByText(/No client allocations yet/)).not.toBeInTheDocument(); });
+it("shows server failures instead of successful empty allocation state", async () => { fetchMock.mockImplementation(() => response({ error: "Unavailable" }, 503)); render(<ShoppingClientCharges runId="run" />); await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Unavailable")); expect(screen.queryByText(/No client charges yet/)).not.toBeInTheDocument(); });
 it("requires a note for waived cost and submits the waiver independently from labour", async () => {
   render(<ShoppingClientCharges runId="run" />);
   const approve = await screen.findByRole("button", { name: "Approve for next invoice" });
-  fireEvent.change(screen.getByLabelText("Treatment for charge"), { target: { value: "RECHARGE" } });
-  fireEvent.change(screen.getByLabelText("Client rate for charge"), { target: { value: "40" } });
+  fireEvent.change(screen.getByLabelText("Treatment for House A"), { target: { value: "RECHARGE" } });
+  fireEvent.change(screen.getByLabelText("Client rate for House A"), { target: { value: "40" } });
   fireEvent.click(screen.getByRole("checkbox", { name: "Bill purchase cost to client" }));
   expect(approve).toBeDisabled();
   fireEvent.change(screen.getByLabelText(/Review note/), { target: { value: "Purchase covered by office" } });
@@ -45,15 +46,15 @@ it("requires a note for waived cost and submits the waiver independently from la
 });
 it("labels a changed rate as an unsaved preview while retaining the saved allocation", async () => {
  render(<ShoppingClientCharges runId="run" />);
- await screen.findByLabelText("Client rate for charge");
- fireEvent.change(screen.getByLabelText("Client rate for charge"), { target: { value: "100" } });
- expect(screen.getByText(/Unsaved labour preview/)).toHaveTextContent("$50.00");
- expect(screen.getByText("Saved allocation").parentElement).toHaveTextContent("Time charge: $0.00");
+ await screen.findByLabelText("Client rate for House A");
+ fireEvent.change(screen.getByLabelText("Client rate for House A"), { target: { value: "100" } });
+ expect(screen.getByText(/Unsaved time preview/)).toHaveTextContent("$50.00");
+ expect(screen.getByText(/purchases \$12\.00/)).toHaveTextContent("no client rate yet");
  expect(fetchMock.mock.calls.every(call => !call[1]?.method)).toBe(true);
 });
 it("shows loading rather than an empty allocation message while the initial request is pending", () => {
  fetchMock.mockImplementation(() => new Promise(() => {}));
  render(<ShoppingClientCharges runId="run" />);
- expect(screen.getByRole("status")).toHaveTextContent("Loading client allocations");
- expect(screen.queryByText(/No client allocations yet/)).not.toBeInTheDocument();
+ expect(screen.getByRole("status")).toHaveTextContent("Loading client charges");
+ expect(screen.queryByText(/No client charges yet/)).not.toBeInTheDocument();
 });

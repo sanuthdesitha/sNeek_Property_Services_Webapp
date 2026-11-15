@@ -9,77 +9,90 @@ import type { EDataColumn } from "@/components/v2/ui/data-table";
 import { caseHref } from "@/lib/quality/case-origin";
 import { EPill } from "@/components/v2/ui/pill";
 import type { IssueSort } from "@/lib/quality/types";
+import * as React from "react";
 import {
   falseConfirmationTone,
-  formatIssueDate,
+  formatIssueMoment,
   rectificationTone,
   severityTone,
-  titleCaseKey,
 } from "../issues/issue-format";
+import {
+  falseConfirmationDetailText,
+  falseConfirmationLabel,
+  fixDetailText,
+  issueAttention,
+  rectificationLabel,
+} from "@/lib/quality/issue-presentation";
+import { toneRowCellClass } from "@/components/v2/ui/tone-band";
 import type { QualityIssueRow } from "./hub-types";
 import { severityLabel } from "@/lib/quality/severity";
 import { EButton } from "@/components/v2/ui/primitives";
 import { ERowMenu } from "@/components/v2/ui/row-menu";
 import { OPEN_RECTIFICATION_STATUSES, type RectificationStatusKey } from "@/lib/quality/types";
-import type { IssueActionKey } from "../issues/issue-actions";
+import type { IssueActionKey } from "../issues/issue-action-forms";
 
-export function issueColumns({
-  labelFor,
-  timeZone,
-  onOpen,
-}: {
+export type IssueColumnOptions = {
   labelFor: (key: string) => string;
   timeZone: string;
   onOpen: (issue: QualityIssueRow) => void;
-}): Array<EDataColumn<QualityIssueRow, IssueSort>> {
+  /** settings.accountability.scoring.falseConfirmationExtraDeduction, or null when unknown. */
+  falseConfirmationDeduction?: number | null;
+};
+
+function Muted({ children }: { children: React.ReactNode }) {
+  return <span className="block text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{children}</span>;
+}
+
+/**
+ * Board "QualitySubpages": six columns beside the issue panel. The raised date
+ * and where it was raised from sit under the issue name; fix minutes and cost
+ * sit under the fix status. A row that needs someone is tinted behind its
+ * first cells (see `issueLeadCellClass`) and its pill says why.
+ */
+export function issueColumns({ labelFor, timeZone, onOpen, falseConfirmationDeduction = null }: IssueColumnOptions): Array<EDataColumn<QualityIssueRow, IssueSort>> {
   return [
     {
       key: "created",
-      header: "Raised",
+      header: "Issue · raised",
       sortKey: "created",
       firstDir: "desc",
-      className: "whitespace-nowrap",
-      cell: (issue) => <span className="e-tnum text-[hsl(var(--e-text-secondary))]">{formatIssueDate(issue.createdAt, timeZone)}</span>,
-    },
-    {
-      key: "category",
-      header: "Issue",
-      sortKey: "category",
-      cell: (issue) => (
-        <button
-          type="button"
-          onClick={() => onOpen(issue)}
-          className="max-w-[18rem] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]"
-        >
-          <span className="block font-[600] hover:underline">{labelFor(issue.category)}</span>
-          <span className="block truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{issue.description}</span>
-        </button>
-      ),
-    },
-    {
-      key: "origin",
-      header: "Raised from",
-      cell: (issue) =>
-        issue.raisedFromCaseId ? (
-          <Link href={caseHref(issue.raisedFromCaseId)} className="whitespace-nowrap text-[hsl(var(--e-primary))] underline-offset-2 hover:underline">Raised from case</Link>
-        ) : (
-          <span className="text-[hsl(var(--e-text-faint))]">QA review</span>
-        ),
+      cell: (issue) => {
+        const attention = issueAttention(issue);
+        return (
+          <span className="block max-w-[17rem]">
+            <button
+              type="button"
+              onClick={() => onOpen(issue)}
+              className="text-left font-[600] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]"
+            >
+              {labelFor(issue.category)}
+            </button>
+            <span className="block text-[0.8125rem] text-[hsl(var(--e-text-secondary))] [overflow-wrap:anywhere]">{issue.description}</span>
+            <Muted>
+              <span className="e-tnum">{formatIssueMoment(issue.createdAt, timeZone)}</span>
+              {" · "}
+              {issue.raisedFromCaseId ? (
+                <Link href={caseHref(issue.raisedFromCaseId)} className="underline underline-offset-2">from case</Link>
+              ) : (
+                "QA review"
+              )}
+            </Muted>
+            {attention ? <span className="sr-only">{attention.reason}.</span> : null}
+          </span>
+        );
+      },
     },
     {
       key: "cleaner",
-      header: "Cleaner",
+      header: "Cleaner · property",
       sortKey: "cleaner",
-      cell: (issue) => issue.cleaner?.name || "–",
-    },
-    {
-      key: "property",
-      header: "Property / job",
-      sortKey: "property",
       cell: (issue) => (
-        <span>
-          <span className="block">{issue.job?.propertyName ?? issue.property?.name ?? "–"}</span>
-          {issue.job?.jobNumber ? <span className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">Job #{issue.job.jobNumber}</span> : null}
+        <span className="block">
+          <span className="block">{issue.cleaner?.name || "–"}</span>
+          <Muted>
+            {issue.job?.propertyName ?? issue.property?.name ?? "–"}
+            {issue.job?.jobNumber ? <span className="whitespace-nowrap">{` · ${issue.job.jobNumber}`}</span> : null}
+          </Muted>
         </span>
       ),
     },
@@ -89,7 +102,7 @@ export function issueColumns({
       sortKey: "severity",
       firstDir: "desc",
       cell: (issue) => (
-        <span className="inline-flex flex-wrap items-center gap-1">
+        <span className="inline-flex flex-col items-start gap-1">
           <EPill tone={severityTone(issue.severity)}>{severityLabel(issue.severity)}</EPill>
           {issue.guestReadyImpact ? <EPill tone="bad">Guest-ready</EPill> : null}
         </span>
@@ -97,21 +110,39 @@ export function issueColumns({
     },
     {
       key: "rectification",
-      header: "Rectification",
+      header: "Fix",
       sortKey: "rectification",
-      cell: (issue) => <EPill tone={rectificationTone(issue.rectificationStatus)}>{titleCaseKey(issue.rectificationStatus)}</EPill>,
+      cell: (issue) => {
+        const detail = fixDetailText(issue);
+        return (
+          <span className="block">
+            <EPill tone={rectificationTone(issue.rectificationStatus)}>{rectificationLabel(issue.rectificationStatus)}</EPill>
+            {detail ? <Muted>{detail}</Muted> : null}
+          </span>
+        );
+      },
     },
     {
       key: "falseConfirmation",
       header: "False confirmation",
-      cell: (issue) =>
-        issue.falseConfirmation && issue.falseConfirmation !== "NONE" ? (
-          <EPill tone={falseConfirmationTone(issue.falseConfirmation)}>{titleCaseKey(issue.falseConfirmation)}</EPill>
-        ) : (
-          <span className="text-[hsl(var(--e-text-faint))]">–</span>
-        ),
+      cell: (issue) => {
+        if (!issue.falseConfirmation || issue.falseConfirmation === "NONE") return <span className="text-[hsl(var(--e-text-secondary))]">None</span>;
+        const detail = falseConfirmationDetailText(issue.falseConfirmation, falseConfirmationDeduction);
+        return (
+          <span className="block">
+            <EPill tone={falseConfirmationTone(issue.falseConfirmation)}>{falseConfirmationLabel(issue.falseConfirmation)}</EPill>
+            {detail ? <Muted>{detail}</Muted> : null}
+          </span>
+        );
+      },
     },
   ];
+}
+
+/** Tint behind the leading cells of a row that needs someone (never a left line). */
+export function issueLeadCellClass(issue: QualityIssueRow): string | undefined {
+  const attention = issueAttention(issue);
+  return attention ? toneRowCellClass(attention.tone) : undefined;
 }
 
 /**

@@ -325,7 +325,7 @@ export default function LoginPageV2() {
                   <div className="space-y-1.5">
                     <label htmlFor="twofa-backup" className={E_LABEL_CLASS}>Backup code</label>
                     <p id="twofa-backup-hint" className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      Enter one of the ten codes you saved, like ABCDE-FGHJK. Each code works once.
+                      Enter one of the ten codes you saved, like <span className="whitespace-nowrap font-mono">ABCDE-FGHJK</span>. Each code works once.
                     </p>
                     <input
                       id="twofa-backup"

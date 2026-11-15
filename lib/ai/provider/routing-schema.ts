@@ -6,7 +6,7 @@ import { z } from "zod";
  * live encrypted in `ai_provider_credentials_v1` (see ./credentials.ts).
  */
 
-export const AI_FEATURES = ["photo_compare", "photo_assign", "text_compose", "wording", "assistant", "explain_flag", "draft_reply", "agent_summaries"] as const;
+export const AI_FEATURES = ["photo_compare", "photo_assign", "text_compose", "wording", "assistant", "explain_flag", "draft_reply", "agent_summaries", "social_post"] as const;
 export type AiFeature = (typeof AI_FEATURES)[number];
 
 export const AI_PROVIDER_KINDS = ["anthropic", "openai", "openai_compatible", "ollama"] as const;
@@ -35,6 +35,7 @@ export const AI_FEATURE_CATALOG: Readonly<Record<AiFeature, AiFeatureDefinition>
   explain_flag: { label: "Explain this flag", description: "Explains a photo finding or photo check in plain words, from the stored finding only.", usesImages: false, built: true },
   draft_reply: { label: "Drafts (client replies, quote notes)", description: "Drafts a client reply or quote notes into the editor; a person edits and sends or saves. Never sends.", usesImages: false, built: true },
   agent_summaries: { label: "Agent summaries", description: "Reserved for summaries prepared for connected agents (not built yet).", usesImages: false, built: false },
+  social_post: { label: "Social photo captions", description: "Suggests captions and alt text for a social post in the generator. Text only unless photos may leave the server; then only the cropped copies (no stamp, no camera data) are sent, never an evidence original. A person edits and posts.", usesImages: true, built: true },
 };
 
 export const AI_PROVIDER_LABELS: Readonly<Record<AiProviderKind, string>> = {
@@ -92,7 +93,7 @@ export const aiModelPriceSchema = z.object({
 export type AiModelPrice = z.infer<typeof aiModelPriceSchema>;
 
 // Features added after a routing row was saved fall back to their defaults (an older row stays readable).
-const LATER_FEATURE_DEFAULTS: Partial<Record<AiFeature, number>> = { explain_flag: 60, draft_reply: 30 };
+const LATER_FEATURE_DEFAULTS: Partial<Record<AiFeature, number>> = { explain_flag: 60, draft_reply: 30, social_post: 10 };
 const featureShape = Object.fromEntries(AI_FEATURES.map((feature) => [
   feature,
   LATER_FEATURE_DEFAULTS[feature] !== undefined ? aiFeatureSettingsSchema.default({ enabled: true, route: null, allowCloudImages: false, hourlyLimitPerActor: LATER_FEATURE_DEFAULTS[feature]!, timeoutSeconds: 30 }) : aiFeatureSettingsSchema,
@@ -127,6 +128,7 @@ export const DEFAULT_AI_ROUTING: AiRoutingSettings = {
     explain_flag: featureDefaults(60),
     draft_reply: featureDefaults(30),
     agent_summaries: featureDefaults(60),
+    social_post: featureDefaults(10),
   },
   compatible: { baseUrl: "", label: "" },
   prices: [],

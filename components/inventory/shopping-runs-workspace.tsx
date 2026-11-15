@@ -278,6 +278,12 @@ export function ShoppingRunsWorkspace() {
     });
     const body = await res.json().catch(() => ({}));
     setBusy("");
+    // Since 2026-11-17 approving a claimed reimbursement needs a receipt on the
+    // run, or a typed reason to approve without one (audited by the server).
+    if (res.status === 409 && body.code === "RECEIPT_REQUIRED" && !payload.approvalOverrideNote) {
+      const note = window.prompt("No receipt is attached to this run. Say why it can be approved without one:");
+      if (note && note.trim()) return updateRunStatus({ ...payload, approvalOverrideNote: note.trim() }, successTitle);
+    }
     if (!res.ok) {
       return toast({
         title: "Update failed",

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { buildDefaultQaTemplateSchema, jobTypeLabel } from "@/lib/qa/templates";
-import { qaRevisionCounts } from "@/lib/qa/template-admin";
+import { QA_USED_BY_DAYS, qaInspectionCounts, qaRevisionCounts } from "@/lib/qa/template-admin";
 import { findQaTemplateConflicts } from "@/lib/qa/template-conflicts";
 
 const schema = z.object({
@@ -33,8 +33,16 @@ export async function GET() {
     // Revisions come from the audit log; a failed read is reported as unknown,
     // never as zero revisions.
     const revisions = await qaRevisionCounts(templates.map((template) => template.id)).catch(() => null);
+    // "Used by": inspections filled in on each template in the last 30 days;
+    // a failed read is unknown (null), never zero.
+    const usedBy = await qaInspectionCounts(templates.map((template) => template.id)).catch(() => null);
     return NextResponse.json({
-      templates: templates.map((template) => ({ ...template, revisions: revisions ? revisions.get(template.id) ?? 0 : null })),
+      templates: templates.map((template) => ({
+        ...template,
+        revisions: revisions ? revisions.get(template.id) ?? 0 : null,
+        inspections30d: usedBy ? usedBy.get(template.id) ?? 0 : null,
+      })),
+      usedByDays: QA_USED_BY_DAYS,
       properties,
       jobTypes: Object.values(JobType),
       conflicts: findQaTemplateConflicts(templates.map((template) => ({ ...template, serviceType: String(template.serviceType) }))),

@@ -1,4 +1,4 @@
-/** Wording for office.reports_generated, office.ical_alerts, agent.action_request, xero.reconnect_needed, property.deep_clean_due and leads.alerts. */
+/** Wording for office.reports_generated, office.ical_alerts, agent.action_request, xero.reconnect_needed, property.deep_clean_due, marketing.social_post_result and leads.alerts. */
 import { editable, inbox, line, part } from "./build";
 
 const ICAL_EMAIL = `
@@ -96,6 +96,10 @@ export const EMAIL_DESIGN_PUBLISHED_WORDING = editable("email.design_published",
 
 export const DEEP_CLEAN_DUE_WORDING = editable("property.deep_clean_due", [
   inbox("due", "Deep clean due", "Deep clean due: {{propertyName}}", "{{propertyName}} is due a deep clean on {{dueDay}}, three months after its verified deep clean on {{baselineDay}}. Choose the day in Deep-clean scheduling; nothing is booked until you do.", { required: ["propertyName", "dueDay"], note: "Inbox only, to administrators, once per proposal." }),
+]);
+
+export const SOCIAL_POST_RESULT_WORDING = editable("marketing.social_post_result", [
+  inbox("planned_result", "Planned post result", "Planned social post: {{summary}}", "\"{{title}}\" was due at {{plannedFor}}. {{results}} Open the post to see each network's answer and retry anything that failed.", { required: ["title", "results"], note: "Inbox only, to the person who planned the post, once per planned run." }),
 ]);
 
 export const XERO_RECONNECT_WORDING = editable("xero.reconnect_needed", [
