@@ -6,6 +6,7 @@
  * create, New job). "Import or bulk create" opens its own dialog: a link to
  * the New job page's bulk create and the CSV import.
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import Link from "next/link";
 import { useState } from "react";
 import { formatInTimeZone } from "date-fns-tz";
@@ -54,7 +55,7 @@ export function JobsHeader(props: HeaderProps) {
       <JobsExportPreview query={props.exportQuery} context={props.viewsContext} disabled={props.exportDisabled} />
       <EButton variant="outline" onClick={() => setImportOpen(true)} disabled={props.readOnly}>Import or bulk create</EButton>
       {/* Phones, on the Jobs page: New job is the docked action bar (see JobsWorkspace). */}
-      <EButton asChild className={props.showTitle ? "max-sm:hidden" : undefined}><Link href="/v2/admin/jobs/new">New job</Link></EButton>
+      <EButton asChild className={props.showTitle ? "max-sm:hidden" : undefined}><Link {...tourTarget("admin.jobs.new")} href="/v2/admin/jobs/new">New job</Link></EButton>
       <JobsImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImported={() => props.onImported?.()} />
     </div>
   );

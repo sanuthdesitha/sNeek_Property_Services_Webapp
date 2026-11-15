@@ -189,7 +189,8 @@ export function billedJobLinesWhere(clientId: string): Prisma.ClientInvoiceLineW
 // rules); re-exported here for existing callers.
 export { invoiceTotalsMismatch } from "./invoice-totals-check";
 
-export async function generateClientInvoice(input: {
+/** What the generator is asked for (shared by the generator and its preview). */
+export type ClientInvoiceGeneratorInput = {
   clientId: string;
   propertyId?: string | null;
   periodStart?: Date | null;
@@ -208,8 +209,25 @@ export async function generateClientInvoice(input: {
   completedOnly?: boolean;
   /** Closed-period started work, provisional agreed price and mandatory office review. */
   startedWork?: boolean;
-}) {
-  if (input.startedWork && (!input.periodStart || !input.periodEnd)) throw new Error("Started-work preparation requires a closed period.");
+};
+
+/** A job the generator found unrated and the office chose to leave off the draft. */
+export type NotBilledJob = {
+  jobId: string;
+  jobNumber: string | null;
+  jobType: string;
+  propertyName: string;
+  scheduledDate: string;
+  reason: "NO_RATE";
+};
+
+/**
+ * The generator's selection: the client, its rate tables, the eligible jobs,
+ * which of them are already on a live invoice, and each remaining job's
+ * canonical charge. The generator and the New invoice preview both read this,
+ * so the preview shows exactly the jobs and charges a draft would hold.
+ */
+export async function loadGeneratorJobs(input: ClientInvoiceGeneratorInput) {
   const [client, rates, existingInvoiced, settings, priceBook] = await Promise.all([
     db.client.findUnique({ where: { id: input.clientId }, select: { id: true, name: true, email: true } }),
     db.propertyClientRate.findMany({
@@ -312,19 +330,16 @@ export async function generateClientInvoice(input: {
     ])
   );
 
-  // Check for missing rates before silently skipping jobs.
-  const missingRateJobs = unInvoicedJobs.filter((job) => chargeByJob.get(job.id)?.rateMissing);
-  if (missingRateJobs.length > 0) {
-    const details = missingRateJobs
-      .map((j) => `${j.jobNumber || j.id} (${j.jobType}) at ${j.property.name}`)
-      .join(", ");
-    throw new Error(
-      `Missing client rates for ${missingRateJobs.length} job(s): ${details}. Set rates in Billing Rates before invoicing.`
-    );
-  }
+  return { client, settings, priceBook, propertyRates, eligibleJobs, unInvoicedJobs, invoicedJobIds, alreadyInvoicedJobCount, chargeByJob };
+}
 
+export type GeneratorJobs = Awaited<ReturnType<typeof loadGeneratorJobs>>;
+
+/** The generator's job lines (null-amount jobs never become lines). */
+export function buildGeneratorJobLines(input: ClientInvoiceGeneratorInput, selection: Pick<GeneratorJobs, "unInvoicedJobs" | "chargeByJob">): JobInvoiceLine[] {
+  const { unInvoicedJobs, chargeByJob } = selection;
   // The generator's line builder, shared with "Add finished jobs".
-  const lines = unInvoicedJobs
+  return unInvoicedJobs
     .map((job) =>
       buildJobInvoiceLine(
         job,
@@ -336,7 +351,10 @@ export async function generateClientInvoice(input: {
       ),
     )
     .filter((line): line is JobInvoiceLine => line !== null);
+}
 
+/** Shopping reimbursements, allocated shopping charges and client-paid repairs the generator also bills. */
+export async function loadGeneratorExtraLines(input: ClientInvoiceGeneratorInput, client: { id: string }) {
   const shoppingRuns = await db.shoppingRun.findMany({
     where: {
       shoppingClientCharges: { none: {} },
@@ -480,6 +498,14 @@ export async function generateClientInvoice(input: {
     periodEnd: input.periodEnd ?? null,
   });
 
+  return { shoppingLines, chargeLines, billedCharges, maintenanceLines };
+}
+
+export type GeneratorExtraLines = Awaited<ReturnType<typeof loadGeneratorExtraLines>>;
+
+/** Every line the draft holds, in the generator's order. */
+export function combineGeneratorLines(lines: JobInvoiceLine[], extras: GeneratorExtraLines) {
+  const { shoppingLines, chargeLines, maintenanceLines } = extras;
   const allLines = [
     ...lines,
     ...shoppingLines.map(({ settlementId, sourceUpdatedAt, ...line }) => line),
@@ -494,6 +520,50 @@ export async function generateClientInvoice(input: {
       ...line,
     })),
   ];
+
+  return allLines;
+}
+
+export async function generateClientInvoice(input: ClientInvoiceGeneratorInput & {
+  /**
+   * Jobs the office saw as unrated in the New invoice preview and chose to
+   * leave off this draft (owner default, pending confirmation). They are not
+   * billed and are listed on the draft as "not billed: no rate". Any OTHER
+   * unrated job still refuses the draft, as before. Ignored for started work.
+   */
+  leaveOutUnratedJobIds?: readonly string[];
+}) {
+  if (input.startedWork && (!input.periodStart || !input.periodEnd)) throw new Error("Started-work preparation requires a closed period.");
+  const selection = await loadGeneratorJobs(input);
+  const { client, settings, unInvoicedJobs, alreadyInvoicedJobCount, chargeByJob } = selection;
+
+  // Check for missing rates before silently skipping jobs.
+  const missingRateJobs = unInvoicedJobs.filter((job) => chargeByJob.get(job.id)?.rateMissing);
+  const acknowledged = !input.startedWork && input.leaveOutUnratedJobIds ? new Set(input.leaveOutUnratedJobIds) : null;
+  const blockingRateJobs = acknowledged ? missingRateJobs.filter((job) => !acknowledged.has(job.id)) : missingRateJobs;
+  if (blockingRateJobs.length > 0) {
+    const details = blockingRateJobs
+      .map((j) => `${j.jobNumber || j.id} (${j.jobType}) at ${j.property.name}`)
+      .join(", ");
+    throw new Error(
+      `Missing client rates for ${blockingRateJobs.length} job(s): ${details}. Set rates in Billing Rates before invoicing.`
+    );
+  }
+  const notBilled: NotBilledJob[] = acknowledged
+    ? missingRateJobs.map((job) => ({
+        jobId: job.id,
+        jobNumber: job.jobNumber ?? null,
+        jobType: String(job.jobType),
+        propertyName: job.property.name,
+        scheduledDate: job.scheduledDate.toISOString(),
+        reason: "NO_RATE" as const,
+      }))
+    : [];
+
+  const lines = buildGeneratorJobLines(input, selection);
+  const extras = await loadGeneratorExtraLines(input, client);
+  const { shoppingLines, billedCharges, maintenanceLines } = extras;
+  const allLines = combineGeneratorLines(lines, extras);
 
   if (allLines.length === 0) {
     // WORDING IS LOAD-BEARING. lib/finance/auto-invoice.ts matches this string
@@ -552,6 +622,7 @@ export async function generateClientInvoice(input: {
         shoppingRunCount: new Set([...shoppingLines.map(line => line.shoppingRunId), ...billedCharges.map(charge => charge.shoppingRunId)]).size,
         maintenanceCount: maintenanceLines.length,
         generationSummary: { includedJobCount: lines.length, alreadyInvoicedJobCount },
+        ...(notBilled.length > 0 ? { notBilled } : {}),
       },
       lines: { create: allLines },
     },
@@ -606,7 +677,7 @@ export async function generateClientInvoice(input: {
     return created;
   });
 
-  return { ...invoice, generationSummary: { includedJobCount: lines.length, alreadyInvoicedJobCount } };
+  return { ...invoice, generationSummary: { includedJobCount: lines.length, alreadyInvoicedJobCount }, notBilled };
 }
 
 /**

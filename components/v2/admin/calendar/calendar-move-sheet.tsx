@@ -8,10 +8,12 @@
  * rostered from the calendar already loaded) build the SAME move request a
  * drop builds. "Check move" sends it to `/api/admin/calendar/check-move`
  * through the page's `useCalendarMove`; the server's answer is shown here in
- * the confirmation's own words (`MoveCheckBody`), and "Save move" is that
+ * the confirmation's own words (`MoveCheckBody`), and the move button is that
  * hook's `confirm`, i.e. the same reschedule / assign calls a drop makes.
  * Changing the draft after a check discards the check. A refused move says
  * nothing was changed. "Assign QA inspector" opens the calendar's QA dialog.
+ * "Tell the client?" (board "Everyday dialogs and sheets", 2026-11) is asked
+ * here once the move is checked; the button then names the result.
  *
  * Keyed by job in the page, so the draft resets when another job is opened.
  */
@@ -24,7 +26,8 @@ import { formatHours } from "@/lib/calendar/presentation";
 import { isDayKey, mediumDayLabel } from "@/lib/calendar/range";
 import type { CalendarResponse, CalendarRow } from "@/lib/calendar/types";
 import { CLEANER_FLAG_LABEL, cleanerFlag, type CleanerFlag } from "./calendar-phone-model";
-import { MoveCheckBody, moveQuestion } from "./calendar-move-confirm";
+import { MoveCheckBody, moveActionLabel, moveQuestion } from "./calendar-move-confirm";
+import { ClientNoticeChoice, useTellClient } from "./client-notice-choice";
 import type { MoveDialogTarget } from "./calendar-move-dialog";
 import type { MoveRequest, MoveState } from "./use-calendar-move";
 
@@ -37,8 +40,8 @@ type MoveSheetProps = {
   moveState: MoveState;
   /** Runs the server check (the page's `useCalendarMove().request`). */
   onCheck: (draft: MoveSheetDraft) => void;
-  /** Saves the checked move (the page's `useCalendarMove().confirm`). */
-  onSave: () => void;
+  /** Saves the checked move with the "Tell the client?" answer (the page's `useCalendarMove().confirm`). */
+  onSave: (tellClient?: boolean) => void;
   /** Discards a check that no longer matches the draft. */
   onDiscardCheck: () => void;
   onClose: () => void;
@@ -127,8 +130,10 @@ export function CalendarMoveSheet(props: MoveSheetProps) {
   const saving = phase === "saving";
   const busy = checking || saving;
   const checked = forThisDraft && phase === "confirm";
+  const checkedMove = forThisDraft && (moveState.phase === "confirm" || moveState.phase === "saving") ? moveState.check : null;
+  const tell = useTellClient(job, checkedMove);
 
-  // A check that no longer matches the draft is discarded, so "Save move"
+  // A check that no longer matches the draft is discarded, so the move button
   // can only ever save what the server checked.
   const discard = useRef(props.onDiscardCheck);
   discard.current = props.onDiscardCheck;
@@ -143,11 +148,11 @@ export function CalendarMoveSheet(props: MoveSheetProps) {
   const startForFlags = timeChanged ? start : job.startTime;
 
   function primary() {
-    if (checked) props.onSave();
+    if (checked) props.onSave(tell.answer);
     else if (validDate && validStart && !unchanged && !busy) props.onCheck(draft);
   }
 
-  const primaryLabel = saving ? "Saving…" : checking ? "Checking…" : checked ? "Save move" : "Check move";
+  const primaryLabel = saving ? "Moving…" : checking ? "Checking…" : checked && checkedMove ? moveActionLabel(checkedMove) : "Check move";
   const summary = forThisDraft && (phase === "confirm" || phase === "saving") ? moveQuestion(moveState.check) : null;
 
   return (
@@ -171,10 +176,10 @@ export function CalendarMoveSheet(props: MoveSheetProps) {
       <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); primary(); }}>
         <fieldset disabled={busy} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <EField label="Day">
+            <EField label="Date">
               <EInput type="date" value={date} onChange={(event) => setDate(event.target.value)} required className="h-11 text-[1rem]" />
             </EField>
-            <EField label="Start">
+            <EField label="Time">
               <EInput type="time" step={900} value={start} onChange={(event) => setStart(event.target.value)} className="h-11 text-[1rem]" />
             </EField>
           </div>
@@ -199,19 +204,23 @@ export function CalendarMoveSheet(props: MoveSheetProps) {
           ) : null}
         </fieldset>
         {!validDate ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">Choose a date.</p> : null}
-        {!validStart ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">Choose a start time, or leave it as it is.</p> : null}
+        {!validStart ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">Choose a time, or leave it as it is.</p> : null}
 
         <section aria-label="Check before saving" aria-live="polite" className="space-y-2 rounded-[10px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
           <p className="text-[0.8125rem] font-[650]">Check before saving</p>
           {summary ? <p className="text-[0.875rem] font-[600]">{summary}</p> : null}
-          {forThisDraft ? <MoveCheckBody state={moveState} /> : (
+          {forThisDraft ? <MoveCheckBody state={moveState} clientChoiceShown={tell.shown} /> : (
             <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
               {unchanged
-                ? `Now: ${mediumDayLabel(job.day)}${job.startTime ? ` ${job.startTime}` : ""} with ${currentNames || "no cleaner"}. Change the day, start or cleaner.`
-                : "Check move asks the server for clashes, leave and roster gaps. Nothing is saved until you press Save move."}
+                ? `Now: ${mediumDayLabel(job.day)}${job.startTime ? ` ${job.startTime}` : ""} with ${currentNames || "no cleaner"}. Change the date, time or cleaner.`
+                : "Check move asks the server for clashes, leave and roster gaps. Nothing is saved until you press the move button."}
             </p>
           )}
         </section>
+        {tell.scope && checkedMove ? (
+          <ClientNoticeChoice job={job} scope={tell.scope} value={tell.value} onChange={tell.setValue} disabled={busy} />
+        ) : null}
+        <p className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">If the move fails, the sheet stays open with your choices and says nothing was moved.</p>
       </form>
     </EBottomSheet>
   );

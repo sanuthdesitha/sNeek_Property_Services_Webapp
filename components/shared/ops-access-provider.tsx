@@ -15,15 +15,28 @@ import {
   OPS_FEATURE_KEYS,
   type OpsLevels,
 } from "@/lib/rbac/ops-catalog";
+import type { OpsNavigationSeed } from "@/lib/rbac/ops-navigation-seed-types";
 
 const OpsAccessContext = createContext<{
   canAccess: (href: string) => boolean;
   levels: OpsLevels | null;
-}>({ canAccess: () => true, levels: null });
+  /** The server-resolved role while the browser session is still loading. */
+  seedRole?: string | null;
+}>({ canAccess: () => true, levels: null, seedRole: null });
 export const useOpsAccess = () => useContext(OpsAccessContext);
 
-/** Navigation convenience only. Fresh server authorization remains authoritative. */
-export function OpsAccessProvider({ children }: { children: ReactNode }) {
+/**
+ * Navigation convenience only. Fresh server authorization remains authoritative.
+ *
+ * `seed` is the answer the server resolved while rendering this page (see
+ * `opsNavigationSeed`). Without it every full page load showed a rail holding
+ * only the unmapped "My profile" until /api/me/ops-permissions answered (and
+ * for good when that read failed), even for administrators, whose access never
+ * depends on a pack. The seed counts only for the person it was resolved for;
+ * a refresh that fails keeps the last verified answer for the same identity
+ * and shows the warning.
+ */
+export function OpsAccessProvider({ children, seed = null }: { children: ReactNode; seed?: OpsNavigationSeed | null }) {
   const { data: session, status } = useSession();
   const pathname = usePathname();
   const query = useSearchParams()?.toString() ?? "";
@@ -69,7 +82,9 @@ export function OpsAccessProvider({ children }: { children: ReactNode }) {
         }
       } catch {
         if (!controller.signal.aborted) {
-          setAccess(null);
+          // Keep a verified answer for this identity; only an answer for
+          // somebody else is dropped (it is ignored by `current` anyway).
+          setAccess((previous) => (previous?.identity === identity ? previous : null));
           setFailure(true);
         }
       } finally {
@@ -85,7 +100,9 @@ export function OpsAccessProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", refresh);
     };
   }, [identity, status, pathname, query]);
-  const current = access?.identity === identity ? access : null;
+  const fetched = access?.identity === identity ? access : null;
+  const seeded = seed && (status === "loading" || session?.user?.id === seed.userId) ? { levels: seed.levels } : null;
+  const current = fetched ?? seeded;
   const levels = current?.levels ?? null;
   const canAccess = (href: string) =>
     current
@@ -99,7 +116,7 @@ export function OpsAccessProvider({ children }: { children: ReactNode }) {
     feature !== "unmapped" &&
     levels[feature] === "read";
   return (
-    <OpsAccessContext.Provider value={{ canAccess, levels }}>
+    <OpsAccessContext.Provider value={{ canAccess, levels, seedRole: seeded ? seed?.role ?? null : null }}>
       {failure && (
         <p
           role="alert"

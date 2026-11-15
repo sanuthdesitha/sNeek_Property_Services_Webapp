@@ -13,6 +13,10 @@ const schema = z.object({
 export async function POST(req: NextRequest) {
   try {
     const session = await requireSession();
+    // Your own password only: never another person's while testing as them.
+    if (session.impersonation) {
+      return NextResponse.json({ error: "Stop testing as someone else to change your own password.", code: "ACTUAL_ACTOR_REQUIRED" }, { status: 403 });
+    }
     const { currentPassword, newPassword } = schema.parse(await req.json());
 
     const user = await db.user.findUnique({
@@ -40,10 +44,11 @@ export async function POST(req: NextRequest) {
     // trying to lock out can no longer skip 2FA. (Passkeys are a deliberate
     // second factor the user set up, so they're intentionally left in place.)
     await db.trustedDevice.deleteMany({ where: { userId: user.id } });
+    await db.auditLog.create({ data: { userId: user.id, action: "OWN_PASSWORD_CHANGED", entity: "User", entityId: user.id } });
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : 400;
+    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
   }
 }

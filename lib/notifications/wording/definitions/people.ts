@@ -10,7 +10,7 @@ import { CLIENT_APPROVAL_PARTS, INVITATION_PARTS } from "./client-approvals";
 
 export const PEOPLE_WORDING: readonly TypeWordingDefinition[] = [
   CLIENT_UPDATE_WORDING,
-  elsewhere("client.lifecycle_email", "Booked, reminder, rescheduled and cancelled emails have their own template editor in Forms (Messages, Lifecycle).", "/v2/admin/forms?tab=messages&view=notifications"),
+  elsewhere("client.lifecycle_email", "Booked, reminder, rescheduled, completed, report, invoice, re-clean, cancelled and custom emails are Email designs (one per stage), edited under this type's details.", "/v2/admin/notifications?type=client.lifecycle_email&email=lifecycle.BOOKING_CONFIRMED"),
   POST_JOB_WORDING,
   editable("client.documents", CLIENT_DOCUMENT_PARTS, "The quote, checklist, add-on list, invoice PDF, payment link and payment receipt are generated documents; the quote email's default subject is the setting \"Quote email subject\"."),
   editable("client.approvals", CLIENT_APPROVAL_PARTS),
@@ -20,7 +20,7 @@ export const PEOPLE_WORDING: readonly TypeWordingDefinition[] = [
     emailTemplatePart("reset", "Password reset", "resetPassword"),
   ], "Two-step verification codes and recovery emails are composed in the 2FA routes and are deliberately fixed (security wording)."),
   editable("account.invitations", INVITATION_PARTS, "A temporary password the template leaves out is still appended automatically (credential fail-safe)."),
-  elsewhere("money.finance_events", "Invoice, payroll, payout and Xero event wording has its own template editor (Preferences, Finance notification templates).", "/v2/admin/notifications?tab=preferences#finance-notifications"),
+  elsewhere("money.finance_events", "Each finance event's email is an Email design (\"Finance: …\", under this type's details); SMS and push wording stay in Preferences, Finance notification templates.", "/v2/admin/notifications?tab=preferences#finance-notifications"),
   WORKFORCE_WORDING,
   LEAD_ALERTS_WORDING,
   composed("marketing.campaigns", "Each campaign's email and SMS are written in the campaign editor (Growth).", "/v2/admin/growth"),

@@ -15,7 +15,7 @@ import { normalizeCampaignAudience, resolveSingleCampaignRecipient } from "./cam
 import { renderCampaignContent } from "@/lib/marketing/campaign-render";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
-import { isSuppressed } from "@/lib/email/suppression";
+import { isMarketingSuppressed } from "@/lib/email/suppression";
 import { isSegmentId, resolveSegment } from "@/lib/marketing/segments";
 import { ClientInvoiceStatus, JobStatus } from "@prisma/client";
 
@@ -181,7 +181,7 @@ export async function sendCampaign(campaignId: string): Promise<CampaignSendResu
 
         if (alreadyContacted) {
           // no-op: already sent in an earlier run
-        } else if (await isSuppressed(r.email)) {
+        } else if (await isMarketingSuppressed(r.email)) {
           suppressed++;
           // Not actually sent — drop the claim so it isn't counted as contacted.
           await (db as any).campaignSend.deleteMany({
@@ -192,6 +192,8 @@ export async function sendCampaign(campaignId: string): Promise<CampaignSendResu
             to: r.email,
             subject: rendered.subject,
             html: rendered.html,
+            // Base layout, campaign footer, one-click unsubscribe (List-Unsubscribe).
+            marketing: true,
           });
           if (res.ok) {
             sent++;

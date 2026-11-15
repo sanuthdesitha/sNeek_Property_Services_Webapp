@@ -14,7 +14,8 @@
  */
 import * as React from "react";
 import Link from "next/link";
-import { Menu, Search } from "lucide-react";
+import { LogOut, Menu, Search } from "lucide-react";
+import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { EBottomSheet } from "@/components/v2/ui/bottom-sheet";
 import { phoneMoreSections } from "@/lib/navigation/mobile-tabs";
@@ -128,6 +129,16 @@ export function PhoneMoreTab({ tabs, nav, isActive, roleLabel }: PhoneMoreTabPro
               </section>
             ))}
           </nav>
+          {/* The rail's sign-out button is hidden below 640px, so the sheet carries it. */}
+          <div className="border-t border-[hsl(var(--e-border))] pt-3">
+            <button
+              type="button"
+              onClick={() => signOut({ callbackUrl: "/v2/login" })}
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[10px] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-3 text-[0.875rem] font-[550] text-[hsl(var(--e-foreground))]"
+            >
+              <LogOut aria-hidden className="h-4 w-4" /> Sign out
+            </button>
+          </div>
         </div>
       </EBottomSheet>
     </>

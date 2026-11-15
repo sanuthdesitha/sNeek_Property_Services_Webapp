@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const m = vi.hoisted(() => ({
+const m = vi.hoisted(() => ({ documents: vi.fn(async () => [] as unknown[]),
   auth: vi.fn(),
   job: vi.fn(),
   userFirst: vi.fn(),
@@ -18,6 +18,7 @@ vi.mock("@/lib/db", () => ({
     user: { findFirst: m.userFirst, findMany: m.users },
     jobAssignment: { findMany: m.sameDay },
     staffLeave: { findMany: async () => [] },
+    staffDocument: { findMany: m.documents },
     $transaction: vi.fn(() => { throw new Error("no writes expected in this test"); }),
   },
 }));
@@ -62,6 +63,7 @@ beforeEach(() => {
   m.users.mockResolvedValue([]);
   m.sameDay.mockResolvedValue([]);
   m.availability.mockResolvedValue([]);
+  m.documents.mockResolvedValue([]);
 });
 
 describe("POST /api/admin/calendar/check-move", () => {
@@ -94,6 +96,15 @@ describe("POST /api/admin/calendar/check-move", () => {
     expect(body.toCleanerName).toBe("Aiko T.");
     expect(body.plan).toEqual({ reschedule: null, assign: { userIds: ["u2"], primaryUserId: "u2" } });
     expect(body.warnings).toContainEqual({ kind: "unavailable", text: "Aiko T.: Not available on Wednesdays" });
+  });
+
+  it("warns about the new cleaner's expired visa or police check like leave, needing the same override", async () => {
+    m.users.mockResolvedValue([{ id: "u2", name: "Aiko T.", email: "aiko@x", visaExpiry: new Date("2026-11-01T00:00:00Z") }]);
+    m.documents.mockResolvedValue([{ userId: "u2", category: "POLICE_CHECK", status: "VERIFIED", expiresAt: new Date("2026-11-02T00:00:00Z") }]);
+    const body = await (await check({ jobId: "j1", toDate: "2026-11-11", fromCleanerId: "u1", toCleanerId: "u2" })).json();
+    expect(body.blockers).toEqual([]);
+    expect(body.warnings).toContainEqual({ kind: "document", text: "Aiko T.: police check expired 2 Nov 2026" });
+    expect(body.warnings).toContainEqual({ kind: "document", text: "Aiko T.: visa / right to work expired 1 Nov 2026" });
   });
 
   it("notes the booking rule for a reservation-driven turnover", async () => {

@@ -16,12 +16,14 @@ import { useRestorableState } from "@/hooks/use-restorable-state";
  * components/{ui,shared,admin,hiring,forms}. Upload dropzone (classic-only) is
  * intentionally omitted; hero image is set via URL.
  */
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ExternalLink, ClipboardList, ListChecks, GraduationCap } from "lucide-react";
+import { ExternalLink, ClipboardList, ListChecks, GraduationCap, Users } from "lucide-react";
 import { EButton, EPageHeader, EBadge } from "@/components/v2/ui/primitives";
-import type { PositionShape } from "./types";
+import type { AppStep, PositionShape } from "./types";
+import { ApplicantPreview } from "./applicant-preview";
+import { HiresBecomeCard } from "./hires-become-card";
 import { DetailsTab } from "./details-tab";
 import { ApplicationSchemaEditor } from "./application-schema-editor";
 import { QuizDesigner } from "./quiz-designer";
@@ -31,9 +33,15 @@ type Tab = "details" | "form" | "quiz";
 export function EstatePositionEditor({
   mode,
   position,
+  applicationCount = 0,
+  hireAccountRole = null,
 }: {
   mode: "new" | "edit";
   position: PositionShape | null;
+  /** Applications for this role (the Applications tab count). */
+  applicationCount?: number;
+  /** "Hires become" (board "Hiring", 2026-11-16). */
+  hireAccountRole?: string | null;
 }) {
   const router = useRouter();
   const [tab, setTab] = useRestorableState<Tab>("position-editor:tab", "details");
@@ -44,6 +52,9 @@ export function EstatePositionEditor({
   const [title, setTitle] = useState<string>(position?.title ?? "");
 
   const created = positionId != null;
+  const [previewSteps, setPreviewSteps] = useState<AppStep[]>(() => position?.applicationSchema?.steps ?? []);
+  const onStepsChange = useCallback((steps: AppStep[]) => setPreviewSteps(steps), []);
+  const subtitle = [position?.employmentType, position?.location, `${applicationCount} application${applicationCount === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
 
   const tabs: Array<{ key: Tab; label: string; icon: React.ReactNode; locked?: boolean }> = [
     { key: "details", label: "Details", icon: <ClipboardList className="h-4 w-4" /> },
@@ -54,26 +65,18 @@ export function EstatePositionEditor({
   return (
     <div className="space-y-6">
       <EPageHeader
-        eyebrow={mode === "new" ? "New role" : "Edit role"}
+        eyebrow={<Link href="/v2/admin/hiring" className="underline-offset-2 hover:underline">← Hiring</Link>}
         title={title || (mode === "new" ? "Untitled role" : "Role")}
-        description="Job post, application form, and the knowledge test — one Estate flow."
+        description={mode === "new" ? "Save the details to start the application form and knowledge test." : subtitle}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            {created && slug ? (
-              <EButton variant="outline" asChild>
-                <a href={`/apply/${slug}`} target="_blank" rel="noreferrer">
-                  <ExternalLink className="h-4 w-4" />
-                  View apply page
-                </a>
-              </EButton>
-            ) : null}
-            <EButton variant="outline" asChild>
-              <Link href="/v2/admin/hiring">
-                <ArrowLeft className="h-4 w-4" />
-                Back to hiring
-              </Link>
+          created && slug ? (
+            <EButton variant="outline" size="sm" asChild>
+              <a href={`/apply/${slug}`} target="_blank" rel="noreferrer">
+                <ExternalLink className="h-4 w-4" aria-hidden />
+                Preview as applicant
+              </a>
             </EButton>
-          </div>
+          ) : undefined
         }
       />
 
@@ -102,9 +105,16 @@ export function EstatePositionEditor({
               ) : null}
             </button>
           ))}
+          {created ? (
+            <Link href="/v2/admin/hiring" className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--e-radius)] px-3 py-1.5 text-[0.8125rem] font-[550] text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-surface))] hover:text-[hsl(var(--e-foreground))]">
+              <Users className="h-4 w-4" aria-hidden /> Applications {applicationCount}
+            </Link>
+          ) : null}
         </div>
       </div>
 
+      <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="min-w-0">
       {tab === "details" ? (
         <DetailsTab
           mode={mode}
@@ -125,12 +135,23 @@ export function EstatePositionEditor({
       ) : null}
 
       {tab === "form" && created ? (
-        <ApplicationSchemaEditor positionId={positionId!} position={position} />
+        <ApplicationSchemaEditor positionId={positionId!} position={position} onStepsChange={onStepsChange} />
       ) : null}
 
       {tab === "quiz" && created ? (
         <QuizDesigner positionId={positionId!} position={position} />
       ) : null}
+      </div>
+      <aside aria-label="Role summary" className="min-w-0 space-y-4 lg:sticky lg:top-4 lg:self-start">
+        {tab === "form" && created ? <ApplicantPreview title={title} steps={previewSteps} /> : null}
+        <HiresBecomeCard
+          positionId={positionId}
+          title={title}
+          initial={hireAccountRole}
+          summary="Title, public link, description, department, location, employment type, flyer image, accepting applications, knowledge test on or off with pass mark."
+        />
+      </aside>
+      </div>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { getOpsAccess, getOpsGrants } from "@/lib/rbac/ops-access";
 import { countStages, loadPipelineRows } from "@/lib/quotes/pipeline";
 import { pipelinePrimary, type PipelineCounts, type PipelineRow } from "@/lib/quotes/pipeline-types";
 import type { GrowthSummary } from "./summary-types";
+import { publicBlogWhere } from "@/lib/public-site/blog-visibility";
 
 /**
  * The Growth page's figures (owner board "Growth", 2026-11), each read from
@@ -80,7 +81,7 @@ export async function loadGrowthSummary(viewer: Viewer, timezone: string, now = 
     areas.website
       ? (async () => {
           const [published, drafts] = await Promise.all([
-            db.blogPost.count({ where: { isPublished: true } }),
+            db.blogPost.count({ where: publicBlogWhere(new Date()) }),
             db.blogPost.findMany({ where: { isPublished: false }, orderBy: { updatedAt: "desc" }, take: 2, select: { id: true, title: true, updatedAt: true } }),
           ]);
           return { publishedPosts: published, drafts: drafts.map((row) => ({ id: row.id, title: row.title, updatedAt: row.updatedAt.toISOString() })) };

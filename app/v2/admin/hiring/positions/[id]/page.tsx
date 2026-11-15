@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
+import { db } from "@/lib/db";
 import { getHiringPositionForEdit } from "@/lib/workforce/service";
 import { EstatePositionEditor } from "@/components/v2/admin/hiring/position/position-editor";
 
@@ -18,10 +19,13 @@ export default async function V2PositionEditorPage({ params }: { params: { id: s
 
   const position = await getHiringPositionForEdit(params.id);
   if (!position) notFound();
+  const applicationCount = await db.hiringApplication.count({ where: { positionId: position.id } });
   return (
     <EstatePositionEditor
       mode="edit"
       position={JSON.parse(JSON.stringify(position))}
+      applicationCount={applicationCount}
+      hireAccountRole={position.hireAccountRole}
     />
   );
 }

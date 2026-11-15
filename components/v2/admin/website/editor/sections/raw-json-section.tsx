@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Braces, RotateCcw, Save } from "lucide-react";
+import { Braces, RotateCcw } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
 import type { WebsiteContent } from "@/lib/public-site/content";
 import { EButton } from "@/components/v2/ui/primitives";
@@ -12,15 +12,11 @@ export function RawJsonSection({
   content,
   setContent,
   readOnly,
-  onSave,
-  saving,
   defaults,
 }: {
   content: WebsiteContent;
   setContent: Dispatch<SetStateAction<WebsiteContent>>;
   readOnly: boolean;
-  onSave: (next: WebsiteContent) => Promise<void>;
-  saving: boolean;
   defaults: WebsiteContent;
 }) {
   const [raw, setRaw] = React.useState(() => JSON.stringify(content, null, 2));
@@ -43,8 +39,8 @@ export function RawJsonSection({
 
   return (
     <ESectionCard
-      title="Advanced raw JSON"
-      description="Paste or export the entire public-site content object. The structured tabs above are safer for day-to-day editing."
+      title="Advanced: raw data"
+      description="Paste or export the entire public-site content object. The sections are safer for day-to-day editing. Apply to draft changes only the draft; publish it with Save and publish. Older versions are restored from Settings › audit."
       actions={<ESaveStatus status={status} />}
     >
       <ETextarea
@@ -82,17 +78,6 @@ export function RawJsonSection({
           >
             <RotateCcw className="h-3.5 w-3.5" />
             Reset to defaults
-          </EButton>
-          <EButton
-            size="sm"
-            disabled={saving}
-            onClick={() => {
-              const parsed = parse();
-              if (parsed) void onSave(parsed);
-            }}
-          >
-            <Save className="h-3.5 w-3.5" />
-            {saving ? "Saving…" : "Save JSON"}
           </EButton>
         </div>
       ) : null}

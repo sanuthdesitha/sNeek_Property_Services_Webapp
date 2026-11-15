@@ -40,16 +40,50 @@ export async function loadCleanerSuggestions(jobId: string): Promise<CleanerSugg
   if (job.assignments.length > 0) return { kind: "assigned", reason: "This job already has a cleaner. Change people on the job's People tab." };
   if (job.cleanSkipStatus === "SKIPPED") return { kind: "assigned", reason: "This clean is skipped." };
 
-  const dayKey = job.scheduledDate.toISOString().slice(0, 10);
-  const dayStart = new Date(`${dayKey}T00:00:00.000Z`);
+  const result = await loadSuggestionsForSlot({
+    jobId: job.id,
+    propertyId: job.propertyId,
+    dayKey: job.scheduledDate.toISOString().slice(0, 10),
+    startTime: job.startTime,
+    endTime: job.endTime,
+    dueTime: job.dueTime,
+    estimatedHours: job.estimatedHours,
+    location: toPoint(job.property),
+  });
+  return { kind: "ok", jobId, suggestions: result.suggestions, considered: result.considered };
+}
+
+/**
+ * The time slot a suggestion is ranked for. `jobId` is null before a job
+ * exists (the New job page asks while the office is still choosing); the same
+ * reads and the same ranking run either way, only "this job" is not excluded
+ * from the cleaner's other work and history because there is none yet.
+ */
+export type SuggestionSlot = {
+  jobId: string | null;
+  propertyId: string;
+  dayKey: string;
+  startTime: string | null;
+  endTime: string | null;
+  dueTime: string | null;
+  estimatedHours: number | null;
+  location: GeoPoint | null;
+};
+
+export type SlotSuggestions = { suggestions: CleanerSuggestion[]; considered: number };
+
+/** Reads every fact `rankCleanerSuggestions` needs for one slot. Read only. */
+export async function loadSuggestionsForSlot(slot: SuggestionSlot): Promise<SlotSuggestions> {
+  const dayStart = new Date(`${slot.dayKey}T00:00:00.000Z`);
   const nextDay = new Date(dayStart.getTime() + 86_400_000);
+  const notThisJob = slot.jobId ? { id: { not: slot.jobId } } : {};
 
   const cleaners = await db.user.findMany({
     where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) },
     select: { id: true, name: true, email: true, latitude: true, longitude: true },
   });
   const ids = cleaners.map((cleaner) => cleaner.id);
-  if (ids.length === 0) return { kind: "ok", jobId, suggestions: [], considered: 0 };
+  if (ids.length === 0) return { suggestions: [], considered: 0 };
 
   const [profiles, sameDay, history, qaScores, leave] = await Promise.all([
     listCleanerAvailabilities(ids),
@@ -57,7 +91,7 @@ export async function loadCleanerSuggestions(jobId: string): Promise<CleanerSugg
       where: {
         removedAt: null,
         userId: { in: ids },
-        job: { id: { not: jobId }, scheduledDate: { gte: dayStart, lt: nextDay }, cleanSkipStatus: { not: "SKIPPED" } },
+        job: { ...notThisJob, scheduledDate: { gte: dayStart, lt: nextDay }, cleanSkipStatus: { not: "SKIPPED" } },
       },
       select: {
         userId: true,
@@ -66,13 +100,12 @@ export async function loadCleanerSuggestions(jobId: string): Promise<CleanerSugg
     }),
     db.jobAssignment.groupBy({
       by: ["userId"],
-      where: { removedAt: null, userId: { in: ids }, job: { propertyId: job.propertyId, status: { in: FINISHED }, id: { not: jobId } } },
+      where: { removedAt: null, userId: { in: ids }, job: { propertyId: slot.propertyId, status: { in: FINISHED }, ...notThisJob } },
       _count: { _all: true },
     }),
     loadSuggestionQaScores(ids),
-    loadLeaveForUsers(ids, dayKey, dayKey),
+    loadLeaveForUsers(ids, slot.dayKey, slot.dayKey),
   ]);
-
   const profileById = new Map(profiles.map((profile) => [profile.userId, profile]));
   const historyById = new Map(history.map((row) => [row.userId, row._count._all]));
   const othersById = new Map<string, SuggestionOtherJob[]>();
@@ -106,10 +139,10 @@ export async function loadCleanerSuggestions(jobId: string): Promise<CleanerSugg
 
   const suggestions = rankCleanerSuggestions(
     {
-      id: job.id, dayKey, startTime: job.startTime, endTime: job.endTime, dueTime: job.dueTime, estimatedHours: job.estimatedHours,
-      location: toPoint(job.property),
+      id: slot.jobId ?? "new-job", dayKey: slot.dayKey, startTime: slot.startTime, endTime: slot.endTime, dueTime: slot.dueTime,
+      estimatedHours: slot.estimatedHours, location: slot.location,
     },
     candidates,
   );
-  return { kind: "ok", jobId, suggestions, considered: candidates.length };
+  return { suggestions, considered: candidates.length };
 }

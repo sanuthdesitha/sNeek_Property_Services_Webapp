@@ -12,6 +12,7 @@
  * Accept drives itself and Wrap up puts Submit in its own bar. Reachability and
  * the clock-in handler come from the workspace unchanged: this is placement.
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import * as React from "react";
 import { ChevronLeft, ChevronRight, Loader2, Play } from "lucide-react";
 import { EButton } from "@/components/v2/ui/primitives";
@@ -49,11 +50,11 @@ function SetupClockIn({ api }: { api: WorkspaceApi }) {
   const reason = clockInBlockedReason(api);
   return (
     <>
-      <EButton variant="gold" className="min-h-11 w-full" disabled={busy || api.clockInDisabled} onClick={() => api.clockIn()}>
+      <EButton {...tourTarget("cleaner.job.checkIn")} variant="gold" className="min-h-11 w-full" disabled={busy || api.clockInDisabled} onClick={() => api.clockIn()}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Play className="h-4 w-4" aria-hidden />}
         {resume ? "Resume timer" : "Clock in and start"}
       </EButton>
-      <p className="text-center text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+      <p {...tourTarget("cleaner.job.locationNotice")} className="text-center text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
         {reason ?? (resume ? "Resuming restarts your timer only." : "Clock in records your time and location.")}
       </p>
     </>

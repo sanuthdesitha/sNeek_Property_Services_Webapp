@@ -12,13 +12,15 @@
  * - Export selected → the reviewed CSV export limited to the selection;
  * - Cancel job → `/api/admin/jobs/bulk-cancel` (opened by the caller), one
  *   outcome per job.
- * A cleaner on leave on a selected job's day is refused with the reason;
- * "Assign anyway" resends with the explicit override.
+ * Assign cleaner opens the shared `AssignDialog` in bulk mode: leave and
+ * expired documents show before Save, and "Assign anyway" sends the explicit
+ * override (the body is unchanged: { jobIds, cleanerUserId, confirmLeaveConflict? }).
  */
 import { useState } from "react";
 import { toast } from "@/hooks/use-toast";
 import { EBulkBar, EBulkButton } from "@/components/v2/ui/bulk-bar";
 import { EButton } from "@/components/v2/ui/primitives";
+import { AssignDialog } from "./assign-dialog";
 import { BulkRemindDialog } from "./bulk-remind-dialog";
 import { BulkRescheduleDialog } from "./bulk-reschedule-dialog";
 import { JobsExportPreview } from "./export-preview";
@@ -52,32 +54,9 @@ async function postJson(url: string, body: unknown): Promise<{ ok: boolean; body
 
 export function JobsBulk({ selectedIds, cleaners, inspectors, exportQuery, viewsContext, readOnly, onClear, onChangeStatus, onCancelJobs, onDone }: BulkProps) {
   const [dialog, setDialog] = useState<ActiveDialog>(null);
-  const [leaveConflict, setLeaveConflict] = useState<string | null>(null);
-  const [cleanerId, setCleanerId] = useState("");
   const [inspectorId, setInspectorId] = useState("");
   const [busy, setBusy] = useState(false);
   const count = selectedIds.length;
-
-  async function bulkAssign(confirmLeaveConflict = false) {
-    if (count === 0 || !cleanerId) return;
-    setBusy(true);
-    try {
-      const result = await postJson("/api/admin/jobs/bulk-assign", { jobIds: selectedIds, cleanerUserId: cleanerId, ...(confirmLeaveConflict ? { confirmLeaveConflict: true } : {}) });
-      if (!result.ok && result.body.code === "LEAVE_CONFLICT") {
-        setLeaveConflict(typeof result.body.error === "string" ? result.body.error : "This cleaner is on leave on a selected day.");
-        return;
-      }
-      setLeaveConflict(null);
-      if (!result.ok) throw new Error(typeof result.body.error === "string" ? result.body.error : "Could not bulk assign jobs.");
-      toast({ title: "Bulk assignment complete", description: `${Number(result.body.updated ?? count)} jobs updated.` });
-      setDialog(null);
-      onDone([]);
-    } catch (error) {
-      toast({ title: "Bulk assign failed", description: error instanceof Error ? error.message : "Request failed.", variant: "destructive" });
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function bulkQa() {
     if (count === 0 || !inspectorId) return;
@@ -111,25 +90,13 @@ export function JobsBulk({ selectedIds, cleaners, inspectors, exportQuery, views
         {onCancelJobs ? <EBulkButton onClick={onCancelJobs} disabled={readOnly}>Cancel job</EBulkButton> : null}
       </EBulkBar>
 
-      <JobDialog open={dialog === "assign"} title="Assign cleaner" busy={busy} onClose={() => setDialog(null)}>
-        <div className="space-y-4">
-          <select aria-label="Cleaner" value={cleanerId} onChange={(event) => { setCleanerId(event.target.value); setLeaveConflict(null); }} className={FIELD}>
-            <option value="">Choose cleaner…</option>
-            {cleaners.map((cleaner) => <option key={cleaner.id} value={cleaner.id}>{cleaner.name || cleaner.email}</option>)}
-          </select>
-          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Assigns this cleaner to the {count} selected jobs; unassigned jobs move to Assigned.</p>
-          {leaveConflict ? (
-            <div role="alert" className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.4)] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-warning))]">
-              <p className="[overflow-wrap:anywhere]">{leaveConflict}</p>
-              <EButton size="sm" variant="outline" disabled={busy} onClick={() => void bulkAssign(true)}>Assign anyway</EButton>
-            </div>
-          ) : null}
-          <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
-            <EButton variant="outline" onClick={() => setDialog(null)} disabled={busy}>Cancel</EButton>
-            <EButton onClick={() => void bulkAssign()} disabled={busy || !cleanerId}>{busy ? "Applying…" : "Apply assignment"}</EButton>
-          </div>
-        </div>
-      </JobDialog>
+      <AssignDialog
+        open={dialog === "assign"}
+        target={{ kind: "bulk", jobIds: selectedIds, context: `${count} selected job${count === 1 ? "" : "s"}` }}
+        cleaners={cleaners}
+        onClose={() => setDialog(null)}
+        onAssigned={() => onDone([])}
+      />
 
       <JobDialog open={dialog === "qa"} title="Assign QA inspections" busy={busy} onClose={() => setDialog(null)}>
         <div className="space-y-4">

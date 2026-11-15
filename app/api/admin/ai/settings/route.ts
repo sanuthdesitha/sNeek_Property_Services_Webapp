@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAppSettings } from "@/lib/settings";
-import { AiSettingsConflict, getPublicCredentialStates, saveAiRouting } from "@/lib/ai/provider/admin";
+import { AiCloudPhotosConfirmationRequired, AiSettingsConflict, getPublicCredentialStates, saveAiRouting } from "@/lib/ai/provider/admin";
 import { AI_ADMIN_HEADERS, aiAdminFailure, requireAiAdmin, requireAiReader } from "@/lib/ai/provider/admin-http";
 import { getAiRouting, resolveFeatureRoute } from "@/lib/ai/provider/routing";
-import { AI_FEATURES } from "@/lib/ai/provider/routing-schema";
+import { AI_FEATURES, aiRoutingSaveSchema, cloudImageFeaturesTurnedOn, type AiFeature } from "@/lib/ai/provider/routing-schema";
 import { getMonthlyAiUsage } from "@/lib/ai/provider/usage";
 import { getAiStatusFacts, lastAiSettingsSave } from "@/lib/ai/provider/status";
+import { routeSecurityRefusal, securityFromBody } from "@/lib/security/route-verification";
+import { sensitiveVerificationText } from "@/lib/security/pin-rules";
 
 export const dynamic = "force-dynamic";
 
@@ -48,16 +50,51 @@ export async function GET() {
   } catch (error) { return aiAdminFailure(error, "AI settings could not be loaded."); }
 }
 
+/** The routing save body without the tier C credential, which never reaches the stored settings. */
+function splitSecurity(body: unknown): { routing: unknown; security: ReturnType<typeof securityFromBody> } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return { routing: body, security: undefined };
+  const { security: _security, ...routing } = body as Record<string, unknown>;
+  return { routing, security: securityFromBody(body) };
+}
+
+/**
+ * Saves the routing. Turning "photos may leave the server" ON for any feature
+ * (owner decision 2026-11-14) needs the administrator's own PIN, or their
+ * password while they have no PIN, in `security`, verified here in the same
+ * request with verifySensitiveAction("ai.cloud_photos"): actual signed-in
+ * person only, refused while testing as someone, counted toward the lockout,
+ * audited (SENSITIVE_ACTION_CONFIRMED, plus AI_CLOUD_PHOTOS_ALLOWED with the
+ * save). Turning it off, and every other routing change, needs no PIN.
+ */
 export async function PUT(request: Request) {
   try {
     const session = await requireAiAdmin({ write: true });
-    const body = await request.json().catch(() => null);
+    const { routing: body, security } = splitSecurity(await request.json().catch(() => null));
+    let cloudPhotosConfirmed: AiFeature[] = [];
+    const parsed = aiRoutingSaveSchema.safeParse(body);
+    if (parsed.success) {
+      const turnedOn = cloudImageFeaturesTurnedOn(await getAiRouting(), parsed.data.settings);
+      if (turnedOn.length) {
+        const refusal = await routeSecurityRefusal(session, security ?? null, "ai.cloud_photos");
+        if (refusal) {
+          const answer = (await refusal.json()) as { error?: string; code?: string };
+          return NextResponse.json(
+            { error: `${sensitiveVerificationText(answer.error)} Nothing was saved.`, code: answer.code, needsCredential: true, features: turnedOn },
+            { status: refusal.status, headers: AI_ADMIN_HEADERS },
+          );
+        }
+        cloudPhotosConfirmed = turnedOn;
+      }
+    }
     try {
-      await saveAiRouting(body, session.user.id);
+      await saveAiRouting(body, session.user.id, { cloudPhotosConfirmed });
     } catch (error) {
       if (error instanceof AiSettingsConflict) {
         const savedBy = await lastAiSettingsSave().catch(() => null);
         return NextResponse.json({ error: error.message, current: error.current, savedBy }, { status: 409, headers: AI_ADMIN_HEADERS });
+      }
+      if (error instanceof AiCloudPhotosConfirmationRequired) {
+        return NextResponse.json({ error: `${error.message} Nothing was saved.`, code: "CLOUD_PHOTOS_CONFIRMATION_REQUIRED", needsCredential: true, features: error.features }, { status: 423, headers: AI_ADMIN_HEADERS });
       }
       if (error instanceof z.ZodError) return NextResponse.json({ error: "Check the highlighted values: model names, limits (1 to 10,000 an hour) and deadlines (10 to 300 seconds)." }, { status: 400, headers: AI_ADMIN_HEADERS });
       if (error instanceof Error && error.message.startsWith("The OpenAI-compatible address")) return NextResponse.json({ error: error.message }, { status: 400, headers: AI_ADMIN_HEADERS });

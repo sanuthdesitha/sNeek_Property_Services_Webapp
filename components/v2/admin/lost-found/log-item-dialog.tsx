@@ -6,10 +6,15 @@
  * property's recent jobs — with a job, the server copies its departing
  * booking's guest. Photos upload first (existing direct upload); only their
  * keys are sent. A failed save keeps everything typed.
+ * Everyday dialog pattern (board "Everyday dialogs and sheets", 2026-11): the
+ * guest the server will copy from the chosen job is shown BEFORE saving.
  */
 import * as React from "react";
+import { Plus } from "lucide-react";
+import { EActionDialog } from "@/components/v2/ui/action-dialog";
+import { ENote, preventEnterSubmit } from "@/components/v2/ui/form-dialog-parts";
 import { EButton } from "@/components/v2/ui/primitives";
-import { EField, EInput, EModal, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
+import { EField, EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 
 type PropertyOption = { id: string; name: string; suburb: string | null };
 type JobOption = { id: string; jobNumber: string; scheduledDate: string; hasBooking: boolean; bookingGuest: string | null; bookingCode: string | null };
@@ -110,50 +115,87 @@ export function LogItemDialog({ open, timeZone, onClose, onCreated }: { open: bo
   }
 
   const selectedJob = jobs?.find((job) => job.id === draft.jobId) ?? null;
+  const selectedProperty = properties?.find((property) => property.id === draft.propertyId) ?? null;
+  const formId = React.useId();
+  const PHONE_FIELD = "max-sm:h-11 max-sm:text-[1rem]";
 
   return (
-    <EModal open={open} onClose={() => (saving ? undefined : onClose())} eyebrow="Lost and found" title="Log an item" size="wide">
-      <form onSubmit={submit}>
-        <fieldset disabled={saving} className="space-y-3">
-          {loadError ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{loadError}</p> : null}
-          <EField label="Property">
-            <ESelect required value={draft.propertyId} onChange={(event) => patch({ propertyId: event.target.value, jobId: "" })}>
-              <option value="">{properties ? "Choose property" : "Loading properties…"}</option>
-              {(properties ?? []).map((property) => <option key={property.id} value={property.id}>{property.suburb ? `${property.name} (${property.suburb})` : property.name}</option>)}
-            </ESelect>
-          </EField>
-          <EField label="Job (optional)" hint="With a job, the guest is filled in from the job's departing booking.">
-            <ESelect value={draft.jobId} disabled={!draft.propertyId || jobs === null} onChange={(event) => patch({ jobId: event.target.value })}>
-              <option value="">{!draft.propertyId ? "Choose a property first" : jobs === null ? "Loading jobs…" : jobs.length ? "No job" : "No recent jobs at this property"}</option>
-              {(jobs ?? []).map((job) => <option key={job.id} value={job.id}>{jobLabel(job, timeZone)}</option>)}
-            </ESelect>
-          </EField>
-          {selectedJob && !selectedJob.hasBooking ? <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">This job has no booking, so no guest will be filled in.</p> : null}
-          <EField label="Item"><EInput required maxLength={180} value={draft.itemName} onChange={(event) => patch({ itemName: event.target.value })} placeholder="e.g. Watch, silver" /></EField>
-          <EField label="Where it was found (optional)"><EInput maxLength={300} value={draft.location} onChange={(event) => patch({ location: event.target.value })} placeholder="e.g. Bedside table" /></EField>
-          <EField label="Notes (optional)"><ETextarea maxLength={6000} value={draft.notes} onChange={(event) => patch({ notes: event.target.value })} /></EField>
-          <EField label="Photos (optional)">
-            <input type="file" accept="image/*" multiple disabled={uploading || draft.photos.length >= MAX_PHOTOS} onChange={(event) => { void addPhotos(event.target.files); event.target.value = ""; }} className="block w-full text-[0.8125rem]" />
-          </EField>
-          {uploading ? <p role="status" className="text-[0.75rem]">Uploading…</p> : null}
-          {draft.photos.length ? (
+    <EActionDialog
+      open={open}
+      layout="form"
+      eyebrow="Lost and found"
+      title="Log a found item"
+      phoneTitle={selectedProperty ? `Found at ${selectedProperty.name}` : "Log a found item"}
+      busy={saving}
+      onClose={onClose}
+      footerNote={(
+        <>
+          <span className="max-sm:hidden">Photos upload as you add them.</span>
+          <span className="sm:hidden">The guest is told only from Lost and found, with the route you choose there.</span>
+        </>
+      )}
+      footer={(
+        <>
+          <EButton type="button" size="sm" variant="outline" className="max-sm:hidden" onClick={onClose} disabled={saving}>Cancel</EButton>
+          <EButton type="submit" form={formId} size="sm" disabled={saving || uploading}>{saving ? "Logging…" : "Log item"}</EButton>
+        </>
+      )}
+    >
+      <form id={formId} onSubmit={submit} onKeyDown={preventEnterSubmit}>
+        <fieldset disabled={saving} className="min-w-0 space-y-3">
+          {loadError ? <ENote tone="problem" role="alert">{loadError}</ENote> : null}
+          <div className="grid grid-cols-2 gap-3">
+            <EField label="Property">
+              <ESelect required value={draft.propertyId} onChange={(event) => patch({ propertyId: event.target.value, jobId: "" })} className={PHONE_FIELD}>
+                <option value="">{properties ? "Choose property" : "Loading properties…"}</option>
+                {(properties ?? []).map((property) => <option key={property.id} value={property.id}>{property.suburb ? `${property.name} (${property.suburb})` : property.name}</option>)}
+              </ESelect>
+            </EField>
+            <EField label="Job, optional">
+              <ESelect value={draft.jobId} disabled={!draft.propertyId || jobs === null} onChange={(event) => patch({ jobId: event.target.value })} className={PHONE_FIELD}>
+                <option value="">{!draft.propertyId ? "Choose a property first" : jobs === null ? "Loading jobs…" : jobs.length ? "No job" : "No recent jobs at this property"}</option>
+                {(jobs ?? []).map((job) => <option key={job.id} value={job.id}>{jobLabel(job, timeZone)}</option>)}
+              </ESelect>
+            </EField>
+          </div>
+          {selectedJob ? (
+            <ENote role="status">
+              {selectedJob.hasBooking
+                ? <>From {selectedJob.jobNumber}: {selectedJob.bookingGuest ? <>guest <b className="font-[600]">{selectedJob.bookingGuest}</b></> : "a booking without a guest name"}{selectedJob.bookingCode ? ` (booking ${selectedJob.bookingCode})` : ""}. Saved with the item.</>
+                : <>{selectedJob.jobNumber} has no booking, so no guest will be filled in.</>}
+            </ENote>
+          ) : draft.propertyId ? (
+            <p className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">With a job, the guest is filled in from the job&apos;s departing booking.</p>
+          ) : null}
+          <EField label="Item"><EInput required maxLength={180} value={draft.itemName} onChange={(event) => patch({ itemName: event.target.value })} placeholder="e.g. Watch, silver" className={PHONE_FIELD} /></EField>
+          <EField label="Where it was found, optional"><EInput maxLength={300} value={draft.location} onChange={(event) => patch({ location: event.target.value })} placeholder="e.g. Bedside table" className={PHONE_FIELD} /></EField>
+          <EField label="Notes, optional"><ETextarea rows={2} maxLength={6000} value={draft.notes} onChange={(event) => patch({ notes: event.target.value })} className="max-sm:text-[1rem]" /></EField>
+          <div>
+            <p className="mb-1.5 text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">Photos, optional</p>
             <ul className="flex flex-wrap gap-2" aria-label="Photos to attach">
               {draft.photos.map((photo) => (
-                <li key={photo.key} className="flex items-center gap-1 text-[0.75rem]">
+                <li key={photo.key} className="relative">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {photo.preview ? <img src={photo.preview} alt="" className="h-12 w-12 rounded-[6px] object-cover" /> : <span className="flex h-12 w-12 items-center justify-center rounded-[6px] border border-[hsl(var(--e-border))] text-[0.625rem]">Uploaded</span>}
-                  <EButton type="button" size="sm" variant="ghost" onClick={() => setDraft((current) => ({ ...current, photos: current.photos.filter((candidate) => candidate.key !== photo.key) }))}>Remove</EButton>
+                  {photo.preview ? <img src={photo.preview} alt="" className="h-16 w-16 rounded-[10px] object-cover" /> : <span className="flex h-16 w-16 items-center justify-center rounded-[10px] border border-[hsl(var(--e-border))] text-[0.625rem]">Uploaded</span>}
+                  <EButton type="button" size="sm" variant="ghost" className="mt-1 w-16 px-0 text-[0.6875rem]" onClick={() => setDraft((current) => ({ ...current, photos: current.photos.filter((candidate) => candidate.key !== photo.key) }))}>Remove</EButton>
                 </li>
               ))}
+              {draft.photos.length < MAX_PHOTOS ? (
+                <li>
+                  <label className="relative flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-[10px] border-[1.5px] border-dashed border-[hsl(var(--e-border-strong))] text-center text-[0.6875rem] text-[hsl(var(--e-text-secondary))] focus-within:ring-2 focus-within:ring-[hsl(var(--e-ring))]">
+                    <Plus aria-hidden className="h-3.5 w-3.5" />
+                    <span className="max-sm:hidden">Photo</span>
+                    <span className="sm:hidden">Take photo</span>
+                    <input type="file" accept="image/*" multiple aria-label="Add photos" disabled={uploading} onChange={(event) => { void addPhotos(event.target.files); event.target.value = ""; }} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+                  </label>
+                </li>
+              ) : null}
             </ul>
-          ) : null}
-          {error ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{error}</p> : null}
-          <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
-            <EButton type="button" size="sm" variant="outline" onClick={onClose}>Cancel</EButton>
-            <EButton type="submit" size="sm" disabled={uploading}>{saving ? "Saving…" : "Log item"}</EButton>
           </div>
+          {uploading ? <p role="status" className="text-[0.75rem]">Uploading…</p> : null}
+          {error ? <ENote tone="problem" role="alert">Not logged: {error}</ENote> : null}
         </fieldset>
       </form>
-    </EModal>
+    </EActionDialog>
   );
 }

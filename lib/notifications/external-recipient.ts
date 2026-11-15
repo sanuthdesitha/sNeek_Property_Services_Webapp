@@ -1,9 +1,9 @@
 import "server-only";
+import { plainMessageEmail } from "@/lib/email-design/build-email";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { escapeHtml } from "@/lib/utils/escape-html";
 import { rateLimit } from "@/lib/security/rate-limit";
 import { sendEmailDetailed } from "./email";
 import { getSmsProviderState, sendSmsDetailed } from "./sms";
@@ -26,7 +26,7 @@ import { dispatchNotificationOnce } from "./dispatch-once";
  *   the delivery log with the provider's truthful state (accepted, never
  *   "delivered").
  */
-export type ExternalMessageKind = "guest.message" | "laundry.supplier_chase";
+export type ExternalMessageKind = "guest.message" | "laundry.supplier_chase" | "onboarding.client_link";
 export type ExternalTransport = "EMAIL" | "SMS";
 export type ExternalMessageState = "provider_accepted" | "already_requested" | "skipped" | "failed";
 
@@ -67,6 +67,17 @@ export const EXTERNAL_MESSAGE_KINDS: Record<ExternalMessageKind, KindPolicy> = {
     logBody: (id) => `Laundry supplier chase for run ${id}`,
     entityTooOften: "This run's supplier has been chased too often today.",
     senderTooMany: "Too many supplier messages. Try again later.",
+  },
+  "onboarding.client_link": {
+    auditAction: "ONBOARDING_CLIENT_LINK_SENT",
+    auditEntity: "PropertyOnboardingSurvey",
+    recipientNoun: "client",
+    entityDailyLimit: 6,
+    senderHourlyLimit: 20,
+    eventPrefix: "onboarding-client-link",
+    logBody: (id) => `Onboarding client link for survey ${id}`,
+    entityTooOften: "This onboarding's client has been sent too many links today.",
+    senderTooMany: "Too many client links. Try again later.",
   },
 };
 
@@ -152,7 +163,7 @@ async function enforceRateLimits(policy: KindPolicy, input: ExternalSendInput, n
 }
 
 async function deliverEmail(policy: KindPolicy, input: ExternalSendInput): Promise<ExternalMessageResult> {
-  const sent = await sendEmailDetailed({ to: input.to, subject: input.subject, html: `<p>${escapeHtml(input.body).replace(/\n/g, "<br>")}</p>` });
+  const sent = await sendEmailDetailed({ to: input.to, ...plainMessageEmail({ subject: input.subject, text: input.body }) });
   await db.notification.create({ data: {
     userId: null, jobId: input.jobId, channel: "EMAIL", subject: input.subject, body: policy.logBody(input.entityId),
     status: sent.ok ? "SENT" : "FAILED", sentAt: sent.ok ? new Date() : undefined, errorMsg: sent.ok ? undefined : sent.error ?? "Email delivery failed.",

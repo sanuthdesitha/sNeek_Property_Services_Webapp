@@ -13,6 +13,7 @@
 import { ACTION_NOTIFICATION_TYPES } from "./catalog-actions";
 import { JOB_NOTIFICATION_TYPES } from "./catalog-jobs";
 import { OFFICE_NOTIFICATION_TYPES } from "./catalog-office";
+import { ONBOARDING_NOTIFICATION_TYPES } from "./catalog-onboarding";
 import { PEOPLE_NOTIFICATION_TYPES } from "./catalog-people";
 import { SAFEGUARD_NOTIFICATION_TYPES } from "./catalog-safeguards";
 import type { NotificationTypeEntry } from "./catalog-types";
@@ -25,6 +26,7 @@ export const NOTIFICATION_CATALOG: readonly NotificationTypeEntry[] = [
   ...PEOPLE_NOTIFICATION_TYPES,
   ...ACTION_NOTIFICATION_TYPES,
   ...SAFEGUARD_NOTIFICATION_TYPES,
+  ...ONBOARDING_NOTIFICATION_TYPES,
 ];
 
 /**

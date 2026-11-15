@@ -1,11 +1,16 @@
+import { Suspense } from "react";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import { OnboardingSurveysBoard } from "@/components/v2/admin/onboarding/surveys-board";
+import { OnboardingList } from "@/components/v2/admin/onboarding/workspace/onboarding-list";
 
 export const metadata = { title: "Property onboarding · Estate admin" };
 export const dynamic = "force-dynamic";
 
 export default async function EstateOnboardingPage() {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-  return <OnboardingSurveysBoard />;
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  return (
+    <Suspense>
+      <OnboardingList isAdmin={session.user.role === Role.ADMIN} />
+    </Suspense>
+  );
 }

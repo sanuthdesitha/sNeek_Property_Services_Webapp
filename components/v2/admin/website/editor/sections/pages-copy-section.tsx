@@ -43,6 +43,8 @@ export function PagesCopySection({ content, setContent, readOnly, uploadingKey, 
         </EField>
         <EImageField
           label="Airbnb hero image"
+          path="airbnb.heroImageUrl"
+          altPath="airbnb.heroImageAlt"
           value={airbnb.heroImageUrl}
           alt={airbnb.heroImageAlt}
           disabled={readOnly}
@@ -60,6 +62,7 @@ export function PagesCopySection({ content, setContent, readOnly, uploadingKey, 
         <FeatureCardsEditor
           hint="Airbnb support feature cards"
           keyPrefix="airbnb-feat"
+          pathPrefix="airbnb.features"
           value={airbnb.features}
           readOnly={readOnly}
           uploadingKey={uploadingKey}

@@ -11,6 +11,7 @@ import { commandTimeZone, loadCommandHeader } from "@/lib/dashboard/command-sect
 import { viewerSeesMoney } from "@/lib/dashboard/command-money";
 import { viewerCanOpen } from "@/lib/dashboard/command-viewer";
 import { CALENDAR_HREF } from "@/lib/dashboard/work-queue-links";
+import { tourTarget } from "@/lib/tutorials/targets";
 
 export const metadata = { title: "Command · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -33,7 +34,7 @@ export default async function AdminCommandPage() {
 
   return (
     <div className="min-w-0 space-y-[14px] break-words">
-      <header className="flex flex-wrap items-end justify-between gap-4">
+      <header {...tourTarget("admin.command.greeting")} className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <h1 className="e-display-md">{header.dateLabel}</h1>
           <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
@@ -50,16 +51,20 @@ export default async function AdminCommandPage() {
 
       <AskPanel />
 
-      <Suspense fallback={<SectionLoading label="counters" rows={1} />}>
-        <TilesSection viewer={viewer} timeZone={timeZone} />
-      </Suspense>
+      <div {...tourTarget("admin.command.tiles")} className="min-w-0">
+        <Suspense fallback={<SectionLoading label="counters" rows={1} />}>
+          <TilesSection viewer={viewer} timeZone={timeZone} />
+        </Suspense>
+      </div>
 
       <div className="grid min-w-0 grid-cols-1 items-start gap-[14px] xl:grid-cols-[minmax(0,1fr)_420px]">
-        <Suspense fallback={<SectionLoading label="the work queue" rows={6} />}>
-          <QueueSection viewer={viewer} timeZone={timeZone} />
-        </Suspense>
+        <div {...tourTarget("admin.command.needsYou")} className="min-w-0">
+          <Suspense fallback={<SectionLoading label="the work queue" rows={6} />}>
+            <QueueSection viewer={viewer} timeZone={timeZone} />
+          </Suspense>
+        </div>
 
-        <aside aria-label="Today by cleaner" className="min-w-0 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
+        <aside {...tourTarget("admin.command.today")} aria-label="Today by cleaner" className="min-w-0 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
           <div className="flex items-center justify-between gap-2 border-b border-[hsl(var(--e-border))] px-4 py-3.5">
             <h2 className="text-[0.8125rem] font-[600]">Today by cleaner</h2>
             <Link href={CALENDAR_HREF} className="text-[0.8125rem]">Open calendar</Link>

@@ -13,6 +13,7 @@
  * stays removed by owner decision (receivables live in Finance).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Building2, UserCheck, Users } from "lucide-react";
 import { EButton, EStatCard } from "@/components/v2/ui/primitives";
 import { EDataTable } from "@/components/v2/ui/data-table";
@@ -28,7 +29,6 @@ import { AccountsBulk } from "./accounts-bulk";
 import { AccountsFilters } from "./accounts-filters";
 import { AccountsTabs } from "./accounts-tabs";
 import { listQueryString, useAccountsView, type AccountsView } from "./accounts-url";
-import { InvitePersonDialog } from "./invite-person-dialog";
 import { CREATE_ROLE_FOR_TAB } from "./managed-roles";
 import { ACCOUNTS_PAGE_SIZE, useAccountsList } from "./use-accounts-list";
 
@@ -103,7 +103,6 @@ export function AccountsHub({
   const [columns, setColumns] = useState<ColumnPrefs>(DEFAULT_COLUMN_PREFS);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkRunning, setBulkRunning] = useState(false);
-  const [inviteOpen, setInviteOpen] = useState(false);
 
   useEffect(() => setColumns(readColumnPrefs()), []);
   const listKey = listQueryString(view, ACCOUNTS_PAGE_SIZE);
@@ -145,7 +144,11 @@ export function AccountsHub({
             <EButton asChild variant="outline" size="sm">
               <a href={exportHref} download>Export</a>
             </EButton>
-            {capabilities.isAdmin ? <EButton size="sm" variant="primary" onClick={() => setInviteOpen(true)}>Invite person</EButton> : null}
+            {capabilities.isAdmin ? (
+              <EButton asChild size="sm" variant="primary">
+                <Link href={`/v2/admin/accounts?invite=${CREATE_ROLE_FOR_TAB[view.tab].toLowerCase()}`}>Invite person</Link>
+              </EButton>
+            ) : null}
           </div>
         </header>
 
@@ -206,10 +209,6 @@ export function AccountsHub({
       </div>
 
       {view.open ? <PersonPanel userId={view.open} onClose={() => update({ open: null })} onListChanged={list.reload} /> : null}
-
-      {capabilities.isAdmin ? (
-        <InvitePersonDialog open={inviteOpen} defaultRole={CREATE_ROLE_FOR_TAB[view.tab]} onClose={() => setInviteOpen(false)} onCreated={list.reload} />
-      ) : null}
     </div>
   );
 }

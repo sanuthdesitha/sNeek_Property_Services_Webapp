@@ -1,7 +1,7 @@
 import "server-only";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
-import { canUseOpsPath, opsRequestFeature } from "./ops-catalog";
+import { canUseOpsPath, OPS_FEATURE_KEYS, opsRequestFeature } from "./ops-catalog";
 import { policyChanges, touchesOwnAccess } from "./access-diff";
 import { GRANT_CAPABILITY_KEYS, type CapabilityKey } from "./capabilities";
 import {
@@ -116,5 +116,56 @@ export async function saveOpsPolicy(
       },
     });
     return after;
+  });
+}
+
+type PolicyTransaction = Pick<typeof db, "$executeRaw" | "appSetting" | "auditLog">;
+
+/**
+ * Starting permission packs for a NEW operations manager, written in the
+ * transaction that creates the account (Invite person, owner default
+ * 2026-11-16: nothing ticked by default). The person gets the "No access"
+ * preset with Manage on exactly the ticked areas, so a new manager never
+ * falls back to the unassigned compatibility default (every area at Manage).
+ * Same lock, revision check and audit as Settings › Access › Roles.
+ */
+export async function assignNewManagerPacks(
+  tx: PolicyTransaction,
+  input: { actorId: string; userId: string; packs: readonly string[] },
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${OPS_POLICY_KEY}))`;
+  const before = await tx.appSetting.upsert({
+    where: { key: OPS_POLICY_KEY },
+    create: { key: OPS_POLICY_KEY, value: EMPTY_OPS_POLICY },
+    update: {},
+  });
+  const previous = opsPolicySchema.parse(before.value);
+  if (previous.assignments[input.userId]) throw new Error("This person already has permission packs.");
+  const known = new Set<string>(OPS_FEATURE_KEYS);
+  const overrides = Object.fromEntries(
+    Array.from(new Set(input.packs)).filter((key) => known.has(key)).map((key) => [key, "manage"]),
+  );
+  const next = opsPolicySchema.parse({
+    ...previous,
+    assignments: { ...previous.assignments, [input.userId]: { presetId: "restricted", overrides } },
+  });
+  const after = { ...next, revision: previous.revision + 1 };
+  const result = await tx.appSetting.updateMany({
+    where: { key: OPS_POLICY_KEY, value: { path: ["revision"], equals: previous.revision } },
+    data: { value: after },
+  });
+  if (result.count !== 1) throw new Error("OPS_POLICY_CONFLICT");
+  await tx.auditLog.create({
+    data: {
+      userId: input.actorId,
+      action: "OPS_PERMISSIONS_UPDATED",
+      entity: "AppSettings",
+      entityId: "app",
+      before: previous,
+      after: {
+        ...after,
+        audit: { actorId: input.actorId, actorRole: "ADMIN", impersonatedBy: null, changes: policyChanges(previous, after).length, reason: "Starting packs set while inviting", subjectUserId: input.userId },
+      },
+    },
   });
 }

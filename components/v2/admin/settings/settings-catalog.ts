@@ -46,7 +46,7 @@ export const SETTINGS_GROUPS = [
     key: "system",
     label: "System",
     shortLabel: "System",
-    description: "The settings audit trail.",
+    description: "The settings audit trail, tutorials and What's new, and System health.",
   },
 ] as const;
 
@@ -78,6 +78,18 @@ export const SETTINGS_DESTINATIONS = [
     adminOnly: true,
   },
   {
+    // The look every email uses (email design system, 2026-11): logo, brand
+    // colour (contrast-checked), button shape, sender, reply-to, footer line.
+    // Reads: ADMIN and ops managers with the notifications pack; changes:
+    // ADMIN only, publishing with their own PIN.
+    key: "email-look",
+    label: "Email look",
+    description: "Logo, brand colour, button shape, sender name, reply-to and the footer line on every email.",
+    group: "brand",
+    adminOnly: false,
+    href: "/v2/admin/notifications/email-look",
+  },
+  {
     key: "public-widgets",
     label: "Public site widgets",
     description: "Show or hide widgets on the public website.",
@@ -107,6 +119,17 @@ export const SETTINGS_DESTINATIONS = [
     group: "notifications",
     adminOnly: false,
     href: "/v2/admin/notifications/safeguards",
+  },
+  {
+    // Who receives each client's job reports and invoices by email (own page;
+    // ADMIN, and operations managers with the communications pack).
+    key: "client-delivery",
+    label: "Client delivery",
+    description:
+      "Who receives each client's job reports and invoices by email, the fallback address, and what happened to recent sends.",
+    group: "notifications",
+    adminOnly: false,
+    href: "/v2/admin/delivery-profiles",
   },
   {
     key: "notifications",
@@ -314,6 +337,26 @@ export const SETTINGS_DESTINATIONS = [
     group: "ai",
     adminOnly: true,
     href: "/v2/admin/ai?section=ollama",
+  },
+  {
+    // Tutorials (2026-11-16, board "Tutorials settings"). Operations managers
+    // view with the Settings pack; only administrators edit (server-enforced).
+    key: "tutorials",
+    label: "Tutorials and What's new",
+    description: "Welcome screens, page tours, practice walkthroughs and What's new for every role: wording, order, switches, people and release notes.",
+    group: "system",
+    adminOnly: false,
+    href: "/v2/admin/settings/tutorials",
+  },
+  {
+    // System health (was Diagnostics, 2026-11-16): scheduled work, the
+    // database, the queue and each outside service. Administrators only.
+    key: "system-health",
+    label: "System health",
+    description: "Is everything behind the app working: scheduled work, the database, the queue and each outside service, with copyable support details.",
+    group: "system",
+    adminOnly: true,
+    href: "/v2/admin/diagnostics",
   },
   {
     key: "audit",

@@ -3,6 +3,8 @@ import { CoachingRecordStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { canRecordDismissal, isDismissalOutcome } from "@/lib/workforce/coaching-outcomes";
+import { routeSecurityRefusal, routeSecuritySchema } from "@/lib/security/route-verification";
 
 /**
  * Admin coaching record update (Phase 7b).
@@ -21,8 +23,9 @@ const patchSchema = z
     outcome: z.enum(OUTCOMES).optional().nullable(),
     retrainingRequired: z.boolean().optional(),
     reviewDate: z.string().datetime().optional().nullable(),
+    security: routeSecuritySchema,
   })
-  .refine((v) => Object.keys(v).length > 0, { message: "No fields to update." });
+  .refine((v) => Object.keys(v).some((key) => key !== "security"), { message: "No fields to update." });
 
 function errorStatus(err: any): number {
   if (err?.message === "UNAUTHORIZED") return 401;
@@ -38,6 +41,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const existing = await db.coachingRecord.findUnique({ where: { id: params.id } });
     if (!existing) {
       return NextResponse.json({ error: "Coaching record not found." }, { status: 404 });
+    }
+
+    // Recording Suspended or Terminated (owner default 2026-11-16, pending owner
+    // confirmation): administrators only, confirmed with their own PIN in this
+    // request (tier C). It records the outcome; it does not change the login.
+    const recordsDismissal = body.outcome !== undefined && isDismissalOutcome(body.outcome) && body.outcome !== existing.outcome;
+    if (recordsDismissal) {
+      if (!canRecordDismissal(session)) {
+        return NextResponse.json({ error: "Only an administrator can record Suspended or Terminated." }, { status: 403 });
+      }
+      const refusal = await routeSecurityRefusal(session, body.security ?? null);
+      if (refusal) return refusal;
     }
 
     const data: Record<string, unknown> = {};
@@ -83,6 +98,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
             outcome: record.outcome,
             retrainingRequired: record.retrainingRequired,
             reviewDate: record.reviewDate,
+            ...(recordsDismissal ? { confirmedWithOwnCredential: true } : {}),
           } as any,
         },
       });

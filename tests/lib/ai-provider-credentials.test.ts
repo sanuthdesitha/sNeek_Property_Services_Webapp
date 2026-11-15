@@ -11,7 +11,7 @@ vi.mock("@/lib/db", () => {
   const tx = { $executeRaw: m.lock, appSetting, auditLog: { create: m.audit } };
   return { db: { appSetting, $transaction: async (fn: (client: typeof tx) => unknown) => fn(tx) } };
 });
-import { getPublicCredentialStates, saveAiCredential, saveAiRouting, AiSettingsConflict } from "@/lib/ai/provider/admin";
+import { getPublicCredentialStates, saveAiCredential, saveAiRouting, AiSettingsConflict, AiCloudPhotosConfirmationRequired } from "@/lib/ai/provider/admin";
 import { readProviderSecret, AI_CREDENTIALS_KEY } from "@/lib/ai/provider/store";
 import { DEFAULT_AI_ROUTING } from "@/lib/ai/provider/routing-schema";
 
@@ -80,5 +80,22 @@ describe("AI routing saves", () => {
     await expect(saveAiRouting({ expectedRevision: 0, settings: { ...settings, features: { ...settings.features, wording: { ...settings.features.wording, hourlyLimitPerActor: 0 } } } }, "admin-1")).rejects.toThrow();
     await expect(saveAiRouting({ expectedRevision: 0, settings: { ...settings, compatible: { baseUrl: "http://example.com/v1", label: "" } } }, "admin-1")).rejects.toThrow();
     expect(m.rows.size).toBe(0);
+  });
+  // Owner decision 2026-11-14: turning cloud photo sending on is saved only
+  // for features the route confirmed with the administrator's own PIN.
+  it("refuses an unconfirmed cloud photo switch, saves a confirmed one with its own audit row, and turning it off needs nothing", async () => {
+    const photosOn = { ...settings, features: { ...settings.features, photo_assign: { ...settings.features.photo_assign, allowCloudImages: true } } };
+    const refused = saveAiRouting({ expectedRevision: 0, settings: photosOn }, "admin-1");
+    await expect(refused).rejects.toBeInstanceOf(AiCloudPhotosConfirmationRequired);
+    await expect(refused).rejects.toMatchObject({ features: ["photo_assign"] });
+    expect(m.rows.size).toBe(0);
+    expect(m.audit).not.toHaveBeenCalled();
+    const saved = await saveAiRouting({ expectedRevision: 0, settings: photosOn }, "admin-1", { cloudPhotosConfirmed: ["photo_assign"] });
+    expect(saved.features.photo_assign.allowCloudImages).toBe(true);
+    expect(m.audit).toHaveBeenCalledWith({ data: expect.objectContaining({ userId: "admin-1", action: "AI_CLOUD_PHOTOS_ALLOWED", after: expect.objectContaining({ features: ["photo_assign"], revision: 1 }) }) });
+    m.audit.mockClear();
+    const off = await saveAiRouting({ expectedRevision: 1, settings }, "admin-1");
+    expect(off.features.photo_assign.allowCloudImages).toBe(false);
+    expect(m.audit.mock.calls.map((call) => call[0].data.action)).toEqual(["AI_SETTINGS_UPDATED"]);
   });
 });

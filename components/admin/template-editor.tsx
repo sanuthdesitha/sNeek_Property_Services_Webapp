@@ -583,8 +583,13 @@ export function TemplateEditor({ settings, onSettingsChange, readOnly = false }:
                 value={emailTemplate.subject}
                 onFocus={() => (lastEmailFieldRef.current = "subject")}
                 onChange={(e) => setEmailField("subject", e.target.value)}
-                disabled={readOnly}
+                disabled
               />
+              <p className="text-xs text-muted-foreground">
+                Shared emails are edited as blocks now (2026-11-16):{" "}
+                <a className="underline" href={`/v2/admin/notifications?email=${emailKey}`}>open this email&apos;s design</a>.
+                Raw HTML can no longer be saved here; Reset still puts the standard back.
+              </p>
             </div>
 
             <div className="space-y-1.5">
@@ -608,7 +613,7 @@ export function TemplateEditor({ settings, onSettingsChange, readOnly = false }:
                 value={emailTemplate.html}
                 onFocus={() => (lastEmailFieldRef.current = "html")}
                 onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setEmailField("html", e.target.value)}
-                disabled={readOnly}
+                disabled
                 rows={14}
                 className="font-mono text-xs"
               />

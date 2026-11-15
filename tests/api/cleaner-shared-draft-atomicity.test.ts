@@ -32,6 +32,7 @@ let rows: Map<string, SharedCleanerJobDraftRecord>;
 let tails: Map<string, Promise<void>>;
 let events: string[];
 let assigned: boolean;
+let responseStatus: string;
 let status: JobStatus | null;
 let failure: string | undefined;
 let onAcquire: (() => void) | undefined;
@@ -40,7 +41,7 @@ let onAcquire: (() => void) | undefined;
 // Only the advisory lock queues callbacks; staged writes commit or roll back.
 beforeEach(() => {
   vi.resetAllMocks();
-  rows = new Map(); tails = new Map(); events = []; assigned = true;
+  rows = new Map(); tails = new Map(); events = []; assigned = true; responseStatus = "ACCEPTED";
   status = JobStatus.IN_PROGRESS; failure = undefined; onAcquire = undefined;
   mocks.role.mockResolvedValue({ user: { id: "cleaner", name: "Cleaner" } });
   mocks.root.mockImplementation(() => { throw new Error("Unexpected root database access"); });
@@ -70,8 +71,10 @@ beforeEach(() => {
       },
       jobAssignment: { findFirst: async (args: unknown) => {
         expect(held.has(key("job"))).toBe(true);
-        expect(args).toEqual({ where: { jobId: "job", userId: "cleaner", removedAt: null }, select: { id: true } });
-        step("assignment"); return assigned ? { id: "assignment" } : null;
+        // PATCH also reads this cleaner's response (an offer may not gain a draft, 2026-11-14).
+        expect([{ id: true }, { id: true, responseStatus: true }]).toContainEqual((args as { select: unknown }).select);
+        expect(args).toMatchObject({ where: { jobId: "job", userId: "cleaner", removedAt: null } });
+        step("assignment"); return assigned ? { id: "assignment", responseStatus } : null;
       } },
       job: { findUnique: async (args: unknown) => {
         expect(held.has(key("job"))).toBe(true);
@@ -340,4 +343,20 @@ it("removal tombstones override foreign photos restored by stale autosave", asyn
   rows.set(key("job"), { ...record(), evidenceReceipts: { capture: { key: foreignKey, fieldId: "bulkPool", formRevision: "old", draftIdentity: "old", detached: true } } });
   expect((await patch("a", { bulkPool: [{ key: foreignKey, kind: "image" }] })).status).toBe(200);
   expect(rows.get(key("job"))!.state.bulkPool).toEqual([]);
+});
+// Owner decision 2026-11-14: a job this cleaner has only been OFFERED has no
+// editable form, so opening it must never store a draft; an existing draft
+// (kept from before a re-offer) is left exactly as it was.
+it("refuses to save a draft while this cleaner's assignment is still an offer, and keeps an existing draft", async () => {
+  responseStatus = "PENDING";
+  const fresh = await responseIs(await patch("a", { answers: {} }), 409);
+  expect(fresh).toMatchObject({ code: "OFFER_NOT_ACCEPTED" });
+  expect(rows.has(key("job"))).toBe(false);
+  rows.set(key("job"), record());
+  await responseIs(await patch("b", { answers: { note: "changed" } }), 409);
+  expect(rows.get(key("job"))).toEqual(record());
+  expect(events.some((event) => event.endsWith(":write"))).toBe(false);
+  responseStatus = "ACCEPTED";
+  await responseIs(await patch("a", { answers: { note: "accepted" } }), 200);
+  expect(rows.get(key("job"))!.state).toMatchObject({ answers: { note: "accepted" } });
 });

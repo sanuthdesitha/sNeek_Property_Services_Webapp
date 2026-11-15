@@ -1,18 +1,19 @@
 "use client";
 
 /**
- * ESTATE blog post editor — the create/edit form body used inside the EModal
- * on the blog workspace. Covers the full v1 field set (title, author, slug,
- * excerpt, tags, cover image, gallery images, SEO meta, published toggle,
- * publish date, markdown body with a live preview) and emits the exact payload
- * shape the /api/admin/blog-posts endpoints expect. Estate primitives only.
+ * Blog post editor (board "Website and blog", 2026-11-16): title, excerpt with
+ * a character count, Markdown write and preview, address, tags, cover and
+ * gallery, a search-result preview, author and publish time. The publish time
+ * is typed in the organisation timezone; a future time schedules the post (it
+ * stays off the public site until then). Emits the payload the
+ * /api/admin/blog-posts routes validate. Images use /api/uploads/direct.
  */
-
-import { useMemo, useRef, useState } from "react";
+import * as React from "react";
 import ReactMarkdown from "react-markdown";
-import { ImagePlus, Link2, Upload, X } from "lucide-react";
-import { EButton, EBadge } from "@/components/v2/ui/primitives";
-import { EConfirmButton, EField, EInput, ETextarea, ESwitch } from "@/components/v2/admin/estate-kit";
+import { ImagePlus, Upload, X } from "lucide-react";
+import { EButton } from "@/components/v2/ui/primitives";
+import { EField, EInput, ETextarea } from "@/components/v2/admin/estate-kit";
+import { isoToZonedInput, zonedInputToIso } from "@/lib/public-site/zoned-time";
 import { toast } from "@/hooks/use-toast";
 
 export type BlogPostRecord = {
@@ -37,10 +38,10 @@ export type BlogForm = {
   body: string;
   coverImageUrl: string;
   galleryImageUrls: string[];
-  tags: string;
-  isPublished: boolean;
+  tags: string[];
   authorName: string;
-  publishedAt: string;
+  /** Organisation wall clock "yyyy-MM-ddTHH:mm"; empty = publish at once. */
+  publishAt: string;
 };
 
 export const EMPTY_BLOG_FORM: BlogForm = {
@@ -50,11 +51,13 @@ export const EMPTY_BLOG_FORM: BlogForm = {
   body: "",
   coverImageUrl: "",
   galleryImageUrls: [],
-  tags: "",
-  isPublished: false,
+  tags: [],
   authorName: "sNeek Team",
-  publishedAt: "",
+  publishAt: "",
 };
+
+/** Search results show about this many characters of the excerpt. */
+export const EXCERPT_GUIDE = 160;
 
 export function slugify(value: string) {
   return value
@@ -65,9 +68,7 @@ export function slugify(value: string) {
     .slice(0, 160);
 }
 
-/** Build a BlogForm from an existing record (edit mode). */
-export function formFromPost(post: BlogPostRecord): BlogForm {
-  const publishedAt = post.publishedAt ? new Date(post.publishedAt) : null;
+export function formFromPost(post: BlogPostRecord, timeZone: string): BlogForm {
   return {
     slug: post.slug,
     title: post.title,
@@ -75,39 +76,40 @@ export function formFromPost(post: BlogPostRecord): BlogForm {
     body: post.body,
     coverImageUrl: post.coverImageUrl || "",
     galleryImageUrls: Array.isArray(post.galleryImageUrls) ? post.galleryImageUrls : [],
-    tags: (post.tags ?? []).join(", "),
-    isPublished: post.isPublished,
+    tags: Array.isArray(post.tags) ? post.tags : [],
     authorName: post.authorName || "sNeek Team",
-    publishedAt: publishedAt ? toDatetimeLocal(publishedAt) : "",
+    publishAt: isoToZonedInput(post.publishedAt ?? null, timeZone),
   };
 }
 
-/** Convert a form into the JSON payload the API route validates. */
-export function payloadFromForm(form: BlogForm) {
-  const slug = form.slug.trim() || slugify(form.title);
+/** The JSON the API validates. `isPublished` is decided by the action (save draft / publish / unpublish). */
+export function payloadFromForm(form: BlogForm, isPublished: boolean, timeZone: string) {
   return {
-    slug,
+    slug: form.slug.trim() || slugify(form.title),
     title: form.title.trim(),
     excerpt: form.excerpt.trim(),
     body: form.body,
     coverImageUrl: form.coverImageUrl.trim() || null,
     galleryImageUrls: form.galleryImageUrls,
-    tags: form.tags
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean),
-    isPublished: form.isPublished,
+    tags: form.tags,
+    isPublished,
     authorName: form.authorName.trim() || "sNeek Team",
-    publishedAt: form.publishedAt ? new Date(form.publishedAt).toISOString() : null,
+    publishedAt: zonedInputToIso(form.publishAt, timeZone),
   };
 }
 
-function toDatetimeLocal(date: Date) {
-  // yyyy-MM-ddThh:mm in local time for <input type="datetime-local">
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours()
-  )}:${pad(date.getMinutes())}`;
+/** What is missing before the API would accept the post (its own minimums). */
+export function blogFormProblems(form: BlogForm): string[] {
+  const problems: string[] = [];
+  if (form.title.trim().length < 2) problems.push("a title");
+  if (form.excerpt.trim().length < 2) problems.push("an excerpt");
+  if (form.body.trim().length < 2) problems.push("the post wording");
+  if ((form.slug.trim() || slugify(form.title)).length < 2) problems.push("an address");
+  return problems;
+}
+
+export function sameBlogForm(left: BlogForm, right: BlogForm) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 async function uploadBlogImage(file: File) {
@@ -116,327 +118,200 @@ async function uploadBlogImage(file: File) {
   data.append("folder", "website/blog");
   const response = await fetch("/api/uploads/direct", { method: "POST", body: data });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error ?? "Could not upload image.");
+  if (!response.ok || !body.url) throw new Error(body.error ?? "Could not upload the image.");
   return body.url as string;
+}
+
+function truncate(text: string, length: number) {
+  const clean = text.trim();
+  return clean.length > length ? `${clean.slice(0, length - 1).trimEnd()}…` : clean;
 }
 
 export function PostEditor({
   form,
   setForm,
+  timeZone,
+  published,
 }: {
   form: BlogForm;
   setForm: React.Dispatch<React.SetStateAction<BlogForm>>;
+  timeZone: string;
+  /** The post is already public: changing the address breaks old links. */
+  published: boolean;
 }) {
-  const [tab, setTab] = useState<"write" | "preview">("write");
-  const [uploadingCover, setUploadingCover] = useState(false);
-  const [uploadingGallery, setUploadingGallery] = useState(false);
-  const [coverUrlDraft, setCoverUrlDraft] = useState("");
-  const coverInputRef = useRef<HTMLInputElement | null>(null);
-  const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const [tab, setTab] = React.useState<"write" | "preview">("write");
+  const [uploading, setUploading] = React.useState<"cover" | "gallery" | null>(null);
+  const [tagDraft, setTagDraft] = React.useState("");
+  const coverInputRef = React.useRef<HTMLInputElement | null>(null);
+  const galleryInputRef = React.useRef<HTMLInputElement | null>(null);
+  const liveSlug = form.slug.trim() || slugify(form.title);
+  const excerptLength = form.excerpt.trim().length;
 
-  const liveSlug = useMemo(
-    () => form.slug.trim() || slugify(form.title),
-    [form.slug, form.title]
-  );
-
-  async function handleCoverUpload(file: File) {
-    setUploadingCover(true);
-    try {
-      const url = await uploadBlogImage(file);
-      setForm((current) => ({ ...current, coverImageUrl: url }));
-      toast({ title: "Cover image uploaded" });
-    } catch (error: any) {
-      toast({
-        title: "Upload failed",
-        description: error?.message ?? "Could not upload image.",
-        variant: "destructive",
-      });
-    } finally {
-      setUploadingCover(false);
-    }
-  }
-
-  async function handleGalleryUpload(files: FileList | null) {
+  async function upload(kind: "cover" | "gallery", files: FileList | null) {
     if (!files?.length) return;
-    setUploadingGallery(true);
+    setUploading(kind);
     try {
-      const urls: string[] = [];
-      for (const file of Array.from(files)) {
-        urls.push(await uploadBlogImage(file));
+      if (kind === "cover") {
+        const url = await uploadBlogImage(files[0]!);
+        setForm((current) => ({ ...current, coverImageUrl: url }));
+      } else {
+        const urls: string[] = [];
+        for (const file of Array.from(files)) urls.push(await uploadBlogImage(file));
+        setForm((current) => ({ ...current, galleryImageUrls: [...current.galleryImageUrls, ...urls].slice(0, 24) }));
       }
-      setForm((current) => ({
-        ...current,
-        galleryImageUrls: [...current.galleryImageUrls, ...urls].slice(0, 24),
-      }));
-      toast({ title: `${urls.length} image${urls.length === 1 ? "" : "s"} uploaded` });
-    } catch (error: any) {
-      toast({
-        title: "Upload failed",
-        description: error?.message ?? "Could not upload images.",
-        variant: "destructive",
-      });
+    } catch (error) {
+      toast({ title: "Image not uploaded", description: error instanceof Error ? error.message : "Could not upload the image.", variant: "destructive" });
     } finally {
-      setUploadingGallery(false);
+      setUploading(null);
     }
   }
 
-  const chipTab = (key: "write" | "preview", label: string) => (
-    <button
-      type="button"
-      onClick={() => setTab(key)}
-      aria-current={tab === key ? "true" : undefined}
-      className={
-        "rounded-[var(--e-radius-sm)] px-3 py-1.5 text-[0.8125rem] font-[550] transition-colors duration-[160ms] " +
-        (tab === key
-          ? "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]"
-          : "text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]")
-      }
-    >
-      {label}
-    </button>
-  );
+  function addTag() {
+    const tag = tagDraft.trim().replace(/,$/, "");
+    if (!tag) return;
+    setForm((current) => (current.tags.includes(tag) || current.tags.length >= 12 ? current : { ...current, tags: [...current.tags, tag] }));
+    setTagDraft("");
+  }
 
   return (
-    <div className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid min-w-0 grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_minmax(0,300px)]">
+      <div className="min-w-0 space-y-3 p-4 max-2xl:border-b max-2xl:border-[hsl(var(--e-border))] 2xl:border-r 2xl:border-[hsl(var(--e-border))]">
         <EField label="Title">
-          <EInput
-            value={form.title}
-            onChange={(e) => setForm((c) => ({ ...c, title: e.target.value }))}
-            placeholder="How we turn over a property in 90 minutes"
-          />
+          <EInput value={form.title} onChange={(e) => setForm((c) => ({ ...c, title: e.target.value }))} placeholder="How we turn over a property in 90 minutes" />
         </EField>
-        <EField label="Author">
-          <EInput
-            value={form.authorName}
-            onChange={(e) => setForm((c) => ({ ...c, authorName: e.target.value }))}
-          />
-        </EField>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
-        <EField label="Slug" hint={<>Public URL: /blog/{liveSlug || "your-post-slug"}</>}>
-          <EInput
-            value={form.slug}
-            onChange={(e) => setForm((c) => ({ ...c, slug: e.target.value }))}
-            placeholder="auto-generated if blank"
-          />
-        </EField>
-        <div className="flex items-end pb-1">
-          <div className="flex h-10 items-center gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-4">
-            <span className="text-[0.8125rem] font-[550] text-[hsl(var(--e-text-secondary))]">
-              Published
+        <EField
+          label="Excerpt"
+          hint={
+            <span className={excerptLength > EXCERPT_GUIDE ? "text-[hsl(var(--e-warning))]" : undefined}>
+              Shown on the blog list and in link previews · {excerptLength} of {EXCERPT_GUIDE} characters
+              {excerptLength > EXCERPT_GUIDE ? "; search results cut the rest" : ""}
             </span>
-            <ESwitch
-              checked={form.isPublished}
-              onCheckedChange={(value) => setForm((c) => ({ ...c, isPublished: value }))}
-            />
-          </div>
-        </div>
-      </div>
-
-      <EField label="Excerpt" hint="Short summary shown on the blog index and in link previews.">
-        <ETextarea
-          rows={3}
-          value={form.excerpt}
-          onChange={(e) => setForm((c) => ({ ...c, excerpt: e.target.value }))}
-        />
-      </EField>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <EField label="Tags" hint="Comma separated — up to 12.">
-          <EInput
-            value={form.tags}
-            onChange={(e) => setForm((c) => ({ ...c, tags: e.target.value }))}
-            placeholder="airbnb, hosting, cleaning"
-          />
+          }
+        >
+          <ETextarea rows={3} maxLength={500} value={form.excerpt} onChange={(e) => setForm((c) => ({ ...c, excerpt: e.target.value }))} />
         </EField>
-        <EField label="Publish date" hint="Optional — defaults to now when you publish.">
-          <EInput
-            type="datetime-local"
-            value={form.publishedAt}
-            onChange={(e) => setForm((c) => ({ ...c, publishedAt: e.target.value }))}
-          />
-        </EField>
-      </div>
-
-      {/* Cover image */}
-      <EField label="Cover image">
-        <div className="space-y-3">
-          <div className="overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))]">
-            {form.coverImageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={form.coverImageUrl}
-                alt={form.title || "Cover image"}
-                className="h-44 w-full object-cover"
-              />
-            ) : (
-              <div className="flex h-44 items-center justify-center text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                No cover selected
-              </div>
-            )}
-          </div>
-          <input
-            ref={coverInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (file) await handleCoverUpload(file);
-              e.currentTarget.value = "";
-            }}
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <EButton
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => coverInputRef.current?.click()}
-              disabled={uploadingCover}
-            >
-              <Upload className="h-3.5 w-3.5" />
-              {uploadingCover ? "Uploading…" : "Upload cover"}
-            </EButton>
-            {form.coverImageUrl ? (
-              <EButton
+        <div className="overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))]">
+          <div role="tablist" aria-label="Post wording" className="flex items-center gap-0.5 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1 text-[0.75rem]">
+            {(["write", "preview"] as const).map((key) => (
+              <button
+                key={key}
                 type="button"
-                variant="ghost"
-                size="sm"
-                className="text-[hsl(var(--e-danger))] hover:text-[hsl(var(--e-danger))]"
-                onClick={() => setForm((c) => ({ ...c, coverImageUrl: "" }))}
+                role="tab"
+                aria-selected={tab === key}
+                onClick={() => setTab(key)}
+                className={`min-h-9 rounded-[var(--e-radius-sm)] px-2.5 max-sm:min-h-11 ${tab === key ? "bg-[hsl(var(--e-surface))] font-[600]" : "text-[hsl(var(--e-muted-foreground))]"}`}
               >
-                Remove
-              </EButton>
-            ) : null}
+                {key === "write" ? "Write" : "Preview"}
+              </button>
+            ))}
+            <span className="ml-auto pr-2 text-[hsl(var(--e-muted-foreground))]">Markdown</span>
           </div>
-          <div className="flex items-end gap-2">
-            <div className="flex-1">
-              <EInput
-                value={coverUrlDraft}
-                onChange={(e) => setCoverUrlDraft(e.target.value)}
-                placeholder="…or paste an image URL"
-              />
+          {tab === "write" ? (
+            <textarea
+              aria-label="Post wording (Markdown)"
+              rows={14}
+              value={form.body}
+              onChange={(e) => setForm((c) => ({ ...c, body: e.target.value }))}
+              className="block w-full resize-y border-0 bg-[hsl(var(--e-surface))] p-3 font-mono text-[0.8125rem] leading-6 text-[hsl(var(--e-foreground))] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[hsl(var(--e-ring))] max-sm:text-[1rem]"
+              placeholder={"## Heading\n\nWrite the post in Markdown…"}
+            />
+          ) : (
+            <div className="prose prose-sm max-w-none p-4 text-[hsl(var(--e-foreground))] dark:prose-invert">
+              <ReactMarkdown>{form.body || "Start writing to preview the post here."}</ReactMarkdown>
             </div>
-            <EButton
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!coverUrlDraft.trim()}
-              onClick={() => {
-                setForm((c) => ({ ...c, coverImageUrl: coverUrlDraft.trim() }));
-                setCoverUrlDraft("");
-              }}
-            >
-              <Link2 className="h-3.5 w-3.5" /> Use URL
-            </EButton>
-          </div>
+          )}
         </div>
-      </EField>
+      </div>
 
-      {/* Gallery images */}
-      <EField
-        label={
-          <span className="flex items-center gap-2">
-            Gallery images
-            <EBadge tone="neutral" soft>
-              {form.galleryImageUrls.length}/24
-            </EBadge>
-          </span>
-        }
-      >
-        <div className="space-y-3">
-          <input
-            ref={galleryInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={async (e) => {
-              await handleGalleryUpload(e.target.files);
-              e.currentTarget.value = "";
+      <div className="min-w-0 space-y-3 bg-[hsl(var(--e-surface-raised))] p-4">
+        <EField label="Address" hint={published ? "Changing it after publishing breaks old links." : "Made from the title; changing it after publishing breaks old links."}>
+          <EInput value={form.slug} onChange={(e) => setForm((c) => ({ ...c, slug: slugify(e.target.value) }))} placeholder={liveSlug || "made-from-the-title"} />
+        </EField>
+        <div className="space-y-1.5">
+          <p className="text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">Tags</p>
+          <ul className="flex flex-wrap gap-1">
+            {form.tags.map((tag) => (
+              <li key={tag} className="inline-flex h-7 items-center gap-1 rounded-full border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] pl-2.5 text-[0.75rem]">
+                {tag}
+                <button type="button" aria-label={`Remove tag ${tag}`} className="inline-flex h-7 w-7 items-center justify-center rounded-full" onClick={() => setForm((c) => ({ ...c, tags: c.tags.filter((item) => item !== tag) }))}>
+                  <X className="h-3 w-3" aria-hidden />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <EInput
+            aria-label="Add a tag"
+            value={tagDraft}
+            onChange={(e) => setTagDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === ",") {
+                e.preventDefault();
+                addTag();
+              }
             }}
+            onBlur={addTag}
+            placeholder="+ tag (Enter to add)"
+            className="max-sm:text-[1rem]"
           />
-          <EButton
-            type="button"
-            variant="outline"
-            size="sm"
-            className="w-full"
-            onClick={() => galleryInputRef.current?.click()}
-            disabled={uploadingGallery}
-          >
-            <ImagePlus className="h-3.5 w-3.5" />
-            {uploadingGallery ? "Uploading images…" : "Add gallery images"}
-          </EButton>
-          {form.galleryImageUrls.length ? (
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-              {form.galleryImageUrls.map((url, index) => (
-                <div
-                  key={`${url}-${index}`}
-                  className="relative overflow-hidden rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))]"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt={`Gallery ${index + 1}`} className="h-20 w-full object-cover" />
-                  {/* Low tier: an unsaved gallery row; the image stays uploaded. */}
-                  <EConfirmButton
-                    ariaLabel={`Remove gallery image ${index + 1}`}
-                    confirmLabel={<X className="h-3 w-3 text-[hsl(var(--e-danger))]" />}
-                    onConfirm={() =>
-                      setForm((c) => ({
-                        ...c,
-                        galleryImageUrls: c.galleryImageUrls.filter((_, i) => i !== index),
-                      }))
-                    }
-                    className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(160_18%_8%/0.75)] text-white"
-                  >
-                    <X className="h-3 w-3" />
-                  </EConfirmButton>
-                </div>
-              ))}
-            </div>
-          ) : null}
         </div>
-      </EField>
-
-      {/* Body — write / preview */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-3">
-          <label className="text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">
-            Body (Markdown)
-          </label>
-          <div className="inline-flex items-center gap-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1">
-            {chipTab("write", "Write")}
-            {chipTab("preview", "Preview")}
-          </div>
-        </div>
-        {tab === "write" ? (
-          <ETextarea
-            rows={16}
-            value={form.body}
-            onChange={(e) => setForm((c) => ({ ...c, body: e.target.value }))}
-            className="font-mono text-[0.8125rem] leading-6"
-            placeholder="# Heading&#10;&#10;Write the article in Markdown…"
-          />
-        ) : (
-          <div className="min-h-[24rem] rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-5">
-            <h1 className="e-display-sm">{form.title || "Preview title"}</h1>
-            <p className="mt-2 text-[0.875rem] leading-7 text-[hsl(var(--e-muted-foreground))]">
-              {form.excerpt || "Your post excerpt will appear here."}
-            </p>
+        <div className="space-y-1.5">
+          <p className="text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">Cover and gallery</p>
+          <div className="flex flex-wrap gap-1.5">
             {form.coverImageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={form.coverImageUrl}
-                alt={form.title || "Cover"}
-                className="mt-4 max-h-72 w-full rounded-[var(--e-radius)] object-cover"
-              />
-            ) : null}
-            <div className="prose prose-sm mt-6 max-w-none text-[hsl(var(--e-foreground))]">
-              <ReactMarkdown>{form.body || "Start writing to preview the article here."}</ReactMarkdown>
-            </div>
+              <span className="relative h-12 w-[70px] overflow-hidden rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={form.coverImageUrl} alt="" className="h-full w-full object-cover" />
+                <button type="button" aria-label="Remove cover image" className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-[hsl(160_18%_8%/0.7)] text-white" onClick={() => setForm((c) => ({ ...c, coverImageUrl: "" }))}>
+                  <X className="h-3 w-3" aria-hidden />
+                </button>
+              </span>
+            ) : (
+              <button type="button" className="flex h-12 w-[70px] items-center justify-center rounded-[var(--e-radius-sm)] border border-dashed border-[hsl(var(--e-border-strong))] text-[0.625rem] text-[hsl(var(--e-muted-foreground))]" onClick={() => coverInputRef.current?.click()} disabled={uploading !== null}>
+                <Upload className="mr-1 h-3 w-3" aria-hidden />
+                {uploading === "cover" ? "Uploading…" : "Cover"}
+              </button>
+            )}
+            {form.galleryImageUrls.map((url, index) => (
+              <span key={`${url}-${index}`} className="relative h-12 w-12 overflow-hidden rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt="" className="h-full w-full object-cover" />
+                <button type="button" aria-label={`Remove gallery image ${index + 1}`} className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-[hsl(160_18%_8%/0.7)] text-white" onClick={() => setForm((c) => ({ ...c, galleryImageUrls: c.galleryImageUrls.filter((_, i) => i !== index) }))}>
+                  <X className="h-3 w-3" aria-hidden />
+                </button>
+              </span>
+            ))}
+            <button type="button" className="flex h-12 w-12 flex-col items-center justify-center rounded-[var(--e-radius-sm)] border border-dashed border-[hsl(var(--e-border-strong))] text-[0.625rem] text-[hsl(var(--e-muted-foreground))]" onClick={() => galleryInputRef.current?.click()} disabled={uploading !== null || form.galleryImageUrls.length >= 24} aria-label="Add gallery images">
+              <ImagePlus className="h-3.5 w-3.5" aria-hidden />
+              {uploading === "gallery" ? "…" : "Add"}
+            </button>
           </div>
-        )}
+          <input ref={coverInputRef} type="file" accept="image/*" className="hidden" onChange={async (e) => { await upload("cover", e.target.files); e.currentTarget.value = ""; }} />
+          <input ref={galleryInputRef} type="file" accept="image/*" multiple className="hidden" onChange={async (e) => { await upload("gallery", e.target.files); e.currentTarget.value = ""; }} />
+          <details className="text-[0.75rem]">
+            <summary className="cursor-pointer text-[hsl(var(--e-muted-foreground))]">Use an image address for the cover</summary>
+            <div className="mt-2">
+              <EField label="Cover image address">
+                <EInput value={form.coverImageUrl} onChange={(e) => setForm((c) => ({ ...c, coverImageUrl: e.target.value }))} placeholder="https://…" />
+              </EField>
+            </div>
+          </details>
+        </div>
+        <div className="space-y-1.5">
+          <p className="text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">Search result preview</p>
+          <div className="space-y-0.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-2.5 text-[0.75rem]" aria-label="How the post may look in search results">
+            <p className="text-[hsl(var(--e-success))] [overflow-wrap:anywhere]">Public site › blog › {liveSlug || "address"}</p>
+            <p className="text-[0.875rem] text-[hsl(var(--e-info))] [overflow-wrap:anywhere]">{truncate(form.title || "Post title", 60)}</p>
+            <p className="text-[hsl(var(--e-muted-foreground))] [overflow-wrap:anywhere]">{truncate(form.excerpt || "The excerpt appears here.", 155)}</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 2xl:grid-cols-1">
+          <EField label="Author">
+            <EInput value={form.authorName} onChange={(e) => setForm((c) => ({ ...c, authorName: e.target.value }))} />
+          </EField>
+          <EField label={`Publish time (${timeZone.replace(/^.*\//, "").replace(/_/g, " ")} time)`} hint="Empty: published at once. A future time schedules the post; it stays off the public site until then.">
+            <EInput type="datetime-local" value={form.publishAt} onChange={(e) => setForm((c) => ({ ...c, publishAt: e.target.value }))} />
+          </EField>
+        </div>
       </div>
     </div>
   );

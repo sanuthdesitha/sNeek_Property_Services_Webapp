@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     const user = await db.user.findUnique({ where: { email }, select: { id: true, isActive: true, name: true } });
     if (user && user.isActive) {
       const raw = await issueRecoveryToken("pwreset", email);
-      const content = passwordResetEmail({ name: user.name, link: passwordResetLink(email, raw) });
+      const content = passwordResetEmail({ name: user.name, email, link: passwordResetLink(email, raw) });
       await recordAccountEmail({
         targetUserId: user.id,
         actorId: null,

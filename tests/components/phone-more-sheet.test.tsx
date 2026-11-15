@@ -9,7 +9,7 @@ import { phoneMoreSections, phoneSheetTabs } from "@/lib/navigation/mobile-tabs"
  * replaces the drawer below 640px and must offer exactly what the rail offers.
  */
 const identity = vi.hoisted(() => ({ role: "ADMIN" as string, pathname: "/v2/admin/cases", denied: [] as string[] }));
-vi.mock("next/navigation", () => ({ usePathname: () => identity.pathname, useSearchParams: () => new URLSearchParams() }));
+vi.mock("next/navigation", () => ({ usePathname: () => identity.pathname, useSearchParams: () => new URLSearchParams(), useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn() }) }));
 vi.mock("next-auth/react", () => ({ useSession: () => ({ data: { user: { id: "u1", name: "Office", role: identity.role } } }), signOut: vi.fn() }));
 vi.mock("@/components/look-switch-link", () => ({ LookSwitchLink: () => null }));
 vi.mock("@/components/v2/portal/role-switcher", () => ({ RoleSwitcher: () => null }));
@@ -61,6 +61,14 @@ describe("admin phone tab bar", () => {
     expect(within(tabs).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["/v2/admin", "/v2/admin/jobs", "/v2/admin/calendar", "/v2/admin/approvals"]);
     expect(within(tabs).getByRole("link", { name: /Approvals/ })).toHaveTextContent("9+");
     expect(within(tabs).getByRole("button", { name: /^More/ })).toHaveAttribute("aria-haspopup", "dialog");
+  });
+
+  it("offers Sign out inside the sheet, because the rail's button is hidden on a phone", async () => {
+    mount();
+    const sheet = await openMore();
+    const { signOut } = await import("next-auth/react");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Sign out" }));
+    expect(signOut).toHaveBeenCalledWith({ callbackUrl: "/v2/login" });
   });
 
   it("marks More when a page inside it needs attention and when the current page lives in it", () => {

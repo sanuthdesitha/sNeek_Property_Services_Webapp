@@ -112,17 +112,17 @@ export function PersonActions({
         open={dialog === "password"}
         onClose={() => setDialog(null)}
         title="Reset password"
-        description={`Generate a temporary password for ${who} and email it to them. Enter your PIN to continue.`}
+        description={`Email ${who} a link to choose a new password. It works once, for 30 minutes; their current password stops working now. Enter your PIN to continue.`}
         confirmLabel="Reset password"
         requireSecurity
         danger={false}
         loading={busy}
         onConfirm={(credentials?: Credentials) =>
-          run("Temporary password sent", () => post(`${base}/reset-password`, "POST", { security: credentials }), (body) => {
+          run("Reset link sent", () => post(`${base}/reset-password`, "POST", { security: credentials }), (body) => {
             if (body.warning && typeof body.tempPassword === "string") {
               toast({ title: "Password reset, email failed", description: `Temporary password: ${body.tempPassword}`, variant: "destructive" });
             } else {
-              toast({ title: "Temporary password sent", description: "They received a reset email." });
+              toast({ title: "Reset link sent", description: "The email provider accepted a one-time reset link (delivery is not confirmed)." });
             }
           })
         }

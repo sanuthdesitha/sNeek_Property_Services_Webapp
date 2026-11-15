@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { blogRouteError } from "@/lib/public-site/blog-route-errors";
 
 const schema = z.object({
   slug: z.string().trim().min(2).max(160),
@@ -18,27 +19,37 @@ const schema = z.object({
 });
 
 export async function GET() {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-  const rows = await db.blogPost.findMany({ orderBy: [{ updatedAt: "desc" }] });
-  return NextResponse.json(rows);
+  try {
+    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const rows = await db.blogPost.findMany({ orderBy: [{ updatedAt: "desc" }] });
+    return NextResponse.json(rows, { headers: { "Cache-Control": "private, no-store" } });
+  } catch (error) {
+    return blogRouteError(error, "Posts could not be loaded.");
+  }
 }
 
 export async function POST(req: NextRequest) {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-  const body = schema.parse(await req.json());
-  const created = await db.blogPost.create({
-    data: {
-      slug: body.slug,
-      title: body.title,
-      excerpt: body.excerpt,
-      body: body.body,
-      coverImageUrl: body.coverImageUrl || null,
-      galleryImageUrls: body.galleryImageUrls,
-      tags: body.tags,
-      isPublished: body.isPublished,
-      publishedAt: body.isPublished ? (body.publishedAt ? new Date(body.publishedAt) : new Date()) : null,
-      authorName: body.authorName || "sNeek Team",
-    },
-  });
-  return NextResponse.json(created, { status: 201 });
+  try {
+    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const body = schema.parse(await req.json());
+    const created = await db.blogPost.create({
+      data: {
+        slug: body.slug,
+        title: body.title,
+        excerpt: body.excerpt,
+        body: body.body,
+        coverImageUrl: body.coverImageUrl || null,
+        galleryImageUrls: body.galleryImageUrls,
+        tags: body.tags,
+        isPublished: body.isPublished,
+        // A future time schedules the post: public reads hide it until then
+        // (lib/public-site/blog-visibility). A draft may keep a planned time.
+        publishedAt: body.publishedAt ? new Date(body.publishedAt) : body.isPublished ? new Date() : null,
+        authorName: body.authorName || "sNeek Team",
+      },
+    });
+    return NextResponse.json(created, { status: 201 });
+  } catch (error) {
+    return blogRouteError(error, "The post was not saved.");
+  }
 }

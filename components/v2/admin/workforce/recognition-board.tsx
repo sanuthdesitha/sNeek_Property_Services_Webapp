@@ -131,13 +131,6 @@ export function RecognitionBoard({
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-end">
-        <EButton variant="gold" size="sm" onClick={() => setOpen(true)}>
-          <Sparkles className="h-4 w-4" />
-          Give kudos
-        </EButton>
-      </div>
-
       {spotlight ? (
         <ECard variant="ceremony">
           <ECardBody className="flex flex-col items-start gap-4 p-6 sm:flex-row sm:items-center">
@@ -163,11 +156,15 @@ export function RecognitionBoard({
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.3fr,1fr]">
         {/* Wall */}
         <ECard>
-          <ECardHeader>
+          <ECardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
             <ECardTitle className="flex items-center gap-2">
               <Award className="h-4 w-4 text-[hsl(var(--e-gold))]" />
-              Recognition wall
+              Wall
             </ECardTitle>
+            <EButton size="sm" onClick={() => setOpen(true)}>
+              <Sparkles className="h-4 w-4" />
+              Give kudos…
+            </EButton>
           </ECardHeader>
           <ECardBody className="pt-0">
             {publicWall.length === 0 ? (
@@ -190,8 +187,11 @@ export function RecognitionBoard({
                       </p>
                       <p className="text-[0.8125rem] text-[hsl(var(--e-gold-ink))]">{r.title}</p>
                       {r.message ? (
-                        <p className="mt-0.5 line-clamp-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{r.message}</p>
+                        <p className="mt-0.5 line-clamp-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">&ldquo;{r.message}&rdquo;</p>
                       ) : null}
+                      <p className="mt-0.5 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                        {prettify(r.celebrationStyle)}{r.sentByName ? ` · sent by ${r.sentByName}` : ""}
+                      </p>
                     </div>
                     <EBadge tone="gold" soft>{prettify(r.badgeKey)}</EBadge>
                   </div>
@@ -202,11 +202,16 @@ export function RecognitionBoard({
         </ECard>
 
         {/* Leaderboards */}
-        <div className="space-y-6">
-          <LeaderCard title="Top QA average" icon={<Star className="h-4 w-4 text-[hsl(var(--e-gold))]" />} rows={leaderboard.qa} metric={(r) => (r.qaAverage === null ? "—" : String(r.qaAverage))} />
-          <LeaderCard title="Most jobs this month" icon={<Briefcase className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" />} rows={leaderboard.completed} metric={(r) => String(r.monthJobsCompleted)} />
-          <LeaderCard title="Most recognised" icon={<Trophy className="h-4 w-4 text-[hsl(var(--e-gold))]" />} rows={leaderboard.recognition} metric={(r) => String(r.recognitionsReceived)} />
-        </div>
+        <ECard>
+          <ECardHeader className="pb-2">
+            <ECardTitle className="text-[0.95rem]">Leaders · {new Intl.DateTimeFormat("en-AU", { month: "long" }).format(new Date())}</ECardTitle>
+          </ECardHeader>
+          <ECardBody className="space-y-4 pt-0">
+            <LeaderCard title="QA average" icon={<Star className="h-4 w-4 text-[hsl(var(--e-gold))]" />} rows={leaderboard.qa} metric={(r) => (r.qaAverage === null ? "No reviews yet" : String(r.qaAverage))} />
+            <LeaderCard title="Jobs completed" icon={<Briefcase className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" />} rows={leaderboard.completed} metric={(r) => String(r.monthJobsCompleted)} />
+            <LeaderCard title="Most recognised" icon={<Trophy className="h-4 w-4 text-[hsl(var(--e-gold))]" />} rows={leaderboard.recognition} metric={(r) => String(r.recognitionsReceived)} />
+          </ECardBody>
+        </ECard>
       </div>
 
       {/* Give kudos modal */}
@@ -227,27 +232,10 @@ export function RecognitionBoard({
           <EField label="Message">
             <ETextarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="What did they do well?" />
           </EField>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <EField label="Badge">
-              <ESelect value={badgeKey} onChange={(e) => setBadgeKey(e.target.value)}>
-                {BADGE_OPTIONS.map((b) => (
-                  <option key={b} value={b}>
-                    {prettify(b)}
-                  </option>
-                ))}
-              </ESelect>
-            </EField>
-            <EField label="Style">
-              <ESelect value={style} onChange={(e) => setStyle(e.target.value)}>
-                {STYLE_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {prettify(s)}
-                  </option>
-                ))}
-              </ESelect>
-            </EField>
-          </div>
-          <ESwitch checked={isPublic} onCheckedChange={setIsPublic} label="Show on the public recognition wall" />
+          <ChoiceChips label="Badge" value={badgeKey} options={BADGE_OPTIONS} onChange={setBadgeKey} />
+          <ChoiceChips label="Style" value={style} options={STYLE_OPTIONS} onChange={setStyle} />
+          <ESwitch checked={isPublic} onCheckedChange={setIsPublic} label="Show on the team wall" />
+          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">They get it in their inbox. The team wall is what every cleaner sees in their hub; unticked, only they and the office see it.</p>
           {error ? <EAlert tone="danger">{error}</EAlert> : null}
           <div className="flex justify-end gap-2">
             <EButton variant="outline" size="sm" onClick={() => setOpen(false)} disabled={busy}>
@@ -275,29 +263,51 @@ function LeaderCard({
   metric: (r: LeaderRow) => string;
 }) {
   return (
-    <ECard>
-      <ECardHeader className="pb-2">
-        <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
-          {icon}
-          {title}
-        </ECardTitle>
-      </ECardHeader>
-      <ECardBody className="pt-0">
-        {rows.length === 0 ? (
-          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Not enough data yet.</p>
-        ) : (
-          <ol className="space-y-2">
-            {rows.map((r, i) => (
-              <li key={r.id} className="flex items-center gap-3">
-                <span className="e-tnum w-4 text-right text-[0.75rem] text-[hsl(var(--e-text-faint))]">{i + 1}</span>
-                <EAvatar name={r.name} image={r.image} size="sm" />
-                <span className="min-w-0 flex-1 truncate text-[0.8125rem] font-medium">{r.name}</span>
-                <span className="e-tnum text-[0.875rem] font-semibold">{metric(r)}</span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </ECardBody>
-    </ECard>
+    <section aria-label={title}>
+      <h3 className="mb-1.5 flex items-center gap-2 text-[0.6875rem] font-[600] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
+        {icon}
+        {title}
+      </h3>
+      {rows.length === 0 ? (
+        <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Not enough data yet.</p>
+      ) : (
+        <ol className="space-y-1.5">
+          {rows.map((r, i) => (
+            <li key={r.id} className="flex items-center gap-3">
+              <span className="e-tnum w-4 text-right text-[0.75rem] text-[hsl(var(--e-text-faint))]">{i + 1}</span>
+              <span className="min-w-0 flex-1 truncate text-[0.8125rem] font-medium">{r.name}</span>
+              <span className="e-tnum text-[0.875rem] font-semibold">{metric(r)}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+function ChoiceChips({ label, value, options, onChange }: { label: string; value: string; options: readonly string[]; onChange: (value: string) => void }) {
+  return (
+    <div>
+      <p className="mb-1 text-[0.8125rem] font-[550]">{label}</p>
+      <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1.5">
+        {options.map((option) => (
+          <button
+            key={option}
+            type="button"
+            role="radio"
+            aria-checked={value === option}
+            onClick={() => onChange(option)}
+            className={
+              "min-h-9 rounded-full border px-3 text-[0.8125rem] max-sm:min-h-11 " +
+              (value === option
+                ? "border-[hsl(var(--e-primary)/0.35)] bg-[hsl(var(--e-primary-soft))] font-[600] text-[hsl(var(--e-primary))]"
+                : "border-[hsl(var(--e-border-strong))]")
+            }
+          >
+            {prettify(option)}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

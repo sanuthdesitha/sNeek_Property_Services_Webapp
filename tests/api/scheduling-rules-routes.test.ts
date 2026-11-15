@@ -116,6 +116,8 @@ describe("the generic settings PATCH", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("X-Scheduling-Rules-Ignored")).toBe("laundryOperations.maxOutdoorDays");
     expect(await res.json()).toMatchObject({ schedulingRulesIgnored: ["laundryOperations.maxOutdoorDays"] });
-    expect(m.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ companyName: "New name" }));
+    // The second argument is the website stale-write guard (2026-11-16);
+    // saveAppSettings itself keeps the stored rule-owned values.
+    expect(m.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ companyName: "New name" }), { guard: expect.any(Function) });
   });
 });

@@ -19,6 +19,7 @@
  *   selection itself is unchanged. A column marked `phoneTitle` becomes the
  *   card's title instead of the first column.
  */
+import type { TourTargetProps } from "@/lib/tutorials/targets";
 import * as React from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -49,6 +50,8 @@ export type EDataSelection<TRow> = {
   /** Accessible name for a row checkbox, e.g. "Select INV-0042". */
   rowLabel: (row: TRow) => string;
   disabled?: boolean;
+  /** A registered tour target for the select-all checkbox and the phone "Select" button. */
+  tourTarget?: TourTargetProps;
 };
 
 export type EDataTableProps<TRow, TSort extends string = string> = {
@@ -133,6 +136,7 @@ function PageCheckbox<TRow>({
       ref={ref}
       type="checkbox"
       className="h-[15px] w-[15px] accent-[hsl(var(--e-primary))]"
+      {...selection.tourTarget}
       aria-label="Select all on this page"
       checked={all}
       disabled={selection.disabled || pageIds.length === 0}
@@ -306,6 +310,7 @@ export function EDataTable<TRow, TSort extends string = string>({
           if (!on && selection.selected.size > 0) selection.onChange(new Set());
         } : undefined}
         selectionDisabled={selection?.disabled}
+        selectTourTarget={selection?.tourTarget}
       />
       {error ? (
         // Stale: the rows below are the last good read, not the current one.

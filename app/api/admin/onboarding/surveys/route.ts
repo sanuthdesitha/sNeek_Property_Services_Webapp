@@ -5,6 +5,19 @@ import { Role } from "@prisma/client";
 import { createSurveySchema } from "@/lib/validations/onboarding";
 import { generateSurveyNumber } from "@/lib/onboarding/survey-number";
 import { buildFormMetaOverrides } from "@/lib/onboarding/form-meta";
+import {
+  ONBOARDING_DRAFT_KEY_FIELD,
+  ONBOARDING_DRAFT_KEY_HEADER,
+  readOnboardingDraftKey,
+} from "@/lib/onboarding/wizard-draft";
+
+const SURVEY_CREATE_INCLUDE = {
+  appliances: true,
+  specialRequests: true,
+  laundryDetail: true,
+  accessDetails: true,
+  jobTypeAnswers: true,
+} as const;
 
 export async function GET(req: NextRequest) {
   try {
@@ -42,13 +55,34 @@ export async function GET(req: NextRequest) {
   }
 }
 
+/**
+ * Creates a DRAFT survey. The v2 wizard calls this on its first save, never
+ * on opening (2026-11-14), with an `Idempotency-Key` header that stays the
+ * same for every retry from that wizard: a key this person already used
+ * returns that draft (200) instead of creating a second one.
+ */
 export async function POST(req: NextRequest) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = createSurveySchema.parse(await req.json());
+    const draftKey = readOnboardingDraftKey(req.headers.get(ONBOARDING_DRAFT_KEY_HEADER));
+
+    if (draftKey) {
+      const existing = await db.propertyOnboardingSurvey.findFirst({
+        where: {
+          submittedById: session.user.id,
+          adminOverrides: { path: [ONBOARDING_DRAFT_KEY_FIELD], equals: draftKey },
+        },
+        include: SURVEY_CREATE_INCLUDE,
+      });
+      if (existing) return NextResponse.json(existing, { status: 200 });
+    }
 
     const surveyNumber = await generateSurveyNumber();
-    const adminOverrides = buildFormMetaOverrides(body as Record<string, unknown>);
+    const formMetaOverrides = buildFormMetaOverrides(body as Record<string, unknown>);
+    const adminOverrides = draftKey
+      ? { ...(formMetaOverrides ?? {}), [ONBOARDING_DRAFT_KEY_FIELD]: draftKey }
+      : formMetaOverrides;
 
     const survey = await db.propertyOnboardingSurvey.create({
       data: {
@@ -94,13 +128,7 @@ export async function POST(req: NextRequest) {
           ? { create: body.jobTypeAnswers.map((a) => ({ jobType: a.jobType as any, answers: a.answers as any, isComplete: a.isComplete })) }
           : undefined,
       },
-      include: {
-        appliances: true,
-        specialRequests: true,
-        laundryDetail: true,
-        accessDetails: true,
-        jobTypeAnswers: true,
-      },
+      include: SURVEY_CREATE_INCLUDE,
     });
 
     return NextResponse.json(survey, { status: 201 });

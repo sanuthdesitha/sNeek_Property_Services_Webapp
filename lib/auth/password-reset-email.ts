@@ -1,22 +1,42 @@
-import { escapeHtml } from "@/lib/utils/escape-html";
 import { RECOVERY_TTL_MINUTES, appBaseUrl } from "@/lib/auth/recovery";
+import { buildDesignedEmail } from "@/lib/email-design/build-email";
+import type { CompanySettingsLike } from "@/lib/email-design/compose";
 
 /**
- * The password reset email, shared by "Forgot password" (the person asks) and
- * Accounts "Send password reset link" (the office sends it to the person's own
- * account address). Same wording, same link, same 30-minute token.
+ * The password reset email, shared by "Forgot password" (the person asks),
+ * Accounts "Send password reset link" (the office sends it to the person's
+ * own account address) and the administrator's reset (2026-11-16: a one-time
+ * link instead of an emailed temporary password). Same link, same 30-minute
+ * single-use token (lib/auth/recovery.ts). Fixed security email: design
+ * "resetPassword" (lib/email-design); the send path renders it with the
+ * published Email look and the Company details.
  */
 export function passwordResetLink(email: string, rawToken: string): string {
   return `${appBaseUrl()}/reset-password?email=${encodeURIComponent(email)}&token=${rawToken}`;
 }
 
-export function passwordResetEmail(input: { name: string | null; link: string; sentByOffice?: boolean }): { subject: string; html: string } {
-  const greeting = escapeHtml(input.name?.trim() || "there");
-  const reason = input.sentByOffice
-    ? "Our office sent you a link to set a new password."
-    : "We received a request to reset your password.";
-  return {
-    subject: "Reset your sNeek password",
-    html: `<p>Hi ${greeting},</p><p>${reason} Click below to set a new one — this link expires in ${RECOVERY_TTL_MINUTES} minutes.</p><p><a href="${input.link}" style="display:inline-block;background:#0f5a44;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700">Reset password</a></p><p>If you didn't expect this, you can safely ignore this email — your password won't change.</p>`,
-  };
+export type PasswordResetReason = "self" | "office" | "administrator";
+
+const REASON_LINE: Record<PasswordResetReason, string> = {
+  self: "We received a request to reset your password.",
+  office: "Our office sent you a link to set a new password.",
+  administrator: "An administrator reset your password and sent you this link to choose a new one.",
+};
+
+export function passwordResetEmail(input: {
+  name: string | null;
+  email: string;
+  link: string;
+  sentByOffice?: boolean;
+  reason?: PasswordResetReason;
+  settings?: CompanySettingsLike;
+}): { subject: string; html: string; text: string } {
+  const reason = input.reason ?? (input.sentByOffice ? "office" : "self");
+  return buildDesignedEmail(input.settings ?? { companyName: "sNeek Property Services" }, "resetPassword", {
+    userName: input.name?.trim() ?? "",
+    email: input.email,
+    resetUrl: input.link,
+    expiryMinutes: String(RECOVERY_TTL_MINUTES),
+    reasonLine: REASON_LINE[reason],
+  });
 }

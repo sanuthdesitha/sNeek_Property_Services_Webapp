@@ -27,3 +27,17 @@ export async function invoiceEditorAccess(user: AccessUser, invoiceId: string): 
 export async function canManageInvoices(user: AccessUser, invoiceId: string): Promise<boolean> {
   return (await invoiceEditorAccess(user, invoiceId)).canManage;
 }
+
+/**
+ * New invoice (the panel at /v2/admin/finance/invoices/new): viewing needs the
+ * finance feature, creating needs "manage" on it (the generator's POST), as
+ * middleware decides for the routes. ADMIN always.
+ */
+export async function newInvoiceAccess(user: AccessUser): Promise<InvoiceEditorAccess> {
+  const levels = await getOpsAccess(user);
+  if (!levels) return { canView: true, canManage: true };
+  return {
+    canView: canUseOpsPath(levels, "/v2/admin/finance/invoices/new"),
+    canManage: canUseOpsPath(levels, "/api/admin/invoices/generate", "POST"),
+  };
+}

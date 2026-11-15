@@ -3,7 +3,10 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { decryptSecret, encryptSecret, isEncrypted } from "@/lib/security/encryption";
 import { assertSafePublicUrl } from "@/lib/security/ssrf";
-import { aiRoutingSaveSchema, aiRoutingSchema, DEFAULT_AI_ROUTING, type AiRoutingSettings } from "./routing-schema";
+import {
+  aiRoutingSaveSchema, aiRoutingSchema, cloudImageFeaturesTurnedOn, DEFAULT_AI_ROUTING,
+  type AiFeature, type AiRoutingSettings,
+} from "./routing-schema";
 import {
   AI_CREDENTIALS_KEY, AI_ROUTING_KEY, SECRET_PROVIDERS, environmentSecret, storedCredentialsSchema,
   type SecretProvider, type StoredCredentials,
@@ -44,11 +47,33 @@ export class AiSettingsConflict extends Error {
 }
 
 /**
+ * A save would turn "photos may leave the server" on for a feature whose
+ * switch was not confirmed with the administrator's own PIN in this request.
+ */
+export class AiCloudPhotosConfirmationRequired extends Error {
+  constructor(public features: AiFeature[]) {
+    super("Allowing photos to leave this server needs your PIN.");
+  }
+}
+
+export type SaveAiRoutingOptions = {
+  /**
+   * Features whose cloud photo switch the caller has confirmed with the
+   * administrator's own PIN (verifySensitiveAction "ai.cloud_photos") in this
+   * request. Any other feature the save turns on is refused. Default: none.
+   */
+  cloudPhotosConfirmed?: readonly AiFeature[];
+};
+
+/**
  * Saves the routing with a stale-write guard (expected revision) under an
  * advisory lock, and records before/after in the audit log. Routing holds no
  * secrets. An OpenAI-compatible base URL must pass the public DNS check.
+ * Turning a feature's cloud photo switch on is allowed only for the features
+ * in `options.cloudPhotosConfirmed`, checked against the locked current row,
+ * and recorded in its own AI_CLOUD_PHOTOS_ALLOWED audit row.
  */
-export async function saveAiRouting(raw: unknown, actorUserId: string): Promise<AiRoutingSettings> {
+export async function saveAiRouting(raw: unknown, actorUserId: string, options: SaveAiRoutingOptions = {}): Promise<AiRoutingSettings> {
   const input = aiRoutingSaveSchema.parse(raw);
   if (input.settings.compatible.baseUrl) {
     try {
@@ -63,11 +88,21 @@ export async function saveAiRouting(raw: unknown, actorUserId: string): Promise<
     const current = row ? aiRoutingSchema.parse(row.value) : DEFAULT_AI_ROUTING;
     if (current.revision !== input.expectedRevision) throw new AiSettingsConflict(current);
     const next: AiRoutingSettings = aiRoutingSchema.parse({ ...input.settings, revision: current.revision + 1 });
+    const turnedOn = cloudImageFeaturesTurnedOn(current, next);
+    const confirmed = new Set(options.cloudPhotosConfirmed ?? []);
+    const unconfirmed = turnedOn.filter((feature) => !confirmed.has(feature));
+    if (unconfirmed.length) throw new AiCloudPhotosConfirmationRequired(unconfirmed);
     await tx.appSetting.upsert({ where: { key: AI_ROUTING_KEY }, create: { key: AI_ROUTING_KEY, value: next }, update: { value: next } });
     await tx.auditLog.create({ data: {
       userId: actorUserId, action: "AI_SETTINGS_UPDATED", entity: "AppSetting", entityId: AI_ROUTING_KEY,
       before: current as unknown as Prisma.InputJsonValue, after: next as unknown as Prisma.InputJsonValue,
     } });
+    if (turnedOn.length) {
+      await tx.auditLog.create({ data: {
+        userId: actorUserId, action: "AI_CLOUD_PHOTOS_ALLOWED", entity: "AppSetting", entityId: AI_ROUTING_KEY,
+        after: { features: turnedOn, revision: next.revision, confirmation: "SENSITIVE_ACTION_CONFIRMED ai.cloud_photos" },
+      } });
+    }
     return next;
   });
 }

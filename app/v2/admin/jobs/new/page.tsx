@@ -1,36 +1,44 @@
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
-import { NewJobForm } from "@/components/v2/admin/jobs/new-job-form";
+import { getOpsAccess } from "@/lib/rbac/ops-access";
+import { getAppSettings } from "@/lib/settings";
+import { sydneyTodayKey } from "@/lib/time/sydney-range";
+import { formatInTimeZone } from "date-fns-tz";
+import { newJobRights } from "@/lib/jobs/new-job/rights";
+import { NewJobPage } from "@/components/v2/admin/jobs/new-job/new-job-page";
 
 export const metadata = { title: "New job · Estate admin" };
 export const dynamic = "force-dynamic";
 
+/**
+ * New job (boards "New job" and "New job on a phone", 2026-11). Old links
+ * keep working: `?propertyId=` preselects the property, `#bulk-create` opens
+ * Several dates, `?duplicate=<jobId>` copies a job, `?mode=repeats` opens
+ * Repeats. Rights come from the live session and the operations packs; the
+ * routes re-check every write.
+ */
 export default async function V2AdminNewJobPage({
   searchParams,
 }: {
-  searchParams: { propertyId?: string };
+  searchParams: { propertyId?: string; duplicate?: string; mode?: string };
 }) {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const [levels, settings] = await Promise.all([getOpsAccess(session.user), getAppSettings()]);
+  const rights = newJobRights(levels, session.impersonation?.mode === "READ_ONLY");
+  const timezone = settings.timezone || "Australia/Sydney";
+  const todayKey = timezone === "Australia/Sydney" ? sydneyTodayKey() : formatInTimeZone(new Date(), timezone, "yyyy-MM-dd");
+  const actorId = session.impersonation?.actorId ?? session.user.id;
+  const mode = searchParams.mode === "several" || searchParams.mode === "repeats" ? searchParams.mode : null;
 
   return (
-    <div className="space-y-6">
-      <EPageHeader
-        eyebrow="Operations"
-        title="Create jobs"
-        description="Single create, draft save, and bulk scheduling in one Estate flow."
-        actions={
-          <EButton variant="outline" asChild>
-            <Link href="/v2/admin/jobs">
-              <ArrowLeft className="h-4 w-4" />
-              Back to jobs
-            </Link>
-          </EButton>
-        }
-      />
-      <NewJobForm initialPropertyId={searchParams.propertyId} />
-    </div>
+    <NewJobPage
+      storageScope={`${actorId}:${session.user.id}:${session.user.role}`}
+      timezone={timezone}
+      todayKey={todayKey}
+      initialPropertyId={searchParams.propertyId?.trim() || null}
+      initialDuplicateId={searchParams.duplicate?.trim() || null}
+      initialMode={mode}
+      rights={rights}
+    />
   );
 }

@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { recordHiringEmailSent } from "@/lib/workforce/service";
+import { markOfferSent } from "@/lib/hiring/hire";
 import { loadNotificationWording, type WordingRenderer } from "@/lib/notifications/wording/render";
 
 const HIRING_PARTS: Record<string, string> = {
@@ -63,6 +64,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         template,
         body: html,
       });
+      if (template === "offer") await markOfferSent(application.id);
     }
     return NextResponse.json({ ok: result.ok, error: result.ok ? undefined : result.error });
   } catch (err: any) {

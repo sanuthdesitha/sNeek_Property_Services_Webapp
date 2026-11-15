@@ -689,3 +689,56 @@ it("restores the cleaner stage after navigating away while keeping job data scop
   await mount(false);
   expect(screen.getByTestId("active-stage")).toHaveTextContent("2");
 });
+
+// Owner decision 2026-11-14: opening a job never stores an empty draft. An
+// offer (this cleaner's response PENDING) writes nothing, on the server or in
+// the device mirror; an accepted job saves only after something changed.
+describe("draft writes begin only after a real change on an accepted job", () => {
+  const offered = () => ({ ...form("ASSIGNED"), assignmentState: { responseStatus: "PENDING" } });
+  async function hide() {
+    await act(async () => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("pagehide"));
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    });
+  }
+
+  it("opening an offered job saves no draft, even when the tab is hidden", async () => {
+    formResponses.push(Promise.resolve(json(offered())));
+    await mount(false);
+    await advance(5000);
+    await hide();
+    expect(patches).toHaveLength(0);
+    expect(localStorage.getItem(mirrorKey)).toBeNull();
+    // Accepting (a fresh read) still saves nothing until the cleaner changes something.
+    formResponses.push(Promise.resolve(json(form("ASSIGNED"))));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh fixture" })); });
+    await advance(5000);
+    expect(patches).toHaveLength(0);
+  });
+
+  it("an accepted job saves nothing on open, then autosaves the first edit", async () => {
+    readDraft = () => Promise.resolve(json(draftEnvelope("kept on the server")));
+    await mount();
+    await advance(5000);
+    await hide();
+    expect(patches).toHaveLength(0);
+    expect(localStorage.getItem(mirrorKey)).toBeNull();
+    edit("first real answer");
+    expect(localStorage.getItem(mirrorKey)).toContain("first real answer");
+    await advance();
+    expect(patches).toHaveLength(1);
+    expect(patches[0].body.state.answers.note).toBe("first real answer");
+    await respond(0);
+  });
+
+  it("recovered device work the server lacks is still saved without another edit", async () => {
+    localStorage.setItem(mirrorKey, localEnvelope({ answers: { note: "device only" } }));
+    await mount();
+    await advance();
+    expect(patches).toHaveLength(1);
+    expect(patches[0].body.state.answers.note).toBe("device only");
+    await respond(0);
+  });
+});

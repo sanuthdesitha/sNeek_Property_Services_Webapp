@@ -9,7 +9,7 @@ import { useRestorableState } from "@/hooks/use-restorable-state";
  * the same source v1 uses) with a customised/default status, searchable. Editing opens a
  * wide Estate modal with:
  *   - emailSubject (with variable chips)
- *   - emailBodyHtml  → block-based rich designer (EstateEmailDesigner) + live preview
+ *   - the email (subject and body) → edited as blocks in its Email design (link; 2026-11-16)
  *   - emailBodyText  → plain-text fallback (with variable chips)
  *   - smsBody        → textarea + segment count + SMS preview
  * Saves via PATCH { eventKey, emailSubject, emailBodyHtml, emailBodyText, smsBody } — the
@@ -19,11 +19,6 @@ import { useRestorableState } from "@/hooks/use-restorable-state";
 
 import * as React from "react";
 import { Loader2, Mail, MessageSquare, Search, Save, RotateCcw } from "lucide-react";
-import {
-  parseEmailHtml,
-  renderEmailHtml,
-  type EmailDesign,
-} from "@/lib/templates/email-blocks";
 import { EBadge, EButton, EEmptyState } from "@/components/v2/ui/primitives";
 import {
   EField,
@@ -32,10 +27,7 @@ import {
   ETableShell,
   ETextarea,
 } from "@/components/v2/admin/estate-kit";
-import {
-  EstateEmailDesigner,
-  VariableChips,
-} from "@/components/v2/admin/templates/estate-email-designer";
+import { VariableChips } from "@/components/v2/admin/templates/estate-email-designer";
 
 type Template = {
   eventKey: string;
@@ -204,16 +196,11 @@ function NotificationEditor({
   onClose: () => void;
   onSaved: (next: Template) => void;
 }) {
-  const [subject, setSubject] = React.useState(template.emailSubject ?? "");
-  const [design, setDesign] = React.useState<EmailDesign>(() =>
-    parseEmailHtml(template.emailBodyHtml)
-  );
   const [bodyText, setBodyText] = React.useState(template.emailBodyText ?? "");
   const [sms, setSms] = React.useState(template.smsBody ?? "");
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const subjectRef = React.useRef<HTMLInputElement>(null);
 
   const variables = template.allAvailableVars ?? [];
   const smsSegments = Math.max(1, Math.ceil((sms.length || 1) / 160));
@@ -287,8 +274,9 @@ function NotificationEditor({
 
   function save() {
     void persist({
-      emailSubject: subject,
-      emailBodyHtml: renderEmailHtml(design),
+      // The email itself is edited as an Email design; these are kept as they are.
+      emailSubject: template.emailSubject,
+      emailBodyHtml: template.emailBodyHtml,
       emailBodyText: bodyText || null,
       smsBody: sms || null,
     });
@@ -327,32 +315,11 @@ function NotificationEditor({
           <div className="flex items-center gap-2 text-[0.8125rem] font-[600] text-[hsl(var(--e-foreground))]">
             <Mail className="h-4 w-4" /> Email
           </div>
-          <EField label="Subject">
-            <EInput
-              ref={subjectRef}
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              placeholder="Email subject (supports {{variables}})"
-            />
-          </EField>
-          {variables.length > 0 ? (
-            <VariableChips
-              variables={variables}
-              onInsert={(v) => insertAtCaret(subjectRef, subject, setSubject, v)}
-            />
-          ) : null}
-
-          {/* Rich HTML body designer */}
-          <div className="pt-1">
-            <p className="mb-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--e-gold-ink))]">
-              HTML body
-            </p>
-            <EstateEmailDesigner
-              design={design}
-              onChange={setDesign}
-              variables={variables}
-            />
-          </div>
+          <p className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))] px-3 py-2 text-[0.8125rem]">
+            The email&apos;s subject and body are edited as blocks in one place:{" "}
+            <a className="underline" href={`/v2/admin/notifications?type=money.finance_events&email=finance.${template.eventKey}`}>Email design &ldquo;Finance: {template.label}&rdquo;</a>.
+            {template.emailBodyHtml ? " An HTML body saved here before is what goes out until a block version is published there." : " Without a published block version this event is not emailed (as before)."}
+          </p>
 
           {/* Plain-text fallback */}
           <EField

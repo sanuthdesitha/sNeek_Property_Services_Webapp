@@ -1,4 +1,4 @@
-/** Wording for office.reports_generated, office.ical_alerts, agent.action_request, xero.reconnect_needed and leads.alerts. */
+/** Wording for office.reports_generated, office.ical_alerts, agent.action_request, xero.reconnect_needed, property.deep_clean_due and leads.alerts. */
 import { editable, inbox, line, part } from "./build";
 
 const ICAL_EMAIL = `
@@ -90,6 +90,14 @@ export const AGENT_REQUEST_WORDING = editable("agent.action_request", [
   inbox("waiting", "Request waiting", "Agent request waiting: {{agentName}}", "{{agentName}} asks to: {{summary}} Nothing changes until someone approves it in Approvals, Agent requests.", { required: ["agentName", "summary"], note: "Inbox only, to the people who could approve it." }),
 ]);
 
+export const EMAIL_DESIGN_PUBLISHED_WORDING = editable("email.design_published", [
+  inbox("published", "Email design published", "Email changed: {{emailName}}", "{{actorName}} published version {{version}} of the email \"{{emailName}}\". {{changeSummary}} The next emails use it.", { required: ["emailName", "version"], note: "Inbox only, to the other active administrators." }),
+]);
+
+export const DEEP_CLEAN_DUE_WORDING = editable("property.deep_clean_due", [
+  inbox("due", "Deep clean due", "Deep clean due: {{propertyName}}", "{{propertyName}} is due a deep clean on {{dueDay}}, three months after its verified deep clean on {{baselineDay}}. Choose the day in Deep-clean scheduling; nothing is booked until you do.", { required: ["propertyName", "dueDay"], note: "Inbox only, to administrators, once per proposal." }),
+]);
+
 export const XERO_RECONNECT_WORDING = editable("xero.reconnect_needed", [
-  inbox("needed", "Reconnect needed", "Xero needs reconnecting: {{tenantName}}", "{{reason}} Invoices and bills cannot reach Xero until an administrator reconnects it in Settings, Xero. Failed pushes can then be retried.", { required: ["reason"], note: "Inbox only, to administrators, once per outage." }),
+  inbox("needed", "Reconnect needed", "Xero needs reconnecting: {{tenantName}}", "{{reason}} Invoices and bills cannot reach Xero until an administrator reconnects it in Settings, Xero. Failed pushes can then be retried.", { required: ["reason"], note: "Inbox notice to administrators, once per outage. The email that goes with it is the block design \"Xero needs reconnecting\" (Email designs)." }),
 ]);

@@ -1,7 +1,7 @@
 import { belongsToAnotherJob, draftEvidenceLocations } from "@/lib/cleaner/evidence-review";
 import { reconcileEvidenceState } from "@/lib/cleaner/evidence-destination";
 import { NextRequest, NextResponse } from "next/server";
-import { JobStatus, Prisma, Role } from "@prisma/client";
+import { JobAssignmentResponseStatus, JobStatus, Prisma, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -52,6 +52,18 @@ async function assertCleanerAssignment(jobId: string, userId: string, tx: Prisma
   return Boolean(assignment);
 }
 
+/**
+ * This cleaner's live assignment with its response, or null. A job that is
+ * only OFFERED (response PENDING) has no editable form yet, so it may not
+ * gain a saved draft (2026-11-14): opening an offer must never store one.
+ */
+async function cleanerAssignmentResponse(jobId: string, userId: string, tx: Prisma.TransactionClient) {
+  return tx.jobAssignment.findFirst({
+    where: { jobId, userId, removedAt: null },
+    select: { id: true, responseStatus: true },
+  });
+}
+
 async function isJobLocked(jobId: string, tx: Prisma.TransactionClient = db) {
   const job = await tx.job.findUnique({
     where: { id: jobId },
@@ -94,9 +106,13 @@ export async function PATCH(
     const body = draftSchema.parse(await req.json());
     return await withSharedCleanerJobDraftLock(params.id, async (tx) => {
       if (identityMismatch(req, session, params.id)) return accountChanged();
-      const isAssigned = await assertCleanerAssignment(params.id, session.user.id, tx);
-      if (!isAssigned) {
+      const assignment = await cleanerAssignmentResponse(params.id, session.user.id, tx);
+      if (!assignment) {
         return json({ error: "Not assigned to this job" }, 403);
+      }
+      if (assignment.responseStatus === JobAssignmentResponseStatus.PENDING) {
+        // Nothing is written: an existing draft (from before a re-offer) stays as it was.
+        return json({ code: "OFFER_NOT_ACCEPTED", error: "Accept this job before saving progress. Nothing was changed." }, 409);
       }
       if (await isJobLocked(params.id, tx)) {
         return json({ error: "Job is already finished" }, 409);

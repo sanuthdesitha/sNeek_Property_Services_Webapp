@@ -13,6 +13,7 @@
  * the report behaves like the damage report beside it.
  */
 
+import { tourTarget } from "@/lib/tutorials/targets";
 import * as React from "react";
 import { FileText, Loader2, Send } from "lucide-react";
 import {
@@ -59,7 +60,7 @@ export function ReportAccessCard({
   }
 
   return (
-    <ECard id="job-report">
+    <ECard {...tourTarget("client.report.checklist")} id="job-report">
       <ECardHeader>
         <ECardTitle className="flex items-center gap-2 text-[1rem]">
           <FileText className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Cleaning report
@@ -75,6 +76,7 @@ export function ReportAccessCard({
           </div>
 
           {available ? (
+            <span {...tourTarget("client.report.share")} className="inline-flex">
             <DownloadButton
               variant="outline"
               label="Download"
@@ -85,6 +87,7 @@ export function ReportAccessCard({
                 description: "The full record of this clean, including photos.",
               }}
             />
+            </span>
           ) : requested ? (
             <EButton variant="outline" size="sm" disabled>
               Requested

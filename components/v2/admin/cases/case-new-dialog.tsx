@@ -5,10 +5,16 @@
  * can see / reply) plus optional links to a job, property or client. Picking a
  * job fills its property and client in (shown, not hidden); the server checks
  * that the links exist and agree. A failed create keeps the draft.
+ * Everyday dialog pattern (board "Everyday dialogs and sheets", 2026-11): type
+ * and priority as chips, client visibility as ONE three-way choice near the
+ * top (Hidden / Client can see / Can see and reply), mapped onto the same
+ * clientVisible / clientCanReply fields the create route always took.
  */
 import * as React from "react";
+import { EActionDialog } from "@/components/v2/ui/action-dialog";
+import { EChoiceChips, ENote } from "@/components/v2/ui/form-dialog-parts";
 import { EButton } from "@/components/v2/ui/primitives";
-import { EField, EInput, EModal, ESelect, ESwitch, ETextarea } from "@/components/v2/admin/estate-kit";
+import { EField, EInput, ETextarea } from "@/components/v2/admin/estate-kit";
 import { CASE_TYPES } from "@/lib/cases/queues";
 import { createCaseRequest } from "./case-api";
 import { JobPicker, PropertyClientPickers, type PickedJob } from "./case-link-pickers";
@@ -38,6 +44,29 @@ const EMPTY: Draft = {
   clientId: "",
 };
 
+type Visibility = "hidden" | "see" | "reply";
+
+const VISIBILITY_OPTIONS: ReadonlyArray<{ value: Visibility; label: string }> = [
+  { value: "hidden", label: "Hidden from client" },
+  { value: "see", label: "Client can see" },
+  { value: "reply", label: "Can see and reply" },
+];
+
+function visibilityOf(draft: Pick<Draft, "clientVisible" | "clientCanReply">): Visibility {
+  if (!draft.clientVisible) return "hidden";
+  return draft.clientCanReply ? "reply" : "see";
+}
+
+/** Hidden keeps "can reply" at its default, as the old switches sent it. */
+function visibilityFields(value: Visibility): Pick<Draft, "clientVisible" | "clientCanReply"> {
+  if (value === "hidden") return { clientVisible: false, clientCanReply: EMPTY.clientCanReply };
+  return { clientVisible: true, clientCanReply: value === "reply" };
+}
+
+function severityLabel(value: Severity): string {
+  return value.charAt(0) + value.slice(1).toLowerCase();
+}
+
 export function CaseNewDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (created: CaseDetail) => void }) {
   const [draft, setDraft] = React.useState<Draft>(EMPTY);
   const [saving, setSaving] = React.useState(false);
@@ -45,6 +74,7 @@ export function CaseNewDialog({ open, onClose, onCreated }: { open: boolean; onC
   const set = (patch: Partial<Draft>) => setDraft((current) => ({ ...current, ...patch }));
 
   async function create() {
+    if (saving) return;
     if (!draft.title.trim()) {
       setError("A case title is required.");
       return;
@@ -73,26 +103,50 @@ export function CaseNewDialog({ open, onClose, onCreated }: { open: boolean; onC
   }
 
   return (
-    <EModal open={open} onClose={onClose} title="New case" eyebrow="Cases">
-      <fieldset disabled={saving} className="space-y-4">
-        <EField label="Case title">
-          <EInput value={draft.title} onChange={(event) => set({ title: event.target.value })} placeholder="Short summary" />
+    <EActionDialog
+      open={open}
+      layout="form"
+      eyebrow="Cases"
+      title="New case"
+      phoneTitle="New case"
+      busy={saving}
+      onClose={onClose}
+      footer={(
+        <>
+          <EButton variant="outline" size="sm" className="max-sm:hidden" onClick={onClose} disabled={saving}>Cancel</EButton>
+          <EButton size="sm" onClick={() => void create()} disabled={saving}>{saving ? "Opening…" : "Open case"}</EButton>
+        </>
+      )}
+    >
+      <fieldset disabled={saving} className="min-w-0 space-y-3">
+        <EChoiceChips
+          label="Type"
+          name="case-new-type"
+          value={draft.caseType}
+          onChange={(value) => set({ caseType: value })}
+          options={CASE_TYPES.map((type) => ({ value: type, label: CASE_TYPE_LABELS[type] }))}
+        />
+        <EChoiceChips
+          label="Priority"
+          name="case-new-priority"
+          value={draft.severity}
+          onChange={(value) => set({ severity: value })}
+          options={SEVERITIES.map((value) => ({ value, label: severityLabel(value) }))}
+        />
+        <EField label="Title">
+          <EInput value={draft.title} onChange={(event) => set({ title: event.target.value })} placeholder="Short summary" className="max-sm:h-11 max-sm:text-[1rem]" />
         </EField>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <EField label="Case type">
-            <ESelect value={draft.caseType} onChange={(event) => set({ caseType: event.target.value as CaseTypeKey })}>
-              {CASE_TYPES.map((type) => <option key={type} value={type}>{CASE_TYPE_LABELS[type]}</option>)}
-            </ESelect>
-          </EField>
-          <EField label="Priority">
-            <ESelect value={draft.severity} onChange={(event) => set({ severity: event.target.value as Severity })}>
-              {SEVERITIES.map((value) => <option key={value} value={value}>{value.charAt(0) + value.slice(1).toLowerCase()}</option>)}
-            </ESelect>
-          </EField>
-        </div>
-        <EField label="Description">
-          <ETextarea rows={4} value={draft.description} onChange={(event) => set({ description: event.target.value })} placeholder="What happened?" />
+        <EField label="What happened">
+          <ETextarea rows={3} value={draft.description} onChange={(event) => set({ description: event.target.value })} placeholder="e.g. Noticed at QA, after the last clean." className="max-sm:text-[1rem]" />
         </EField>
+        <EChoiceChips
+          label="Client"
+          name="case-new-visibility"
+          value={visibilityOf(draft)}
+          onChange={(value) => set(visibilityFields(value))}
+          options={VISIBILITY_OPTIONS}
+          hint={draft.clientVisible && !draft.clientId ? "No client is linked yet, so no client can see this case until one is." : undefined}
+        />
         <JobPicker
           value={draft.job}
           onChange={(job) => set({ job, propertyId: job?.propertyId ?? "", clientId: job?.clientId ?? draft.clientId })}
@@ -104,19 +158,8 @@ export function CaseNewDialog({ open, onClose, onCreated }: { open: boolean; onC
           onProperty={(option) => set({ propertyId: option?.id ?? "", clientId: option?.clientId ?? draft.clientId })}
           onClient={(clientId) => set({ clientId, propertyId: "" })}
         />
-        <div className="flex flex-wrap gap-4">
-          <ESwitch checked={draft.clientVisible} onCheckedChange={(value) => set({ clientVisible: value })} label="Client can see this case" />
-          <ESwitch checked={draft.clientCanReply} onCheckedChange={(value) => set({ clientCanReply: value })} label="Client can reply" />
-        </div>
-        {draft.clientVisible && !draft.clientId ? (
-          <p className="text-[0.75rem] text-[hsl(var(--e-warning))]">No client is linked, so no client can see this case yet.</p>
-        ) : null}
-        {error ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{error}</p> : null}
-        <div className="flex justify-end gap-2 pt-1">
-          <EButton variant="outline" size="sm" onClick={onClose}>Cancel</EButton>
-          <EButton size="sm" onClick={() => void create()}>{saving ? "Creating…" : "Create case"}</EButton>
-        </div>
+        {error ? <ENote tone="problem" role="alert">Not opened: {error}</ENote> : null}
       </fieldset>
-    </EModal>
+    </EActionDialog>
   );
 }

@@ -16,8 +16,9 @@
  * would be a single point of failure.
  */
 
-import { DamageReportStatus } from "@prisma/client";
+import { DamageReportStatus, type Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 /**
  * Set (or clear) the admin's cost estimate for one damaged item.
@@ -26,7 +27,13 @@ import { db } from "@/lib/db";
  * repair cost is meaningless and would corrupt any total built on top of it.
  * Pass null to clear.
  */
-export async function setDamageItemCost(input: { itemId: string; estimatedCost: number | null }) {
+export async function setDamageItemCost(input: {
+  itemId: string;
+  estimatedCost: number | null;
+  /** When given, the item must belong to this report (entity scope), and the change is kept in its history. */
+  reportId?: string;
+  actorUserId?: string;
+}) {
   if (input.estimatedCost !== null) {
     if (!Number.isFinite(input.estimatedCost) || input.estimatedCost < 0) {
       throw new Error("DAMAGE_COST_INVALID");
@@ -35,15 +42,47 @@ export async function setDamageItemCost(input: { itemId: string; estimatedCost: 
 
   const item = await db.damageItem.findUnique({
     where: { id: input.itemId },
-    select: { id: true },
+    select: { id: true, reportId: true, estimatedCost: true, category: true, area: true },
   });
   if (!item) throw new Error("DAMAGE_ITEM_NOT_FOUND");
+  // An item id from another report is answered as not found, never written.
+  if (input.reportId && item.reportId !== input.reportId) throw new Error("DAMAGE_ITEM_NOT_FOUND");
 
-  return db.damageItem.update({
+  const updated = await db.damageItem.update({
     where: { id: input.itemId },
     data: { estimatedCost: input.estimatedCost },
     select: { id: true, estimatedCost: true },
   });
+  if (input.actorUserId && (item.estimatedCost ?? null) !== (input.estimatedCost ?? null)) {
+    await recordReviewAudit({
+      actorUserId: input.actorUserId,
+      reportId: item.reportId,
+      action: "DAMAGE_ITEM_ESTIMATE_SET",
+      before: { itemId: item.id, estimatedCost: item.estimatedCost ?? null },
+      after: { itemId: item.id, estimatedCost: input.estimatedCost, item: `${item.category} · ${item.area}` },
+    });
+  }
+  return updated;
+}
+
+/** One history entry on the report (best effort; the change itself is already stored). */
+async function recordReviewAudit(input: { actorUserId: string; reportId: string; action: string; before?: Prisma.InputJsonObject; after: Prisma.InputJsonObject }) {
+  try {
+    await db.auditLog.create({
+      data: { userId: input.actorUserId, action: input.action, entity: "DamageReport", entityId: input.reportId, before: input.before, after: input.after },
+    });
+  } catch (error) {
+    logger.error({ err: error, damageReportId: input.reportId, action: input.action }, "Damage report changed, but its history entry could not be written");
+  }
+}
+
+/** Which history entry a review writes, from the report before and the decision. */
+export function reviewAuditAction(before: { clientVisible: boolean; status: DamageReportStatus }, input: { release: boolean; close?: boolean }): string {
+  if (input.close) return input.release ? "DAMAGE_REPORT_CLOSED_RELEASED" : "DAMAGE_REPORT_CLOSED";
+  if (input.release && !before.clientVisible) return "DAMAGE_REPORT_RELEASED";
+  if (!input.release && before.clientVisible) return "DAMAGE_REPORT_TAKEN_BACK";
+  if (before.status === DamageReportStatus.CLOSED) return "DAMAGE_REPORT_REOPENED";
+  return "DAMAGE_REPORT_REVIEWED";
 }
 
 /**
@@ -64,7 +103,7 @@ export async function reviewDamageReport(input: {
 }) {
   const report = await db.damageReport.findUnique({
     where: { id: input.reportId },
-    select: { id: true, status: true, items: { select: { caseId: true } } },
+    select: { id: true, status: true, clientVisible: true, items: { select: { caseId: true } } },
   });
   if (!report) throw new Error("DAMAGE_REPORT_NOT_FOUND");
   if (report.status === DamageReportStatus.DRAFT) throw new Error("DAMAGE_REPORT_NOT_SUBMITTED");
@@ -97,6 +136,18 @@ export async function reviewDamageReport(input: {
       });
     }
 
-    return updated;
+    // The decision's history entry commits with the decision itself.
+    await tx.auditLog.create({
+      data: {
+        userId: input.reviewerUserId,
+        action: reviewAuditAction(report, input),
+        entity: "DamageReport",
+        entityId: input.reportId,
+        before: { status: report.status, clientVisible: report.clientVisible },
+        after: { status: nextStatus, clientVisible: input.release, caseCount: caseIds.length },
+      },
+    });
+
+    return { ...updated, wasClientVisible: report.clientVisible };
   });
 }

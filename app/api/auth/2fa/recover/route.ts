@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/notifications/email";
+import { getAppSettings } from "@/lib/settings";
+import { buildDesignedEmail } from "@/lib/email-design/build-email";
 import { appBaseUrl, issueRecoveryToken, RECOVERY_TTL_MINUTES } from "@/lib/auth/recovery";
 
 /**
@@ -21,10 +23,12 @@ export async function POST(req: NextRequest) {
     if (user && user.isActive && user.twoFactorEnabled) {
       const raw = await issueRecoveryToken("2fa-disable", email);
       const link = `${appBaseUrl()}/recover-2fa?email=${encodeURIComponent(email)}&token=${raw}`;
+      // Fixed security email (design "twoFactorRecovery"); the name is escaped by the renderer.
+      const content = buildDesignedEmail(await getAppSettings(), "twoFactorRecovery", { userName: user.name ?? "", recoveryUrl: link, expiryMinutes: String(RECOVERY_TTL_MINUTES) });
       await sendEmail({
         to: email,
-        subject: "Turn off two-step verification",
-        html: `<p>Hi ${user.name || "there"},</p><p>You asked to recover access because you can't complete two-step verification. Click below to switch 2FA off — this link expires in ${RECOVERY_TTL_MINUTES} minutes. After signing in, set up 2FA again from your profile.</p><p><a href="${link}" style="display:inline-block;background:#0f5a44;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700">Turn off 2FA</a></p><p>If you didn't request this, ignore this email and your 2FA stays on.</p>`,
+        subject: content.subject,
+        html: content.html,
         transactional: true,
         // 2FA recovery link — must never be silenced by audience controls.
         critical: true,

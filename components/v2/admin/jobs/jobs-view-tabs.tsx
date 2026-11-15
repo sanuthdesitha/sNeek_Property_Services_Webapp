@@ -5,6 +5,7 @@
  * saved views, then "+ Save view". A built-in tab is current when the filters
  * match its preset exactly; a saved tab when it is the selected saved view.
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import { cn } from "@/lib/utils";
 import { BUILT_IN_VIEWS, activeBuiltInView, builtInViewFilters, type BuiltInViewId, type JobsViewCounts } from "@/lib/jobs/view-presets";
 import type { JobsWorkspaceState } from "@/lib/jobs/workspace-state";
@@ -43,6 +44,7 @@ export function JobsViewTabs({ state, update, counts, savedCounts, savedViews, s
           const count = counts && COUNTED.has(view.id) ? counts[view.id] : null;
           return (
             <button
+              {...(view.id === "needs-cleaner" ? tourTarget("admin.jobs.unassigned") : {})}
               key={view.id}
               type="button"
               aria-pressed={current}

@@ -3,7 +3,7 @@
 /** Application field-schema editor → PATCH .../[id]/application-schema.
  *  Stores { schema: { version: 3, steps } } exactly as v1 does. */
 import { undoToast } from "@/components/v2/ui/undo-toast";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowUp, ArrowDown, Plus, Trash2, Save, Loader2 } from "lucide-react";
 import { EButton, ECard, ECardBody, ECardHeader, EAlert } from "@/components/v2/ui/primitives";
 import { EConfirmButton, EConfirmModal, EInput, ESelect, ESwitch, EField } from "@/components/v2/admin/estate-kit";
@@ -12,11 +12,17 @@ import { FIELD_TYPES, uid, type AppStep, type AppField, type PositionShape } fro
 export function ApplicationSchemaEditor({
   positionId,
   position,
+  onStepsChange,
 }: {
   positionId: string;
   position: PositionShape;
+  /** The live draft, for the applicant preview beside the editor (board "Hiring", 2026-11-16). */
+  onStepsChange?: (steps: AppStep[]) => void;
 }) {
   const [steps, setSteps] = useState<AppStep[]>(() => position?.applicationSchema?.steps ?? []);
+  useEffect(() => {
+    onStepsChange?.(steps);
+  }, [steps, onStepsChange]);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
   // A section takes every field inside it, so it gets the modal; a single field

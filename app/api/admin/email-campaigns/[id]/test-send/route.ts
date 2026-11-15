@@ -51,6 +51,8 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
       replyTo: settings.accountsEmail || undefined,
       transactional: true,
       critical: true,
+      // Shows the campaign exactly as recipients get it: base layout, campaign footer, unsubscribe link.
+      marketing: true,
     });
 
     if (!result.ok) {

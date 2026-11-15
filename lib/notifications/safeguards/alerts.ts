@@ -3,11 +3,14 @@ import "server-only";
  * Sending safeguards: telling administrators. Through the notification
  * pipeline (lib/notifications/office-sends): an inbox notice and ONE email per
  * incident (stable event id `safeguard:<incident>`), to every active
- * administrator. The email is class ALERT at the gate: it passes pauses and
+ * administrator. A failing scheduled task (WORKER_FAILING) is the exception:
+ * an inbox notice only, no email (System health, 2026-11-16, owner default
+ * pending confirmation), opening System health › Scheduled work. The email is class ALERT at the gate: it passes pauses and
  * the per-person ceilings, but at most `alertEmailsPerHour` safeguard emails
  * go out in an hour in total, so the alert itself cannot loop. Queued is not
  * delivered: the outcomes are kept on the incident, never claimed as read.
  */
+import { plainMessageEmail } from "@/lib/email-design/build-email";
 import { Prisma, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { resolveAppUrl } from "@/lib/app-url";
@@ -15,9 +18,15 @@ import { sendOfficeNotification, type OfficeRecipient, type RecipientOutcome } f
 import { getNotificationTypeControls } from "../type-controls";
 import { loadNotificationWording } from "../wording/render";
 import { SAFEGUARD_ALERT_TYPE } from "./classify";
+import { scheduledTaskInfo } from "@/lib/ops/scheduled-tasks";
 import { LIMIT_GROUP_LABEL, type LimitGroup } from "./config";
 
 export const SAFEGUARDS_PATH = "/v2/admin/notifications/safeguards";
+export const SYSTEM_HEALTH_SCHEDULED_PATH = "/v2/admin/diagnostics?tab=scheduled";
+
+/** A failing scheduled task tells administrators in the inbox only. */
+export const WORKER_FAILING_TRANSPORTS = ["INBOX"] as const;
+const INCIDENT_TRANSPORTS = ["INBOX", "EMAIL"] as const;
 
 const SCOPE_LABEL: Record<string, string> = {
   TYPE: "one notification type",
@@ -34,7 +43,7 @@ function detailOf(value: Prisma.JsonValue | null): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-async function send(incidentId: string, subject: string, body: string, reviewUrl: string, part: "tripped" | "worker-failing", extra: Record<string, string>): Promise<RecipientOutcome[]> {
+async function send(incidentId: string, subject: string, body: string, reviewUrl: string, part: "tripped" | "worker-failing", extra: Record<string, string>, transports: ReadonlyArray<"INBOX" | "EMAIL">): Promise<RecipientOutcome[]> {
   const recipients = await administrators();
   if (recipients.length === 0) return [];
   const wording = await loadNotificationWording(SAFEGUARD_ALERT_TYPE);
@@ -47,9 +56,9 @@ async function send(incidentId: string, subject: string, body: string, reviewUrl
     subject, body, url: reviewUrl,
     email: () => {
       const email = wording.render(part, "EMAIL", { title: subject, messageText: body, reviewUrl, ...extra });
-      return { subject: email.subject ?? subject, html: email.html ?? `<p>${body}</p>` };
+      return { subject: email.subject ?? subject, html: email.html || plainMessageEmail({ subject, text: body }).html };
     },
-    transports: ["INBOX", "EMAIL"], recipients,
+    transports: [...transports], recipients,
     respectsPreferences: false,
     disabledTransports: controls.disabledTransports[SAFEGUARD_ALERT_TYPE] ?? [],
   });
@@ -73,9 +82,12 @@ export async function sendSafeguardAlert(incidentId: string): Promise<RecipientO
   const wording = await loadNotificationWording(SAFEGUARD_ALERT_TYPE);
   let outcomes: RecipientOutcome[];
   if (incident.kind === "WORKER_FAILING") {
-    const values = { jobName: incident.scopeKey, failures: String(incident.attemptCount), error: String(detail.error ?? "unknown").slice(0, 200) };
+    const info = scheduledTaskInfo(incident.scopeKey);
+    const jobName = info.plainName === incident.scopeKey ? incident.scopeKey : `${info.plainName} (${incident.scopeKey})`;
+    const values = { jobName, failures: String(incident.attemptCount), error: String(detail.error ?? "unknown").slice(0, 200) };
     const inbox = wording.render("worker-failing", "INBOX", values);
-    outcomes = await send(incident.id, inbox.title ?? `Scheduled job keeps failing: ${incident.scopeKey}`, inbox.body, reviewUrl, "worker-failing", { jobName: incident.scopeKey });
+    const healthUrl = resolveAppUrl(SYSTEM_HEALTH_SCHEDULED_PATH);
+    outcomes = await send(incident.id, inbox.title ?? `Scheduled job keeps failing: ${jobName}`, inbox.body, healthUrl, "worker-failing", { jobName }, WORKER_FAILING_TRANSPORTS);
   } else {
     const group = String(detail.transport ?? "EMAIL") as LimitGroup;
     const recipients = Array.isArray(incident.sampleRecipients) ? (incident.sampleRecipients as unknown[]).map(String).join(", ") : "";
@@ -88,7 +100,7 @@ export async function sendSafeguardAlert(incidentId: string): Promise<RecipientO
       threshold: String(detail.threshold ?? ""),
       recipients: recipients || "see the screen",
     });
-    outcomes = await send(incident.id, inbox.title ?? `Sending paused: ${incident.label}`, inbox.body, reviewUrl, "tripped", {});
+    outcomes = await send(incident.id, inbox.title ?? `Sending paused: ${incident.label}`, inbox.body, reviewUrl, "tripped", {}, INCIDENT_TRANSPORTS);
   }
   await markAlerted(incident.id, outcomes);
   return outcomes;

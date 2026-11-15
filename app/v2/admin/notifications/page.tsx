@@ -26,7 +26,7 @@ function firstParam(value: string | string[] | undefined): string | null {
  * Settings are read once; a failed read keeps the page working with the
  * organisation timezone default and says so on Preferences.
  */
-export default async function V2AdminNotificationsPage({ searchParams }: { searchParams: { tab?: string | string[]; type?: string | string[] } }) {
+export default async function V2AdminNotificationsPage({ searchParams }: { searchParams: { tab?: string | string[]; type?: string | string[]; email?: string | string[] } }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   const isAdmin = session.user.role === Role.ADMIN;
   const tab = resolveNotificationsTab(searchParams?.tab);
@@ -64,6 +64,7 @@ export default async function V2AdminNotificationsPage({ searchParams }: { searc
         timeZone={timeZone}
         companyName={app?.companyName || "sNeek Property Services"}
         initialType={firstParam(searchParams?.type)}
+        initialEmail={firstParam(searchParams?.email)}
       />
     </div>
   );

@@ -20,7 +20,7 @@ it("honors current recipient scope, category, active status and preference even 
   m.preference.mockResolvedValue(false); expect(await deliverProviderIntent(envelope())).toMatchObject({ kind: "SKIPPED" }); expect(m.email).not.toHaveBeenCalled();
 });
 it("honors audience channel disable", async () => { m.settings.mockResolvedValue({ notificationAudienceControls: { channels: { email: false } } }); expect(await deliverProviderIntent(envelope())).toMatchObject({ kind: "SKIPPED", errorCode: "audience_disabled" }); expect(m.email).not.toHaveBeenCalled(); });
-it("uses existing email consent boundary and escaped content with provider receipt", async () => { expect(await deliverProviderIntent(envelope())).toEqual({ kind: "ACCEPTED", providerReference: "provider-ref" }); expect(m.email.mock.calls[0][0]).toMatchObject({ kind: "job_reminder", html: "<p>&lt;private&gt;<br>text</p>" }); });
+it("uses existing email consent boundary and escaped content with provider receipt", async () => { expect(await deliverProviderIntent(envelope())).toEqual({ kind: "ACCEPTED", providerReference: "provider-ref" }); expect(m.email.mock.calls[0][0]).toMatchObject({ kind: "job_reminder" }); expect(m.email.mock.calls[0][0].html).toContain("&lt;private&gt;<br>text"); expect(m.email.mock.calls[0][0].html).not.toContain("<private>"); });
 it.each([
   [{ skipped: true }, "SKIPPED"], [{ acceptance: "NOT_ACCEPTED", retryable: true }, "NOT_ACCEPTED"], [{ ok: false }, "UNCERTAIN"], [{ ok: true }, "UNCERTAIN"],
 ])("maps email evidence without inferring receipt %#", async (result, kind) => { m.email.mockResolvedValue(result); expect(await deliverProviderIntent(envelope())).toMatchObject({ kind }); });

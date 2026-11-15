@@ -444,6 +444,11 @@ async function main() {
         if (result.created || result.invalid || result.errors) logger.info(result, "[deep-clean-planning] owner review queue updated");
         cursor = result.nextCursor ?? undefined;
       } while (cursor);
+      // One inbox notice to administrators per proposal that came due (2026-11-16).
+      const { remindDueDeepCleanProposals } = await import("@/lib/properties/deep-clean-reminder");
+      const reminders = await remindDueDeepCleanProposals({ now });
+      if (reminders.sent || reminders.failed) logger.info(reminders, "[deep-clean-planning] due reminders");
+      if (reminders.failed) throw new Error(`${reminders.failed} deep-clean due reminder(s) could not be sent`);
     }));
   }
 

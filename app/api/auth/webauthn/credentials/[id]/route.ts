@@ -10,6 +10,9 @@ export const dynamic = "force-dynamic";
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   try {
     const session = await requireSession();
+    if (session.impersonation) {
+      return NextResponse.json({ error: "Stop testing as someone else to change your own passkeys.", code: "ACTUAL_ACTOR_REQUIRED" }, { status: 403 });
+    }
     const id = params?.id;
     if (!id) {
       return NextResponse.json({ error: "Missing device id." }, { status: 400 });
@@ -23,6 +26,7 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
     if (result.count === 0) {
       return NextResponse.json({ error: "Device not found." }, { status: 404 });
     }
+    await db.auditLog.create({ data: { userId: session.user.id, action: "OWN_PASSKEY_REMOVED", entity: "WebAuthnCredential", entityId: id } });
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {

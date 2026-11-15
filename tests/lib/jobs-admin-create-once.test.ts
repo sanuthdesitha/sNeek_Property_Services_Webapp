@@ -30,7 +30,7 @@ describe("createAdminJobOnce (CSV import idempotency)", () => {
   it("creates the job and its receipt in one locked transaction, then runs the usual follow-ups once", async () => {
     m.tx.auditLog.findFirst.mockResolvedValue(null);
     const result = await createAdminJobOnce(body, receipt);
-    expect(result).toEqual({ jobId: "job-1", jobNumber: "J-100", replayed: false });
+    expect(result).toMatchObject({ jobId: "job-1", jobNumber: "J-100", replayed: false });
     expect(m.tx.$executeRaw).toHaveBeenCalledTimes(1);
     expect(m.tx.auditLog.create.mock.calls[0][0].data).toMatchObject({ action: IMPORT_RECEIPT_ACTION, entity: "JobImport", entityId: "abc:2", jobId: "job-1", userId: "admin" });
     expect(m.tx.job.create.mock.calls[0][0].data).toMatchObject({ propertyId: "p1", startTime: "10:00", dueTime: "14:00", jobType: "DEEP_CLEAN" });

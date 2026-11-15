@@ -110,7 +110,7 @@ describe("More menu", () => {
   it("lists the job group then the danger zone", () => {
     const menu = moreMenuFor(menuInput());
     expect(menu.map((entry) => entry.key)).toEqual([
-      "edit-details", "reschedule", "change-status", "skip", "send-reminder", "save-template", "download-report", "open-live-ops", "reset", "cancel", "delete",
+      "edit-details", "reschedule", "change-status", "skip", "send-reminder", "save-template", "duplicate", "download-report", "open-live-ops", "reset", "cancel", "delete",
     ]);
     expect(menu.filter((entry) => entry.group === "danger").map((entry) => entry.key)).toEqual(["reset", "cancel", "delete"]);
   });
@@ -154,6 +154,12 @@ describe("More menu", () => {
       expect(entry.disabledReason).toBe(VIEW_ONLY_REASON);
     }
     expect(menu.find((entry) => entry.key === "open-live-ops")?.disabledReason).toBeNull();
+  });
+
+  it("offers Duplicate as a link to the New job page with the job to copy (2026-11)", () => {
+    const duplicate = moreMenuFor(menuInput()).find((entry) => entry.key === "duplicate");
+    expect(duplicate).toMatchObject({ label: "Duplicate", group: "job", href: "/v2/admin/jobs/new?duplicate=job_1", disabledReason: null });
+    expect(moreMenuFor(menuInput({ readOnly: true })).find((entry) => entry.key === "duplicate")?.disabledReason).toBe(VIEW_ONLY_REASON);
   });
 
   it("disables Download report until there is a submission", () => {

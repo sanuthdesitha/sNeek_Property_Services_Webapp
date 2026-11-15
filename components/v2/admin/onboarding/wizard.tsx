@@ -6,7 +6,12 @@ import { useRestorableState } from "@/hooks/use-restorable-state";
  * ESTATE onboarding wizard — v2-native port of the v1 wizard
  * (app/admin/onboarding/new/page.tsx + components/onboarding/wizard-layout.tsx).
  * Same endpoints and payloads:
- *   POST  /api/admin/onboarding/surveys                  {} → create a DRAFT survey
+ *   POST  /api/admin/onboarding/surveys                  formData + Idempotency-Key → create the DRAFT
+ *         on the FIRST SAVE (2026-11-14): never on opening the page. The first
+ *         autosave after the person enters something (or Next / Save Draft
+ *         with something entered) creates it, then the URL becomes
+ *         ?edit=<id> so reload and resume work. A failed first save keeps
+ *         every answer on the page and offers Retry with the same key.
  *   GET   /api/admin/onboarding/surveys/[id]             → prefill for ?edit=<id>
  *   PATCH /api/admin/onboarding/surveys/[id]             merged formData per step (updateSurveySchema)
  *   POST  /api/admin/onboarding/surveys/[id]/submit      → PENDING_REVIEW
@@ -16,10 +21,17 @@ import { useRestorableState } from "@/hooks/use-restorable-state";
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Check, Loader2, Save } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, RotateCcw, Save } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EButton, ECard, ECardBody, ECardHeader, ECardTitle, EEyebrow } from "@/components/v2/ui/primitives";
 import { PropertyChecklistProfile } from "@/components/v2/admin/properties/property-checklist-profile";
+import {
+  ONBOARDING_DRAFT_KEY_HEADER,
+  ONBOARDING_FIRST_SAVE_DELAY_MS,
+  describeOnboardingSaveError,
+  hasOnboardingDraftContent,
+  newOnboardingDraftKey,
+} from "@/lib/onboarding/wizard-draft";
 import {
   StepAccess,
   StepAppliances,
@@ -81,6 +93,18 @@ const EDIT_EXCLUDED_KEYS = [
   "laundryDetail",
   "clientData",
 ];
+
+type SurveyFormData = Record<string, unknown>;
+
+/** Where the new survey's draft is: not made yet, being made, failed (answers kept), or saved. */
+type DraftCreation =
+  | { phase: "not-created" }
+  | { phase: "creating" }
+  | { phase: "failed"; message: string }
+  | { phase: "created" };
+
+/** What a step save did: saved to the draft, nothing entered yet, or failed. */
+type StepSaveResult = "saved" | "nothing-to-save" | "failed";
 
 /* ── Step indicator (Estate pills over a hairline) ─────────────────────── */
 function StepIndicator({
@@ -324,125 +348,276 @@ function StepReview({
   );
 }
 
+/* ── First-save status (new surveys only) ──────────────────────────────── */
+function FirstDraftStatus({
+  creation,
+  hasContent,
+  onRetry,
+}: {
+  creation: DraftCreation;
+  hasContent: boolean;
+  onRetry: () => void;
+}) {
+  if (creation.phase === "created") return null;
+  if (creation.phase === "failed") {
+    return (
+      <div
+        role="alert"
+        className="flex flex-wrap items-center gap-2 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-danger)/0.4)] bg-[hsl(var(--e-danger)/0.06)] px-3 py-2 text-[0.8125rem]"
+      >
+        <span className="min-w-0 flex-1">
+          Draft not saved yet: {creation.message} Your answers are kept on this page.
+        </span>
+        <EButton variant="outline" size="sm" onClick={onRetry}>
+          <RotateCcw className="h-3.5 w-3.5" /> Retry
+        </EButton>
+      </div>
+    );
+  }
+  return (
+    <p role="status" className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+      {creation.phase === "creating"
+        ? "Saving draft…"
+        : hasContent
+          ? "Not saved yet. The draft is saved in a moment."
+          : "Nothing is saved until you enter something. The draft is created on your first save."}
+    </p>
+  );
+}
+
 /* ── Wizard shell ──────────────────────────────────────────────────────── */
 export function OnboardingWizard({ editId }: { editId?: string }) {
   const router = useRouter();
   const [surveyId, setSurveyId] = React.useState<string | null>(null);
   const [currentStep, setCurrentStep] = useRestorableState("wizard:currentStep", STEPS[0].id);
   const [completedSteps, setCompletedSteps] = React.useState<string[]>([]);
-  const [formData, setFormData] = React.useState<Record<string, unknown>>({});
-  const [loading, setLoading] = React.useState(true);
+  const [formData, setFormData] = React.useState<SurveyFormData>({});
+  const [loading, setLoading] = React.useState(Boolean(editId));
   const [saving, setSaving] = React.useState(false);
+  const [creation, setCreation] = React.useState<DraftCreation>(
+    editId ? { phase: "created" } : { phase: "not-created" },
+  );
+
+  const mountedRef = React.useRef(true);
+  const surveyIdRef = React.useRef<string | null>(null);
+  // One key per wizard: every retry of the first save reuses it, so an
+  // uncertain failure can never leave two drafts behind.
+  const draftKeyRef = React.useRef<string>(newOnboardingDraftKey());
+  const createRequestRef = React.useRef<Promise<string | null> | null>(null);
+  const createdFromRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
-    if (editId) {
-      fetch(`/api/admin/onboarding/surveys/${editId}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.id) {
-            setSurveyId(data.id);
-            const mapped: Record<string, unknown> = {};
-            for (const [key, value] of Object.entries(data)) {
-              if (EDIT_EXCLUDED_KEYS.includes(key)) continue;
-              mapped[key] = value;
-            }
-            if (data.clientData) mapped.clientData = data.clientData;
-            if (data.appliances) mapped.appliances = data.appliances;
-            if (data.specialRequests) mapped.specialRequests = data.specialRequests;
-            if (data.laundryDetail) mapped.laundryDetail = data.laundryDetail;
-            if (data.accessDetails) mapped.accessDetails = data.accessDetails;
-            if (data.jobTypeAnswers) mapped.jobTypeAnswers = data.jobTypeAnswers;
-            // Re-hydrate the structured formMeta envelope back to top-level keys
-            // (geocode, selectedJobTypes, scenarios, schedule, contact, times)
-            // so the wizard steps repopulate when editing a draft.
-            const formMeta = (
-              data.adminOverrides && typeof data.adminOverrides === "object"
-                ? (data.adminOverrides as Record<string, unknown>).formMeta
-                : null
-            ) as Record<string, unknown> | null;
-            if (formMeta && typeof formMeta === "object") {
-              for (const [k, v] of Object.entries(formMeta)) {
-                if (v !== undefined && v !== null) mapped[k] = v;
-              }
-            }
-            setFormData(mapped);
-          } else {
-            toast({ title: "Survey not found", variant: "destructive" });
-            router.push("/v2/admin/onboarding");
-          }
-        })
-        .catch(() => {
-          toast({ title: "Failed to load survey", variant: "destructive" });
-          router.push("/v2/admin/onboarding");
-        })
-        .finally(() => setLoading(false));
-    } else {
-      fetch("/api/admin/onboarding/surveys", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      })
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.id) {
-            setSurveyId(data.id);
-            router.replace(`/v2/admin/onboarding/${encodeURIComponent(data.id)}`);
-          } else {
-            toast({ title: "Failed to create survey", variant: "destructive" });
-          }
-        })
-        .catch(() => toast({ title: "Failed to create survey", variant: "destructive" }))
-        .finally(() => setLoading(false));
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    // The draft this wizard just created: its ?edit= URL needs no reload, and
+    // re-reading it would overwrite anything typed since the first save.
+    if (editId && editId === surveyIdRef.current) return;
+    if (!editId) {
+      // Opened as a NEW survey after another one: start blank, with a new key.
+      if (surveyIdRef.current) {
+        surveyIdRef.current = null;
+        createdFromRef.current = null;
+        draftKeyRef.current = newOnboardingDraftKey();
+        setSurveyId(null);
+        setFormData({});
+        setCompletedSteps([]);
+        setCreation({ phase: "not-created" });
+      }
+      return;
     }
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/admin/onboarding/surveys/${encodeURIComponent(editId)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.id) {
+          surveyIdRef.current = data.id;
+          setSurveyId(data.id);
+          setCreation({ phase: "created" });
+          const mapped: SurveyFormData = {};
+          for (const [key, value] of Object.entries(data)) {
+            if (EDIT_EXCLUDED_KEYS.includes(key)) continue;
+            mapped[key] = value;
+          }
+          if (data.clientData) mapped.clientData = data.clientData;
+          if (data.appliances) mapped.appliances = data.appliances;
+          if (data.specialRequests) mapped.specialRequests = data.specialRequests;
+          if (data.laundryDetail) mapped.laundryDetail = data.laundryDetail;
+          if (data.accessDetails) mapped.accessDetails = data.accessDetails;
+          if (data.jobTypeAnswers) mapped.jobTypeAnswers = data.jobTypeAnswers;
+          // Re-hydrate the structured formMeta envelope back to top-level keys
+          // (geocode, selectedJobTypes, scenarios, schedule, contact, times)
+          // so the wizard steps repopulate when editing a draft.
+          const formMeta = (
+            data.adminOverrides && typeof data.adminOverrides === "object"
+              ? (data.adminOverrides as Record<string, unknown>).formMeta
+              : null
+          ) as Record<string, unknown> | null;
+          if (formMeta && typeof formMeta === "object") {
+            for (const [k, v] of Object.entries(formMeta)) {
+              if (v !== undefined && v !== null) mapped[k] = v;
+            }
+          }
+          setFormData(mapped);
+        } else {
+          toast({ title: "Survey not found", variant: "destructive" });
+          router.push("/v2/admin/onboarding");
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        toast({ title: "Failed to load survey", variant: "destructive" });
+        router.push("/v2/admin/onboarding");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editId]);
 
+  /**
+   * Creates the draft from what has been entered (first save only). Shares one
+   * request between the autosave, Next and Save Draft; a failure keeps the
+   * answers on the page and the same idempotency key for Retry.
+   */
+  const createDraft = React.useCallback(
+    (snapshot: SurveyFormData): Promise<string | null> => {
+      if (surveyIdRef.current) return Promise.resolve(surveyIdRef.current);
+      if (createRequestRef.current) return createRequestRef.current;
+      setCreation({ phase: "creating" });
+      const request = (async () => {
+        try {
+          const res = await fetch("/api/admin/onboarding/surveys", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", [ONBOARDING_DRAFT_KEY_HEADER]: draftKeyRef.current },
+            body: JSON.stringify(snapshot),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!mountedRef.current) return null;
+          if (!res.ok || typeof body.id !== "string") {
+            throw new Error(describeOnboardingSaveError(body.error, "The draft could not be saved."));
+          }
+          surveyIdRef.current = body.id;
+          createdFromRef.current = JSON.stringify(snapshot);
+          setSurveyId(body.id);
+          setCreation({ phase: "created" });
+          // The resume URL the board and detail page link to.
+          router.replace(`/v2/admin/onboarding/new?edit=${encodeURIComponent(body.id)}`);
+          return body.id as string;
+        } catch (err) {
+          if (!mountedRef.current) return null;
+          const message = err instanceof Error ? err.message : "The draft could not be saved.";
+          setCreation({ phase: "failed", message });
+          return null;
+        } finally {
+          createRequestRef.current = null;
+        }
+      })();
+      createRequestRef.current = request;
+      return request;
+    },
+    [router],
+  );
+
+  // First autosave: once something has been entered, and only until the draft exists.
+  React.useEffect(() => {
+    if (editId || surveyIdRef.current) return;
+    if (!hasOnboardingDraftContent(formData)) return;
+    const timer = window.setTimeout(() => {
+      void createDraft(formData);
+    }, ONBOARDING_FIRST_SAVE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [editId, formData, createDraft]);
+
+  // Answers that are not in any draft yet: warn before the tab closes.
+  const unsavedFirstDraft = !surveyId && creation.phase !== "created" && hasOnboardingDraftContent(formData);
+  React.useEffect(() => {
+    if (!unsavedFirstDraft) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsavedFirstDraft]);
+
   const saveStep = React.useCallback(
-    async (stepId: string) => {
-      if (!surveyId) return false;
+    async (stepId: string): Promise<StepSaveResult> => {
+      const markCompleted = () => setCompletedSteps((prev) => (prev.includes(stepId) ? prev : [...prev, stepId]));
+      let id = surveyIdRef.current;
+      if (!id) {
+        if (!hasOnboardingDraftContent(formData)) return "nothing-to-save";
+        id = await createDraft(formData);
+        if (!id) return "failed";
+        // The create carried exactly these answers: nothing more to send.
+        if (createdFromRef.current === JSON.stringify(formData)) {
+          markCompleted();
+          return "saved";
+        }
+      }
       try {
-        const res = await fetch(`/api/admin/onboarding/surveys/${surveyId}`, {
+        const res = await fetch(`/api/admin/onboarding/surveys/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(formData),
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          throw new Error(body.error ?? "Failed to save");
+          throw new Error(describeOnboardingSaveError(body.error, "Failed to save"));
         }
-        setCompletedSteps((prev) => (prev.includes(stepId) ? prev : [...prev, stepId]));
-        return true;
-      } catch (err: any) {
-        toast({ title: "Save failed", description: err.message, variant: "destructive" });
-        return false;
+        markCompleted();
+        return "saved";
+      } catch (err) {
+        toast({ title: "Save failed", description: err instanceof Error ? err.message : "Failed to save", variant: "destructive" });
+        return "failed";
       }
     },
-    [surveyId, formData],
+    [formData, createDraft],
   );
+
+  const retryFirstSave = () => {
+    void createDraft(formData);
+  };
 
   const currentIndex = STEPS.findIndex((s) => s.id === currentStep);
 
   const handleNext = async () => {
     if (currentIndex >= STEPS.length - 1) return;
-    const ok = await saveStep(currentStep);
-    if (ok) setCurrentStep(STEPS[currentIndex + 1].id);
+    const result = await saveStep(currentStep);
+    if (result !== "failed") setCurrentStep(STEPS[currentIndex + 1].id);
   };
 
   const handleSaveDraft = async () => {
     setSaving(true);
-    const ok = await saveStep(currentStep);
-    if (ok) toast({ title: "Draft saved" });
+    const result = await saveStep(currentStep);
+    if (result === "saved") toast({ title: "Draft saved" });
+    if (result === "nothing-to-save") toast({ title: "Nothing to save yet", description: "Enter some details first." });
     setSaving(false);
   };
 
-  if (loading || !surveyId) {
+  if (loading) {
     return (
       <p className="inline-flex items-center gap-2 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
         <Loader2 className="h-4 w-4 animate-spin" />
-        {editId ? "Loading survey…" : "Creating survey…"}
+        Loading survey…
       </p>
     );
   }
+
+  const draftNotSavedNote = (
+    <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+      This step needs the saved draft. It is created as soon as you enter the client or property details.
+    </p>
+  );
 
   const stepComponents: Record<string, React.ReactNode> = {
     client: <StepClient data={formData} onChange={setFormData} />,
@@ -456,7 +631,7 @@ export function OnboardingWizard({ editId }: { editId?: string }) {
     notes: <StepNotes data={formData} onChange={setFormData} />,
     staffing: <StepStaffing data={formData} onChange={setFormData} />,
     ical: <StepIcal data={formData} onChange={setFormData} />,
-    checklist: (
+    checklist: !surveyId ? draftNotSavedNote : (
       <div className="space-y-4">
         <div className="rounded-[var(--e-radius-lg)] border border-dashed border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface-raised))] p-3 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
           Review the checklist this property&apos;s cleaner form will use. Amenities came from the Rooms &amp;
@@ -472,7 +647,7 @@ export function OnboardingWizard({ editId }: { editId?: string }) {
         />
       </div>
     ),
-    review: (
+    review: !surveyId ? draftNotSavedNote : (
       <StepReview
         surveyId={surveyId}
         data={formData}
@@ -494,6 +669,8 @@ export function OnboardingWizard({ editId }: { editId?: string }) {
           <Save className="h-3.5 w-3.5" /> {saving ? "Saving…" : "Save Draft"}
         </EButton>
       </div>
+
+      <FirstDraftStatus creation={creation} hasContent={hasOnboardingDraftContent(formData)} onRetry={retryFirstSave} />
 
       <StepIndicator currentStep={currentStep} completedSteps={completedSteps} onStepClick={setCurrentStep} />
 

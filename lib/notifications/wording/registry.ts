@@ -8,10 +8,11 @@ import { NOTIFICATION_CATALOG } from "../catalog";
 import { ACTION_WORDING } from "./definitions/actions";
 import { JOB_WORDING } from "./definitions/jobs";
 import { OFFICE_WORDING } from "./definitions/office";
+import { ONBOARDING_WORDING } from "./definitions/onboarding";
 import { PEOPLE_WORDING } from "./definitions/people";
 import type { TypeWordingDefinition, WordingPartDefinition, WordingTransport } from "./types";
 
-export const WORDING_DEFINITIONS: readonly TypeWordingDefinition[] = [...JOB_WORDING, ...OFFICE_WORDING, ...PEOPLE_WORDING, ...ACTION_WORDING];
+export const WORDING_DEFINITIONS: readonly TypeWordingDefinition[] = [...JOB_WORDING, ...OFFICE_WORDING, ...PEOPLE_WORDING, ...ACTION_WORDING, ...ONBOARDING_WORDING];
 
 const BY_TYPE = new Map(WORDING_DEFINITIONS.map((definition) => [definition.typeKey, definition]));
 

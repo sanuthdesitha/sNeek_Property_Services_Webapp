@@ -34,8 +34,33 @@ type BiometricDevice = {
   lastUsedAt: string | null;
 };
 
-export function EPasskeySection() {
+export type EPasskeySectionProps = {
+  /**
+   * "profile" (Your profile, administrators and operations managers): always
+   * shown, lists the passkeys already added even where this browser cannot add
+   * one, and uses the card headings of that page. Default: the portal card,
+   * hidden without a platform authenticator, as before.
+   */
+  variant?: "default" | "profile";
+  /** Organisation timezone for "last used" times (profile variant). */
+  timeZone?: string;
+  /** While testing as someone else: list only, no add or remove. */
+  readOnlyReason?: string | null;
+};
+
+function shortWhen(iso: string, timeZone: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone }).format(new Date(iso));
+  } catch {
+    return new Date(iso).toLocaleDateString("en-AU");
+  }
+}
+
+export function EPasskeySection({ variant = "default", timeZone = "Australia/Sydney", readOnlyReason = null }: EPasskeySectionProps = {}) {
+  const profile = variant === "profile";
   const [supported, setSupported] = React.useState(false);
+  const [checked, setChecked] = React.useState(false);
+  const [loadFailed, setLoadFailed] = React.useState(false);
   const [devices, setDevices] = React.useState<BiometricDevice[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [enrolling, setEnrolling] = React.useState(false);
@@ -50,9 +75,12 @@ export function EPasskeySection() {
     try {
       const res = await fetch("/api/auth/webauthn/credentials", { cache: "no-store" });
       const body = await res.json().catch(() => ({}));
-      if (res.ok && Array.isArray(body?.devices)) setDevices(body.devices as BiometricDevice[]);
+      if (res.ok && Array.isArray(body?.devices)) {
+        setDevices(body.devices as BiometricDevice[]);
+        setLoadFailed(false);
+      } else setLoadFailed(true);
     } catch {
-      /* non-fatal */
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -66,15 +94,19 @@ export function EPasskeySection() {
         const hasPlatform = await platformAuthenticatorIsAvailable().catch(() => false);
         if (!active || !hasPlatform) return;
         setSupported(true);
-        await loadDevices();
+        if (!profile) await loadDevices();
       } catch {
         /* unsupported */
+      } finally {
+        if (active) setChecked(true);
       }
     })();
+    // The profile card lists passkeys already added whatever this browser supports.
+    if (profile) void loadDevices();
     return () => {
       active = false;
     };
-  }, [loadDevices]);
+  }, [loadDevices, profile]);
 
   async function enroll() {
     setEnrolling(true);
@@ -128,6 +160,74 @@ export function EPasskeySection() {
     } finally {
       setEnrolling(false);
     }
+  }
+
+  if (profile) {
+    return (
+      <ECard id="passkeys" className="scroll-mt-24">
+        <ECardBody className="space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h2 className="text-[1rem] font-semibold">Passkeys and devices</h2>
+              <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Sign in with your fingerprint or face. A passkey sign-in does not ask for two-step.</p>
+            </div>
+            <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{loading ? "–" : loadFailed ? "Not loaded" : `${devices.length} added`}</span>
+          </div>
+          {loading ? (
+            <p role="status" className="flex items-center gap-2 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading passkeys…
+            </p>
+          ) : loadFailed ? (
+            <div role="alert" className="flex flex-wrap items-center gap-2 text-[0.875rem]">
+              Your passkeys could not be loaded.
+              <EButton variant="outline" size="sm" onClick={() => void loadDevices()}>Try again</EButton>
+            </div>
+          ) : devices.length === 0 ? (
+            <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">No passkeys yet.</p>
+          ) : (
+            <ul className="divide-y divide-[hsl(var(--e-border))]">
+              {devices.map((device) => (
+                <li key={device.id} className="flex items-center justify-between gap-3 py-2.5">
+                  <span className="flex min-w-0 items-start gap-2.5">
+                    <Fingerprint aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--e-muted-foreground))]" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-[0.875rem] font-[550]">{device.deviceName || "Passkey"}</span>
+                      <span className="block text-[0.75rem] text-[hsl(var(--e-muted-foreground))] [overflow-wrap:anywhere]">
+                        added {shortWhen(device.createdAt, timeZone)}
+                        {device.lastUsedAt ? ` · last used ${shortWhen(device.lastUsedAt, timeZone)}` : " · not used yet"}
+                        {device.backedUp ? " · backed up" : ""}
+                      </span>
+                    </span>
+                  </span>
+                  <EButton variant="ghost" size="sm" className="shrink-0" disabled={Boolean(readOnlyReason) || removingId === device.id} onClick={() => setRemoveTarget(device)}>
+                    {removingId === device.id ? "Removing…" : "Remove…"}
+                  </EButton>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex flex-wrap items-center gap-3">
+            <EButton variant="outline" size="sm" onClick={() => void enroll()} disabled={!supported || enrolling || Boolean(readOnlyReason)}>
+              <Fingerprint className="h-4 w-4" />
+              {enrolling ? "Waiting for device…" : "Add this device"}
+            </EButton>
+            <span className="min-w-0 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              {readOnlyReason ?? (checked && !supported ? "This browser has no fingerprint or face sign-in, so it cannot be added here." : "Uses this device's fingerprint, face or passcode.")}
+            </span>
+          </div>
+        </ECardBody>
+        <EConfirmModal
+          open={Boolean(removeTarget)}
+          onClose={() => setRemoveTarget(null)}
+          tier="destructive"
+          title={`Remove ${removeTarget?.deviceName || "this passkey"}?`}
+          description="This device will need your password next time. This cannot be undone."
+          confirmLabel="Remove passkey"
+          loading={Boolean(removingId)}
+          onConfirm={removeDevice}
+        />
+      </ECard>
+    );
   }
 
   async function removeDevice() {

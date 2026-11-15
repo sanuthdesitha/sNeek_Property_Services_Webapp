@@ -3,6 +3,8 @@ import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/notifications/email";
+import { getAppSettings } from "@/lib/settings";
+import { buildDesignedEmail } from "@/lib/email-design/build-email";
 import { TRUSTED_DEVICE_COOKIE, isTrustedDevice, issueEmailTwoFaCode } from "@/lib/auth/twofactor";
 
 /**
@@ -37,10 +39,12 @@ export async function POST(req: NextRequest) {
 
     if (user.twoFactorMethod === "EMAIL") {
       const code = await issueEmailTwoFaCode(email);
+      // Fixed security email (design "twoFactorSignInCode"); the code is never in the subject.
+      const content = buildDesignedEmail(await getAppSettings(), "twoFactorSignInCode", { code, expiryMinutes: "10" });
       await sendEmail({
         to: email,
-        subject: "Your sNeek Ops sign-in code",
-        html: `<p>Your sign-in code is <strong style="font-size:22px;letter-spacing:2px">${code}</strong></p><p>It expires in 10 minutes. If you didn't try to sign in, ignore this email.</p>`,
+        subject: content.subject,
+        html: content.html,
         transactional: true,
         // 2FA sign-in code — must never be silenced by audience controls.
         critical: true,

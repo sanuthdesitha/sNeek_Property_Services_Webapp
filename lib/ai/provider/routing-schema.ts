@@ -132,6 +132,18 @@ export const DEFAULT_AI_ROUTING: AiRoutingSettings = {
   prices: [],
 };
 
+type CloudImageSwitches = { features: Readonly<Record<AiFeature, { allowCloudImages: boolean }>> };
+
+/**
+ * Features whose "photos may leave the server" switch goes from off in
+ * `before` to on in `after` (owner decision 2026-11-14: turning it on needs
+ * the administrator's own PIN; turning it off never does). The screen uses it
+ * to decide when to ask for the PIN, the server to decide when to verify it.
+ */
+export function cloudImageFeaturesTurnedOn(before: CloudImageSwitches, after: CloudImageSwitches): AiFeature[] {
+  return AI_FEATURES.filter((feature) => !before.features[feature]?.allowCloudImages && after.features[feature]?.allowCloudImages === true);
+}
+
 /** What the settings screen sends: the routing without the server-owned revision. */
 export const aiRoutingSaveSchema = z.object({
   expectedRevision: z.number().int().nonnegative(),

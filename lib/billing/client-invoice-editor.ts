@@ -125,6 +125,23 @@ async function readSendPanel(invoice: LoadedInvoice): Promise<EditorSendPanel> {
   }
 }
 
+/** "Not billed: no rate" jobs recorded on the draft by New invoice (metadata.notBilled); unreadable entries are skipped. */
+function readNotBilled(metadata: unknown): NonNullable<ClientInvoiceEditorData["notBilled"]> {
+  const list = metadata && typeof metadata === "object" ? (metadata as { notBilled?: unknown }).notBilled : undefined;
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const row = entry as Record<string, unknown>;
+    if (typeof row.jobId !== "string") return [];
+    return [{
+      jobId: row.jobId,
+      jobNumber: typeof row.jobNumber === "string" ? row.jobNumber : null,
+      propertyName: typeof row.propertyName === "string" ? row.propertyName : null,
+      scheduledDate: typeof row.scheduledDate === "string" ? row.scheduledDate : null,
+    }];
+  });
+}
+
 export async function loadClientInvoiceEditor(
   id: string,
   options: { canManage: boolean; now?: Date },
@@ -160,6 +177,7 @@ export async function loadClientInvoiceEditor(
     totalsMismatch: invoice.totalsMismatch,
     clientNote: invoice.clientNote ?? null,
     startedWorkUnreadable: readStartedWorkReviewSafely(invoice.metadata).error,
+    notBilled: readNotBilled(invoice.metadata),
     lines: invoice.lines.map((line) => toEditorLine(line, timezone, startedWork)),
     clientProperties: properties.map((property) => ({ id: property.id, name: property.name, suburb: property.suburb ?? null })),
     editLock: invoiceEditLock(invoice, options.canManage),

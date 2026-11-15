@@ -1,3 +1,5 @@
+import { buildDesignedEmail } from "@/lib/email-design/build-email";
+
 /**
  * The QA result email a cleaner actually receives.
  *
@@ -149,19 +151,22 @@ export function buildQaResultEmail(input: QaResultEmailInput): BuiltEmail {
     { label: "Critical", count: counts.CRITICAL, each: input.deductions?.critical },
   ].filter((r) => r.count > 0);
 
+  // Built fragments for the "qaResult" design (lib/email-design). Every value
+  // is escaped here; the sn-* classes let the dark palette apply to them too.
+  const cell = "padding:6px 0;border-bottom:1px solid #E4DED2;font-size:14px;line-height:1.5";
   const breakdownHtml = rows.length
-    ? `<table style="width:100%;border-collapse:collapse;font-size:13px;margin:8px 0 0;">
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse">
         <tr>
-          <th align="left" style="padding:5px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:.06em;">Finding</th>
-          <th align="right" style="padding:5px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:.06em;">Count</th>
-          <th align="right" style="padding:5px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:.06em;">Effect</th>
+          <th align="left" class="sn-mu sn-ln" style="${cell};font-size:11.5px;font-weight:600;color:#5B6660">Finding</th>
+          <th align="right" class="sn-mu sn-ln" style="${cell};font-size:11.5px;font-weight:600;color:#5B6660">Count</th>
+          <th align="right" class="sn-mu sn-ln" style="${cell};font-size:11.5px;font-weight:600;color:#5B6660">Effect</th>
         </tr>
         ${rows
           .map(
             (r) => `<tr>
-              <td style="padding:6px 8px;border-bottom:1px solid #f1f3f2;color:#374151;">${esc(r.label)}</td>
-              <td align="right" style="padding:6px 8px;border-bottom:1px solid #f1f3f2;color:#374151;">${r.count}</td>
-              <td align="right" style="padding:6px 8px;border-bottom:1px solid #f1f3f2;color:#374151;">${
+              <td class="sn-tx sn-ln" style="${cell};color:#36423C">${esc(r.label)}</td>
+              <td align="right" class="sn-tx sn-ln" style="${cell};color:#36423C">${r.count}</td>
+              <td align="right" class="sn-tx sn-ln" style="${cell};color:#36423C">${
                 r.each != null ? `&minus;${esc(r.count * r.each)}` : "&mdash;"
               }</td>
             </tr>`
@@ -170,90 +175,52 @@ export function buildQaResultEmail(input: QaResultEmailInput): BuiltEmail {
       </table>`
     : "";
 
-  // ── The findings themselves, with QA's markup ─────────────────────────────
   const issuesHtml = input.issues
     .map((issue) => {
       const style = issueStyle(issue);
-      return `<tr><td style="padding:0 0 14px;">
-        <table style="width:100%;border:1px solid #e5e7eb;border-radius:10px;border-collapse:separate;">
-          <tr><td style="padding:12px 14px;">
-            <span style="display:inline-block;padding:2px 9px;border-radius:9999px;background:${style.bg};color:${style.ink};font-size:11px;font-weight:700;">${esc(style.label)}</span>
-            <strong style="margin-left:8px;color:#111827;font-size:13px;">${esc(issue.categoryLabel)}</strong>
+      return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="sn-ln" style="border-collapse:separate;border:1px solid #E4DED2;border-radius:8px;margin:0 0 10px"><tr><td style="padding:10px 14px">
+            <span style="display:inline-block;padding:1px 8px;border-radius:999px;background:${style.bg};color:${style.ink};font-size:11px;font-weight:700">${esc(style.label)}</span>
+            <strong class="sn-ink" style="margin-left:6px;color:#17221D;font-size:14px">${esc(issue.categoryLabel)}</strong>
             ${
               issue.guestReadyImpact
-                ? `<span style="display:inline-block;margin-left:6px;padding:2px 8px;border-radius:9999px;background:#fef3c7;color:#92400e;font-size:10.5px;font-weight:700;">Guest-ready impact</span>`
+                ? `<span style="display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;background:#FBF0D9;color:#6A4710;font-size:11px;font-weight:700">Guest-ready impact</span>`
                 : ""
             }
-            <p style="margin:8px 0 0;color:#4b5563;font-size:13px;line-height:1.5;">${esc(issue.description)}</p>
+            <p class="sn-tx" style="margin:6px 0 0;color:#36423C;font-size:14px;line-height:1.5">${esc(issue.description)}</p>
             ${
               issue.photoUrl
-                ? `<img src="${esc(issue.photoUrl)}" alt="What the inspector marked" style="margin-top:10px;max-width:260px;width:100%;border-radius:8px;border:1px solid #e5e7eb;" />`
+                ? `<img src="${esc(issue.photoUrl)}" width="260" alt="What the inspector marked" style="display:block;margin-top:8px;width:100%;max-width:260px;height:auto;border:0;border-radius:6px">`
                 : ""
             }
-          </td></tr>
-        </table>
-      </td></tr>`;
+          </td></tr></table>`;
     })
     .join("");
 
   const focus = buildImprovementFocus(input.issues);
-  const focusHtml = focus.length
-    ? `<div style="margin:18px 0 0;padding:14px 16px;background:#f7f9f8;border:1px solid #e4e9e6;border-radius:10px;">
-        <p style="margin:0 0 6px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#7c8b85;">What to focus on next</p>
-        <ul style="margin:0;padding-left:18px;color:#374151;font-size:13px;line-height:1.6;">
-          ${focus.map((f) => `<li>${esc(f)}</li>`).join("")}
-        </ul>
-        ${
-          input.coachingNote
-            ? `<p style="margin:10px 0 0;color:#4b5563;font-size:13px;line-height:1.5;white-space:pre-wrap;">${esc(input.coachingNote)}</p>`
-            : ""
-        }
-      </div>`
-    : input.coachingNote
-      ? `<div style="margin:18px 0 0;padding:14px 16px;background:#f7f9f8;border:1px solid #e4e9e6;border-radius:10px;">
-          <p style="margin:0;color:#4b5563;font-size:13px;line-height:1.5;white-space:pre-wrap;">${esc(input.coachingNote)}</p>
-        </div>`
-      : "";
-
   const headline = input.passed ? "Your clean passed inspection" : "Your clean needs attention";
-
-  const html = `<div style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#10221c;max-width:620px;">
-    <div style="background:#10221c;color:#fff;border-radius:14px;padding:22px 24px;">
-      <p style="margin:0 0 6px;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#a8874e;">Quality assurance</p>
-      <h1 style="margin:0;font-size:20px;font-weight:600;">${esc(headline)}</h1>
-      <p style="margin:6px 0 0;font-size:13px;color:#c9d4cf;">
-        ${esc(input.propertyName ?? "Your job")}${input.jobDateLabel ? ` &middot; ${esc(input.jobDateLabel)}` : ""}${input.jobNumber ? ` &middot; Job ${esc(input.jobNumber)}` : ""}
-      </p>
-    </div>
-
-    <p style="margin:18px 0 0;font-size:15px;color:#111827;">
-      Score <strong>${score}%</strong>${ratingLabel ? ` &middot; ${esc(ratingLabel)}` : ""}
-    </p>
-    ${
-      input.managementReview
-        ? `<p style="margin:8px 0 0;font-size:13px;color:#b45309;">A critical finding means this inspection goes to management review.</p>`
-        : ""
-    }
-    ${breakdownHtml}
-
-    ${
-      issuesHtml
-        ? `<h2 style="margin:22px 0 10px;font-size:14px;color:#10221c;border-bottom:1px solid #e4e9e6;padding-bottom:6px;">What was found</h2>
-           <table style="width:100%;border-collapse:collapse;">${issuesHtml}</table>`
-        : `<p style="margin:18px 0 0;font-size:13px;color:#4b5563;">No specific issues were recorded against this clean.</p>`
-    }
-
-    ${focusHtml}
-
-    <p style="margin:22px 0 0;">
-      <a href="${esc(input.qualityUrl)}" style="display:inline-block;background:#10221c;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-size:13px;">See the full feedback</a>
-      ${
-        input.reportUrl
-          ? `<a href="${esc(input.reportUrl)}" style="display:inline-block;margin-left:8px;color:#10221c;text-decoration:underline;font-size:13px;">Download the report</a>`
-          : ""
-      }
-    </p>
-  </div>`;
+  const jobLine = `${input.propertyName ?? "Your job"}${input.jobDateLabel ? ` · ${input.jobDateLabel}` : ""}${input.jobNumber ? ` · Job ${input.jobNumber}` : ""}`;
+  const issuesText = input.issues.length
+    ? input.issues.map((i) => `- [${i.failVerdict ? issueStyle(i).label.toUpperCase() : String(i.severity).toUpperCase()}] ${i.categoryLabel}: ${i.description}`).join("\n")
+    : "No specific issues were recorded against this clean.";
+  const designed = buildDesignedEmail({ companyName: input.companyName }, "qaResult", {
+    headline,
+    jobLine,
+    scoreLabel: `${score}%`,
+    ratingLabel: ratingLabel ?? "",
+    resultLabel: input.passed ? "passed" : "needs attention",
+    statusNote: input.managementReview ? "A critical finding means this inspection goes to management review." : "",
+    breakdown: breakdownHtml,
+    issuesList: issuesHtml
+      ? `<p class="sn-ink" style="margin:0 0 8px;font-weight:600;color:#17221D">What was found</p>${issuesHtml}`
+      : `<p class="sn-tx" style="margin:0;color:#36423C">No specific issues were recorded against this clean.</p>`,
+    issuesText,
+    focusLine: focus.join(", "),
+    coachingNote: input.coachingNote ?? "",
+    qualityUrl: input.qualityUrl,
+    reportUrl: input.reportUrl ?? "",
+    whereSuffix: where,
+  });
+  const html = designed.html;
 
   // Plain-text fallback carries the same substance — some cleaners read mail in
   // clients that strip HTML, and "you failed" with no detail is the defect.
@@ -277,5 +244,5 @@ export function buildQaResultEmail(input: QaResultEmailInput): BuiltEmail {
     `See the full feedback: ${input.qualityUrl}`,
   ];
 
-  return { subject, html, text: textLines.join("\n") };
+  return { subject: designed.subject || subject, html, text: textLines.join("\n") };
 }

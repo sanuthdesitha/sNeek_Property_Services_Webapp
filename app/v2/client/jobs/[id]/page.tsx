@@ -1,4 +1,5 @@
 import { JobStatusProgress } from "@/components/shared/job-status-progress";
+import { tourTarget } from "@/lib/tutorials/targets";
 import { clientMaySeeJobCosts } from "@/lib/client/job-response";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -703,7 +704,7 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
 
       {/* Before/after gallery — report media on completed jobs */}
       {galleryEligible && galleryMedia.length > 0 ? (
-        <ECard>
+        <ECard {...tourTarget("client.report.photos")}>
           <ECardHeader>
             <ECardTitle className="flex items-center gap-2 text-[1rem]">
               <FileText className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Photo gallery

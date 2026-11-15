@@ -61,6 +61,8 @@ export function MediaSection({ content, setContent, readOnly, uploadingKey, hand
           >
             <EImageField
               label="Primary image"
+              path={`gallery.items[${index}].imageUrl`}
+              altPath={`gallery.items[${index}].imageAlt`}
               value={item.imageUrl}
               alt={item.imageAlt}
               disabled={readOnly}
@@ -72,6 +74,8 @@ export function MediaSection({ content, setContent, readOnly, uploadingKey, hand
             <div className="grid gap-4 lg:grid-cols-2">
               <EImageField
                 label="Before image"
+                path={`gallery.items[${index}].beforeImageUrl`}
+                altPath={`gallery.items[${index}].imageAlt`}
                 value={item.beforeImageUrl ?? ""}
                 alt={item.imageAlt}
                 disabled={readOnly}
@@ -82,6 +86,8 @@ export function MediaSection({ content, setContent, readOnly, uploadingKey, hand
               />
               <EImageField
                 label="After image"
+                path={`gallery.items[${index}].afterImageUrl`}
+                altPath={`gallery.items[${index}].imageAlt`}
                 value={item.afterImageUrl ?? ""}
                 alt={item.imageAlt}
                 disabled={readOnly}

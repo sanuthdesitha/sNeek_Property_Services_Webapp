@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { BlogPostPage } from "@/components/public/blog-page";
-import { getPublishedBlogPostBySlug, listPublishedBlogPosts } from "@/lib/public-site/blog";
+import { getPublishedBlogPostBySlug } from "@/lib/public-site/blog";
 import { getAppSettings } from "@/lib/settings";
 import { requireWebsitePageEnabled } from "@/lib/public-site/routing";
 
@@ -9,10 +9,8 @@ export const dynamic = "force-dynamic";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://sneekproservices.com.au";
 
-export async function generateStaticParams() {
-  const posts = await listPublishedBlogPosts();
-  return posts.map((post) => ({ slug: post.slug }));
-}
+// No static params: every post page renders per request so a scheduled
+// post is never prerendered before its publish time (lib/public-site/blog-visibility).
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
   const post = await getPublishedBlogPostBySlug(params.slug);

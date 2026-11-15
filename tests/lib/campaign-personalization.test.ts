@@ -7,7 +7,7 @@ vi.mock("@/lib/db", () => ({ db: {
 } }));
 vi.mock("@/lib/notifications/email", () => ({ sendEmailDetailed: m.email }));
 vi.mock("@/lib/notifications/sms", () => ({ sendSmsDetailed: m.sms }));
-vi.mock("@/lib/email/suppression", () => ({ isSuppressed: m.suppressed }));
+vi.mock("@/lib/email/suppression", () => ({ isSuppressed: m.suppressed, isMarketingSuppressed: m.suppressed }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ accountsEmail: "office@example.invalid" }) }));
 vi.mock("@/lib/marketing/segments", () => ({ isSegmentId: () => false, resolveSegment: vi.fn() }));
 import { renderCampaignContent } from "@/lib/marketing/campaign-render";

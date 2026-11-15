@@ -15,6 +15,9 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   try {
     const session = await requireSession();
+    if (session.impersonation) {
+      return NextResponse.json({ error: "Stop testing as someone else to change your own passkeys.", code: "ACTUAL_ACTOR_REQUIRED" }, { status: 403 });
+    }
     const { rpID, origin } = getRelyingParty(req.headers);
 
     const expectedChallenge = decodeChallengeCookie(
@@ -68,7 +71,7 @@ export async function POST(req: NextRequest) {
       return res;
     }
 
-    await db.webAuthnCredential.upsert({
+    const saved = await db.webAuthnCredential.upsert({
       where: { credentialId: credentialIdB64 },
       create: {
         userId: session.user.id,
@@ -90,6 +93,8 @@ export async function POST(req: NextRequest) {
         lastUsedAt: new Date(),
       },
     });
+
+    await db.auditLog.create({ data: { userId: session.user.id, action: "OWN_PASSKEY_ADDED", entity: "WebAuthnCredential", entityId: saved.id, after: { deviceName } } });
 
     const res = NextResponse.json({ verified: true, deviceName });
     res.cookies.delete(REGISTER_CHALLENGE_COOKIE);

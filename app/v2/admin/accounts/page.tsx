@@ -9,6 +9,14 @@ import { loadPeopleCounts } from "@/lib/people/counts";
 import { allowedPeopleTabs, normalizePeopleTab } from "@/lib/people/tabs";
 import { canActAs } from "@/lib/auth/roles";
 import { PeopleDirectory } from "@/components/v2/admin/people/people-directory";
+import { InvitePersonPage, type InvitePrefill } from "@/components/v2/admin/accounts/invite/invite-person-page";
+import { resolveAccountCreator } from "@/lib/accounts/account-creator";
+import { inviteRefusal, isAccountKind, type AccountKind } from "@/lib/accounts/create-account-rules";
+import { OPS_FEATURES } from "@/lib/rbac/ops-catalog";
+import { getSmsProviderState } from "@/lib/notifications/sms";
+import { getAppSettings } from "@/lib/settings";
+import { loadHirePreview } from "@/lib/hiring/hire";
+import type { Session } from "next-auth";
 
 export const metadata = { title: "People · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -26,8 +34,48 @@ export const dynamic = "force-dynamic";
  * /api/admin/people/cleaners, which forces the cleaners list), every other
  * tab Staff accounts. Accounts-only reads are skipped without that pack.
  */
+function firstParam(value: string | string[] | undefined): string | null {
+  const first = Array.isArray(value) ? value[0] : value;
+  return typeof first === "string" ? first : null;
+}
+
+/**
+ * `?invite=<role>` (board "Invite person", 2026-11-16): the Invite person page
+ * replaces the old dialog. Administrators only (the route refuses anyone else
+ * too); `&application=<id>` opens it filled from a Hiring application.
+ */
+async function renderInvitePage(session: Session, invite: string, applicationId: string | null) {
+  const creator = await resolveAccountCreator(session);
+  if (inviteRefusal(creator)) redirect("/v2/admin/access-denied");
+  const requested = invite.toUpperCase();
+  const initialKind: AccountKind = isAccountKind(requested) ? requested : "CLEANER";
+  const [clients, partners, sms, settings, preview] = await Promise.all([
+    db.client.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    db.laundrySupplier.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    getSmsProviderState(),
+    getAppSettings(),
+    applicationId ? loadHirePreview(applicationId, creator, isAccountKind(requested) ? requested : null).catch(() => null) : Promise.resolve(null),
+  ]);
+  const prefill: InvitePrefill | null = preview
+    ? { applicationId: preview.applicationId, name: preview.name, email: preview.email, phone: preview.phone, kind: preview.accountKind, refusal: preview.refusal }
+    : null;
+  return (
+    <InvitePersonPage
+      initialKind={initialKind}
+      clients={clients}
+      partners={partners}
+      opsAreas={OPS_FEATURES.map((feature) => ({ key: feature.key, label: feature.label }))}
+      smsReady={sms.provider !== "none" && Boolean(sms.configured)}
+      timeZone={settings.timezone || "Australia/Sydney"}
+      prefill={prefill}
+    />
+  );
+}
+
 export default async function PeoplePage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const invite = firstParam(searchParams?.invite);
+  if (invite) return renderInvitePage(session, invite, firstParam(searchParams?.application));
   const viewer = await resolveAccountsViewer(session.user);
   // Each tab is gated by its own pack on the server (ops-catalog
   // PEOPLE_TAB_FEATURES): Clients = clients, Cleaners = Staff accounts or

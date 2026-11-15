@@ -1,4 +1,5 @@
 "use client";
+import { tourTarget } from "@/lib/tutorials/targets";
 import { isDeviceStatusField } from "@/lib/forms/device-status";
 import { DeviceStatusInput } from "@/components/shared/device-status-input";
 
@@ -1113,6 +1114,7 @@ function FieldControl({
   // Admin preview / sandbox: a stand-in that never opens the camera or uploads.
   if (isUploadFieldType(field.type) && renderMode !== "live") {
     return (
+      <div {...tourTarget("cleaner.job.photoStrip")}>
       <SandboxMediaInput
         fieldId={String(field.id)}
         label={field.label || String(field.id)}
@@ -1123,6 +1125,7 @@ function FieldControl({
         kind={field.type === "video" ? "video" : field.type === "file" ? "file" : "image"}
         interactive={renderMode === "sandbox"}
       />
+      </div>
     );
   }
   // Media/upload fields → native capture.

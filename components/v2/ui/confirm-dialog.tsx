@@ -72,6 +72,8 @@ export type EConfirmDialogProps = {
   description?: React.ReactNode;
   /** Extra content after the description and reason (a form the action needs). */
   children?: React.ReactNode;
+  /** A choice the action needs, drawn after the description and BEFORE the reason (e.g. a mode). */
+  lead?: React.ReactNode;
   reason?: ConfirmReasonConfig;
   details?: ConfirmDetailsConfig;
   confirmLabel?: string;
@@ -105,6 +107,7 @@ export function EConfirmDialog({
   title,
   description,
   children,
+  lead,
   reason,
   details,
   confirmLabel = "Confirm",
@@ -221,6 +224,7 @@ export function EConfirmDialog({
       footer={footer}
       footerClassName="flex justify-end gap-2 max-sm:flex-col max-sm:gap-1"
     >
+      {lead}
       {reason ? (
         <EReasonPicker
           label={reason.label ?? "Reason"}
@@ -256,7 +260,7 @@ export function EConfirmDialog({
         <OwnPinFields
           {...ownPin.fieldProps}
           disabled={working}
-          autoFocus={!reason && !children}
+          autoFocus={!reason && !children && !lead}
           onSubmit={() => void submit()}
         />
       ) : null}

@@ -296,6 +296,22 @@ async function openCasesForReport(input: {
 }
 
 /**
+ * The submission's history entry (Damage report page, 2026-11-14): each
+ * submit and resubmit is kept, because a void clears `submittedAt` and the
+ * page must still say when the report was first sent. Best effort, after the
+ * commit: the submission already happened and must not fail over its log.
+ */
+async function recordDamageSubmission(reportId: string, userId: string, submission: { jobId: string; itemCount: number; photoCount: number }) {
+  try {
+    await db.auditLog.create({
+      data: { userId, jobId: submission.jobId, action: "DAMAGE_REPORT_SUBMITTED", entity: "DamageReport", entityId: reportId, after: { itemCount: submission.itemCount, photoCount: submission.photoCount } },
+    });
+  } catch (error) {
+    logger.error({ err: error, damageReportId: reportId }, "Damage report submitted, but its history entry could not be written");
+  }
+}
+
+/**
  * Commit the draft: persist the final items, mark it SUBMITTED, then open one
  * DAMAGE case per item so CP-7 raises the repairs.
  *
@@ -308,6 +324,7 @@ export async function submitDamageReport(input: {
   userId: string;
   items: DamageItemDraftInput[];
 }) {
+  let submission: { jobId: string; itemCount: number; photoCount: number } | null = null;
   const submitted = await db.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`damage-report:${input.reportId}`}))`;
     const prior = await tx.damageReport.findUnique({
@@ -320,12 +337,14 @@ export async function submitDamageReport(input: {
     const populated = input.items.filter(item => !isEmptyDamageItem(item));
     if (!populated.length) throw new Error("DAMAGE_REPORT_EMPTY");
     await saveDamageDraft({ ...input, items: populated }, tx);
+    submission = { jobId: prior.jobId, itemCount: populated.length, photoCount: populated.reduce((sum, item) => sum + (item.photos?.length ?? 0), 0) };
     return tx.damageReport.update({
       where: { id: input.reportId },
       data: { status: DamageReportStatus.SUBMITTED, submittedAt: new Date() },
       include: { ...REPORT_INCLUDE, job: { select: { property: { select: { clientId: true } } } } },
     });
   });
+  if (submission) await recordDamageSubmission(input.reportId, input.userId, submission);
   await ensureDamageReportVerification(input.reportId);
   await flattenReportPhotos(input.reportId, input.userId);
   const refreshed = await db.damageReport.findUniqueOrThrow({

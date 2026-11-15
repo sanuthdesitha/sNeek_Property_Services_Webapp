@@ -78,7 +78,8 @@ export function IssueCreditNoteDialog({ invoice, onClose }: { invoice: Pick<Invo
 
 const CREDITABLE = new Set(["SENT", "PART_PAID", "PAID"]);
 
-function useCreditableSearch(query: string) {
+/** Sent invoices that can still be credited, searched as the office types (shared with the New invoice panel). */
+export function useCreditableSearch(query: string) {
   const [rows, setRows] = useState<InvoiceRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

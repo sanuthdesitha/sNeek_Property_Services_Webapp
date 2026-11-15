@@ -124,7 +124,8 @@ describe("Calendar workspace", () => {
     expect(await screen.findByRole("menuitem", { name: /Move or reassign/ })).toHaveAttribute("aria-disabled", "true");
   });
 
-  it("keyboard move: dialog → server check → confirm → the reschedule endpoint only", async () => {
+// Changed 2026-11 (board "Everyday dialogs and sheets"): one move window with "Tell the client?"; the button names the result.
+  it("keyboard move: dialog → server check → confirm in the same window → the reschedule endpoint only", async () => {
     await renderWeek();
     await openMenuItem("Bondi Studio", "Move or reassign");
     fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-11-13" } });
@@ -132,12 +133,14 @@ describe("Calendar workspace", () => {
     const checkCall = callsTo("/api/admin/calendar/check-move")[0];
     expect(checkCall.body).toEqual({ jobId: "jane-job", toDate: "2026-11-13", fromCleanerId: null, toCleanerId: null });
     await answer(checkCall, checkResult());
-    expect(screen.getByRole("heading", { name: "Move Bondi Studio to Fri 13 Nov?" })).toBeVisible();
+    expect(screen.getByText("Move Bondi Studio to Fri 13 Nov?")).toBeVisible();
     expect(screen.getByText(/Clashes with Manly Loft/)).toBeVisible();
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Confirm move" })); });
+    // A date change: "Tell the client?" starts at Yes (owner default).
+    expect(screen.getByRole("radio", { name: /Yes, email Harbour/ })).toBeChecked();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Move to Fri 13 Nov" })); });
     const reschedule = callsTo("/reschedule/")[0];
     expect(reschedule.url).toBe("/api/admin/phase4/reschedule/jane-job/apply");
-    expect(reschedule.body).toEqual({ date: "2026-11-13", expectedUpdatedAt: "2026-11-01T00:00:00.000Z", reason: "Moved on the calendar" });
+    expect(reschedule.body).toEqual({ date: "2026-11-13", expectedUpdatedAt: "2026-11-01T00:00:00.000Z", reason: "Moved on the calendar", notifyClient: true });
     await answer(reschedule, { id: "jane-job" });
     expect(posts()).toEqual(["/api/admin/calendar/check-move", "/api/admin/phase4/reschedule/jane-job/apply"]);
     // The calendar is read again for the saved state.
@@ -161,7 +164,7 @@ describe("Calendar workspace", () => {
       plan: { reschedule: { date: "2026-11-13", expectedUpdatedAt: "2026-11-01T00:00:00.000Z" }, assign: { userIds: ["u2"], primaryUserId: "u2" } },
     }));
     expect(screen.getByRole("heading", { name: "Move Coogee Terrace to Fri 13 Nov, Aiko T.?" })).toBeVisible();
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Confirm move" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Move to Fri 13 Nov" })); });
     await answer(callsTo("/reschedule/")[0], { id: "free" });
     const assignCall = callsTo("/api/admin/jobs/free/assign")[0];
     expect(assignCall.body).toEqual({ userIds: ["u2"], primaryUserId: "u2" });
@@ -186,7 +189,7 @@ describe("Calendar workspace", () => {
     fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-11-13" } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Check move" })); });
     await answer(callsTo("/check-move")[0], checkResult());
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Confirm move" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Move to Fri 13 Nov" })); });
     await answer(callsTo("/reschedule/")[0], { error: "This job changed. Reload before rescheduling." }, 400);
     expect(screen.getByRole("alert")).toHaveTextContent("Not moved: This job changed. Reload before rescheduling.");
     expect(chip("Bondi Studio").closest("[data-drop-day]")).toHaveAttribute("data-drop-day", "2026-11-11");
@@ -198,7 +201,7 @@ describe("Calendar workspace", () => {
     fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-11-13" } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Check move" })); });
     await answer(callsTo("/check-move")[0], checkResult());
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Confirm move" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Move to Fri 13 Nov" })); });
     // Saving: a focus refresh lands with the job (and another) moved elsewhere.
     await act(async () => { window.dispatchEvent(new Event("focus")); });
     await answer(lastCalendar(), calendarResponse([

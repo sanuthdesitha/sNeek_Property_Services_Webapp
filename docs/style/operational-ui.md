@@ -316,3 +316,11 @@ Every confirm or delete prompt is one of three tiers, from the shared `EConfirmD
 - **Failures** keep the dialog open with the reason, details and any form, clear the credential and say "It was not recorded" (or the action's equivalent) with the server's reason in words, never a raw code. Fields, reason and credential freeze while saving.
 - Phone: a bottom sheet, Cancel as a text button above the full-width confirm, 44px targets, 16px inputs, the credential field kept above the keyboard.
 
+## Tutorials and page tours (2026-11-16, boards "Tutorials", "Phone tours", "Admin tours", "Tutorials settings")
+
+- A page with a tour keeps its tour current. Any visible change to it (a control added, moved, renamed or removed) updates the tour in the same change: new `version`, `since` on the changed steps, a release-note line, refreshed fingerprint. See AGENTS.md › Tutorials. The build test names the tour and says how to fix it.
+- Mark a control as a tour target with `{...tourTarget("<id>")}` from `lib/tutorials/targets.ts` (plain module, safe in server pages). It adds only `data-tour`; never change a control's behaviour, label or accessible name to suit a tour. A control shown in a desktop and a phone variant may carry the same id on both.
+- Steps: a 2 to 4 word title, at most 25 words, second person, one idea, the rule the system already enforces. The tip is a non-modal dialog ("Tour step 2 of 5"), Back / Next / Done, Skip tour, Don't show again; on phones a bottom card (a top card when the control is low). Reduced motion: nothing slides.
+- Urgent work defers tours: mark it with `data-tour-busy="<reason>"` (the cleaner job sets `clock` while the clock runs) or an unsaved editor with `data-unsaved="true"`. Open dialogs and sheets pause a running tour automatically.
+- Practice walkthroughs render the real components inside `PracticeBoundary` with sample records whose ids start `practice-` and whose names say "Practice". The guard stops every write in the browser (only the person's own tour progress passes). Never build a look-alike screen for practice.
+

@@ -196,6 +196,56 @@ describe("AI configuration page", () => {
     expect(JSON.parse(second[1].body).expectedRevision).toBe(5);
   });
 
+  // Owner decision 2026-11-14: a save that turns "photos may leave the
+  // server" on asks for the administrator's own PIN (tier C) and sends it
+  // with the routing; a refused PIN keeps the dialog, the reason and the draft.
+  it("asks for the PIN only when a save turns cloud photos on, and keeps the draft when it is refused", async () => {
+    const state = configuredState();
+    const allowed = { ...state, routing: { ...state.routing, revision: 4, features: { ...state.routing.features, photo_assign: { ...state.routing.features.photo_assign, allowCloudImages: true } } } };
+    const answers = [
+      () => json({ error: "That was not accepted. Check your PIN and try again. Nothing was saved.", code: "INVALID_SECURITY_VERIFICATION", needsCredential: true, features: ["photo_assign"] }, 423),
+      () => json(allowed),
+    ];
+    serve(state, (url, init) => (url.includes("/settings") && init?.method === "PUT" ? answers.shift()!() : undefined));
+    renderPage();
+    await screen.findByRole("heading", { name: "What AI does" });
+    fireEvent.click(screen.getByRole("button", { name: /Allow photos to go to Anthropic/ }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Allow photos" }));
+    await waitFor(() => expect(screen.queryByText("Blocked")).not.toBeInTheDocument());
+    fireEvent.click(screen.getAllByRole("button", { name: "Save changes" })[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Let photos leave this server?" });
+    expect(within(dialog).getByText(/Sensitive · your PIN/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Photo assignment \(Anthropic\)/)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter((call) => call[1]?.method === "PUT")).toHaveLength(0);
+    await waitFor(() => expect(within(dialog).getByLabelText("Your PIN")).toBeInTheDocument());
+    fireEvent.change(within(dialog).getByLabelText("Your PIN"), { target: { value: "0000" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save and allow photos" }));
+    expect(await within(dialog).findByText(/That was not accepted. Check your PIN and try again. Nothing was saved./)).toBeInTheDocument();
+    expect(screen.queryByText("Blocked")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Unsaved changes").length).toBeGreaterThan(0);
+    await waitFor(() => expect(within(dialog).getByLabelText("Your PIN")).toHaveValue(""));
+    fireEvent.change(within(dialog).getByLabelText("Your PIN"), { target: { value: "2468" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save and allow photos" }));
+    expect(await screen.findByText(/Saved. Changes apply to the next request/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Let photos leave this server?" })).not.toBeInTheDocument());
+    const puts = fetchMock.mock.calls.filter((call) => call[1]?.method === "PUT").map((call) => JSON.parse(call[1].body));
+    expect(puts.map((body) => body.security)).toEqual([{ pin: "0000" }, { pin: "2468" }]);
+    expect(puts[1].settings.features.photo_assign.allowCloudImages).toBe(true);
+  });
+
+  it("saves other changes without asking for a PIN", async () => {
+    const state = configuredState();
+    serve(state, (url, init) => (url.includes("/settings") && init?.method === "PUT" ? json({ ...state, routing: { ...state.routing, revision: 4 } }) : undefined));
+    renderPage();
+    await screen.findByRole("heading", { name: "What AI does" });
+    fireEvent.change(screen.getAllByLabelText("Requests per person per hour: Social post drafts")[0], { target: { value: "45" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Save changes" })[0]);
+    expect(await screen.findByText(/Saved. Changes apply to the next request/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    const put = fetchMock.mock.calls.find((call) => call[1]?.method === "PUT")!;
+    expect(JSON.parse(put[1].body)).not.toHaveProperty("security");
+  });
+
   it("freezes fields while saving and keeps a failed draft", async () => {
     let release: (value: Response) => void = () => undefined;
     serve(configuredState(), (url, init) => (url.includes("/settings") && init?.method === "PUT" ? new Promise<Response>((resolve) => { release = resolve; }) as unknown as Response : undefined));

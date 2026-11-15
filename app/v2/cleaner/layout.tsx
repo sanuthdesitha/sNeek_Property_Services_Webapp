@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { tourTarget } from "@/lib/tutorials/targets";
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
 import { LocationTracker } from "@/components/v2/cleaner/location-tracker";
 import { useMaintenanceSection } from "@/components/v2/portal/use-maintenance-section";
@@ -44,6 +45,8 @@ export default function V2CleanerLayout({ children }: { children: React.ReactNod
     const rail: NavItem[] = CLEANER_RAIL.map((item) => {
       const tab = tabFor(item.href);
       const base: NavItem = { href: item.href, label: item.label, icon: item.icon, group: item.group };
+      // The Pay tab is a registered tour target (cleaner.today tour, step 4).
+      if (item.href === "/v2/cleaner/pay") base.tour = tourTarget("cleaner.tabs.pay");
       if (tab) {
         // Tab entries carry the tab's sub-paths and the tab's combined badge.
         return withBadge({ ...base, tabActivePrefixes: tab.activePrefixes }, tabBadges[item.href]);

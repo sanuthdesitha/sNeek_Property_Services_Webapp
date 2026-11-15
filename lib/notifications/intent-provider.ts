@@ -1,4 +1,5 @@
 import "server-only";
+import { plainMessageEmail } from "@/lib/email-design/build-email";
 import { db } from "@/lib/db";
 import { canDeliverNotification } from "./preferences";
 import { audienceForRole, isChannelAllowed } from "./audience-controls";
@@ -24,7 +25,6 @@ const emailKinds: Record<NonNullable<NotificationEnvelope["category"]>, EmailAut
   account: "admin_alert", jobs: "job_reminder", laundry: "admin_alert", cases: "case_alert", reports: "report_delivery",
   quotes: "admin_alert", shopping: "inventory_update", billing: "auto_invoice", approvals: "admin_alert", ical: "ical_alert",
 };
-const htmlEscape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]!));
 
 /** One recipient/device per intent; do not retry a fan-out that partly succeeded. */
 export async function deliverProviderIntent(envelope: NotificationEnvelope): Promise<DeliveryAttemptOutcome> {
@@ -59,7 +59,7 @@ export async function deliverProviderIntent(envelope: NotificationEnvelope): Pro
     if (envelope.transport === "EMAIL") {
       if (!user.email) return { kind: "NOT_ACCEPTED", retryable: false, errorCode: "missing_email" };
       dispatchStarted = true;
-      const result = await sendEmailDetailed({ to: user.email, subject: envelope.subject ?? "Notification", html: envelope.emailHtml ?? `<p>${htmlEscape(envelope.body).replace(/\n/g, "<br>")}</p>`, kind: envelope.emailKind ?? emailKinds[envelope.category], audience, safeguard: safeguardMeta(envelope) });
+      const result = await sendEmailDetailed({ to: user.email, subject: envelope.subject ?? "Notification", html: envelope.emailHtml ?? plainMessageEmail({ subject: envelope.subject ?? "Notification", text: envelope.body }).html, kind: envelope.emailKind ?? emailKinds[envelope.category], audience, safeguard: safeguardMeta(envelope) });
       if (result.suppressed) return { kind: "SKIPPED", errorCode: `safeguard_${result.suppressed.reason.toLowerCase()}` };
       if (result.skipped) return { kind: "SKIPPED", errorCode: "email_preference_or_suppression" };
       if (result.ok && result.externalId) return { kind: "ACCEPTED", providerReference: result.externalId };

@@ -35,3 +35,10 @@
 - Exercise affected UI in Chromium at 390px and 1280px, light and dark. Check keyboard controls, overflow, draft retention, and errors. State what was actually inspected.
 - Update the relevant section and Change Log in `docs/SYSTEM.md`, plus the review record, in the same change. Report failures, skips, missing provider credentials, and unverified deployment honestly.
 - Preserve pre-existing edits and generated assets. Do not commit credentials, fixture data, browser output, or generated service workers. Deployment and external messages require appropriate authorization.
+
+## Tutorials
+
+- Every page with a tour lists its controls in `lib/tutorials/targets.ts`; the control carries `{...tourTarget("<id>")}` (one `data-tour` attribute, nothing else). Never point a tour at a CSS selector.
+- Any visible change to a page with a tour updates the tour in the same change: bump the tour `version` in `lib/tutorials/registry.ts`, set `since` on new or changed steps (they show once as What's new), add a line to `lib/tutorials/releases.ts`, and run `npx tsx scripts/tutorials/update-fingerprints.ts`. A change people cannot see takes `--no-visible-change <tourKey> "<reason>" "<name>"`; administrators read that reason in Settings › System › Tutorials.
+- `tests/lib/tutorials-up-to-date.test.ts` fails when a step's target is missing from the source or a page's registered targets change without the tour. Do not edit the fingerprint file by hand to silence it.
+- Practice screens run the real components inside `PracticeBoundary`; they never write. Step text stays at 25 words or fewer and repeats the rule the system enforces.

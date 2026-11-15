@@ -17,12 +17,14 @@ it("after replacing the primary cleaner, offers the client note unsent and sends
     initialAssignedIds={["u1"]} initialPrimaryId="u1" onAssigned={vi.fn()} />);
   fireEvent.click(screen.getByText("Jane"));
   fireEvent.click(screen.getByText("Aiko"));
-  await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Save assignment/ })); });
+  // Changed 2026-11: the shared assign dialog names the result ("Assign 1") and reads leave and documents first.
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: /^Assign 1/ })); });
   expect(screen.getByRole("heading", { name: "Tell the client their cleaner changed?" })).toBeVisible();
-  expect(fetcher).toHaveBeenCalledTimes(1);
+  const writes = () => fetcher.mock.calls.filter((call) => !String(call[0]).startsWith("/api/admin/jobs/assign-facts"));
+  expect(writes()).toHaveLength(1);
   fireEvent.change(screen.getByDisplayValue("Your cleaner changed"), { target: { value: "New cleaner tomorrow" } });
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send to client" })); });
-  const [url, init] = fetcher.mock.calls[1] as unknown as [string, RequestInit];
+  const [url, init] = writes()[1] as unknown as [string, RequestInit];
   expect(url).toBe("/api/admin/clients/c1/communications/send");
   expect(JSON.parse(String(init.body))).toMatchObject({ stage: "CLEANER_REASSIGNED", jobId: "j1", override: { subject: "New cleaner tomorrow", html: "<p>Hi</p>" } });
 });

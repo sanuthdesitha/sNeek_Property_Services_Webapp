@@ -4,6 +4,15 @@ import { DamageVoidMode, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { getDamageInvestigationForAdmin } from "@/lib/damage/investigation";
+import { getDamageClientPreview, getDamageRecordForAdmin } from "@/lib/damage/record";
+import {
+  DamageReleaseNoticeRefused,
+  assertDamageReleaseNoticeSendable,
+  damageReleaseNoticeSchema,
+  previewDamageReleaseNotice,
+  sendDamageReleaseNotice,
+  type DamageReleaseNoticeResult,
+} from "@/lib/damage/release-notice";
 import { setDamageItemCost, reviewDamageReport } from "@/lib/damage/review";
 import { voidDamageReport } from "@/lib/damage/void";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
@@ -12,7 +21,11 @@ import { getValidationErrorMessage } from "@/lib/validations/errors";
  * D2 — the admin investigation page.
  *
  *   GET   — the full report: items, flattened annotated photos, live case and
- *           maintenance status from CP-7, and the transition timeline.
+ *           maintenance status from CP-7, and the transition timeline, with the
+ *           record page's context (job, client, check code, estimate total and
+ *           coverage, history). `?view=client` is "Preview as the client": the
+ *           CLIENT view model, nothing office-only. `?view=release-notice` is
+ *           what "Tell the client" would send, and to whom.
  *   PATCH — either set an item's cost, or record a review and release/retract
  *           the report to the client.
  *
@@ -35,6 +48,12 @@ const patchSchema = z.union([
     release: z.boolean(),
     /** Close the report outright rather than leaving it under review. */
     close: z.boolean().optional(),
+    /**
+     * Release only: tell the client, with transports chosen explicitly
+     * (catalog client.damage_released). Omitted or no transports = silent,
+     * as before.
+     */
+    notice: damageReleaseNoticeSchema.optional(),
   }),
   z.object({
     action: z.literal("VOID"),
@@ -63,6 +82,11 @@ function errorResponse(err: unknown) {
         { error: "This report is still a draft — the cleaner has not submitted it yet." },
         { status: 409 }
       );
+    case "DAMAGE_RELEASE_NOTICE_IMPERSONATING":
+      return NextResponse.json(
+        { error: "Messages cannot be sent while testing as someone else. Untick the message, or stop testing." },
+        { status: 403 }
+      );
     case "DAMAGE_COST_INVALID":
       return NextResponse.json({ error: "Enter a cost of zero or more." }, { status: 400 });
     default:
@@ -73,13 +97,23 @@ function errorResponse(err: unknown) {
   }
 }
 
-export async function GET(_req: Request, { params }: { params: { reportId: string } }) {
+export async function GET(req: Request, { params }: { params: { reportId: string } }) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const report = await getDamageInvestigationForAdmin(params.reportId);
-    if (!report) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    return NextResponse.json({ report });
+    const view = new URL(req.url).searchParams.get("view");
+    if (view === "client") {
+      const preview = await getDamageClientPreview(params.reportId);
+      if (!preview) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return NextResponse.json({ report: preview, audience: "CLIENT" });
+    }
+    if (view === "release-notice") {
+      return NextResponse.json({ notice: await previewDamageReleaseNotice(params.reportId) });
+    }
+    const record = await getDamageRecordForAdmin(params.reportId);
+    if (!record) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ report: record.report, context: record.context });
   } catch (err) {
+    if (err instanceof DamageReleaseNoticeRefused) return NextResponse.json({ error: err.message }, { status: err.status });
     return errorResponse(err);
   }
 }
@@ -96,8 +130,9 @@ export async function PATCH(req: Request, { params }: { params: { reportId: stri
     }
     const body = patchSchema.parse(payload);
 
+    let notice: (DamageReleaseNoticeResult & { error?: string }) | null = null;
     if (body.action === "SET_COST") {
-      await setDamageItemCost({ itemId: body.itemId, estimatedCost: body.estimatedCost });
+      await setDamageItemCost({ itemId: body.itemId, estimatedCost: body.estimatedCost, reportId: params.reportId, actorUserId: session.user.id });
     } else if (body.action === "VOID") {
       // Tier C (2026-11-14): deductions may follow a damage report, so voiding
       // it needs the person's own PIN, verified here (who may void is unchanged).
@@ -110,19 +145,40 @@ export async function PATCH(req: Request, { params }: { params: { reportId: stri
         reason: body.reason,
       });
     } else {
+      const transports = body.release ? body.notice?.transports ?? [] : [];
+      if (transports.length > 0) {
+        // A message to the client is the real person's act; never while testing as someone else.
+        if (session.impersonation) throw new Error("DAMAGE_RELEASE_NOTICE_IMPERSONATING");
+        // Refuse before releasing, so a release never claims a message it could not send.
+        await assertDamageReleaseNoticeSendable(params.reportId, transports);
+      }
       await reviewDamageReport({
         reportId: params.reportId,
         reviewerUserId: session.user.id,
         release: body.release,
         close: body.close,
       });
+      if (transports.length > 0 && body.notice) {
+        // After the release has committed: a failed message never undoes it.
+        try {
+          notice = await sendDamageReleaseNotice({ actorId: session.user.id, reportId: params.reportId, request: body.notice });
+        } catch (error) {
+          notice = {
+            outcomes: [],
+            taken: false,
+            replayed: false,
+            error: error instanceof DamageReleaseNoticeRefused ? error.message : "Released, but the message could not be queued. Nothing was sent.",
+          };
+        }
+      }
     }
 
     // Re-read so the browser renders exactly what was stored rather than
     // optimistically guessing — cost and release both change derived state.
     const report = await getDamageInvestigationForAdmin(params.reportId);
-    return NextResponse.json({ report });
+    return NextResponse.json(notice ? { report, notice } : { report });
   } catch (err) {
+    if (err instanceof DamageReleaseNoticeRefused) return NextResponse.json({ error: err.message }, { status: err.status });
     return errorResponse(err);
   }
 }

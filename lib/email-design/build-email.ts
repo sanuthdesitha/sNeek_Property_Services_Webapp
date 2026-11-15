@@ -1,0 +1,36 @@
+/**
+ * Building a block-design email in code (routes and libraries that used to
+ * write their own HTML). The result is ready for sendEmailDetailed: the send
+ * path renders it again with the published version and Email look, and
+ * refuses it when a required value is empty.
+ */
+import { resolveAppUrl } from "@/lib/app-url";
+import { businessFromSettings, composeDesign, withSpec, type CompanySettingsLike } from "./compose";
+import { findEmailDesign as emailDesign } from "./all-designs";
+import { DEFAULT_EMAIL_THEME } from "./theme";
+
+export type BuiltDesignedEmail = { subject: string; html: string; text: string; missing: string[] };
+
+export function buildDesignedEmail(settings: CompanySettingsLike, key: string, values: Record<string, string>): BuiltDesignedEmail {
+  const definition = emailDesign(key);
+  if (!definition) throw new Error(`Unknown email design ${key}`);
+  const rendered = composeDesign(definition, definition.defaults, values, {
+    theme: DEFAULT_EMAIL_THEME,
+    business: businessFromSettings(settings),
+    appUrl: resolveAppUrl("/"),
+    mode: "send",
+    settings,
+  });
+  return { subject: rendered.subject, html: withSpec(rendered, { kind: "design", key, values }), text: rendered.text, missing: rendered.missing };
+}
+
+/**
+ * A message a person wrote (or a notice with no email wording), on the base
+ * layout as the "plainMessage" design: the text is escaped and keeps its line
+ * breaks. The subject stays the caller's.
+ */
+export function plainMessageEmail(input: { subject: string; text: string; greetingName?: string | null; settings?: CompanySettingsLike }): { subject: string; html: string } {
+  const greeting = input.greetingName === undefined ? "" : `Hi ${input.greetingName?.trim() || "there"},`;
+  const built = buildDesignedEmail(input.settings ?? { companyName: "sNeek Property Services" }, "plainMessage", { greeting, messageText: input.text });
+  return { subject: input.subject, html: built.html };
+}

@@ -122,9 +122,10 @@ describe("Day view drop changes the time", () => {
       plan: { reschedule: { date: "2026-11-11", expectedUpdatedAt: "2026-11-01T00:00:00.000Z", startTime: "10:45", dueTime: "14:45" }, assign: null },
     });
     expect(screen.getByRole("heading", { name: "Move Bondi Studio to Wed 11 Nov at 10:45?" })).toBeVisible();
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Confirm move" })); });
+    // Changed 2026-11: the confirm button names the result, and "Tell the client?" (default Yes for a time change) travels with it.
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Move to Wed 11 Nov 10:45" })); });
     expect(callsTo("/reschedule/")[0].body).toEqual({
-      date: "2026-11-11", expectedUpdatedAt: "2026-11-01T00:00:00.000Z", reason: "Moved on the calendar", startTime: "10:45", dueTime: "14:45",
+      date: "2026-11-11", expectedUpdatedAt: "2026-11-01T00:00:00.000Z", reason: "Moved on the calendar", startTime: "10:45", dueTime: "14:45", notifyClient: true,
     });
   });
 });

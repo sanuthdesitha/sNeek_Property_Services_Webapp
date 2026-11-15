@@ -3,6 +3,8 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/notifications/email";
+import { getAppSettings } from "@/lib/settings";
+import { buildDesignedEmail } from "@/lib/email-design/build-email";
 import { verifySensitiveAction, isSensitiveRefusal } from "@/lib/security/admin-verification";
 import { DelegatedActionDenied, requireDelegatedAction } from "@/lib/rbac/delegated-admin";
 
@@ -53,10 +55,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     // Best-effort heads-up to the user that their 2FA was reset by an admin.
     if (user.twoFactorEnabled) {
+      // Fixed security email (design "twoFactorResetByAdmin"); the name is escaped by the renderer.
+      const content = buildDesignedEmail(await getAppSettings(), "twoFactorResetByAdmin", { userName: user.name ?? "" });
       await sendEmail({
         to: user.email,
-        subject: "Two-step verification was reset",
-        html: `<p>Hi ${user.name || "there"},</p><p>An administrator turned off two-step verification on your sNeek account. You can sign in with your password, then set 2FA up again from your profile. If this wasn't expected, contact your administrator.</p>`,
+        subject: content.subject,
+        html: content.html,
         transactional: true,
         // Security notice about a 2FA reset — must never be silenced by audience controls.
         critical: true,

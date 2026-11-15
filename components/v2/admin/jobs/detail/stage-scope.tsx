@@ -77,8 +77,8 @@ export function StageScope({ data, stage, collapsed }: { data: JobPageData; stag
       </dl>
       {editable ? (
         <>
-          <JobDisclosure id="scope-extras" label="Add extra" description="Quote-style extras; the client is emailed the updated total.">
-            <JobExtrasPanel jobId={data.job.id} fixedPrice={data.job.fixedPrice} />
+          <JobDisclosure id="scope-extras" label="Add extra" description="Quote-style extras on the cleaner's checklist and the fixed price; the client is emailed only if you tick it.">
+            <JobExtrasPanel jobId={data.job.id} fixedPrice={data.job.fixedPrice} context={[data.job.jobNumber, data.propLabel].filter(Boolean).join(" · ")} />
           </JobDisclosure>
           <JobDisclosure id="scope-edit" label="Edit scope and notes" description="Notes, internal note, key pickup, tags, draft, notices and admin tasks.">
             <JobDetailManage job={data.manageJob} section="scope" />

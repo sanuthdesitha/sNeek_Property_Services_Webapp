@@ -4,6 +4,8 @@ import type { WebsiteContent } from "@/lib/public-site/content";
 import type { SectionProps } from "../types";
 import { ESectionCard, EField, EInput, ETextarea } from "../shared";
 import { EToggle, ESelectNative } from "@/components/v2/admin/settings/estate-form";
+import { EConfirmDialog } from "@/components/v2/ui/confirm-dialog";
+import { useState } from "react";
 
 const PAGE_KEYS: Array<{ key: keyof WebsiteContent["pageVisibility"]; label: string }> = [
   { key: "home", label: "Home" },
@@ -40,6 +42,9 @@ export function LayoutSection({ content, setContent, readOnly }: SectionProps) {
 
   const maint = content.maintenanceMode;
   const ab = content.announcementBar;
+  // Turning maintenance mode on is tier A (board "Website and blog"); switching
+  // it back off is the undo and needs no prompt. It takes effect on publish.
+  const [confirmMaintenance, setConfirmMaintenance] = useState(false);
 
   return (
     <div className="space-y-5">
@@ -67,7 +72,7 @@ export function LayoutSection({ content, setContent, readOnly }: SectionProps) {
             description="Replace the public site with a maintenance notice."
             disabled={readOnly}
             checked={maint.enabled}
-            onChange={(v) => setMaint({ enabled: v })}
+            onChange={(v) => (v ? setConfirmMaintenance(true) : setMaint({ enabled: false }))}
           />
           <EToggle
             label="Allow login while in maintenance"
@@ -84,6 +89,19 @@ export function LayoutSection({ content, setContent, readOnly }: SectionProps) {
           <ETextarea rows={3} value={maint.supportMessage} disabled={readOnly} onChange={(e) => setMaint({ supportMessage: e.target.value })} />
         </EField>
       </ESectionCard>
+
+      <EConfirmDialog
+        open={confirmMaintenance}
+        onClose={() => setConfirmMaintenance(false)}
+        tier="ordinary"
+        title="Turn on maintenance mode?"
+        description="Visitors see 'Back soon' instead of the site; quote requests stop. It starts when you save and publish; switch it off again to undo."
+        confirmLabel="Turn on maintenance mode"
+        onConfirm={() => {
+          setMaint({ enabled: true });
+          setConfirmMaintenance(false);
+        }}
+      />
 
       <ESectionCard
         title="Page container width"

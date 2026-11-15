@@ -38,6 +38,7 @@ import {
   type TodayJobView,
 } from "@/components/v2/cleaner/today/today-cards";
 import { toneNoticeClass } from "@/components/v2/ui/tone-band";
+import { tourTarget } from "@/lib/tutorials/targets";
 
 export const metadata = { title: "Today · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -207,15 +208,22 @@ export default async function CleanerTodayPage() {
         </div>
       ) : null}
 
-      <ClockStateCard state={clock} />
+      {/* data-tour-busy: tours never start while this cleaner's clock is running. */}
+      <div {...tourTarget("cleaner.today.clock")} data-tour-busy={clock.kind === "clocked-in" ? "clock" : undefined}>
+        <ClockStateCard state={clock} />
+      </div>
 
       {/* Today's brief before the jobs: reading it after the list is too late to plan the day. */}
       <DailyBriefing />
 
-      {nextJob ? <NextJobCard job={view(nextJob)} routeHref={isToday(nextJob) ? "/v2/cleaner/route" : null} /> : null}
+      {nextJob ? (
+        <div {...tourTarget("cleaner.today.nextJob")}>
+          <NextJobCard job={view(nextJob)} routeHref={isToday(nextJob) ? "/v2/cleaner/route" : null} />
+        </div>
+      ) : null}
 
       {offeredJobs.length > 0 ? (
-        <section aria-label="Job offers" className="space-y-2">
+        <section {...tourTarget("cleaner.today.offer")} aria-label="Job offers" className="space-y-2">
           {offeredJobs.map((job) => (
             <OfferCard key={job.id} job={view(job)} dayLabel={format(toZonedTime(job.scheduledDate, TZ), "EEE d MMM")} />
           ))}

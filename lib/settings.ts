@@ -1980,13 +1980,24 @@ export async function writeSchedulingRuleSettings(
   await tx.appSetting.upsert({ where: { key: "app" }, create: { key: "app", value }, update: { value } });
 }
 
-export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppSettings> {
+export async function saveAppSettings(
+  input: Partial<AppSettings>,
+  options: {
+    /**
+     * Runs on the CURRENT settings inside the write lock, before anything is
+     * written; throwing refuses the whole save (the website editor's
+     * stale-write check, lib/public-site/website-publish.ts).
+     */
+    guard?: (current: AppSettings) => void;
+  } = {}
+): Promise<AppSettings> {
   // Read-merge-write under the settings write lock, reading the CURRENT row in
   // the same transaction (a read failure now fails the save instead of merging
   // over defaults), and never writing the rule-owned scheduling fields.
   return db.$transaction(async (tx) => {
     await lockAppSettingsRow(tx);
     const current = await getTransactionAppSettings(tx);
+    options.guard?.(current);
     const merged = keepSchedulingRuleFields(mergeAppSettingsInput(current, input), current);
     await tx.appSetting.upsert({
       where: { key: "app" },

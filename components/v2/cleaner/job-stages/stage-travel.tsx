@@ -7,6 +7,7 @@
  * current ETA when the job already carries one, and an "I've arrived" action
  * that advances to Set up.
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import * as React from "react";
 import { SetupReferenceDisclosure } from "./stage-setup";
 import Link from "next/link";
@@ -74,7 +75,7 @@ export function StageTravel({ api }: { api: WorkspaceApi }) {
               Start &quot;On the way&quot; on your route to send the office a live ETA and let the guest know you&apos;re coming.
             </p>
           </div>
-          <Link href={`/v2/cleaner/route?jobId=${encodeURIComponent(job?.id || "")}`}>
+          <Link {...tourTarget("cleaner.job.startDriving")} href={`/v2/cleaner/route?jobId=${encodeURIComponent(job?.id || "")}`}>
             <EButton variant="outline">
               <Route className="h-4 w-4" /> {enRouteActive ? "Continue driving" : "Start driving"}
             </EButton>

@@ -20,6 +20,10 @@ export const SENSITIVE_ACTIONS = {
   // confirmation): deleting a cleaner's submitted invoice is tier C, confirmed
   // with the person's own PIN. Who may delete is unchanged (Payroll at Manage).
   "cleaner_invoices.delete": "Delete cleaners' submitted invoices",
+  // Owner decision 2026-11-14 ("do what's best"): allowing an AI feature to
+  // send photos to a cloud provider is tier C, confirmed with the
+  // administrator's own PIN. Turning it off needs no PIN.
+  "ai.cloud_photos": "Allow AI features to send photos off this server",
 } as const;
 export type SensitiveAction = keyof typeof SENSITIVE_ACTIONS;
 export type SensitiveGrants = Partial<Record<SensitiveAction, boolean>>;

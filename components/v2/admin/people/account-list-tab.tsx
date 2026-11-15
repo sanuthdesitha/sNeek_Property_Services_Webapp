@@ -98,6 +98,7 @@ function CleanerLinks({ capabilities }: { capabilities: PeopleCapabilities }) {
     ...(capabilities.canSeeWorkforce
       ? [
           { href: "/v2/admin/workforce/compliance", label: "Compliance" },
+          { href: "/v2/admin/workforce/leave", label: "Leave and availability" },
           { href: "/v2/admin/workforce/coaching", label: "Coaching" },
           { href: "/v2/admin/workforce/recognition", label: "Recognition" },
           { href: "/v2/admin/workforce/roster", label: "Roster" },

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { CoachingRecordStatus, CoachingRecordType, Prisma, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
+import { canRecordDismissal } from "@/lib/workforce/coaching-outcomes";
 import { db } from "@/lib/db";
 import { notifyCoachingCreated } from "@/lib/notifications/accountability";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
@@ -36,7 +37,7 @@ function errorStatus(err: any): number {
 
 export async function GET(req: NextRequest) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
     const { searchParams } = new URL(req.url);
     const cleanerId = searchParams.get("cleanerId") || undefined;
@@ -63,7 +64,9 @@ export async function GET(req: NextRequest) {
       ...(status ? { status } : {}),
     };
 
-    const [total, records] = await Promise.all([
+    // Status chips: real grouped totals for the same cleaner/type filter, any status.
+    const { status: _status, ...withoutStatus } = where;
+    const [total, records, grouped] = await Promise.all([
       db.coachingRecord.count({ where }),
       db.coachingRecord.findMany({
         where,
@@ -75,7 +78,9 @@ export async function GET(req: NextRequest) {
           createdBy: { select: { id: true, name: true, email: true } },
         },
       }),
+      db.coachingRecord.groupBy({ by: ["status"], where: withoutStatus, _count: { _all: true } }),
     ]);
+    const statusCounts = Object.fromEntries(grouped.map((row) => [row.status, row._count._all]));
 
     const rows = records.map((r) => ({
       id: r.id,
@@ -99,6 +104,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       records: rows,
       pagination: { total, take, skip, hasMore: skip + rows.length < total },
+      statusCounts,
+      // Only administrators record Suspended or Terminated (owner default 2026-11-16).
+      viewer: { canRecordDismissal: canRecordDismissal(session) },
     });
   } catch (err: any) {
     return NextResponse.json(

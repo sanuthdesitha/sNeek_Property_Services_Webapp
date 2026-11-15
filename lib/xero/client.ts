@@ -668,3 +668,45 @@ export async function readXeroAccountName(code: string, options: XeroReadOptions
     : undefined;
   return match ? { ok: true, name: match.Name } : { ok: false, reason: `Xero has no account with code ${code}.` };
 }
+
+// ── Contact lookup for Add client (read-only, 2026-11-16) ──
+
+/** One existing Xero contact as Add client lists it. */
+export type XeroContactSummary = { id: string; name: string; email: string | null; status: string };
+
+function contactSummaries(body: unknown): XeroContactSummary[] {
+  const list = body && typeof body === "object" ? (body as { Contacts?: unknown }).Contacts : undefined;
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((raw) => (raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null))
+    .filter((row): row is Record<string, unknown> => Boolean(row && typeof row.ContactID === "string" && typeof row.Name === "string"))
+    .map((row) => ({
+      id: String(row.ContactID),
+      name: String(row.Name),
+      email: typeof row.EmailAddress === "string" && row.EmailAddress ? String(row.EmailAddress) : null,
+      status: typeof row.ContactStatus === "string" ? String(row.ContactStatus) : "ACTIVE",
+    }));
+}
+
+/**
+ * Search existing Xero contacts by name or email: GET only, through the same
+ * token service as every other Xero read. Creates and changes nothing in Xero.
+ * Never throws: a failed read comes back with the reason.
+ */
+export async function searchXeroContacts(term: string, options: XeroReadOptions = {}): Promise<{ ok: true; contacts: XeroContactSummary[] } | { ok: false; reason: string }> {
+  const clean = term.trim().slice(0, 80);
+  if (clean.length < 2) return { ok: true, contacts: [] };
+  const query = new URLSearchParams({ searchTerm: clean, summaryOnly: "true", page: "1" });
+  const outcome = await xeroGet(`/api.xro/2.0/Contacts?${query.toString()}`, options);
+  if (!outcome.ok) return { ok: false, reason: outcome.failure.reason };
+  return { ok: true, contacts: contactSummaries(outcome.body).filter((row) => row.status !== "ARCHIVED").slice(0, 20) };
+}
+
+/** Read one Xero contact by id (GET only), to check a choice before linking it. */
+export async function readXeroContact(id: string, options: XeroReadOptions = {}): Promise<{ ok: true; contact: XeroContactSummary } | { ok: false; reason: string }> {
+  if (!/^[0-9a-fA-F-]{36}$/.test(id)) return { ok: false, reason: "That is not a Xero contact id." };
+  const outcome = await xeroGet(`/api.xro/2.0/Contacts/${encodeURIComponent(id)}`, options);
+  if (!outcome.ok) return { ok: false, reason: outcome.failure.reason };
+  const contact = contactSummaries(outcome.body).find((row) => row.id.toLowerCase() === id.toLowerCase());
+  return contact ? { ok: true, contact } : { ok: false, reason: "Xero did not return that contact." };
+}

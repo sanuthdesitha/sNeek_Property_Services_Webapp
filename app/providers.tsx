@@ -12,8 +12,9 @@ import { NativeDevicePushRegistration } from "@/components/shared/native-device-
 import { WebPushSubscriber } from "@/components/notifications/web-push-subscriber";
 import { AppInstallPrompt } from "@/components/shared/app-install-prompt";
 import { useEffect, useState } from "react";
+import type { OpsNavigationSeed } from "@/lib/rbac/ops-navigation-seed-types";
 
-export function Providers({ children, accountContext = null }: { children: React.ReactNode; accountContext?: string | null }) {
+export function Providers({ children, accountContext = null, opsSeed = null }: { children: React.ReactNode; accountContext?: string | null; opsSeed?: OpsNavigationSeed | null }) {
   const [queryClient] = useState(() => new QueryClient({
     defaultOptions: { queries: { staleTime: 60_000 } },
   }));
@@ -68,7 +69,7 @@ export function Providers({ children, accountContext = null }: { children: React
     <SessionProvider>
       <QueryClientProvider client={queryClient}>
         <ReturnSync onHardSync={() => setHardRefreshKey((current) => current + 1)} />
-        <OpsAccessProvider><div key={hardRefreshKey}>{children}</div></OpsAccessProvider>
+        <OpsAccessProvider seed={opsSeed}><div key={hardRefreshKey}>{children}</div></OpsAccessProvider>
         <GlobalRequestProgress />
         <LiveNotifications />
         {!accountContext ? <><NativeDevicePushRegistration /><WebPushSubscriber /></> : null}

@@ -428,6 +428,8 @@ const ADMIN_SECTIONS: Record<string, OpsFeature | "owner"> = {
   website: "website",
   "blog-posts": "website",
   settings: "settings",
+  // Settings › System › Tutorials API (2026-11-16): view with Settings; edits are ADMIN-only in the route.
+  tutorials: "settings",
   integrations: "integrations",
   ai: "ai",
   diagnostics: "system",
@@ -459,6 +461,8 @@ const SETTINGS_TABS: Record<string, OpsFeature | "owner"> = {
   // Scheduling rules (2026-11-14): viewing follows Settings; every change is
   // ADMIN (or the scheduling.rules_edit grant) plus the person's own PIN.
   "scheduling-rules": "settings",
+  // Tutorials (2026-11-16): operations managers view with Settings; only administrators edit.
+  tutorials: "settings",
   "property-form": "property-form",
   safeguards: "quality-settings",
   accountability: "quality-settings",

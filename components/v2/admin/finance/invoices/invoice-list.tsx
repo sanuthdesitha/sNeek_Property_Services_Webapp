@@ -9,6 +9,7 @@
  * next step and ⋯), filters behind "Filter", and "New invoice" docked at the
  * bottom (hidden while the bulk bar is up) opening a chooser sheet.
  */
+import { tourTarget } from "@/lib/tutorials/targets";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
@@ -17,6 +18,7 @@ import { EDataTable } from "@/components/v2/ui/data-table";
 import { EPagination } from "@/components/v2/ui/pagination";
 import { EPhoneActionBar } from "@/components/v2/ui/phone-bars";
 import { NewInvoiceSheet } from "./new-invoice-sheet";
+import { newInvoicePath } from "./new-invoice/new-invoice-format";
 import type { ClientInvoiceBulkResponse } from "@/lib/billing/client-invoice-list-types";
 import { InvoiceStats } from "./invoice-stats";
 import { InvoiceFilters } from "./invoice-filters";
@@ -38,13 +40,8 @@ import {
   INVOICE_PAGE_SIZE,
 } from "./use-invoice-list";
 
-/** Opens a "New invoice" dialog when the page is reached through that menu (?new=jobs|blank|credit). */
+/** Old links to the "New invoice" dialogs (?new=jobs|blank|credit) now open the New invoice panel. */
 const NEW_INVOICE_PARAM = "new";
-const NEW_INVOICE_DIALOGS = {
-  jobs: { kind: "generate" },
-  blank: { kind: "blank" },
-  credit: { kind: "new-credit-note" },
-} as const satisfies Record<string, InvoiceDialog>;
 
 function useFormContext(): InvoiceFormContext | null {
   const [context, setContext] = useState<InvoiceFormContext | null>(null);
@@ -94,22 +91,13 @@ export function InvoiceList() {
   }, [reload]);
   const xero = useListXeroRefresh(refresh);
 
-  // "New invoice → …" arrives as ?new=jobs, ?new=blank or ?new=credit.
+  // Old "New invoice → …" links (?new=jobs, ?new=blank or ?new=credit) open the New invoice panel.
   useEffect(() => {
-    if (!context || !payload || typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const requested = params.get(NEW_INVOICE_PARAM);
+    if (typeof window === "undefined") return;
+    const requested = new URLSearchParams(window.location.search).get(NEW_INVOICE_PARAM);
     if (requested !== "jobs" && requested !== "blank" && requested !== "credit") return;
-    params.delete(NEW_INVOICE_PARAM);
-    const query = params.toString();
-    window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
-    // "New invoice → Credit note" needs the void and credit notes capability (2026-11-13).
-    if (requested === "credit" && payload?.canVoidCredit === false) {
-      toast({ title: "Credit notes are not available to you", description: VOID_CREDIT_REFUSAL, variant: "destructive" });
-      return;
-    }
-    setDialog(NEW_INVOICE_DIALOGS[requested]);
-  });
+    router.replace(newInvoicePath(requested));
+  }, [router]);
 
   const runDirect = useCallback(
     async (invoice: InvoiceRow, work: () => Promise<void>) => {
@@ -226,7 +214,7 @@ export function InvoiceList() {
         </EButton>
       </div>
       <XeroRefreshResults run={xero.run} onDismiss={xero.dismiss} />
-      <ECard className="overflow-hidden">
+      <ECard {...tourTarget("admin.finance.invoices.list")} className="overflow-hidden">
         <EDataTable
           label="Client invoices"
           columns={columns}
@@ -288,7 +276,7 @@ export function InvoiceList() {
         open={newSheetOpen}
         onOpenChange={setNewSheetOpen}
         creditRefusal={payload?.canVoidCredit === false ? VOID_CREDIT_REFUSAL : null}
-        onContinue={(choice) => setDialog(NEW_INVOICE_DIALOGS[choice])}
+        onContinue={(choice) => router.push(newInvoicePath(choice))}
       />
     </div>
   );

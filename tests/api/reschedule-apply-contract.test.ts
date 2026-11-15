@@ -3,7 +3,8 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 const m = vi.hoisted(() => ({ auth: vi.fn(), apply: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.auth }));
-vi.mock("@/lib/phase4/analytics", () => ({ applyReschedule: m.apply }));
+// Changed 2026-11 (board "Everyday dialogs and sheets"): the route reports the client email outcome too.
+vi.mock("@/lib/phase4/analytics", () => ({ applyRescheduleWithNotice: async (input: unknown) => ({ job: await m.apply(input), clientNotice: { status: "not_asked" } }) }));
 import { POST } from "@/app/api/admin/phase4/reschedule/[jobId]/apply/route";
 const post = (body: unknown) => POST(new NextRequest("http://localhost", { method: "POST", body: JSON.stringify(body) }), { params: { jobId: "job" } });
 beforeEach(() => { vi.resetAllMocks(); m.auth.mockResolvedValue({ user: { id: "admin" } }); m.apply.mockResolvedValue({ id: "job", scheduledDate: "2026-10-07", startTime: null, dueTime: null }); });
@@ -13,6 +14,13 @@ it("forwards explicit time clearing, reviewer revision and trimmed reason withou
  expect(result.status).toBe(200); expect(m.auth).toHaveBeenCalledWith(["ADMIN", "OPS_MANAGER"]);
  expect(m.apply).toHaveBeenCalledWith({ jobId: "job", userId: "admin", date: "2026-10-07", startTime: null, dueTime: null, reason: "Changed guest arrival", expectedUpdatedAt });
  expect(await result.json()).toMatchObject({ id: "job", startTime: null, dueTime: null });
+});
+it("passes the explicit Tell the client answer and returns the email outcome", async () => {
+ const result = await post({ date: "2026-10-07", notifyClient: false });
+ expect(m.apply).toHaveBeenCalledWith(expect.objectContaining({ notifyClient: false }));
+ expect(await result.json()).toMatchObject({ id: "job", clientNotice: { status: "not_asked" } });
+ await post({ date: "2026-10-07" });
+ expect(m.apply).toHaveBeenLastCalledWith(expect.objectContaining({ notifyClient: undefined }));
 });
 it("omitted times remain undefined so service retains existing schedule details", async () => {
  expect((await post({ date: "2026-10-07" })).status).toBe(200);

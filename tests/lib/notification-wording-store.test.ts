@@ -30,7 +30,9 @@ vi.mock("@/lib/settings", async () => {
   };
 });
 
-import { saveWording, WordingConflictError, WordingInvalidError, wordingRowKey } from "@/lib/notifications/wording/store";
+import { getDefaultEmailTemplates } from "@/lib/email-templates";
+import { extractSpec } from "@/lib/email-design/spec";
+import { saveWording, WordingConflictError, WordingInvalidError, WordingMovedToDesignError, wordingRowKey } from "@/lib/notifications/wording/store";
 import { loadNotificationWording, renderNotificationWording } from "@/lib/notifications/wording/render";
 import { readTypeWording } from "@/lib/notifications/wording/read";
 import { wordingHash } from "@/lib/notifications/wording/template";
@@ -88,16 +90,20 @@ describe("saving versions", () => {
     expect([v5.version, sms.liveSource, sms.versions.map((version) => version.version)]).toEqual([5, "default", [1, 2, 3, 4, 5]]);
   });
 
-  it("an email-template part writes the shared template (Forms sees it) in its own syntax and keeps the history here", async () => {
+  it("an email-template part that moved onto the block layout refuses raw HTML, still sees Forms edits, and can be reset to the standard", async () => {
     const view = await readTypeWording("job.offer");
     const part = view!.parts.find((item) => item.transport === "EMAIL")!;
-    const saved = await saveWording({ typeKey: "job.offer", partId: "cleaner", transport: "EMAIL", kind: "EDIT", fields: { subject: "New job: {{propertyName}}", body: "<p>Hi {{userName}}</p>" }, expectedHash: part.liveHash, actor });
-    expect(m.saveSettings.mock.calls[0][0].emailTemplates.jobAssigned).toEqual({ subject: "New job: {propertyName}", html: "<p>Hi {userName}</p>" });
-    const after = (await readTypeWording("job.offer"))!.parts.find((item) => item.transport === "EMAIL")!;
-    expect([after.liveSource, after.live.subject, after.liveHash]).toEqual(["override", "New job: {{propertyName}}", saved.hash]);
+    // 2026-11-16: the shared templates are email designs; raw HTML is no longer saved through wording.
+    await expect(saveWording({ typeKey: "job.offer", partId: "cleaner", transport: "EMAIL", kind: "EDIT", fields: { subject: "New job: {{propertyName}}", body: "<p>Hi {{userName}}</p>" }, expectedHash: part.liveHash, actor })).rejects.toBeInstanceOf(WordingMovedToDesignError);
+    expect(m.saveSettings).not.toHaveBeenCalled();
     m.settings.emailTemplates = { ...m.settings.emailTemplates, jobAssigned: { subject: "Changed in Forms", html: "<p>x</p>" } };
-    expect((await readTypeWording("job.offer"))!.parts.find((item) => item.transport === "EMAIL")!.liveSource).toBe("forms");
-    await expect(saveWording({ typeKey: "job.offer", partId: "cleaner", transport: "EMAIL", kind: "EDIT", fields: { subject: "Mine", body: "<p>y</p>" }, expectedHash: saved.hash, actor })).rejects.toBeInstanceOf(WordingConflictError);
+    const edited = (await readTypeWording("job.offer"))!.parts.find((item) => item.transport === "EMAIL")!;
+    expect(edited.liveSource).toBe("forms");
+    // Reset writes the standard template back (in the shared template's own syntax), so the block design renders again.
+    const reset = await saveWording({ typeKey: "job.offer", partId: "cleaner", transport: "EMAIL", kind: "RESET", expectedHash: edited.liveHash, actor });
+    expect(reset.version).toBe(2);
+    expect(m.saveSettings.mock.calls[0][0].emailTemplates.jobAssigned).toEqual(getDefaultEmailTemplates().jobAssigned);
+    await expect(saveWording({ typeKey: "job.offer", partId: "cleaner", transport: "EMAIL", kind: "RESET", expectedHash: edited.liveHash, actor })).rejects.toBeInstanceOf(WordingConflictError);
   });
 });
 
@@ -105,13 +111,16 @@ describe("rendering overrides", () => {
   it("applies an override on every transport of a type (inbox, email, SMS)", async () => {
     const typeKey = "job.cleaner_day_reminder";
     const inbox = await saveWording({ typeKey, partId: "cleaner", transport: "INBOX", kind: "EDIT", fields: { title: "Today: {{propertyName}}", body: "Be at {{propertyName}} at {{when}}" }, expectedHash: defaultHash(typeKey, "cleaner", "INBOX"), actor });
-    await saveWording({ typeKey, partId: "cleaner", transport: "EMAIL", kind: "EDIT", fields: { subject: "Today: {{propertyName}}", body: "<p>{{propertyName}} &middot; {{when}}</p>" }, expectedHash: defaultHash(typeKey, "cleaner", "EMAIL"), actor });
+    // 2026-11-16: whole emails are block designs; the wording editor no longer saves their HTML.
+    await expect(saveWording({ typeKey, partId: "cleaner", transport: "EMAIL", kind: "EDIT", fields: { subject: "Today: {{propertyName}}", body: "<p>{{propertyName}} &middot; {{when}}</p>" }, expectedHash: defaultHash(typeKey, "cleaner", "EMAIL"), actor })).rejects.toBeInstanceOf(WordingMovedToDesignError);
     await saveWording({ typeKey, partId: "cleaner", transport: "SMS", kind: "EDIT", fields: { body: "{{when}}: {{propertyName}}" }, expectedHash: defaultHash(typeKey, "cleaner", "SMS"), actor });
     expect(inbox.version).toBe(2);
     const wording = await loadNotificationWording(typeKey);
     const values = { propertyName: "A&B <Loft>", when: "10:00" };
     expect(wording.render("cleaner", "INBOX", values)).toMatchObject({ title: "Today: A&B <Loft>", body: "Be at A&B <Loft> at 10:00" });
-    expect(wording.render("cleaner", "EMAIL", values)).toMatchObject({ subject: "Today: A&B <Loft>", html: "<p>A&amp;B &lt;Loft&gt; &middot; 10:00</p>" });
+    const email = wording.render("cleaner", "EMAIL", values);
+    expect(email.source).toBe("default");
+    expect(extractSpec(email.html).spec).toMatchObject({ kind: "design", key: "wording.job.cleaner_day_reminder.cleaner" });
     expect(wording.render("cleaner", "SMS", values).body).toBe("10:00: A&B <Loft>");
   });
 

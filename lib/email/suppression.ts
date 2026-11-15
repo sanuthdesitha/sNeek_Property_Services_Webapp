@@ -38,6 +38,39 @@ export async function isSuppressed(email: string): Promise<boolean> {
 }
 
 /**
+ * Campaign-only opt-out (one-click unsubscribe, 2026-11-16). Kept in the same
+ * address-keyed list with its own reason, which `isSuppressed` deliberately
+ * ignores: unsubscribing from campaigns must never stop job, invoice, account
+ * or security email. Only campaign senders read it (`isMarketingSuppressed`).
+ */
+export const MARKETING_OPT_OUT = "MARKETING_OPT_OUT";
+
+/** True when campaign email to this address must not be sent (any suppression, or a campaign opt-out). */
+export async function isMarketingSuppressed(email: string): Promise<boolean> {
+  if (!email) return false;
+  const listed = await db.emailSuppression.findUnique({ where: { email: email.toLowerCase() }, select: { reason: true } });
+  if (listed?.reason === MARKETING_OPT_OUT) return true;
+  return isSuppressed(email);
+}
+
+/**
+ * Records a campaign opt-out. Idempotent; never weakens a stronger reason
+ * already on the list (a bounce or complaint stays), and never touches
+ * User.emailStatus (which other mail reads).
+ */
+export async function recordMarketingOptOut(email: string): Promise<void> {
+  const normalized = email.toLowerCase();
+  const existing = await db.emailSuppression.findUnique({ where: { email: normalized }, select: { reason: true } });
+  if (existing) return;
+  try {
+    await db.emailSuppression.create({ data: { email: normalized, reason: MARKETING_OPT_OUT } });
+  } catch (error) {
+    // A concurrent opt-out or bounce already wrote the row: nothing to add.
+    if ((error as { code?: string })?.code !== "P2002") throw error;
+  }
+}
+
+/**
  * Mark an address as suppressed. Idempotent. Writes BOTH the address-keyed
  * suppression list (so bare client emails are covered) and User.emailStatus
  * (kept in sync for any matching user rows).

@@ -51,6 +51,12 @@ export interface ImportantRequest {
 export type LaundryOutcome = "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
 
 export interface WorkspaceApi {
+  /**
+   * How the form renders. The real workspace leaves it unset ("live"); the
+   * practice job (tutorials) passes "sandbox", which never opens the camera,
+   * uploads or creates evidence.
+   */
+  formMode?: import("@/components/v2/cleaner/form-renderer").FormRenderMode;
   draftSaveState?: import("@/lib/cleaner/use-draft-save").DraftSaveState;
   retryDraftSave?: () => void;
   prepareBulkAutoAssign?: () => Promise<void>;

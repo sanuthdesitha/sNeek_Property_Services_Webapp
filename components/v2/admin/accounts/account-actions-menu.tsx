@@ -174,7 +174,7 @@ export function AccountActionsMenu({
         open={dialog === "password"}
         onClose={close}
         title="Reset password"
-        description={`Generate a temporary password for ${account.email} and email it to them.`}
+        description={`Email ${account.email} a link to choose a new password. It works once, for 30 minutes; their current password stops working now.`}
         confirmLabel="Reset password"
         requireSecurity
         danger={false}

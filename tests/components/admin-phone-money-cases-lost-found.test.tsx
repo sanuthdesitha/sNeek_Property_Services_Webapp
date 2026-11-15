@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * "Admin phone: Cases and Lost and found"): every desktop action stays
  * reachable, and from 640px up the phone furniture is not in the page.
  */
-vi.mock("next/navigation", () => ({ useSearchParams: () => null, usePathname: () => "/v2/admin/finance", useRouter: () => ({ push: vi.fn() }) }));
+const nav = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
+vi.mock("next/navigation", () => ({ useSearchParams: () => null, usePathname: () => "/v2/admin/finance", useRouter: () => nav }));
 vi.mock("@/hooks/use-toast", () => ({ toast: vi.fn() }));
 
 import { InvoiceList } from "@/components/v2/admin/finance/invoices/invoice-list";
@@ -47,7 +48,8 @@ describe("Client invoices on a phone", () => {
     }));
   });
 
-  it("docks New invoice, opens the chooser, and Continue opens the same dialog the header menu opens", async () => {
+  it("docks New invoice, opens the chooser, and Continue opens the same New invoice panel the header menu opens", async () => {
+    nav.push.mockClear();
     phoneMedia(true);
     render(<InvoiceList />);
     await screen.findAllByText("INV-1");
@@ -56,7 +58,7 @@ describe("Client invoices on a phone", () => {
     const sheet = screen.getByRole("dialog", { name: "New invoice" });
     fireEvent.click(within(sheet).getByRole("radio", { name: /Blank invoice/ }));
     fireEvent.click(within(sheet).getByRole("button", { name: "Continue" }));
-    await waitFor(() => expect(screen.getByText("Create blank invoice")).toBeInTheDocument());
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/v2/admin/finance/invoices/new?kind=blank"));
   });
 
   it("keeps the status chips and puts search, client, period and Xero behind Filter with a result count", async () => {

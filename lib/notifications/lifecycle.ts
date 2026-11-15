@@ -15,6 +15,8 @@
  * (delegated to the live-trip sender), report ready, invoice issued, issue
  * raised, re-clean scheduled, skip/cancellation, and a free-text custom message.
  */
+import { buildDesignedEmail } from "@/lib/email-design/build-email";
+import { lifecycleDesignKey } from "@/lib/email-design/catalog/lifecycle";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
@@ -218,7 +220,7 @@ function signoff(ctx: LifecycleContext) {
 }
 
 /** Render subject + inner HTML for a stage. sendEmailDetailed brands the wrapper. */
-export function renderLifecycleEmail(stage: LifecycleStage, ctx: LifecycleContext, extra: LifecycleExtra = {}): { subject: string; html: string } {
+export function renderLifecycleEmail(stage: LifecycleStage, ctx: LifecycleContext, extra: LifecycleExtra = {}): { subject: string; html: string; designHtml: string } {
   const ref = ctx.jobNumber ? `#${ctx.jobNumber}` : "";
   const where = ctx.propertyName ? ` at <strong>${ctx.propertyName}</strong>` : "";
   const service = ctx.serviceLabel ? `${ctx.serviceLabel} clean` : "clean";
@@ -283,7 +285,37 @@ export function renderLifecycleEmail(stage: LifecycleStage, ctx: LifecycleContex
   }
 
   const html = `${greeting(ctx)}${body}${actionButton(extra.actionUrl, extra.actionLabel || "View in your portal")}${stage !== "CUSTOM" && !extra.actionUrl ? actionButton(ctx.portalUrl, "View in your portal") : ""}${signoff(ctx)}`;
-  return { subject: extra.subject || subject, html };
+  const finalSubject = extra.subject || subject;
+  // What is sent: the stage's block design (lib/email-design/catalog/lifecycle.ts), same words.
+  // `html` stays the plain body above (the reassign dialog edits it; New job previews it).
+  const designed = buildDesignedEmail({ companyName: ctx.companyName }, lifecycleDesignKey(stage), lifecycleValues(stage, ctx, extra));
+  return { subject: finalSubject, html, designHtml: designed.html };
+}
+
+/** The phrases each lifecycle design inserts (empty when they don't apply), worked out as before. */
+export function lifecycleValues(stage: LifecycleStage, ctx: LifecycleContext, extra: LifecycleExtra = {}): Record<string, string> {
+  const when = extra.scheduleText || ctx.scheduledText || "";
+  const actionUrl = extra.actionUrl || (stage !== "CUSTOM" ? ctx.portalUrl : "") || "";
+  return {
+    companyName: ctx.companyName,
+    firstName: String(ctx.clientName || "there").split(/\s+/)[0],
+    service: ctx.serviceLabel ? `${ctx.serviceLabel} clean` : "clean",
+    place: ctx.propertyName ? ` at ${ctx.propertyName}` : "",
+    refSuffix: ctx.jobNumber ? ` #${ctx.jobNumber}` : "",
+    when,
+    forWhen: when ? ` for ${when}` : "",
+    onWhen: when ? ` on ${when}` : "",
+    forWhenOrSoon: when ? ` for ${when}` : " soon",
+    scheduledFor: when ? ` scheduled for ${when}` : "",
+    cleanerName: extra.cleanerName || (stage === "CLEANER_REASSIGNED" ? "Another member of our team" : "Your cleaner"),
+    reason: extra.reason ?? "",
+    amount: extra.amount != null ? fmtMoney(extra.amount) : "",
+    skipWord: extra.reason ? "cancelled" : "skipped",
+    bodyHtml: extra.bodyHtml ?? "",
+    customSubject: extra.subject || `${ctx.companyName}: An update on your clean`,
+    actionUrl,
+    actionLabel: extra.actionUrl ? extra.actionLabel || "" : "",
+  };
 }
 
 // ── Send / preview ───────────────────────────────────────────────────────────
@@ -344,7 +376,9 @@ export async function sendLifecycleEmail(input: LifecycleSendInput): Promise<Lif
     // The edit wins. Blank/whitespace-only overrides fall back to the template
     // rather than sending an empty email.
     const subject = input.override?.subject?.trim() || rendered.subject;
-    const html = input.override?.html?.trim() || rendered.html;
+    // An unchanged body sends the block design; a body the office rewrote for this one send goes as written (on the base layout).
+    const editedHtml = input.override?.html?.trim();
+    const html = editedHtml && editedHtml !== rendered.html.trim() ? editedHtml : rendered.designHtml;
     const sentTo: string[] = [];
 
     for (const r of recipients) {

@@ -39,7 +39,10 @@ describe("wording editor", () => {
     fireEvent.change(title, { target: { value: "Please finish your job" } });
     expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Email" }));
-    expect(await screen.findByLabelText("Email subject")).toBeInTheDocument();
+    // Whole emails (subject + body) are edited as blocks in Email design since 2026-11-16; the Email tab keeps
+    // only the email "line" sentences (here the admin note paragraph) and no longer offers a subject.
+    expect(await screen.findByLabelText("Email body (HTML)")).toHaveValue("<p><em>Note from admin:</em> {{note}}</p>");
+    expect(screen.queryByLabelText("Email subject")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Push" }));
     expect(screen.getByText(/Push uses the inbox title and body/)).toBeInTheDocument();
     expect(screen.getByLabelText("Inbox title")).toHaveValue("Please finish your job");

@@ -204,7 +204,7 @@ export function EmailBlockEditor({
                 <button
                   type="button"
                   onClick={() => setOpenId(open ? null : block.id)}
-                  className="min-w-0 flex-1 text-left"
+                  className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left"
                 >
                   <span className="text-[0.6875rem] uppercase tracking-[0.08em] text-[hsl(var(--e-muted-foreground))]">{block.type}</span>
                   <span className="ml-2 truncate text-[0.8125rem] text-[hsl(var(--e-foreground))]">{label}</span>

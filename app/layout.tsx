@@ -13,6 +13,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
 import { getThemeForUser } from "@/lib/theme/server";
 import { getImpersonationBanner, ImpersonationSlot } from "@/components/admin/impersonation-slot";
+import { opsNavigationSeed } from "@/lib/rbac/ops-navigation-seed";
 
 // Fonts are served from files in app/fonts (latin subset, variable weight, SIL
 // Open Font License) instead of next/font/google, so a production build never
@@ -103,6 +104,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // fixed warning bar pushes the page (and any sticky portal header) down
   // rather than covering it.
   const impersonation = await getImpersonationBanner();
+  // The rail's first answer, so it never starts with only "My profile".
+  const opsSeed = await opsNavigationSeed({ userId: session?.user?.id, impersonating: Boolean(impersonation), retainedContext: Boolean(accountContext) });
   const viewScope = createHash("sha256").update(JSON.stringify([
     session?.user?.id ?? "public", accountContext,
     cookies().get("sneek.active-role")?.value ?? "",
@@ -141,7 +144,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             adds .has-impersonation-bar to <html> so sticky portal headers are
             pushed below it instead of hiding underneath. */}
         {impersonation ? <ImpersonationSlot banner={impersonation} /> : null}
-        <AccountScopeProvider contextId={accountContext}><ViewMemoryProvider><Providers accountContext={accountContext}>{children}</Providers></ViewMemoryProvider></AccountScopeProvider>
+        <AccountScopeProvider contextId={accountContext}><ViewMemoryProvider><Providers accountContext={accountContext} opsSeed={opsSeed}>{children}</Providers></ViewMemoryProvider></AccountScopeProvider>
       </body>
     </html>
   );
