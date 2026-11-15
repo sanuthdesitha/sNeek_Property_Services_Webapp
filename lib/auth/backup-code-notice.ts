@@ -34,7 +34,7 @@ export type BackupCodeUsedNoticeInput = {
 };
 
 export function backupCodeUsedFacts(input: { usedAt: Date; userAgent: string | null; timeZone: string }) {
-  const usedAt = `${formatInTimeZone(input.usedAt, input.timeZone, "EEE d MMM yyyy, h:mm a")} (${input.timeZone.split("/").pop()?.replace(/_/g, " ") ?? input.timeZone} time)`;
+  const usedAt = `${formatInTimeZone(input.usedAt, input.timeZone, "EEE d MMM yyyy, h:mm aaa")} (${input.timeZone.split("/").pop()?.replace(/_/g, " ") ?? input.timeZone} time)`;
   const browser = describeUserAgent(input.userAgent).label ?? "browser not recorded";
   return { usedAt, browser };
 }

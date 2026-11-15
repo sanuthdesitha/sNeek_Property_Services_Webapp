@@ -6,7 +6,8 @@ import { getAppSettings } from "@/lib/settings";
 import { derivePreStartJobStatus } from "@/lib/jobs/assignment-workflow";
 import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
-import { DISPATCH_AVAILABLE_BONUS, DISPATCH_DEFAULT_QA_SCORE, DISPATCH_OTHER_SUBURB_TRAVEL_MIN, DISPATCH_SAME_SUBURB_TRAVEL_MIN, DISPATCH_UNAVAILABLE_PENALTY } from "@/lib/scheduling-rules/constants";
+import { DISPATCH_AVAILABLE_BONUS, DISPATCH_DEFAULT_QA_SCORE, DISPATCH_UNAVAILABLE_PENALTY } from "@/lib/scheduling-rules/constants";
+import { orderRouteStops, roughTravel } from "@/lib/ops/route-plan";
 
 function dateKey(value: Date) {
   return value.toISOString().slice(0, 10);
@@ -22,8 +23,14 @@ interface CleanerScoreRow {
   email: string;
   score: number;
   qaScore: number;
+  /** False when the cleaner has no QA review yet: qaScore is then the default the scorer assumes. */
+  qaScoreKnown: boolean;
   suburbHistoryCount: number;
   currentLoad: number;
+  /** The daily limit the load is measured against (settings.autoAssign.maxDailyJobsPerCleaner). */
+  maxDailyJobs: number;
+  /** Whether the cleaner's recorded availability fits (true when none is recorded). */
+  availabilityFits: boolean;
   reasons: string[];
 }
 
@@ -180,6 +187,7 @@ export async function suggestAutoAssignment(jobId: string) {
 
   const scored: CleanerScoreRow[] = cleaners.map((cleaner) => {
     const currentLoad = loadByCleaner.get(cleaner.id) ?? 0;
+    const qaKnown = qaAverages.has(cleaner.id);
     const qaScore = qaAverages.get(cleaner.id) ?? DISPATCH_DEFAULT_QA_SCORE;
     const historyCount = suburbHistoryByCleaner.get(cleaner.id) ?? 0;
     const historyScore = Math.min(100, (historyCount / maxHistory) * 100);
@@ -202,8 +210,11 @@ export async function suggestAutoAssignment(jobId: string) {
       email: cleaner.email,
       score: Number(weighted.toFixed(2)),
       qaScore: Number(qaScore.toFixed(2)),
+      qaScoreKnown: qaKnown,
       suburbHistoryCount: historyCount,
       currentLoad,
+      maxDailyJobs: maxDaily,
+      availabilityFits: available,
       reasons: [
         `QA ${qaScore.toFixed(1)}`,
         `Suburb history ${historyCount}`,
@@ -295,10 +306,46 @@ export async function applyAutoAssignment(jobId: string, cleanerIds: string[], a
   });
 }
 
+/** One stop on a cleaner's day route. */
+export type DailyRouteStop = {
+  jobId: string;
+  propertyId: string;
+  propertyName: string;
+  suburb: string;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  startTime: string | null;
+  dueTime: string | null;
+  jobType: string;
+  status: string;
+  /** Everyone on the job (for "Change cleaner…"), primary first. */
+  assigneeIds: string[];
+  primaryAssigneeId: string | null;
+  estimatedTravelMinsFromPrev: number;
+};
+
+export type DailyRoute = {
+  cleanerId: string;
+  cleanerName: string;
+  cleanerEmail: string;
+  stops: DailyRouteStop[];
+  totalEstimatedTravelMins: number;
+  /** The "stops per route" setting: above it the route carries a notice. Every stop is still listed. */
+  stopNoticeAbove: number;
+};
+
+/**
+ * Every assigned cleaner's route for one day. Order is worked out each time
+ * (`orderRouteStops`: start time first, owner default 2026-11-17 pending
+ * confirmation); every stop is returned, none is dropped above the
+ * "stops per route" setting, which is passed back as `stopNoticeAbove`.
+ * Travel is the rough suburb rule and starts at the first job.
+ */
 export async function buildDailyRoutePlan(
   date: string,
   options?: { propertyIds?: string[] | null }
-) {
+): Promise<DailyRoute[]> {
   const settings = await getAppSettings();
   const day = toUtcDateOnly(date);
   if (Number.isNaN(day.getTime())) throw new Error("Invalid date.");
@@ -309,6 +356,8 @@ export async function buildDailyRoutePlan(
       removedAt: null,
       job: {
         scheduledDate: { gte: day, lt: nextDay },
+        // Cancelled jobs are not work (their assignments are released anyway).
+        status: { not: JobStatus.CANCELLED },
         ...(Array.isArray(options?.propertyIds) && options?.propertyIds.length > 0
           ? { propertyId: { in: options.propertyIds } }
           : {}),
@@ -323,33 +372,16 @@ export async function buildDailyRoutePlan(
           status: true,
           startTime: true,
           dueTime: true,
-          property: { select: { name: true, suburb: true, address: true } },
+          propertyId: true,
+          property: { select: { name: true, suburb: true, address: true, latitude: true, longitude: true } },
+          assignments: { where: { removedAt: null }, select: { userId: true, isPrimary: true } },
         },
       },
     },
     orderBy: [{ userId: "asc" }, { job: { startTime: "asc" } }],
   });
 
-  const groups = new Map<
-    string,
-    {
-      cleanerId: string;
-      cleanerName: string;
-      cleanerEmail: string;
-      stops: Array<{
-        jobId: string;
-        propertyName: string;
-        suburb: string;
-        address: string;
-        startTime: string | null;
-        dueTime: string | null;
-        jobType: string;
-        status: string;
-        estimatedTravelMinsFromPrev: number;
-      }>;
-      totalEstimatedTravelMins: number;
-    }
-  >();
+  const groups = new Map<string, { cleanerId: string; cleanerName: string; cleanerEmail: string; stops: DailyRouteStop[] }>();
 
   for (const row of assignments) {
     const key = row.userId;
@@ -358,44 +390,35 @@ export async function buildDailyRoutePlan(
       cleanerName: row.user.name ?? row.user.email,
       cleanerEmail: row.user.email,
       stops: [],
-      totalEstimatedTravelMins: 0,
     };
+    const assignees = [...row.job.assignments].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary));
     current.stops.push({
       jobId: row.job.id,
+      propertyId: row.job.propertyId,
       propertyName: row.job.property.name,
       suburb: row.job.property.suburb,
       address: row.job.property.address,
+      latitude: row.job.property.latitude ?? null,
+      longitude: row.job.property.longitude ?? null,
       startTime: row.job.startTime ?? null,
       dueTime: row.job.dueTime ?? null,
       jobType: row.job.jobType,
       status: row.job.status,
+      assigneeIds: assignees.map((assignee) => assignee.userId),
+      primaryAssigneeId: assignees.find((assignee) => assignee.isPrimary)?.userId ?? null,
       estimatedTravelMinsFromPrev: 0,
     });
     groups.set(key, current);
   }
 
-  const routes = Array.from(groups.values()).map((group) => {
-    const sortedStops = [...group.stops].sort((a, b) => {
-      if (settings.routeOptimization.groupBySuburb) {
-        const suburbCompare = a.suburb.localeCompare(b.suburb);
-        if (suburbCompare !== 0) return suburbCompare;
-      }
-      return (a.startTime ?? "23:59").localeCompare(b.startTime ?? "23:59");
-    });
-
-    let totalTravel = 0;
-    for (let index = 0; index < sortedStops.length; index += 1) {
-      if (index === 0) continue;
-      const prev = sortedStops[index - 1];
-      const curr = sortedStops[index];
-      const estimated = prev.suburb === curr.suburb ? DISPATCH_SAME_SUBURB_TRAVEL_MIN : DISPATCH_OTHER_SUBURB_TRAVEL_MIN;
-      curr.estimatedTravelMinsFromPrev = estimated;
-      totalTravel += estimated;
-    }
+  const routes = Array.from(groups.values()).map((group): DailyRoute => {
+    const sortedStops = orderRouteStops(group.stops, { groupBySuburb: settings.routeOptimization.groupBySuburb });
+    const travel = roughTravel(sortedStops);
     return {
       ...group,
-      stops: sortedStops.slice(0, settings.routeOptimization.maxStopsPerRun),
-      totalEstimatedTravelMins: totalTravel,
+      stops: sortedStops.map((stop, index) => ({ ...stop, estimatedTravelMinsFromPrev: travel.fromPrevious[index] })),
+      totalEstimatedTravelMins: travel.total,
+      stopNoticeAbove: settings.routeOptimization.maxStopsPerRun,
     };
   });
 

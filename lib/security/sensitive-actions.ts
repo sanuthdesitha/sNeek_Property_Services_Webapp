@@ -24,6 +24,12 @@ export const SENSITIVE_ACTIONS = {
   // send photos to a cloud provider is tier C, confirmed with the
   // administrator's own PIN. Turning it off needs no PIN.
   "ai.cloud_photos": "Allow AI features to send photos off this server",
+  // Owner default 2026-11-17 (board "Pay run", pending owner confirmation):
+  // sending a pay run's payouts and changing a run's status by hand are
+  // administrator actions confirmed with the person's own PIN, verified by
+  // the route in the same request.
+  "payroll.process": "Send a pay run's payouts",
+  "payroll.run_status": "Change a pay run's status by hand",
 } as const;
 export type SensitiveAction = keyof typeof SENSITIVE_ACTIONS;
 export type SensitiveGrants = Partial<Record<SensitiveAction, boolean>>;

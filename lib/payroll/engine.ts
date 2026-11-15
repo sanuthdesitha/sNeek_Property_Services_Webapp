@@ -338,26 +338,55 @@ export async function confirmPayrollRun(runId: string) {
 }
 
 /**
+ * A refusal the process route answers with 409: the run is not in a state that
+ * may be processed (already processing, already processed, not confirmed).
+ */
+export class PayrollProcessConflict extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PayrollProcessConflict";
+  }
+}
+
+/** Why a run that is not CONFIRMED cannot be processed, in words. */
+function processRefusal(status: PayrollRunStatus): string {
+  if (status === PayrollRunStatus.PROCESSING) return "This run is already being processed. Wait for it to finish, then reload.";
+  if (status === PayrollRunStatus.COMPLETED) return "This run has already been processed.";
+  if (status === PayrollRunStatus.FAILED) return "This run failed. Set it back to Confirmed before processing again.";
+  return "Run must be confirmed before processing";
+}
+
+/**
  * Process all payouts for a confirmed payroll run.
  * Uses Stripe Connect for cleaners with stripeAccountId, ABA file for others.
+ *
+ * Exactly once (2026-11-17): the run is CLAIMED with a guarded update
+ * (CONFIRMED → PROCESSING) before any money moves, so a double click, a retry
+ * or two administrators at once process it once; the loser gets a conflict.
+ * Each Stripe payout is claimed the same way (PENDING/FAILED → PROCESSING)
+ * before its transfer, and Stripe's idempotency key stays as the second guard.
+ * Amounts are the stored payout amounts; nothing is recomputed here.
  */
 export async function processPayrollRun(runId: string) {
-  const run = await db.payrollRun.findUnique({
-    where: { id: runId },
-    include: { payouts: true },
-  });
-  if (!run) throw new Error("Payroll run not found");
-  if (run.status !== PayrollRunStatus.CONFIRMED) throw new Error("Run must be confirmed before processing");
+  const existing = await db.payrollRun.findUnique({ where: { id: runId }, select: { id: true, status: true } });
+  if (!existing) throw new Error("Payroll run not found");
+  if (existing.status !== PayrollRunStatus.CONFIRMED) throw new PayrollProcessConflict(processRefusal(existing.status));
 
-  await db.payrollRun.update({
-    where: { id: runId },
+  const claim = await db.payrollRun.updateMany({
+    where: { id: runId, status: PayrollRunStatus.CONFIRMED },
     data: { status: PayrollRunStatus.PROCESSING },
   });
+  if (claim.count !== 1) {
+    const now = await db.payrollRun.findUnique({ where: { id: runId }, select: { status: true } });
+    throw new PayrollProcessConflict(processRefusal(now?.status ?? PayrollRunStatus.PROCESSING));
+  }
+
+  const payouts = await db.payout.findMany({ where: { payrollRunId: runId }, orderBy: { id: "asc" } });
 
   let successCount = 0;
   let failCount = 0;
 
-  for (const payout of run.payouts) {
+  for (const payout of payouts) {
     // Idempotency: never re-pay a payout that already succeeded or is in flight.
     // This makes re-running a partially-failed run safe (no double Stripe transfer).
     if (payout.status === PayoutStatus.PAID || payout.status === PayoutStatus.PROCESSING) {
@@ -366,6 +395,14 @@ export async function processPayrollRun(runId: string) {
     }
     try {
       if (payout.method === PayoutMethod.STRIPE_CONNECT && payout.stripeAccountId) {
+        const claimed = await db.payout.updateMany({
+          where: { id: payout.id, status: { in: [PayoutStatus.PENDING, PayoutStatus.FAILED] } },
+          data: { status: PayoutStatus.PROCESSING },
+        });
+        if (claimed.count !== 1) {
+          successCount++;
+          continue;
+        }
         await processStripePayout(payout);
       } else {
         // Mark as ready for ABA/manual processing

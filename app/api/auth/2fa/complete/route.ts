@@ -27,7 +27,11 @@ const NO_STORE = { "Cache-Control": "private, no-store" };
 
 async function auditBackupAttempt(userId: string, action: "TWO_FACTOR_BACKUP_CODE_USED" | "TWO_FACTOR_BACKUP_CODE_FAILED", after: Record<string, unknown>) {
   // Never the code: only what happened, the set and how many remain.
-  await db.auditLog.create({ data: { userId, action, entity: "User", entityId: userId, after: after as never } }).catch(() => undefined);
+  try {
+    await db.auditLog.create({ data: { userId, action, entity: "User", entityId: userId, after: after as never } });
+  } catch {
+    // The sign-in outcome stands; the notice and the lockout counter still record it.
+  }
 }
 
 /**
