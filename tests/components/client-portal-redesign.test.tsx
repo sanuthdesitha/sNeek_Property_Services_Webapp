@@ -69,7 +69,8 @@ describe("every client destination keeps a home", () => {
       ...CLIENT_REQUEST_ITEMS.map((item) => item.href),
     ]);
     // Detail-only routes (reached from a list or a notification) and retired redirects.
-    const viaDetailOrRedirect = new Set(["damage", "disputes", "money", "services"]);
+    // "access-denied" is not a destination: it is shown only when a page is refused (2026-11-17).
+    const viaDetailOrRedirect = new Set(["access-denied", "damage", "disputes", "money", "services"]);
     const missing = routes.filter((name) => !viaDetailOrRedirect.has(name) && !reachable.has(`/v2/client/${name}`));
     expect(missing).toEqual([]);
   });
