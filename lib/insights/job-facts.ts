@@ -84,8 +84,13 @@ export type FactContext = {
 /** Where a clean's charge came from. */
 export type ChargeSource = "invoiced" | "scheduled";
 
-/** One cleaner's share of a clean: allocated minutes (split as pay splits them) and own logged minutes. */
-export type CleanerShare = { cleanerId: string; plannedMinutes: Known<number>; actualMinutes: Known<number> };
+/**
+ * One cleaner's share of a clean: allocated minutes (split as pay splits them),
+ * own logged minutes, and whether THEY started on time (their own first
+ * clock-in; the workforce performance page's rule, so a teammate's clock-in
+ * never counts for them).
+ */
+export type CleanerShare = { cleanerId: string; plannedMinutes: Known<number>; actualMinutes: Known<number>; onTime: Known<boolean> };
 
 export type JobFact = {
   jobId: string;
@@ -196,13 +201,14 @@ export function deriveActual(row: InsightsJobRow): Known<number> {
   return loggedMinutes(row.timeLogs);
 }
 
-function deriveShares(row: InsightsJobRow, planned: Known<number>): CleanerShare[] {
+function deriveShares(row: InsightsJobRow, planned: Known<number>, dayKey: string): CleanerShare[] {
   const cleaners = activeUserIds(row.assignments);
   const split = Math.max(1, cleaners.length);
   return cleaners.map((cleanerId) => ({
     cleanerId,
     plannedMinutes: planned.reason === null ? known(Math.round(planned.value / split)) : missing(planned.reason),
     actualMinutes: loggedMinutes(row.timeLogs.filter((log) => log.userId === cleanerId)),
+    onTime: deriveOnTime({ startTime: row.startTime, timeLogs: row.timeLogs.filter((log) => log.userId === cleanerId) }, dayKey),
   }));
 }
 
@@ -217,7 +223,7 @@ export function scheduledStart(dayKey: string, startTime: string | null): Date |
   return fromZonedTime(`${dayKey}T${clock}:00`, SYDNEY_TZ);
 }
 
-export function deriveOnTime(row: InsightsJobRow, dayKey: string): Known<boolean> {
+export function deriveOnTime(row: Pick<InsightsJobRow, "startTime" | "timeLogs">, dayKey: string): Known<boolean> {
   const start = scheduledStart(dayKey, row.startTime);
   if (!start) return missing("no_start_time");
   if (row.timeLogs.length === 0) return missing("no_time_log");
@@ -244,7 +250,7 @@ export function deriveJobFact(row: InsightsJobRow, context: FactContext): JobFac
     isRework: row.isRework,
     reworkOriginalCleanerIds: row.reworkOfJob ? activeUserIds(row.reworkOfJob.assignments) : [],
     cleanerIds: activeUserIds(row.assignments),
-    shares: deriveShares(row, planned),
+    shares: deriveShares(row, planned, dayKey),
     charge,
     chargeSource: charge.reason !== null ? null : context.invoicedByJob?.has(row.id) ? "invoiced" : "scheduled",
     cost: deriveCost(row, context),

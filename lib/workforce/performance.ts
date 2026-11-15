@@ -2,6 +2,23 @@ import { db } from "@/lib/db";
 import { getCleanerReworkStats } from "@/lib/qa/rework-transfers";
 import { computeStreak, type CleanRecord } from "@/lib/accountability/streaks";
 import { getAppSettings } from "@/lib/settings";
+import { rangeFromKeys } from "@/lib/quality/period";
+import { addDaysToKey, sydneyTodayKey } from "@/lib/time/sydney-range";
+import {
+  PERFORMANCE_MIN_SAMPLE,
+  computeJobPerformanceFigures,
+  type AttendanceFigure,
+  type DisputeFigure,
+  type DocumentationFigure,
+  type NoShowFigure,
+  type OnTimeFigure,
+  type PerformanceJob,
+  type PerformanceReview,
+  type PunctualityFigure,
+  type QualityFigure,
+  type RatingFigure,
+  type ReplyFigure,
+} from "./performance-figures";
 
 const PERF_KIND_PRIORITY: Record<string, number> = { QA: 3, ADMIN: 2, AUTO: 1 };
 
@@ -88,39 +105,38 @@ function safeQuery<T>(label: string, p: Promise<T>, fallback: T): Promise<T> {
 }
 
 /**
- * Cleaner Performance Metrics
+ * Cleaner performance metrics for one window (30 / 90 / 365 Sydney days,
+ * today included). The People › Cleaners columns, the person page KPIs, the
+ * classic cleaner screens and the workforce performance page all read this
+ * one function, so they show the same figure for the same cleaner.
  *
- * 11 industry-standard field-services KPIs (Jobber / Housecall Pro / ServiceTitan / ServiceM8).
- * All metrics are window-scoped (30 / 90 / 365 day rolling windows).
+ * Every job-based figure is worked out by lib/workforce/performance-figures.ts
+ * from the jobs and offers read here; its header states each basis. A figure
+ * with fewer than PERFORMANCE_MIN_SAMPLE records is null ("Not enough data")
+ * and its counts are still returned, never turned into 0 or 100%.
  *
- * The aggregator is intentionally defensive — each metric query is wrapped in `.catch(() => [])`
- * so the dashboard renders even if a schema model is missing or a relation is broken.
- * Missing data yields `null` (rendered as "—" in the UI), never throws.
+ * The two reads every job figure depends on (the cleaner's jobs and offers)
+ * are not swallowed: if they fail, this throws and the caller shows the
+ * window as "not worked out". The side reads (documents, training, reworks,
+ * streak) keep their logged fallbacks.
  */
 export interface PerformanceMetrics {
   userId: string;
   windowDays: number;
   windowStart: Date;
-  quality: { score: number | null; sampleSize: number };
-  reliability: { onTimePercent: number | null; sampleSize: number };
-  punctuality: { avgMinutesLate: number | null; sampleSize: number };
-  attendance: {
-    completedJobs: number;
-    assignedJobs: number;
-    percent: number | null;
-  };
-  documentation: {
-    fullyDocumentedPercent: number | null;
-    sampleSize: number;
-  };
-  customerSatisfaction: { avgRating: number | null; sampleSize: number };
-  responseRate: { acceptedPercent: number | null; sampleSize: number };
-  disputeRate: {
-    disputes: number;
-    totalJobs: number;
-    percent: number | null;
-  };
-  noShowRate: { noShows: number; scheduled: number; percent: number | null };
+  /** Records a rate or average needs before it is shown. */
+  minimumSample: number;
+  /** Finished jobs in the window (the page's job count; see performance-figures). */
+  finishedJobs: number;
+  quality: QualityFigure;
+  reliability: OnTimeFigure;
+  punctuality: PunctualityFigure;
+  attendance: AttendanceFigure;
+  documentation: DocumentationFigure;
+  customerSatisfaction: RatingFigure;
+  responseRate: ReplyFigure;
+  disputeRate: DisputeFigure;
+  noShowRate: NoShowFigure;
   documentCompliance: {
     current: number;
     expired: number;
@@ -133,8 +149,9 @@ export interface PerformanceMetrics {
   };
   /**
    * Confirmed QA rework / miss rate — admin-approved QaReworkTransfer records
-   * where the cleaner missed work the QA had to redo. `percent` is reworks per
-   * assigned job (×100). Surfaces the cleaner's mistakes in their stats.
+   * reviewed in the window where the cleaner missed work the QA had to redo.
+   * `percent` is reworks per finished job (×100). Shown as its own figure; it
+   * no longer lowers the quality score, which is the Quality hub's average.
    */
   reworkRate: {
     reworks: number;
@@ -164,16 +181,18 @@ export function emptyPerformanceMetrics(userId: string, windowDays: number): Per
   return {
     userId,
     windowDays,
-    windowStart: new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000),
-    quality: { score: null, sampleSize: 0 },
-    reliability: { onTimePercent: null, sampleSize: 0 },
-    punctuality: { avgMinutesLate: null, sampleSize: 0 },
-    attendance: { completedJobs: 0, assignedJobs: 0, percent: null },
-    documentation: { fullyDocumentedPercent: null, sampleSize: 0 },
-    customerSatisfaction: { avgRating: null, sampleSize: 0 },
-    responseRate: { acceptedPercent: null, sampleSize: 0 },
+    windowStart: performanceWindow(windowDays).start,
+    minimumSample: PERFORMANCE_MIN_SAMPLE,
+    finishedJobs: 0,
+    quality: { score: null, sampleSize: 0, jobs: 0 },
+    reliability: { onTimePercent: null, sampleSize: 0, onTime: 0, jobs: 0, noClockIn: 0, noStartTime: 0 },
+    punctuality: { avgMinutesLate: null, sampleSize: 0, jobs: 0, noClockIn: 0, noStartTime: 0 },
+    attendance: { completedJobs: 0, assignedJobs: 0, percent: null, dueJobs: 0, notRecorded: 0 },
+    documentation: { fullyDocumentedPercent: null, sampleSize: 0, documented: 0, withoutForm: 0, formWithoutPhotos: 0 },
+    customerSatisfaction: { avgRating: null, sampleSize: 0, jobs: 0 },
+    responseRate: { acceptedPercent: null, sampleSize: 0, repliedWithinHour: 0, officeAccepted: 0 },
     disputeRate: { disputes: 0, totalJobs: 0, percent: null },
-    noShowRate: { noShows: 0, scheduled: 0, percent: null },
+    noShowRate: { noShows: 0, scheduled: 0, percent: null, notRecorded: 0 },
     documentCompliance: { current: 0, expired: 0, percent: null },
     trainingCompletion: { completed: 0, assigned: 0, percent: null },
     reworkRate: { reworks: 0, majorReworks: 0, minutesLost: 0, amountLost: 0, totalJobs: 0, percent: null },
@@ -183,160 +202,97 @@ export function emptyPerformanceMetrics(userId: string, windowDays: number): Per
   };
 }
 
-/**
- * Build a JS Date from Job.scheduledDate (UTC midnight) + Job.startTime ("HH:mm" local).
- * Returns null if either is missing. We treat the time as the property's local time but
- * since Job.scheduledDate is already UTC midnight of the scheduled day, we add the HH:mm
- * offset to get a reasonable approximation for "scheduled start". For punctuality / on-time
- * comparisons this is consistent — both sides of the comparison share the same convention.
- */
-function combineScheduledStart(
-  scheduledDate: Date | null | undefined,
-  startTime: string | null | undefined,
-): Date | null {
-  if (!scheduledDate) return null;
-  if (!startTime) return scheduledDate;
-  const match = /^(\d{1,2}):(\d{2})/.exec(startTime);
-  if (!match) return scheduledDate;
-  const hours = parseInt(match[1], 10);
-  const mins = parseInt(match[2], 10);
-  const out = new Date(scheduledDate);
-  out.setUTCHours(hours, mins, 0, 0);
-  return out;
+/** The window's Sydney days: today and the N − 1 days before it. */
+export function performanceWindow(windowDays: number, now: Date = new Date()): { start: Date; end: Date; todayKey: string } {
+  const todayKey = sydneyTodayKey(now);
+  const range = rangeFromKeys(addDaysToKey(todayKey, -(windowDays - 1)), todayKey);
+  return { start: range.start as Date, end: range.end, todayKey };
+}
+
+/** Staff document statuses that are not a document on file (People list rule). */
+const NOT_ON_FILE_DOCUMENT_STATUSES = new Set(["REJECTED"]);
+
+type PerformanceJobRow = {
+  id: string;
+  status: string;
+  scheduledDate: Date;
+  startTime: string | null;
+  cleanSkipStatus: string;
+  timeLogs: Array<{ startedAt: Date }>;
+  formSubmissions: Array<{ submittedById: string; _count: { media: number } }>;
+  qaReviews: PerformanceReview[];
+  issueTickets: Array<{ id: string }>;
+  feedback: { rating: number | null; submittedAt: Date | null } | null;
+  satisfactionRating: { score: number } | null;
+};
+
+function toPerformanceJob(row: PerformanceJobRow): PerformanceJob {
+  const feedbackRating = row.feedback?.submittedAt && typeof row.feedback.rating === "number" ? row.feedback.rating : null;
+  return {
+    jobId: row.id,
+    status: row.status,
+    scheduledDate: row.scheduledDate,
+    startTime: row.startTime,
+    cleanSkipStatus: row.cleanSkipStatus,
+    clockIns: row.timeLogs.map((log) => log.startedAt),
+    submissions: row.formSubmissions.map((submission) => ({ submittedById: submission.submittedById, photoCount: submission._count.media })),
+    reviews: row.qaReviews,
+    disputeCases: row.issueTickets.length,
+    rating: feedbackRating ?? row.satisfactionRating?.score ?? null,
+  };
 }
 
 export async function getPerformanceMetrics(
   userId: string,
   windowDays = 30,
+  now: Date = new Date(),
 ): Promise<PerformanceMetrics> {
-  const windowStart = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
+  const window = performanceWindow(windowDays, now);
+  const windowStart = window.start;
 
-  const [
-    qaSubmissions,
-    assignmentRows,
-    timeLogs,
-    submissionRows,
-    feedbackRows,
-    satisfactionRows,
-    documentRows,
-    learningRows,
-  ] = await Promise.all([
-    safeQuery(
-      "qaFormSubmission",
-      db.qaFormSubmission.findMany({
-        where: {
-          createdAt: { gte: windowStart },
-          job: { assignments: { some: { userId } } },
-        },
-        select: { score: true },
-      }),
-      [] as Array<{ score: number | null }>,
-    ),
-
-    safeQuery(
-      "jobAssignment",
-      db.jobAssignment.findMany({
-        where: {
-          userId,
-          assignedAt: { gte: windowStart },
-        },
-        select: {
-          assignedAt: true,
-          offeredAt: true,
-          respondedAt: true,
-          responseStatus: true,
-          job: {
-            select: {
-              id: true,
-              status: true,
-              scheduledDate: true,
-              startTime: true,
-              arrivedAt: true,
-              // Job has no `completedAt` column — we use the `updatedAt` of a
-              // job with status COMPLETED as the completion timestamp proxy.
-              updatedAt: true,
-            },
-          },
-        },
-      }),
-      [] as any[],
-    ),
-
-    safeQuery(
-      "timeLog",
-      db.timeLog.findMany({
-        where: { userId, startedAt: { gte: windowStart } },
-        select: {
-          startedAt: true,
-          job: {
-            select: { scheduledDate: true, startTime: true },
-          },
-        },
-      }),
-      [] as any[],
-    ),
-
-    safeQuery(
-      "formSubmission",
-      db.formSubmission.findMany({
-        where: {
-          submittedById: userId,
-          createdAt: { gte: windowStart },
-        },
-        select: {
-          id: true,
-          autoQaScore: true,
-          media: { select: { id: true } },
-        },
-      }),
-      [] as any[],
-    ),
-
-    safeQuery(
-      "jobFeedback",
-      db.jobFeedback.findMany({
-        where: {
-          submittedAt: { gte: windowStart, not: null },
-          job: { assignments: { some: { userId } } },
-        },
-        select: { rating: true },
-      }),
-      [] as Array<{ rating: number | null }>,
-    ),
-
-    safeQuery(
-      "clientSatisfactionRating",
-      db.clientSatisfactionRating.findMany({
-        where: {
-          createdAt: { gte: windowStart },
-          job: { assignments: { some: { userId } } },
-        },
-        select: { score: true },
-      }),
-      [] as Array<{ score: number | null }>,
-    ),
-
+  const [jobRows, offerRows, documentRows, learningRows] = await Promise.all([
+    db.job.findMany({
+      where: {
+        assignments: { some: { userId, removedAt: null } },
+        scheduledDate: { gte: window.start, lt: window.end },
+      },
+      select: {
+        id: true,
+        status: true,
+        scheduledDate: true,
+        startTime: true,
+        cleanSkipStatus: true,
+        timeLogs: { where: { userId }, select: { startedAt: true } },
+        formSubmissions: { select: { submittedById: true, _count: { select: { media: true } } } },
+        qaReviews: { select: { score: true, kind: true, createdAt: true } },
+        issueTickets: { where: { caseType: "CLIENT_DISPUTE", state: { not: "CANCELLED" } }, select: { id: true } },
+        feedback: { select: { rating: true, submittedAt: true } },
+        satisfactionRating: { select: { score: true } },
+      },
+    }) as Promise<PerformanceJobRow[]>,
+    db.jobAssignment.findMany({
+      where: { userId, offeredAt: { gte: window.start, lt: window.end } },
+      select: { offeredAt: true, respondedAt: true, responseStatus: true, responseNote: true },
+    }),
     safeQuery(
       "staffDocument",
       db.staffDocument.findMany({
         where: { userId },
         select: { expiresAt: true, status: true },
       }),
-      [] as any[],
+      [] as Array<{ expiresAt: Date | null; status: string }>,
     ),
-
     safeQuery(
       "learningAssignment",
       db.learningAssignment.findMany({
         where: { userId },
-        select: { completedAt: true, createdAt: true, status: true },
+        select: { completedAt: true, status: true },
       }),
-      [] as any[],
+      [] as Array<{ completedAt: Date | null; status: string }>,
     ),
   ]);
 
-  // Confirmed QA reworks for this cleaner in the window (used for the rework
-  // rate and to dampen the quality score so misses show up in their stats).
+  // Confirmed QA reworks reviewed in the window (their own figure).
   const reworkStats = await safeQuery(
     "qaReworkTransfer",
     getCleanerReworkStats(userId, windowStart),
@@ -367,188 +323,31 @@ export async function getPerformanceMetrics(
 
   const { currentStreak, last5Avg, last10Avg } = summariseAccountabilityStreak(streakJobs, streakMinScore);
 
-  // 1. Quality score — average QA submission score for jobs cleaner was assigned
-  //    to, dampened by confirmed reworks (each rework removes 5 pts, majors 10).
-  const qaScores = qaSubmissions
-    .map((q) => q.score)
-    .filter((s): s is number => typeof s === "number");
-  const qualityRaw =
-    qaScores.length > 0
-      ? qaScores.reduce((a, b) => a + b, 0) / qaScores.length
-      : null;
-  const reworkPenalty = reworkStats.count * 5 + reworkStats.major * 5;
-  const qualityAvg =
-    qualityRaw != null ? Math.max(0, qualityRaw - reworkPenalty) : null;
-
-  // 2. Reliability — arrived within 15 min of scheduled start
-  const arrivalRows = assignmentRows.filter((a: any) => {
-    const sched = combineScheduledStart(a.job?.scheduledDate, a.job?.startTime);
-    return a.job?.arrivedAt && sched;
+  const figures = computeJobPerformanceFigures({
+    userId,
+    todayKey: window.todayKey,
+    jobs: jobRows.map(toPerformanceJob),
+    offers: offerRows.map((row) => ({ ...row, responseStatus: String(row.responseStatus) })),
+    now,
   });
-  const onTimeCount = arrivalRows.filter((a: any) => {
-    const sched = combineScheduledStart(a.job.scheduledDate, a.job.startTime)!;
-    const delta = (a.job.arrivedAt.getTime() - sched.getTime()) / 60000;
-    return delta <= 15;
-  }).length;
-  const reliabilityPct =
-    arrivalRows.length > 0
-      ? Math.round((onTimeCount / arrivalRows.length) * 100)
-      : null;
 
-  // 3. Punctuality — average minutes from scheduled start to actual clock-in
-  const punctualityDeltas = timeLogs
-    .map((t: any) => {
-      const sched = combineScheduledStart(
-        t.job?.scheduledDate,
-        t.job?.startTime,
-      );
-      if (!sched || !t.startedAt) return null;
-      return (t.startedAt.getTime() - sched.getTime()) / 60000;
-    })
-    .filter((d): d is number => typeof d === "number");
-  const avgMinutesLate =
-    punctualityDeltas.length > 0
-      ? Math.round(
-          punctualityDeltas.reduce((a, b) => a + b, 0) /
-            punctualityDeltas.length,
-        )
-      : null;
+  // Documents current: documents on file (not rejected) that have not expired.
+  const onFile = documentRows.filter((d) => !NOT_ON_FILE_DOCUMENT_STATUSES.has(d.status));
+  const currentDocs = onFile.filter((d) => d.status !== "EXPIRED" && (!d.expiresAt || d.expiresAt > now)).length;
+  const expiredDocs = onFile.length - currentDocs;
+  const docCompliancePct = onFile.length > 0 ? Math.round((currentDocs / onFile.length) * 100) : null;
 
-  // 4. Attendance — completed / assigned in window
-  const completedJobs = assignmentRows.filter(
-    (a: any) => a.job?.status === "COMPLETED",
-  ).length;
-  const assignedJobs = assignmentRows.length;
-  const attendancePct =
-    assignedJobs > 0 ? Math.round((completedJobs / assignedJobs) * 100) : null;
+  // Training completion — learning assignments completed out of those assigned.
+  const completedLearning = learningRows.filter((l) => l.completedAt || l.status === "COMPLETED").length;
+  const trainingPct = learningRows.length > 0 ? Math.round((completedLearning / learningRows.length) * 100) : null;
 
-  // 5. Documentation completeness — % of submissions with >=1 media attachment
-  const documentedSubmissions = submissionRows.filter(
-    (s: any) => Array.isArray(s.media) && s.media.length > 0,
-  ).length;
-  const documentationPct =
-    submissionRows.length > 0
-      ? Math.round((documentedSubmissions / submissionRows.length) * 100)
-      : null;
-
-  // 6. Customer satisfaction — JobFeedback.rating (1-5) and ClientSatisfactionRating.score
-  //    Both treated as 1-5; merge into a single average.
-  const feedbackRatings = feedbackRows
-    .map((f) => f.rating)
-    .filter((r): r is number => typeof r === "number");
-  const satisfactionScores = satisfactionRows
-    .map((s) => s.score)
-    .filter((s): s is number => typeof s === "number");
-  const allRatings = [...feedbackRatings, ...satisfactionScores];
-  const avgRating =
-    allRatings.length > 0
-      ? allRatings.reduce((a, b) => a + b, 0) / allRatings.length
-      : null;
-
-  // 7. Response rate — % of assignment offers accepted within 1 hour
-  const respondableAssignments = assignmentRows.filter(
-    (a: any) => a.offeredAt && a.respondedAt,
-  );
-  const acceptedWithinHour = respondableAssignments.filter((a: any) => {
-    if (a.responseStatus !== "ACCEPTED") return false;
-    const delta = (a.respondedAt.getTime() - a.offeredAt.getTime()) / 60000;
-    return delta <= 60;
-  }).length;
-  const responsePct =
-    respondableAssignments.length > 0
-      ? Math.round(
-          (acceptedWithinHour / respondableAssignments.length) * 100,
-        )
-      : null;
-
-  // 8. Dispute rate — IssueTicket related to jobs the cleaner was assigned to.
-  //    Defensive: if model/relation isn't queryable cleanly, fall back to 0.
-  let disputeCount = 0;
-  try {
-    disputeCount = await db.issueTicket.count({
-      where: {
-        createdAt: { gte: windowStart },
-        job: { assignments: { some: { userId } } },
-      } as any,
-    });
-  } catch {
-    disputeCount = 0;
-  }
-  const disputePct =
-    assignedJobs > 0
-      ? Math.round((disputeCount / assignedJobs) * 100 * 10) / 10
-      : null;
-
-  // 9. No-show rate — assignments with status DECLINED or job CANCELLED for no-show.
-  //    Conservative: count assignments where responseStatus === "DECLINED" after the scheduled date.
-  const noShows = assignmentRows.filter((a: any) => {
-    if (a.responseStatus !== "DECLINED") return false;
-    const sched = combineScheduledStart(a.job?.scheduledDate, a.job?.startTime);
-    if (!sched) return false;
-    return sched < new Date();
-  }).length;
-  const noShowPct =
-    assignedJobs > 0
-      ? Math.round((noShows / assignedJobs) * 100 * 10) / 10
-      : null;
-
-  // 10. Document compliance — % of staff documents that are still current (expiresAt null or > now)
-  const now = new Date();
-  const currentDocs = documentRows.filter(
-    (d: any) => !d.expiresAt || d.expiresAt > now,
-  ).length;
-  const expiredDocs = documentRows.length - currentDocs;
-  const docCompliancePct =
-    documentRows.length > 0
-      ? Math.round((currentDocs / documentRows.length) * 100)
-      : null;
-
-  // 11. Training completion — % of learning assignments completed
-  const completedLearning = learningRows.filter(
-    (l: any) => l.completedAt || l.status === "COMPLETED",
-  ).length;
-  const trainingPct =
-    learningRows.length > 0
-      ? Math.round((completedLearning / learningRows.length) * 100)
-      : null;
-
+  const finished = figures.finishedJobs;
   return {
     userId,
     windowDays,
     windowStart,
-    quality: { score: qualityAvg, sampleSize: qaScores.length },
-    reliability: {
-      onTimePercent: reliabilityPct,
-      sampleSize: arrivalRows.length,
-    },
-    punctuality: { avgMinutesLate, sampleSize: punctualityDeltas.length },
-    attendance: {
-      completedJobs,
-      assignedJobs,
-      percent: attendancePct,
-    },
-    documentation: {
-      fullyDocumentedPercent: documentationPct,
-      sampleSize: submissionRows.length,
-    },
-    customerSatisfaction: {
-      avgRating,
-      sampleSize: allRatings.length,
-    },
-    responseRate: {
-      acceptedPercent: responsePct,
-      sampleSize: respondableAssignments.length,
-    },
-    disputeRate: {
-      disputes: disputeCount,
-      totalJobs: assignedJobs,
-      percent: disputePct,
-    },
-    noShowRate: {
-      noShows,
-      scheduled: assignedJobs,
-      percent: noShowPct,
-    },
+    minimumSample: PERFORMANCE_MIN_SAMPLE,
+    ...figures,
     documentCompliance: {
       current: currentDocs,
       expired: expiredDocs,
@@ -564,11 +363,8 @@ export async function getPerformanceMetrics(
       majorReworks: reworkStats.major,
       minutesLost: reworkStats.minutes,
       amountLost: reworkStats.amount,
-      totalJobs: assignedJobs,
-      percent:
-        assignedJobs > 0
-          ? Math.round((reworkStats.count / assignedJobs) * 100 * 10) / 10
-          : null,
+      totalJobs: finished,
+      percent: finished >= PERFORMANCE_MIN_SAMPLE ? Math.round((reworkStats.count / finished) * 100 * 10) / 10 : null,
     },
     currentStreak,
     last5Avg,

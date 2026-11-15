@@ -65,7 +65,7 @@ export function PhoneFold({ folded = true, showLabel = "Show details", hideLabel
         <span>{open ? hideLabel : showLabel}</span>
         <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 transition-transform", open && "rotate-180")} />
       </button>
-      <div id={regionId} hidden={!open} className={cn("flex min-w-0 flex-col gap-2", className)}>
+      <div id={regionId} hidden={!open} className={cn("min-w-0 flex-col gap-2", className, open ? "flex" : "hidden")}>
         {children}
       </div>
     </>

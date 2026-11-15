@@ -93,9 +93,51 @@ export function isPortalPath(pathname: string): boolean {
   );
 }
 
+/** The pathname view memory keys on: without the retained-account prefix. */
+function memoryPath(pathname: string): string {
+  return pathname.replace(/^\/_accounts\/[a-f0-9]{32}(?=\/)/, "");
+}
+
 export function viewMemoryKey(pathname: string, key: string): string {
-  const path = pathname.replace(/^\/_accounts\/[a-f0-9]{32}(?=\/)/, "");
-  return `${VIEW_MEMORY_PREFIX}${initializeViewMemory().scope}:${path}:${key}`;
+  return `${VIEW_MEMORY_PREFIX}${initializeViewMemory().scope}:${memoryPath(pathname)}:${key}`;
+}
+
+/**
+ * The page whose view the viewer has just chosen with a bare link (see
+ * rememberChosenView). While set, the pagehide save must not put the view
+ * being left back into memory; the provider clears it once the navigation
+ * has landed.
+ */
+let chosenPath: string | null = null;
+
+/**
+ * A bare link (no query) to the page that is already open is the viewer
+ * choosing that page's default view: the first tab of a record page whose
+ * default is the bare URL ("Timeline" on the job page), or "clear filters".
+ * It is never a return to the page, so the remembered view must not be put
+ * back on it. Records the choice as the page's view and returns true; returns
+ * false for anything else (another page, a link that carries a query, another
+ * origin), which keeps the normal return-to-last-view behaviour.
+ */
+export function rememberChosenView(input: string): boolean {
+  if (typeof window === "undefined") return false;
+  initializeViewMemory();
+  try {
+    const url = new URL(input, window.location.href);
+    if (url.origin !== window.location.origin || !isPortalPath(url.pathname)) return false;
+    if (memoryPath(url.pathname) !== memoryPath(window.location.pathname)) return false;
+    if (url.search !== "") return false;
+    chosenPath = memoryPath(url.pathname);
+    sessionStorage.setItem(viewMemoryKey(url.pathname, "@query"), JSON.stringify(""));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The chosen view has landed: later saves record the page as it is again. */
+export function settleChosenView(): void {
+  chosenPath = null;
 }
 
 export function rememberedHref(input: string): string {
@@ -124,6 +166,9 @@ export function rememberedHref(input: string): string {
 
 export function rememberCurrentView(): void {
   if (typeof window === "undefined" || !isPortalPath(window.location.pathname))
+    return;
+  // Leaving a page for a view chosen on it: the choice is already recorded.
+  if (chosenPath !== null && chosenPath === memoryPath(window.location.pathname))
     return;
   try {
     const query = new URLSearchParams();

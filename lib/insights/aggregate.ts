@@ -14,6 +14,8 @@
  *  - Planned / actual hours and their ratio: over cleans with both.
  *  - Overrun: logged time exceeds planned by more than OVERRUN_TOLERANCE_MINUTES.
  *  - On time: share of cleans with a start time and a clock-in that started on time.
+ *    For a cleaner row: their OWN first clock-in (CleanerShare.onTime), as on
+ *    the workforce performance page; a teammate's clock-in does not count.
  *  - QA score: the Quality hub's clean totals (lib/quality/cleans), so both
  *    pages give the same average for the same cleans.
  *  - Rework rate: rework jobs ÷ cleans in the period (rework jobs are cleans
@@ -95,7 +97,7 @@ export function moneyFigures(facts: readonly JobFact[], minBasis: number): Money
   };
 }
 
-export function onTimeMeasure(facts: readonly JobFact[], minBasis: number): Measure {
+export function onTimeMeasure(facts: ReadonlyArray<{ onTime: Known<boolean> }>, minBasis: number): Measure {
   const result = tally(facts.map((fact) => fact.onTime));
   const onTime = result.values.filter(Boolean).length;
   const pct = result.values.length > 0 ? roundTo((onTime / result.values.length) * 100, 1) : null;
@@ -142,6 +144,8 @@ export type SummariseOptions = {
   hoursItems?: readonly HoursItem[];
   /** Override for a cleaner: Quality hub per-cleaner totals. */
   qa?: CleanTotals;
+  /** Override for a cleaner: their own on-time per clean (their own first clock-in). */
+  onTimeItems?: ReadonlyArray<{ onTime: Known<boolean> }>;
 };
 
 export function summarise(facts: readonly JobFact[], options: SummariseOptions): EntityFigures {
@@ -151,7 +155,7 @@ export function summarise(facts: readonly JobFact[], options: SummariseOptions):
   const figures: EntityFigures = {
     cleans,
     hours: hoursFigures(options.hoursItems ?? facts, options.minBasis),
-    onTime: onTimeMeasure(facts, options.minBasis),
+    onTime: onTimeMeasure(options.onTimeItems ?? facts, options.minBasis),
     qaScore: qaMeasure(qa, options.minBasis),
     reviewed: qa.reviewed,
     issues: options.issues,

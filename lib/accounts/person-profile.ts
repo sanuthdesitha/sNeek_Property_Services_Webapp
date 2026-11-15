@@ -90,7 +90,8 @@ export async function loadPersonProfile(userId: string, now: Date = new Date()):
   const [summary, extended, perf, figures, documents, requests, extraRoles, settings, scopeProperties, availability] = await Promise.all([
     getUserSummary(user.id, currentRate),
     getUserExtendedProfile(user.id),
-    isFieldRole ? getPerformanceMetrics(user.id, 30) : Promise.resolve(null),
+    // A failed window hides the KPIs rather than breaking the page.
+    isFieldRole ? getPerformanceMetrics(user.id, 30).catch(() => null) : Promise.resolve(null),
     user.role === Role.CLEANER ? qualityFigures(user.id, now) : Promise.resolve(null),
     db.staffDocument.findMany({
       where: { userId: user.id },
