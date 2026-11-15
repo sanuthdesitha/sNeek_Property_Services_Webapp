@@ -94,7 +94,10 @@ describe("job header actions", () => {
     const primary = primaryActionFor({ jobId: "job_1", status: "IN_PROGRESS", liveInvoice: null, restoreRefusal: null, readOnly: false, teamMessage: { assignedCount: 1, refusal: null } });
     renderActions(props("IN_PROGRESS", { primary }));
     fireEvent.click(screen.getByRole("button", { name: "Message team" }));
-    const dialog = await screen.findByRole("dialog", { name: "Message team" });
+    // The dialog is titled "Message the team" since the everyday-dialog restyle (2026-11-15); the button keeps
+    // "Message team". The form layout renders the desktop and phone titles side by side and CSS hides one, so
+    // jsdom (no stylesheet) reads both in the name; match the title text as the other form-dialog tests do.
+    const dialog = await screen.findByRole("dialog", { name: /^Message the team/ });
     expect(await within(dialog).findByText("Mia")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/admin/jobs/job_1/office-message", expect.objectContaining({ cache: "no-store" }));
   });
