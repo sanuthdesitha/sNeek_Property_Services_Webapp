@@ -192,6 +192,19 @@ describe("phone layout", () => {
   });
 });
 
+describe("phone stop sheet", () => {
+  it("tapping a stop opens its actions in a bottom sheet", async () => {
+    media(true);
+    mount();
+    await answer(routeCalls()[0], day());
+    fireEvent.click(screen.getByRole("button", { name: "Stop 2" }));
+    const sheet = await screen.findByRole("dialog");
+    expect(within(sheet).getByText("M2 · Stop 2")).toBeInTheDocument();
+    expect(within(sheet).getByRole("link", { name: "Open job" })).toHaveAttribute("href", "/v2/admin/jobs/job-2");
+    expect(within(sheet).getByRole("button", { name: "Change cleaner…" })).toBeInTheDocument();
+  });
+});
+
 describe("pins", () => {
   it("carry the cleaner's letter and stop number, '?' for nobody, and say a suburb-centre position", () => {
     const base = day();

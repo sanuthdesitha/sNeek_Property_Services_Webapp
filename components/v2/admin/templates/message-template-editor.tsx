@@ -412,7 +412,7 @@ export function MessageTemplateEditor({ record, draft, onDraftChange, usage, usa
             </ESelect>
           </EField>
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)]">
           <div className="min-w-0 space-y-1.5">
             <span id="channel-label" className="block text-[0.75rem] font-[550] text-[hsl(var(--e-text-secondary))]">Channel</span>
             <div role="radiogroup" aria-labelledby="channel-label" className="flex overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))]">

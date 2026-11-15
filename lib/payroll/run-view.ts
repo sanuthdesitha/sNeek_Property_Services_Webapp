@@ -9,6 +9,7 @@ import "server-only";
  * Each part fails on its own and says so; a run that cannot be read is an
  * error, never a page of $0.00 tiles.
  */
+import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { getPayrollRun, type PayoutDetail } from "./engine";
@@ -28,6 +29,13 @@ export type PayrollRunView = {
   id: string;
   periodStart: string;
   periodEnd: string;
+  /**
+   * The run's calendar days (yyyy-MM-dd). createPayrollRun stores the period as
+   * `<day>T00:00:00+10:00` / `<day>T23:59:59+10:00`, so the days are read back
+   * at +10:00; reading them in daylight time would shift the end by a day.
+   */
+  periodStartDay: string;
+  periodEndDay: string;
   status: string;
   totalPayable: number;
   totalShoppingReimbursements: number;
@@ -156,6 +164,8 @@ export async function loadPayrollRunView(runId: string): Promise<PayrollRunLoad>
         id: run.id,
         periodStart: run.periodStart.toISOString(),
         periodEnd: run.periodEnd.toISOString(),
+        periodStartDay: formatInTimeZone(run.periodStart, "Etc/GMT-10", "yyyy-MM-dd"),
+        periodEndDay: formatInTimeZone(run.periodEnd, "Etc/GMT-10", "yyyy-MM-dd"),
         status: String(run.status),
         totalPayable: run.totalPayable,
         totalShoppingReimbursements: run.totalShoppingReimbursements,

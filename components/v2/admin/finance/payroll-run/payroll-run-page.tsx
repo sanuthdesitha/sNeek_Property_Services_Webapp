@@ -27,7 +27,7 @@ import {
   type PayrollRunStatusName,
 } from "@/lib/payroll/run-presentation";
 import type { PayrollRunView } from "@/lib/payroll/run-view";
-import { aud, clock, people, periodTitle, plural, stamp } from "../../pay-records/format";
+import { aud, clock, people, periodTitleFromDays, plural, stamp } from "../../pay-records/format";
 import { FactTiles, HistoryList, MUTED, RailCard, SMALL } from "../../pay-records/record-parts";
 import { PayrollRunDialogs, type PayrollDialog } from "./payroll-run-dialogs";
 import { PayoutTable } from "./payout-table";
@@ -179,7 +179,7 @@ export function PayrollRunPage({ run, role }: { run: PayrollRunView; role: strin
   const aba = useAbaDownload(run.id);
   const isAdmin = role === "ADMIN";
   const status = run.status as PayrollRunStatusName;
-  const period = periodTitle(run.periodStart, run.periodEnd, run.timezone);
+  const period = periodTitleFromDays(run.periodStartDay, run.periodEndDay);
   const stageView = payrollRunStages(run, (iso) => stamp(iso, run.timezone));
   const busy = Boolean(dialog) || aba.busy;
   const primary = payrollPrimaryAction(run.status, isAdmin);

@@ -28,7 +28,7 @@ import {
   type PayrollRunStatusName,
 } from "@/lib/payroll/run-presentation";
 import type { PayrollPayoutView, PayrollRunView } from "@/lib/payroll/run-view";
-import { aud, people, periodTitle, plural } from "../../pay-records/format";
+import { aud, people, periodTitleFromDays, plural } from "../../pay-records/format";
 import { sendJson } from "../../pay-records/send-json";
 
 export type PayrollDialog =
@@ -95,7 +95,7 @@ export function PayrollRunDialogs({ run, dialog, onClose, onDone }: Props) {
   const attempt = useAttempt();
   const [runStatus, setRunStatus] = React.useState<PayrollRunStatusName>("COMPLETED");
   const [payoutStatus, setPayoutStatus] = React.useState<PayoutStatusName>("PENDING");
-  const period = periodTitle(run.periodStart, run.periodEnd, run.timezone);
+  const period = periodTitleFromDays(run.periodStartDay, run.periodEndDay);
   const url = `/api/admin/payroll/runs/${run.id}`;
   const resetAttempt = attempt.reset;
 

@@ -260,7 +260,8 @@ export function RouteMapWorkspace({ date, today, tomorrow, mapConfigured }: { da
 
   const select = useCallback((key: string) => {
     setSelectedKey(key);
-    if (phone && phoneView === "map") setSheetOpen(true);
+    // On a phone the stop's actions (Open job, Maps, Change cleaner…) open in a sheet, from the list or the map.
+    if (phone) setSheetOpen(true);
     // Keep the chosen stop in view in the list (the map stays put beside it).
     if (!phone || phoneView === "list") {
       window.requestAnimationFrame(() => document.getElementById(key)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
@@ -390,7 +391,7 @@ export function RouteMapWorkspace({ date, today, tomorrow, mapConfigured }: { da
   );
 
   const mapPanel = (
-    <div className="min-w-0 lg:sticky lg:top-4 lg:self-start">
+    <div className="min-w-0">
       <ECard className="overflow-hidden">
         <RouteMapCanvas
           pins={pins}
@@ -451,7 +452,16 @@ export function RouteMapWorkspace({ date, today, tomorrow, mapConfigured }: { da
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-        <div className={cn("min-w-0", phoneView === "map" && "max-sm:hidden")}>{list}</div>
+        {/* From lg the list scrolls in its own region so the map stays in view beside it
+            (page-level sticky does not work under the portal's overflow-x rule). */}
+        <div
+          className={cn("min-w-0 lg:max-h-[calc(100dvh-8rem)] lg:overflow-y-auto lg:overscroll-contain lg:pr-1", phoneView === "map" && "max-sm:hidden")}
+          role="region"
+          aria-label="Routes and jobs"
+          tabIndex={0}
+        >
+          {list}
+        </div>
         <div className={cn("min-w-0", phoneView === "list" && "max-sm:hidden")}>{mapPanel}</div>
       </div>
 

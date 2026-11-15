@@ -59,6 +59,21 @@ export function periodTitle(startIso: string, endIso: string, timezone: string):
   return `${startText} – ${formatInTimeZone(end, timezone, "d MMM yyyy")}`;
 }
 
+/** "1 – 14 Nov 2026" from two calendar day keys (yyyy-MM-dd), never shifted. */
+export function periodTitleFromDays(startKey: string, endKey: string): string {
+  const parse = (key: string) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+    return match ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12)) : null;
+  };
+  const start = parse(startKey);
+  const end = parse(endKey);
+  if (!start || !end) return `${startKey} – ${endKey}`;
+  const sameYear = start.getUTCFullYear() === end.getUTCFullYear();
+  const sameMonth = sameYear && start.getUTCMonth() === end.getUTCMonth();
+  const startText = formatInTimeZone(start, "UTC", sameMonth ? "d" : sameYear ? "d MMM" : "d MMM yyyy");
+  return `${startText} – ${formatInTimeZone(end, "UTC", "d MMM yyyy")}`;
+}
+
 /** "14 people", "1 person". */
 export function people(count: number): string {
   return `${count} ${count === 1 ? "person" : "people"}`;

@@ -230,7 +230,7 @@ export function MapsLinks({ route, compact = false }: { route: RouteMapRoute; co
     return (
       <EButton asChild size="sm" variant="outline">
         <a href={route.mapsLinks[0].href} target="_blank" rel="noreferrer" aria-label={`Open ${route.cleanerName}'s route in Google Maps`}>
-          {compact ? "Maps" : "Open route in Google Maps"} <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+          {compact ? "Whole route in Maps" : "Open route in Google Maps"} <ExternalLink className="h-3.5 w-3.5" aria-hidden />
         </a>
       </EButton>
     );

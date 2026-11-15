@@ -22,9 +22,39 @@ export type FactTile = {
   noteTone?: "warning";
 };
 
+/** Tiles from 640px; on a phone one card with the closing (gold) figure first, as the phone boards draw it. */
 export function FactTiles({ label, tiles, className }: { label: string; tiles: FactTile[]; className?: string }) {
+  const lead = tiles.find((tile) => tile.gold);
+  const rest = tiles.filter((tile) => tile !== lead);
   return (
-    <section aria-label={label} className={cn("grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5", className)}>
+    <>
+      <section aria-label={label} className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-3.5 py-2.5 sm:hidden">
+        {lead ? (
+          <p className="flex items-baseline justify-between gap-2 border-b border-[hsl(var(--e-border))] pb-2">
+            <span className={cn(SMALL, MUTED)}>{lead.label}</span>
+            <b className="e-tnum text-[1.25rem] text-[hsl(var(--e-gold-ink))]">{lead.value}</b>
+          </p>
+        ) : null}
+        <dl className="divide-y divide-[hsl(var(--e-border))]">
+          {rest.map((tile) => (
+            <div key={tile.key} className={cn("flex items-baseline justify-between gap-3 py-1.5", SMALL)}>
+              <dt className={MUTED}>{tile.label}</dt>
+              <dd className="text-right">
+                <b className="e-tnum">{tile.value}</b>
+                {tile.note && tile.noteTone === "warning" ? <span className="ml-1 font-[600] text-[hsl(var(--e-warning))]">({tile.note})</span> : null}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+      <FactTileGrid label={label} tiles={tiles} className={className} />
+    </>
+  );
+}
+
+function FactTileGrid({ label, tiles, className }: { label: string; tiles: FactTile[]; className?: string }) {
+  return (
+    <section aria-label={label} className={cn("grid grid-cols-2 gap-2.5 max-sm:hidden sm:grid-cols-3 lg:grid-cols-5", className)}>
       {tiles.map((tile) => (
         <div
           key={tile.key}

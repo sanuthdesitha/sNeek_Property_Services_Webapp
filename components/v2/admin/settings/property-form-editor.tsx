@@ -94,8 +94,9 @@ function ConditionLine({
   const [open, setOpen] = React.useState(false);
   const sentence = conditionSentence(condition, labels);
   if (!sentence && !alwaysWord && !open) {
+    // Rows without a condition stay one line: the link is small and quiet.
     return canWrite ? (
-      <button type="button" className="text-[0.75rem] font-[550] text-[hsl(var(--e-primary))] underline" onClick={() => setOpen(true)}>
+      <button type="button" className="text-[0.6875rem] text-[hsl(var(--e-text-secondary))] underline decoration-dotted hover:text-[hsl(var(--e-primary))]" onClick={() => setOpen(true)}>
         Add a condition
       </button>
     ) : null;
@@ -295,7 +296,7 @@ export function PropertyFormEditor({ initialConfig, initialRevision = null, canW
                       ? (["required", "optional", "hidden"] as SystemState[]).map((key) => ({ key, label: STATE_LABEL[key] }))
                       : [{ key: "optional" as SystemState, label: "Shown" }, { key: "hidden" as SystemState, label: "Hidden" }];
                     return (
-                      <li key={def.id} className={cn("space-y-2 px-4 py-3", changed && toneRowCellClass("attention"))}>
+                      <li key={def.id} className={cn("space-y-1 px-4 py-2.5", changed && toneRowCellClass("attention"))}>
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <span className="min-w-0 text-[0.875rem]">
                             {def.label}
@@ -308,7 +309,7 @@ export function PropertyFormEditor({ initialConfig, initialRevision = null, canW
                             <EPill tone={state === "required" ? "ok" : "neutral"}>{def.supportsRequired ? STATE_LABEL[state] : state === "hidden" ? "Hidden" : "Shown"}</EPill>
                           )}
                         </div>
-                        {state !== "hidden" ? (
+                        {state !== "hidden" && (canWrite || draft.systemFields[def.id]?.conditional) ? (
                           <ConditionLine
                             condition={draft.systemFields[def.id]?.conditional}
                             labels={labels}
@@ -425,7 +426,7 @@ export function PropertyFormEditor({ initialConfig, initialRevision = null, canW
             {preview.map((group) => (
               <div key={group.id} className="space-y-2">
                 <p className="text-[0.6875rem] font-[600] uppercase tracking-[0.12em] text-[hsl(var(--e-gold-ink))]">{group.label}</p>
-                {group.fields.map((field) => (
+                {group.fields.filter((field) => field.required || group.id === "custom").map((field) => (
                   <div key={field.id} className="space-y-1">
                     <p className="text-[0.75rem] font-[550]">
                       {field.label}{" "}
@@ -441,6 +442,11 @@ export function PropertyFormEditor({ initialConfig, initialRevision = null, canW
                     {field.note ? <p className="text-[0.6875rem] text-[hsl(var(--e-text-secondary))]">{field.note}</p> : null}
                   </div>
                 ))}
+                {group.id !== "custom" && group.fields.some((field) => !field.required) ? (
+                  <p className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+                    Optional: {group.fields.filter((field) => !field.required).map((field) => field.label).join(", ")}
+                  </p>
+                ) : null}
               </div>
             ))}
             <p className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">&ldquo;Required&rdquo; is written in words; the colour is a second signal. Hidden fields do not appear.</p>

@@ -68,8 +68,9 @@ function methodLine(payout: PayrollPayoutView): { method: string; detail: string
   return { method, detail: payout.stripeAccountId ? "account on file" : null };
 }
 
-export function payslipHref(run: Pick<PayrollRunView, "periodStart" | "periodEnd">, payout: Pick<PayrollPayoutView, "cleanerId">): string {
-  return `/api/admin/finance/payroll/payslip?cleanerId=${encodeURIComponent(payout.cleanerId)}&startDate=${encodeURIComponent(run.periodStart.slice(0, 10))}&endDate=${encodeURIComponent(run.periodEnd.slice(0, 10))}`;
+/** The payslip for the run's own calendar days (the old link sliced the UTC instant, one day early). */
+export function payslipHref(run: Pick<PayrollRunView, "periodStartDay" | "periodEndDay">, payout: Pick<PayrollPayoutView, "cleanerId">): string {
+  return `/api/admin/finance/payroll/payslip?cleanerId=${encodeURIComponent(payout.cleanerId)}&startDate=${encodeURIComponent(run.periodStartDay)}&endDate=${encodeURIComponent(run.periodEndDay)}`;
 }
 
 function rowMenu(payout: PayrollPayoutView, actions: PayoutActions, run: PayrollRunView): ERowMenuItem[] {
@@ -125,7 +126,7 @@ function DesktopRow({ run, payout, open, onToggle, actions }: { run: PayrollRunV
         <td className="px-3 py-2.5 text-right align-top">
           <div className="flex items-center justify-end gap-2">
             {flagged?.code === "NO_BANK_DETAILS" ? (
-              <Link href={`/v2/admin/accounts?open=${encodeURIComponent(payout.cleanerId)}`} className={cn(SMALL, "underline underline-offset-2")}>Add bank details</Link>
+              <Link href={`/v2/admin/accounts?open=${encodeURIComponent(payout.cleanerId)}`} className={cn(SMALL, "whitespace-nowrap underline underline-offset-2")}>Add bank details</Link>
             ) : (
               <a href={payslipHref(run, payout)} target="_blank" rel="noreferrer" className={cn(SMALL, "underline underline-offset-2")}>Payslip PDF</a>
             )}
