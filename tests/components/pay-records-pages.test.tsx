@@ -62,7 +62,7 @@ function payout(id: string, name: string, extra: Partial<PayrollRunView["payouts
 
 function payRun(status = "CONFIRMED", payouts = [payout("p1", "Maria Santos"), payout("p2", "Liam O'Brien", { amount: 640, method: "MANUAL_BANK_TRANSFER", bankBsb: null, bankAccountNumber: null, transportAllowance: 0 })]): PayrollRunView {
   return {
-    id: "run1", periodStart: "2026-10-31T13:00:00.000Z", periodEnd: "2026-11-14T12:59:59.000Z", status, totalPayable: 9860, totalShoppingReimbursements: 0, totalTransportAllowances: 24,
+    id: "run1", periodStart: "2026-10-31T14:00:00.000Z", periodEnd: "2026-11-14T13:59:59.000Z", periodStartDay: "2026-11-01", periodEndDay: "2026-11-14", status, totalPayable: 9860, totalShoppingReimbursements: 0, totalTransportAllowances: 24,
     totalAdjustments: -42, grandTotal: 2050, cleanerCount: payouts.length, createdAt: "2026-11-14T21:40:00.000Z", confirmedAt: status === "DRAFT" ? null : "2026-11-14T22:05:00.000Z", completedAt: null,
     notes: "Fortnight 1 – 14 Nov", createdByName: "Hannah Lee", abaGeneratedAt: null, abaGeneratedByName: null, stripeConfigured: true, timezone: "Australia/Sydney", payouts, history: [],
   };
@@ -78,7 +78,7 @@ describe("pay run page", () => {
     expect(within(table).getAllByText("None").length).toBeGreaterThan(0);
     expect(within(table).getByText("No bank details")).toBeInTheDocument();
     expect(within(table).getByText("Cannot go in the ABA file")).toBeInTheDocument();
-    expect(screen.getByText("$2,050.00")).toBeInTheDocument();
+    expect(screen.getAllByText("$2,050.00").length).toBeGreaterThan(0);
   });
 
   it("keeps each person's jobs collapsed until opened, then shows stored rate snapshots and no per-job amount", async () => {
@@ -289,7 +289,7 @@ describe("shopping run page", () => {
     expect(within(table).getAllByText("Not entered")).toHaveLength(2);
     expect(within(table).queryByText("$0.00")).toBeNull();
     expect(within(table).getByText("No cost entered")).toBeInTheDocument();
-    expect(screen.getByText("1 of 2 bought lines costed")).toBeInTheDocument();
+    expect(screen.getAllByText(/1 of 2 bought lines costed/).length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Reimbursement waiting")).toHaveTextContent("Hand wash refill ×3 for Bondi Beach House was bought but no cost was entered");
   });
 

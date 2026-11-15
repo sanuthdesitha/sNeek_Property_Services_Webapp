@@ -168,7 +168,7 @@ export function PayrollRunDialogs({ run, dialog, onClose, onDone }: Props) {
             </ESelect>
           </label>
         }
-        reason={{ label: "Why, required", choices: REASON_CHOICES.payrollRunStatus }}
+        reason={{ label: "Why", choices: REASON_CHOICES.payrollRunStatus }}
         confirmLabel="Change status"
         busy={attempt.busy}
         error={notRecorded(attempt.error)}
