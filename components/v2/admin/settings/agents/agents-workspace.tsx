@@ -1,277 +1,368 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { EAlert, EBadge, EButton, ECard } from "@/components/v2/ui/primitives";
-import { EToneCard } from "@/components/v2/ui/tone-band";
-import { OwnPinFields, useOwnPinPrompt } from "@/components/v2/shared/own-pin-fields";
-import { AGENT_EXPIRY_CHOICES, AGENT_SCOPES, type AgentScopeKey } from "@/lib/agents/scopes";
-import { AGENT_WRITE_SCOPES, type AgentWriteScopeKey } from "@/lib/agents/write-scopes";
 
-type RecentCall = { at: string; method: string; tool: string | null; outcome: string; errorCode: string | null; latencyMs: number; resultBytes: number | null };
-type AgentItem = {
-  id: string; name: string; status: string; createdAt: string; createdBy: string; areas: string[];
-  effective: AgentScopeKey[]; withheld: AgentScopeKey[];
-  writeAreas: string[]; writeEffective: AgentWriteScopeKey[]; writeWithheld: AgentWriteScopeKey[];
-  waitingRequests: number;
-  token: { prefix: string; expiresAt: string; lastUsedAt: string | null; expired: boolean } | null;
-  recentCalls: RecentCall[];
-};
-type ScreenState = { paused: boolean; agents: AgentItem[]; grantable: AgentScopeKey[]; grantableWrite: AgentWriteScopeKey[]; mcpUrl: string };
-type AgentDraft = { name: string; areas: AgentScopeKey[]; writeAreas: AgentWriteScopeKey[]; expiresInDays: number };
-type Pending =
-  | ({ kind: "create" } & AgentDraft)
-  | { kind: "write-areas"; agent: AgentItem; writeAreas: AgentWriteScopeKey[] }
-  | { kind: "rotate"; agent: AgentItem; expiresInDays: number }
-  | { kind: "revoke"; agent: AgentItem }
-  | { kind: "pause"; paused: boolean };
-type Revealed = { agentName: string; token: string; expiresAt: string };
+/**
+ * Settings › Access › Agents (board "Settings leftovers: Agents", 2026-11).
+ * Administrators create agents for Hermes, Claude or any MCP client, see each
+ * token once, rotate or revoke it, change what it may ask, pause every agent,
+ * and read recent calls. Every change asks for the administrator's own PIN in
+ * the tier C dialog; the server re-checks everything.
+ *
+ * Layout: the on/paused title band (with the real connection address), the
+ * token shown once, then the agents list with the New agent form beside it
+ * (below it on a phone), then the connection guide. One h1 comes from the page
+ * header; this workspace uses h2 and h3 only.
+ */
+import * as React from "react";
+import { EAlert, EButton, ECard } from "@/components/v2/ui/primitives";
+import { EToneBand, EToneCard, toneMutedClass } from "@/components/v2/ui/tone-band";
+import { ENote } from "@/components/v2/ui/form-dialog-parts";
+import type { ConfirmResult } from "@/components/v2/ui/confirm-dialog";
+import { sensitiveVerificationText, type SensitiveCredentialsInput } from "@/lib/security/pin-rules";
+import { cn } from "@/lib/utils";
+import { AgentCard } from "./agent-card";
+import { AgentConfirmDialog } from "./agent-confirm-dialog";
+import {
+  EMPTY_AGENT_DRAFT,
+  DEFAULT_EXPIRY_DAYS,
+  formatWhen,
+  hasValidToken,
+  isWritePackKey,
+  plural,
+  type AgentDraft,
+  type AgentItem,
+  type AgentsScreenState,
+  type PendingChange,
+  type RevealedToken,
+} from "./agent-model";
+import { AGENT_NAME_INPUT_ID, NewAgentForm } from "./new-agent-form";
 
-const SCOPE_LABEL = new Map(AGENT_SCOPES.map((scope) => [scope.key, scope.label]));
-const WRITE_LABEL = new Map(AGENT_WRITE_SCOPES.map((scope) => [scope.key, scope.label]));
+const DEFAULT_TIMEZONE = "Australia/Sydney";
 
-/** Tick boxes for the write packs, limited to what the administrator can manage. */
-function WritePackFields({ legend, value, grantable, disabled, onChange }: { legend: string; value: AgentWriteScopeKey[]; grantable: AgentWriteScopeKey[]; disabled?: boolean; onChange: (next: AgentWriteScopeKey[]) => void }) {
-  return (
-    <fieldset className="space-y-2" disabled={disabled}>
-      <legend className="text-sm font-medium">{legend}</legend>
-      <p className="text-xs text-[hsl(var(--e-muted-foreground))]">Off by default. The agent can only ask: every change waits in Approvals, Agent requests until someone who could make it approves it.</p>
-      {AGENT_WRITE_SCOPES.map((scope) => {
-        const allowed = grantable.includes(scope.key);
-        return (
-          <label key={scope.key} className="flex min-h-11 items-start gap-3 text-sm">
-            <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" disabled={!allowed} checked={value.includes(scope.key)} onChange={(event) => onChange(event.target.checked ? [...value, scope.key] : value.filter((key) => key !== scope.key))} />
-            <span className="min-w-0"><span className="block font-medium">{scope.label}</span><span className="block text-xs text-[hsl(var(--e-muted-foreground))]">{allowed ? scope.description : "Outside what you can manage yourself."}</span></span>
-          </label>
-        );
-      })}
-    </fieldset>
-  );
-}
-const when = (iso: string | null) => (iso ? new Intl.DateTimeFormat("en-AU", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso)) : "Never");
+type LoadStatus = "loading" | "ready" | "failed";
+
+type AgentRequest = { url: string; body: Record<string, unknown> };
 
 async function readJson(response: Response): Promise<Record<string, unknown>> {
   return response.json().catch(() => ({})) as Promise<Record<string, unknown>>;
 }
 
-/**
- * Settings › Access › Agents. Administrators create read-only agents for
- * Hermes, Claude or any MCP client, see each token once, rotate or revoke it,
- * pause every agent, and read recent calls. Every change asks for the
- * administrator's own PIN; the server re-checks everything.
- */
-export function AgentsWorkspace() {
-  const [state, setState] = useState<ScreenState | null>(null);
-  const [loadError, setLoadError] = useState("");
-  const [pending, setPending] = useState<Pending | null>(null);
-  const [draft, setDraft] = useState<AgentDraft | null>(null);
-  const [revealed, setRevealed] = useState<Revealed | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [copied, setCopied] = useState("");
-  const mounted = useRef(true);
-  const pin = useOwnPinPrompt(pending !== null);
+function errorText(body: Record<string, unknown>, fallback: string): string {
+  return typeof body.error === "string" && body.error ? body.error : fallback;
+}
 
-  const load = useCallback(async () => {
+/** The existing API request for each change (unchanged routes and bodies). */
+function requestFor(pending: PendingChange): AgentRequest {
+  switch (pending.kind) {
+    case "create": {
+      const { draft } = pending;
+      return { url: "/api/admin/agents", body: { action: "create", name: draft.name.trim(), areas: draft.areas, writeAreas: draft.writeAreas, expiresInDays: draft.expiresInDays } };
+    }
+    case "pause":
+      return { url: "/api/admin/agents", body: { action: "pause", paused: pending.paused } };
+    case "rotate":
+      return { url: `/api/admin/agents/${encodeURIComponent(pending.agent.id)}`, body: { action: "rotate", expiresInDays: pending.expiresInDays } };
+    case "write-areas":
+      return { url: `/api/admin/agents/${encodeURIComponent(pending.agent.id)}`, body: { action: "write-areas", writeAreas: pending.writeAreas } };
+    case "revoke":
+      return { url: `/api/admin/agents/${encodeURIComponent(pending.agent.id)}`, body: { action: "revoke" } };
+  }
+}
+
+function successMessage(pending: PendingChange): string {
+  switch (pending.kind) {
+    case "revoke":
+      return `${pending.agent.name} was revoked. Its token stops working now.`;
+    case "pause":
+      return pending.paused ? "Every agent is paused. Agents cannot read or ask, and waiting requests cannot be approved." : "Agents can connect again.";
+    case "write-areas":
+      return `What ${pending.agent.name} may ask for was saved.`;
+    case "create":
+      return `${pending.draft.name.trim()} was created.`;
+    case "rotate":
+      return `The token of ${pending.agent.name} was rotated. The old token stops working now.`;
+  }
+}
+
+function mcpSnippet(mcpUrl: string, token: string): string {
+  return JSON.stringify({ mcpServers: { sneek: { type: "http", url: mcpUrl, headers: { Authorization: `Bearer ${token}` } } } }, null, 2);
+}
+
+/** The on / paused title band with the real connection address. */
+function ServiceBand({ state, busy, onToggle }: { state: AgentsScreenState; busy: boolean; onToggle: () => void }) {
+  const tone = state.paused ? "attention" : "good";
+  const valid = state.agents.filter(hasValidToken).length;
+  const lead = state.paused
+    ? "Every agent call is refused, no request can be made and waiting requests cannot be approved."
+    : valid === 0
+      ? "No agent has a valid token yet."
+      : `${plural(valid, "agent")} with valid tokens can read within their access and ask for the changes their write packs allow.`;
+  return (
+    <section aria-labelledby="agents-service-heading" className="min-w-0 overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
+      <EToneBand tone={tone} className="flex flex-wrap items-start justify-between gap-3 border-b-0 px-3.5 py-3">
+        <div className="min-w-0 flex-1">
+          <h2 id="agents-service-heading" className="text-[0.9375rem] font-semibold">{state.paused ? "Agents are paused" : "Agents are on"}</h2>
+          <p className={cn("text-[0.8125rem]", toneMutedClass(tone))}>
+            {lead} Connection address: <code className="font-mono text-[0.75rem] [overflow-wrap:anywhere]">{state.mcpUrl}</code>
+          </p>
+        </div>
+        <EButton type="button" size="sm" variant={state.paused ? "primary" : "outline"} disabled={busy} onClick={onToggle} className="max-sm:w-full">
+          {state.paused ? "Resume all agents…" : "Pause all agents…"}
+        </EButton>
+      </EToneBand>
+    </section>
+  );
+}
+
+/** The token shown once, with the copy buttons; "I have stored it" removes it. */
+function RevealedTokenCard({ revealed, timeZone, copied, onCopy, onDone }: { revealed: RevealedToken; timeZone: string; copied: string; onCopy: (what: "token" | "config") => void; onDone: () => void }) {
+  return (
+    <EToneCard
+      role="region"
+      aria-label={`Token for ${revealed.agentName}, shown once`}
+      tone="attention"
+      header={
+        <div className="min-w-0">
+          <h2 className="text-[0.9375rem] font-semibold [overflow-wrap:anywhere]">Token for {revealed.agentName}, shown once</h2>
+          <p className={cn("text-[0.8125rem]", toneMutedClass("attention"))}>
+            Copy it into the agent&apos;s settings now. It is not stored and cannot be shown again; if it is lost, rotate it. Expires {formatWhen(revealed.expiresAt, timeZone)}.
+          </p>
+        </div>
+      }
+      pill="Copy now"
+      bodyClassName="space-y-3"
+    >
+      <code data-testid="agent-token" className="block rounded-[var(--e-radius)] border border-[hsl(var(--e-band-attention-line))] bg-[hsl(var(--e-surface))] px-2.5 py-2 font-mono text-[0.75rem] [overflow-wrap:anywhere]">
+        {revealed.token}
+      </code>
+      <div className="flex flex-wrap items-center gap-1.5 max-sm:flex-col max-sm:items-stretch">
+        <EButton type="button" size="sm" onClick={() => onCopy("token")}>Copy token</EButton>
+        <EButton type="button" size="sm" variant="outline" onClick={() => onCopy("config")}>Copy MCP configuration</EButton>
+        <span className="grow max-sm:hidden" aria-hidden />
+        <EButton type="button" size="sm" variant="ghost" onClick={onDone}>I have stored it</EButton>
+      </div>
+      {copied ? <p role="status" className="text-[0.8125rem]">{copied}</p> : null}
+    </EToneCard>
+  );
+}
+
+/** The real connection guide (unchanged wording, Estate card). */
+function ConnectionGuide({ mcpUrl, copied, onCopyAddress }: { mcpUrl: string; copied: string; onCopyAddress: () => void }) {
+  return (
+    <ECard className="min-w-0 p-4 sm:p-5">
+      <section aria-labelledby="agents-connect-heading" className="min-w-0 space-y-3">
+        <h2 id="agents-connect-heading" className="text-[0.9375rem] font-semibold">How to connect Hermes or Claude</h2>
+        <ol className="list-decimal space-y-2 pl-5 text-[0.8125rem]">
+          <li>Create an agent with the New agent form, choose what it may read, and copy its token when it is shown (only once).</li>
+          <li>
+            MCP server address: <code className="font-mono [overflow-wrap:anywhere]">{mcpUrl}</code>{" "}
+            <button type="button" className="min-h-8 font-[550] text-[hsl(var(--e-primary))] underline underline-offset-2" onClick={onCopyAddress}>Copy</button>
+          </li>
+          <li>
+            <strong>Hermes, or any MCP client that takes a JSON configuration:</strong> add a server of type &quot;http&quot; with this address and the header <code>Authorization: Bearer &lt;token&gt;</code>, for example:
+            <pre className="mt-1 overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3 text-[0.75rem]">{mcpSnippet(mcpUrl, "<token>")}</pre>
+          </li>
+          <li><strong>Claude Code:</strong> <code className="[overflow-wrap:anywhere]">claude mcp add --transport http sneek {mcpUrl} --header &quot;Authorization: Bearer &lt;token&gt;&quot;</code></li>
+          <li><strong>Claude apps (custom connector, web or desktop; not tried with sNeek yet):</strong> Anthropic documents fixed credentials sent as request headers instead of OAuth. In Claude, open Customize, Connectors, choose Add, then add a custom connector. Name it &quot;sNeek&quot; and paste the address above. Under Authentication choose no OAuth, and under Request headers add <code>Authorization</code> with the value <code>Bearer &lt;token&gt;</code>. Claude reaches sNeek from Anthropic&apos;s cloud, so the address must be your public https site. On Team or Enterprise plans an owner adds it in Organization settings, and everyone who connects uses the same token, so give that agent only what all of them may read. Claude Code is the tested path.</li>
+          <li>Ask the agent to call <code>whoami</code> to check the connection; the call appears under Recent calls. To stop an agent at once, revoke it, or pause all agents.</li>
+          <li>With a write pack, the agent&apos;s <code>request_…</code> tools create requests that wait in Approvals, Agent requests (24 hours, then they expire); <code>get_action_request</code> tells the agent what happened.</li>
+        </ol>
+        {copied ? <p role="status" className="text-[0.8125rem]">{copied}</p> : null}
+      </section>
+    </ECard>
+  );
+}
+
+function writePacksOf(agent: AgentItem) {
+  return agent.writeAreas.filter(isWritePackKey);
+}
+
+export function AgentsWorkspace({ timeZone = DEFAULT_TIMEZONE }: { timeZone?: string }) {
+  const [state, setState] = React.useState<AgentsScreenState | null>(null);
+  const [loadStatus, setLoadStatus] = React.useState<LoadStatus>("loading");
+  const [loadError, setLoadError] = React.useState("");
+  const [draft, setDraft] = React.useState<AgentDraft>(EMPTY_AGENT_DRAFT);
+  const [pending, setPending] = React.useState<PendingChange | null>(null);
+  const [dialogError, setDialogError] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [revealed, setRevealed] = React.useState<RevealedToken | null>(null);
+  const [message, setMessage] = React.useState("");
+  const [copied, setCopied] = React.useState("");
+  const [guideCopied, setGuideCopied] = React.useState("");
+  const loadController = React.useRef<AbortController | null>(null);
+  const mounted = React.useRef(true);
+
+  /** Reads the list; a newer read cancels an older one, and a late answer is ignored. */
+  const load = React.useCallback(async () => {
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
+    setLoadStatus("loading");
     setLoadError("");
     try {
-      const response = await fetch("/api/admin/agents", { cache: "no-store" });
+      const response = await fetch("/api/admin/agents", { cache: "no-store", signal: controller.signal });
       const body = await readJson(response);
-      if (!mounted.current) return;
-      if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "Agents could not be loaded.");
-      setState(body as unknown as ScreenState);
+      if (controller.signal.aborted) return;
+      if (!response.ok) throw new Error(errorText(body, "Agents could not be loaded."));
+      setState(body as unknown as AgentsScreenState);
+      setLoadStatus("ready");
     } catch (error) {
-      if (mounted.current) setLoadError(error instanceof Error ? error.message : "Agents could not be loaded.");
+      if (controller.signal.aborted) return;
+      setLoadError(error instanceof Error ? error.message : "Agents could not be loaded.");
+      setLoadStatus("failed");
     }
   }, []);
-  useEffect(() => { mounted.current = true; void load(); return () => { mounted.current = false; }; }, [load]);
 
-  async function confirm() {
-    if (!pending || !pin.credentials) return;
-    setBusy(true); setMessage("");
+  React.useEffect(() => {
+    mounted.current = true;
+    void load();
+    return () => {
+      mounted.current = false;
+      loadController.current?.abort();
+    };
+  }, [load]);
+
+  function openChange(next: PendingChange) {
+    setDialogError("");
+    setMessage("");
+    setPending(next);
+  }
+
+  function closeDialog() {
+    if (busy) return;
+    setPending(null);
+    setDialogError("");
+  }
+
+  async function confirm(result: ConfirmResult) {
+    if (!pending || !result.credentials) return;
+    const change = pending;
+    const credentials: SensitiveCredentialsInput = result.credentials;
+    const request = requestFor(change);
+    setBusy(true);
+    setDialogError("");
     try {
-      const request = pending.kind === "create"
-        ? { url: "/api/admin/agents", body: { action: "create", name: pending.name, areas: pending.areas, writeAreas: pending.writeAreas, expiresInDays: pending.expiresInDays } }
-        : pending.kind === "pause"
-          ? { url: "/api/admin/agents", body: { action: "pause", paused: pending.paused } }
-          : { url: `/api/admin/agents/${encodeURIComponent(pending.agent.id)}`, body: pending.kind === "rotate" ? { action: "rotate", expiresInDays: pending.expiresInDays } : pending.kind === "write-areas" ? { action: "write-areas", writeAreas: pending.writeAreas } : { action: "revoke" } };
-      const response = await fetch(request.url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...request.body, credentials: pin.credentials }) });
+      const response = await fetch(request.url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...request.body, credentials }) });
       const body = await readJson(response);
       if (!mounted.current) return;
-      if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "The change was not made.");
-      if (pending.kind === "create" || pending.kind === "rotate") {
-        setRevealed({ agentName: pending.kind === "create" ? pending.name : pending.agent.name, token: String(body.token), expiresAt: String(body.expiresAt) });
+      if (!response.ok) {
+        // The dialog stays open with the server's message; the shared dialog clears only the credential.
+        setDialogError(typeof body.error === "string" && body.error ? sensitiveVerificationText(body.error) : "The change was not made.");
+        return;
       }
-      if (pending.kind === "create") setDraft(null);
-      setMessage(pending.kind === "revoke" ? `${pending.agent.name} was revoked. Its token stops working now.` : pending.kind === "pause" ? (pending.paused ? "Every agent is paused. Agents cannot read or ask, and waiting requests cannot be approved." : "Agents can connect again.") : pending.kind === "write-areas" ? `What ${pending.agent.name} may ask for was saved.` : "");
+      if (change.kind === "create" || change.kind === "rotate") {
+        setRevealed({ agentName: change.kind === "create" ? change.draft.name.trim() : change.agent.name, token: String(body.token), expiresAt: String(body.expiresAt) });
+        setCopied("");
+      }
+      if (change.kind === "create") setDraft(EMPTY_AGENT_DRAFT);
+      setMessage(successMessage(change));
       setPending(null);
-      await load();
-    } catch (error) {
-      // The prompt stays open with the draft; only the PIN is cleared.
-      if (mounted.current) { pin.reset(); setMessage(error instanceof Error ? error.message : "The change was not made."); }
+      void load();
+    } catch {
+      if (mounted.current) setDialogError("The change could not be sent. Check the connection and try again.");
     } finally {
       if (mounted.current) setBusy(false);
     }
   }
 
-  async function copy(text: string, label: string) {
-    try { await navigator.clipboard.writeText(text); setCopied(label); } catch { setCopied("Copy failed: select the text and copy it."); }
+  async function copyText(text: string, done: string, report: (text: string) => void) {
+    try {
+      await navigator.clipboard.writeText(text);
+      report(done);
+    } catch {
+      report("Copy failed: select the text and copy it.");
+    }
   }
 
-  if (loadError && !state) return <EAlert tone="danger" title="Agents unavailable">{loadError} <button type="button" className="underline" onClick={() => void load()}>Retry</button></EAlert>;
-  if (!state) return <p role="status" className="text-sm">Loading agents…</p>;
+  function focusNewAgent() {
+    const input = document.getElementById(AGENT_NAME_INPUT_ID);
+    if (!input) return;
+    if (typeof input.scrollIntoView === "function") input.scrollIntoView({ block: "center" });
+    input.focus();
+  }
 
-  const snippet = (token: string) => JSON.stringify({ mcpServers: { sneek: { type: "http", url: state.mcpUrl, headers: { Authorization: `Bearer ${token}` } } } }, null, 2);
+  if (!state) {
+    if (loadStatus === "failed") {
+      return (
+        <EAlert tone="danger" title="Agents unavailable">
+          <p>{loadError}</p>
+          <EButton type="button" size="sm" variant="outline" className="mt-2" onClick={() => void load()}>Retry</EButton>
+        </EAlert>
+      );
+    }
+    return <p role="status" className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">Loading agents…</p>;
+  }
 
   return (
-    <div className="min-w-0 space-y-6">
-      <EAlert tone="info" title="Defaults pending owner confirmation">
-        Agents read within the packs you give them. With a write pack they can only ask: every change waits for a person's approval in Approvals, Agent requests, and runs as that person. Each agent sees and asks for no more than you can, never gets administrator rights, PINs, passwords or keys, and loses an area as soon as its creator does. Invoices, pay, refunds, permissions, users, settings, deletions and anything sent outside the app are never available to agents. Tokens are shown once, expire, and can be revoked at once.
-      </EAlert>
+    <div className="min-w-0 space-y-5">
+      <ServiceBand state={state} busy={busy} onToggle={() => openChange({ kind: "pause", paused: !state.paused })} />
 
-      {revealed ? (
-        <EToneCard tone="attention" header={<span className="font-semibold">Token for {revealed.agentName}: shown once</span>} bodyClassName="space-y-3 p-4">
-          <p className="text-sm">Copy it into the agent&apos;s settings now. It is not stored and cannot be shown again; if it is lost, rotate it. Expires {when(revealed.expiresAt)}.</p>
-          <code className="block break-all rounded border p-3 text-sm" data-testid="agent-token">{revealed.token}</code>
-          <div className="flex flex-wrap gap-2">
-            <EButton type="button" size="sm" onClick={() => void copy(revealed.token, "Token copied.")}>Copy token</EButton>
-            <EButton type="button" size="sm" variant="outline" onClick={() => void copy(snippet(revealed.token), "Configuration copied.")}>Copy MCP configuration</EButton>
-            <EButton type="button" size="sm" variant="ghost" onClick={() => { setRevealed(null); setCopied(""); }}>I have stored it</EButton>
-          </div>
-          {copied ? <p role="status" className="text-sm">{copied}</p> : null}
-        </EToneCard>
+      {loadStatus === "failed" ? (
+        <EAlert tone="warning" title="This list may be out of date">
+          <p>{loadError} It shows what was loaded before.</p>
+          <EButton type="button" size="sm" variant="outline" className="mt-2" onClick={() => void load()}>Retry</EButton>
+        </EAlert>
       ) : null}
 
-      <ECard className="flex flex-wrap items-center justify-between gap-3 p-4">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold">All agents</h2>
-          <p className="text-sm text-[hsl(var(--e-muted-foreground))]">{state.paused ? "Paused: every agent call is refused, no request can be made and waiting requests cannot be approved." : "On: agents with a valid token can read within their access and ask for the changes their write packs allow."}</p>
-        </div>
-        <EButton type="button" variant={state.paused ? "primary" : "outline"} disabled={busy} onClick={() => setPending({ kind: "pause", paused: !state.paused })}>{state.paused ? "Resume all agents" : "Pause all agents"}</EButton>
-      </ECard>
+      {revealed ? (
+        <RevealedTokenCard
+          revealed={revealed}
+          timeZone={timeZone}
+          copied={copied}
+          onCopy={(what) => void copyText(what === "token" ? revealed.token : mcpSnippet(state.mcpUrl, revealed.token), what === "token" ? "Token copied." : "Configuration copied.", setCopied)}
+          onDone={() => { setRevealed(null); setCopied(""); }}
+        />
+      ) : null}
 
-      <section aria-labelledby="agents-list-heading" className="min-w-0 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 id="agents-list-heading" className="text-base font-semibold">Agents ({state.agents.length})</h2>
-          <EButton type="button" disabled={busy || draft !== null} onClick={() => setDraft({ name: "", areas: [], writeAreas: [], expiresInDays: 90 })}>New agent</EButton>
-        </div>
+      {message ? <ENote role="status" tone="good">{message}</ENote> : null}
 
-        {draft ? (
-          <ECard className="space-y-3 p-4">
-            <h3 className="font-semibold">New agent</h3>
-            <label className="block text-sm font-medium">Name
-              <input className="mt-1 block h-11 w-full rounded-md border bg-transparent px-3 text-[16px] sm:text-sm" maxLength={60} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="For example Hermes or Claude" />
-            </label>
-            <fieldset className="space-y-2">
-              <legend className="text-sm font-medium">What it may read (no wider than your own access)</legend>
-              {AGENT_SCOPES.map((scope) => {
-                const allowed = state.grantable.includes(scope.key);
-                return (
-                  <label key={scope.key} className="flex min-h-11 items-start gap-3 text-sm">
-                    <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" disabled={!allowed} checked={draft.areas.includes(scope.key)} onChange={(event) => setDraft({ ...draft, areas: event.target.checked ? [...draft.areas, scope.key] : draft.areas.filter((key) => key !== scope.key) })} />
-                    <span className="min-w-0"><span className="block font-medium">{scope.label}</span><span className="block text-xs text-[hsl(var(--e-muted-foreground))]">{allowed ? scope.description : "Outside your own access."}</span></span>
-                  </label>
-                );
-              })}
-            </fieldset>
-            <WritePackFields legend="What it may ask to change (no wider than what you can manage)" value={draft.writeAreas} grantable={state.grantableWrite} onChange={(writeAreas) => setDraft({ ...draft, writeAreas })} />
-            <label className="block text-sm font-medium">Token expires after
-              <select className="mt-1 block h-11 w-full rounded-md border bg-transparent px-3 text-[16px] sm:text-sm" value={draft.expiresInDays} onChange={(event) => setDraft({ ...draft, expiresInDays: Number(event.target.value) })}>
-                {AGENT_EXPIRY_CHOICES.map((days) => <option key={days} value={days}>{days} days</option>)}
-              </select>
-            </label>
-            <div className="flex flex-wrap gap-2">
-              <EButton type="button" disabled={!draft.name.trim() || draft.areas.length === 0 || busy} onClick={() => setPending({ kind: "create", name: draft.name.trim(), areas: draft.areas, writeAreas: draft.writeAreas, expiresInDays: draft.expiresInDays })}>Create agent</EButton>
-              <EButton type="button" variant="outline" disabled={busy} onClick={() => setDraft(null)}>Cancel</EButton>
-            </div>
-          </ECard>
-        ) : null}
+      <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
+        <section aria-labelledby="agents-list-heading" aria-busy={loadStatus === "loading" || undefined} className="min-w-0 space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <h2 id="agents-list-heading" className="e-display-sm">Agents · {state.agents.length}</h2>
+            <EButton type="button" size="sm" variant="outline" className="lg:hidden" onClick={focusNewAgent}>New agent</EButton>
+          </div>
+          {loadStatus === "loading" ? <p role="status" className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Refreshing…</p> : null}
+          {state.agents.length === 0 ? (
+            <ECard className="p-4 text-[0.875rem]">
+              <p className="font-[550]">No agents yet.</p>
+              <p className="text-[hsl(var(--e-muted-foreground))]">Create one with the New agent form; its token is shown once.</p>
+            </ECard>
+          ) : (
+            state.agents.map((agent) => (
+              <AgentCard
+                key={agent.id}
+                agent={agent}
+                timeZone={timeZone}
+                busy={busy}
+                onRotate={() => openChange({ kind: "rotate", agent, expiresInDays: DEFAULT_EXPIRY_DAYS })}
+                onChangeWrite={() => openChange({ kind: "write-areas", agent, writeAreas: writePacksOf(agent) })}
+                onRevoke={() => openChange({ kind: "revoke", agent })}
+              />
+            ))
+          )}
+        </section>
 
-        {pending ? (
-          <ECard className="space-y-3 p-4" role="group" aria-label="Confirm with your PIN">
-            <p className="text-sm font-medium">
-              {pending.kind === "create" ? `Create "${pending.name}" with ${pending.areas.length} area${pending.areas.length === 1 ? "" : "s"}${pending.writeAreas.length ? ` and ${pending.writeAreas.length} write pack${pending.writeAreas.length === 1 ? "" : "s"}` : ""}?`
-                : pending.kind === "write-areas" ? `Save what ${pending.agent.name} may ask to change? Waiting requests are checked again when someone approves them.`
-                : pending.kind === "rotate" ? `Rotate the token of ${pending.agent.name}? The current token stops working now.`
-                  : pending.kind === "revoke" ? `Revoke ${pending.agent.name}? Its token stops working now and it cannot be restored.`
-                    : pending.paused ? "Pause every agent now?" : "Let agents connect again?"}
-            </p>
-            {pending.kind === "write-areas" ? (
-              <WritePackFields legend={`What ${pending.agent.name} may ask to change`} value={pending.writeAreas} grantable={state.grantableWrite} disabled={busy} onChange={(writeAreas) => setPending({ ...pending, writeAreas })} />
-            ) : null}
-            {pending.kind === "rotate" ? (
-              <label className="block text-sm font-medium">New token expires after
-                <select className="mt-1 block h-11 w-full rounded-md border bg-transparent px-3 text-[16px] sm:text-sm" value={pending.expiresInDays} onChange={(event) => setPending({ ...pending, expiresInDays: Number(event.target.value) })}>
-                  {AGENT_EXPIRY_CHOICES.map((days) => <option key={days} value={days}>{days} days</option>)}
-                </select>
-              </label>
-            ) : null}
-            <OwnPinFields {...pin.fieldProps} disabled={busy} autoFocus />
-            {pin.problem && pin.fieldProps.value.pin ? <p className="text-xs">{pin.problem}</p> : null}
-            <div className="flex flex-wrap gap-2">
-              <EButton type="button" disabled={!pin.credentials || busy} onClick={() => void confirm()}>{busy ? "Working…" : "Confirm"}</EButton>
-              <EButton type="button" variant="outline" disabled={busy} onClick={() => { setPending(null); setMessage(""); }}>Cancel</EButton>
-            </div>
-          </ECard>
-        ) : null}
-        {message ? <p role="status" className="text-sm">{message}</p> : null}
+        <NewAgentForm
+          draft={draft}
+          grantable={state.grantable}
+          grantableWrite={state.grantableWrite}
+          busy={busy}
+          onChange={setDraft}
+          onCreate={() => openChange({ kind: "create", draft: { ...draft, name: draft.name.trim() } })}
+        />
+      </div>
 
-        {state.agents.length === 0 ? <p className="text-sm">No agents yet.</p> : state.agents.map((agent) => (
-          <EToneCard
-            key={agent.id}
-            tone={agent.status !== "ACTIVE" ? null : agent.withheld.length || agent.writeWithheld.length || agent.token?.expired || !agent.token ? "attention" : null}
-            header={<span className="font-semibold break-words">{agent.name}</span>}
-            pill={agent.status !== "ACTIVE" ? "Revoked" : agent.token?.expired ? "Token expired" : !agent.token ? "No live token" : agent.withheld.length || agent.writeWithheld.length ? "Some access withheld" : undefined}
-            bodyClassName="space-y-2 p-4"
-          >
-            <div className="flex flex-wrap gap-1.5">{agent.effective.map((key) => <EBadge key={key} tone="neutral" soft>{SCOPE_LABEL.get(key) ?? key}</EBadge>)}</div>
-            {agent.withheld.length ? <p className="text-sm">Withheld because its creator can no longer read them: {agent.withheld.map((key) => SCOPE_LABEL.get(key) ?? key).join(", ")}.</p> : null}
-            <p className="text-sm">
-              <span className="text-[hsl(var(--e-muted-foreground))]">May ask to change: </span>
-              {agent.writeEffective.length ? agent.writeEffective.map((key) => WRITE_LABEL.get(key) ?? key).join(", ") : "Nothing (read only)"}
-              {agent.waitingRequests > 0 ? ` · ${agent.waitingRequests} request${agent.waitingRequests === 1 ? "" : "s"} waiting in Approvals` : ""}
-            </p>
-            {agent.writeWithheld.length ? <p className="text-sm">Write packs withheld because its creator can no longer manage them: {agent.writeWithheld.map((key) => WRITE_LABEL.get(key) ?? key).join(", ")}.</p> : null}
-            <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-              <div><dt className="inline text-[hsl(var(--e-muted-foreground))]">Token: </dt><dd className="inline break-all">{agent.token ? `${agent.token.prefix}…` : "None"}</dd></div>
-              <div><dt className="inline text-[hsl(var(--e-muted-foreground))]">Expires: </dt><dd className="inline">{agent.token ? when(agent.token.expiresAt) : "—"}</dd></div>
-              <div><dt className="inline text-[hsl(var(--e-muted-foreground))]">Last used: </dt><dd className="inline">{agent.token ? when(agent.token.lastUsedAt) : "—"}</dd></div>
-              <div><dt className="inline text-[hsl(var(--e-muted-foreground))]">Created by: </dt><dd className="inline break-words">{agent.createdBy}, {when(agent.createdAt)}</dd></div>
-            </dl>
-            {agent.status === "ACTIVE" ? (
-              <div className="flex flex-wrap gap-2">
-                <EButton type="button" size="sm" variant="outline" disabled={busy} onClick={() => setPending({ kind: "rotate", agent, expiresInDays: 90 })}>Rotate token</EButton>
-                <EButton type="button" size="sm" variant="outline" disabled={busy} onClick={() => setPending({ kind: "write-areas", agent, writeAreas: agent.writeAreas.filter((key): key is AgentWriteScopeKey => WRITE_LABEL.has(key as AgentWriteScopeKey)) })}>Change what it may ask</EButton>
-                <EButton type="button" size="sm" variant="outline" disabled={busy} onClick={() => setPending({ kind: "revoke", agent })}>Revoke</EButton>
-              </div>
-            ) : null}
-            <details className="rounded border p-2">
-              <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium">Recent calls ({agent.recentCalls.length})</summary>
-              {agent.recentCalls.length === 0 ? <p className="text-sm">No calls yet.</p> : (
-                <ul className="mt-1 space-y-1 text-sm">
-                  {agent.recentCalls.map((call, index) => (
-                    <li key={`${call.at}-${index}`} className="break-words">{when(call.at)} · {call.tool ?? call.method} · {call.outcome}{call.errorCode ? ` (${call.errorCode})` : ""} · {call.latencyMs} ms{call.resultBytes !== null ? ` · ${call.resultBytes} bytes` : ""}</li>
-                  ))}
-                </ul>
-              )}
-            </details>
-          </EToneCard>
-        ))}
-      </section>
+      <ConnectionGuide mcpUrl={state.mcpUrl} copied={guideCopied} onCopyAddress={() => void copyText(state.mcpUrl, "Address copied.", setGuideCopied)} />
 
-      <section aria-labelledby="agents-connect-heading" className="min-w-0 space-y-3">
-        <h2 id="agents-connect-heading" className="text-base font-semibold">How to connect Hermes or Claude</h2>
-        <ol className="list-decimal space-y-2 pl-5 text-sm">
-          <li>Create an agent above, choose what it may read, and copy its token when it is shown (only once).</li>
-          <li>MCP server address: <code className="break-all">{state.mcpUrl}</code> <button type="button" className="underline" onClick={() => void copy(state.mcpUrl, "Address copied.")}>Copy</button></li>
-          <li><strong>Hermes, or any MCP client that takes a JSON configuration:</strong> add a server of type &quot;http&quot; with this address and the header <code>Authorization: Bearer &lt;token&gt;</code>, for example:
-            <pre className="mt-1 overflow-x-auto rounded border p-3 text-xs">{snippet("<token>")}</pre>
-          </li>
-          <li><strong>Claude Code:</strong> <code className="break-all">claude mcp add --transport http sneek {state.mcpUrl} --header &quot;Authorization: Bearer &lt;token&gt;&quot;</code></li>
-          <li><strong>Claude apps (custom connector, web or desktop; not tried with sNeek yet):</strong> Anthropic documents fixed credentials sent as request headers instead of OAuth. In Claude, open Customize, Connectors, choose Add, then add a custom connector. Name it &quot;sNeek&quot; and paste the address above. Under Authentication choose no OAuth, and under Request headers add <code>Authorization</code> with the value <code>Bearer &lt;token&gt;</code>. Claude reaches sNeek from Anthropic&apos;s cloud, so the address must be your public https site. On Team or Enterprise plans an owner adds it in Organization settings, and everyone who connects uses the same token, so give that agent only what all of them may read. Claude Code is the tested path.</li>
-          <li>Ask the agent to call <code>whoami</code> to check the connection; the call appears under Recent calls. To stop an agent at once, revoke it, or pause all agents.</li>
-          <li>With a write pack, the agent&apos;s <code>request_…</code> tools create requests that wait in Approvals, Agent requests (24 hours, then they expire); <code>get_action_request</code> tells the agent what happened.</li>
-        </ol>
-        {copied && !revealed ? <p role="status" className="text-sm">{copied}</p> : null}
-      </section>
+      <AgentConfirmDialog
+        pending={pending}
+        grantableWrite={state.grantableWrite}
+        busy={busy}
+        error={dialogError}
+        onChange={setPending}
+        onClose={closeDialog}
+        onConfirm={confirm}
+      />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
+import { getAppSettings } from "@/lib/settings";
 import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
 import { AgentsWorkspace } from "@/components/v2/admin/settings/agents/agents-workspace";
 
@@ -12,6 +13,8 @@ export const dynamic = "force-dynamic";
  */
 export default async function AgentsSettingsPage() {
   await requireRole([Role.ADMIN]);
+  // Times on the screen (expiry, last use, recent calls) use the organisation timezone.
+  const settings = await getAppSettings().catch(() => null);
   return (
     <div className="min-w-0 space-y-5">
       <EPageHeader
@@ -20,7 +23,7 @@ export default async function AgentsSettingsPage() {
         description="Connect Hermes, Claude or any MCP client so it can read your operations within the access you choose. Agents cannot change anything themselves: with a write pack they can only ask, and a person approves each change in Approvals."
         actions={<EButton asChild variant="outline"><a href="/v2/admin/settings/access">Back to access</a></EButton>}
       />
-      <AgentsWorkspace />
+      <AgentsWorkspace timeZone={settings?.timezone || undefined} />
     </div>
   );
 }
