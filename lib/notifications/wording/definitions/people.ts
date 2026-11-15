@@ -1,6 +1,6 @@
 /** Wording definitions for client, account, money, workforce and marketing types (catalog-people.ts). */
 import type { TypeWordingDefinition } from "../types";
-import { composed, editable, elsewhere, emailTemplatePart, inCode, someParts } from "./build";
+import { composed, editable, elsewhere, emailTemplatePart, inbox, inCode, someParts } from "./build";
 import { CLIENT_UPDATE_WORDING } from "./client-updates";
 import { LEAD_ALERTS_WORDING } from "./office-alerts";
 import { POST_JOB_WORDING } from "./post-job";
@@ -19,6 +19,9 @@ export const PEOPLE_WORDING: readonly TypeWordingDefinition[] = [
     emailTemplatePart("signup-code", "Sign-up code", "signupOtp", ["code"]),
     emailTemplatePart("reset", "Password reset", "resetPassword"),
   ], "Two-step verification codes and recovery emails are composed in the 2FA routes and are deliberately fixed (security wording)."),
+  editable("account.backup_code_used", [
+    inbox("used", "Backup code used", "A backup code was used to sign in", "Someone signed in to your account with a backup code on {{usedAt}}, from {{browser}}. {{remaining}} left. Not you? Change your password now.", { required: ["usedAt", "remaining"], note: "Inbox notice to the account holder, once per code used. The email that goes with it is the block design \"Backup code used\" (Email designs)." }),
+  ]),
   editable("account.invitations", INVITATION_PARTS, "A temporary password the template leaves out is still appended automatically (credential fail-safe)."),
   elsewhere("money.finance_events", "Each finance event's email is an Email design (\"Finance: …\", under this type's details); SMS and push wording stay in Preferences, Finance notification templates.", "/v2/admin/notifications?tab=preferences#finance-notifications"),
   WORKFORCE_WORDING,

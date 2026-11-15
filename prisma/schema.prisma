@@ -462,6 +462,29 @@ model UserSignIn {
   @@index([userId, revokedAt])
 }
 
+/// One single-use two-step backup code (2026-11-17). Only a hash is stored:
+/// HMAC-SHA256 keyed with the server secret over the user id and the code
+/// (hashScheme "hmac-sha256-v1"), or the plain sha256 of an older set copied
+/// from User.twoFactorBackupCodes ("sha256-legacy"). A new set replaces every
+/// row of the person; a use stamps usedAt with a conditional update so two
+/// attempts with the same code cannot both succeed. See lib/auth/backup-codes.ts.
+model TwoFactorBackupCode {
+  id         String    @id @default(cuid())
+  userId     String
+  /// The generation this code belongs to (ten codes share one).
+  setId      String
+  codeHash   String
+  hashScheme String    @default("hmac-sha256-v1")
+  /// Null only for codes copied from the older store, whose creation was never recorded.
+  createdAt  DateTime? @default(now())
+  usedAt     DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, codeHash])
+  @@index([userId, usedAt])
+}
+
 model TrustedDevice {
   id         String    @id @default(cuid())
   userId     String
@@ -813,7 +836,10 @@ model User {
   twoFactorEnabled     Boolean          @default(false)
   twoFactorMethod      TwoFactorMethod?
   totpSecret           String? // base32 secret (TOTP method only)
-  twoFactorBackupCodes String? // JSON array of sha256-hashed one-time codes
+  /// Retired 2026-11-17: older sets were copied into TwoFactorBackupCode by
+  /// migration 20261117010000_two_factor_backup_codes and this column cleared.
+  /// Nothing writes it any more (disable paths still null it, harmlessly).
+  twoFactorBackupCodes String?
   /// When the "two-step sign-in is required for administrators" grace period
   /// started for this person (first admin page seen without two-step on).
   /// Null: never prompted. See lib/auth/two-step-policy.ts.
@@ -851,6 +877,7 @@ model User {
   qaReworkReviewed             QaReworkTransfer[]          @relation("QaReworkReviewedBy")
   webauthnCredentials          WebAuthnCredential[]
   trustedDevices               TrustedDevice[]
+  twoFactorBackupCodeRows      TwoFactorBackupCode[]
   signIns                      UserSignIn[]                @relation("UserSignInUser")
   pushSubscriptions            PushSubscription[]
   maintenanceReported          PropertyMaintenanceItem[]   @relation("MaintenanceReportedBy")

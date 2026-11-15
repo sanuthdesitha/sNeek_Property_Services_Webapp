@@ -5,7 +5,7 @@ import { generateOtpCode, hashOtp, otpExpiresAt } from "@/lib/auth/otp";
 
 /**
  * Two-factor authentication primitives — TOTP (authenticator app) + email
- * one-time codes, backup codes, a short-lived "2FA passed" proof cookie, and
+ * one-time codes, a short-lived "2FA passed" proof cookie, and
  * long-lived "remember this device" tokens. The login flow runs the 2FA check
  * BEFORE NextAuth signIn and sets the proof cookie; authorize() then only has to
  * validate that cookie (it can read the raw cookie header), so no second factor
@@ -52,45 +52,8 @@ export function verifyTotp(token: string, totpSecret: string): boolean {
 }
 
 // ── Backup codes ────────────────────────────────────────────────────────────
-
-/** Generate display codes + their hashes (only hashes are stored). */
-export function generateBackupCodes(count = 10): { plain: string[]; hashedJson: string } {
-  const plain: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const raw = randomBytes(5).toString("hex"); // 10 hex chars
-    plain.push(`${raw.slice(0, 5)}-${raw.slice(5, 10)}`);
-  }
-  const hashed = plain.map((c) => sha256(c.toLowerCase()));
-  return { plain, hashedJson: JSON.stringify(hashed) };
-}
-
-/** Returns ok + the new (consumed) backup-code JSON when a code matches. */
-export function consumeBackupCode(
-  input: string,
-  hashedJson: string | null,
-): { ok: boolean; remainingJson?: string } {
-  if (!hashedJson) return { ok: false };
-  let arr: string[] = [];
-  try {
-    arr = JSON.parse(hashedJson);
-  } catch {
-    return { ok: false };
-  }
-  const h = sha256(input.trim().toLowerCase());
-  const idx = arr.indexOf(h);
-  if (idx === -1) return { ok: false };
-  arr.splice(idx, 1);
-  return { ok: true, remainingJson: JSON.stringify(arr) };
-}
-
-export function countBackupCodes(hashedJson: string | null): number {
-  if (!hashedJson) return 0;
-  try {
-    return (JSON.parse(hashedJson) as string[]).length;
-  } catch {
-    return 0;
-  }
-}
+// Moved to lib/auth/backup-codes.ts (2026-11-17): one row per code, keyed
+// hashes, single use under concurrency. The JSON column is retired.
 
 // ── Short-lived "2FA passed" proof cookie ─────────────────────────────────────
 

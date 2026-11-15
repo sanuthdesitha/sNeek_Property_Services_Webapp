@@ -31,6 +31,7 @@ import {
   type VisitOrderRow,
 } from "@/lib/qa/visit-order-view";
 import { EarlyStartDialog, requestQaPickup } from "@/components/v2/qa/today/early-start-dialog";
+import { tourTarget } from "@/lib/tutorials/targets";
 
 type DayMode = "today" | "tomorrow" | "custom";
 
@@ -247,11 +248,11 @@ export function QaVisitOrder({
           </EAlert>
         </div>
       ) : rows.length === 0 ? (
-        <p className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-4 py-6 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
+        <p className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-4 py-6 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]" {...tourTarget("qa.today.visitOrder")}>
           No inspections planned for this day. Work you can pick up is under All inspections below.
         </p>
       ) : (
-        <ol className="divide-y divide-[hsl(var(--e-border))] overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
+        <ol className="divide-y divide-[hsl(var(--e-border))] overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]" {...tourTarget("qa.today.visitOrder")}>
           {rows.map((row, index) => (
             <li key={row.assignmentId} className="flex items-center gap-3 px-3 py-2.5">
               <span aria-hidden className="e-tnum flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--e-muted))] text-[0.8125rem] font-[600]">
@@ -327,14 +328,14 @@ export function QaVisitOrder({
           </ECard>
           {startError ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{startError}</p> : null}
           {next.waitingForCleaner ? (
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2" {...tourTarget("qa.today.start")}>
               <EButton asChild variant="outline" size="lg">
                 <Link href={`/v2/qa/jobs/${next.jobId}`}>Monitor clean</Link>
               </EButton>
               <EButton variant="gold" size="lg" onClick={() => void startAnyway(next)}>Start anyway</EButton>
             </div>
           ) : (
-            <EButton asChild variant="gold" size="lg" className="w-full">
+            <EButton asChild variant="gold" size="lg" className="w-full" {...tourTarget("qa.today.start")}>
               <Link href={`/v2/qa/jobs/${next.jobId}`}>
                 {next.stage === "INSPECTING" ? "Continue inspection" : "Start inspection"} · {next.property}
               </Link>

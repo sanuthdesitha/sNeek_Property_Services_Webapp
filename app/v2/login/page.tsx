@@ -8,6 +8,7 @@ import { EButton, ECard, ECardBody, EEyebrow } from "@/components/v2/ui/primitiv
 import { BiometricSignInButton } from "@/components/auth/biometric-sign-in-button";
 import { signInWithCredentials } from "@/lib/auth/credentials-sign-in";
 import { toneNoticeClass } from "@/components/v2/ui/tone-band";
+import type { BackupCodeSignInOutcome } from "@/lib/auth/backup-code-format";
 
 /** v2 counterpart of ADMIN_RECOVERY_LOGIN_URL — stays inside the Estate skin. */
 const V2_ADMIN_RECOVERY_LOGIN_URL = "/v2/login?admin=1";
@@ -37,6 +38,10 @@ export default function LoginPageV2() {
   // to a code-entry step before completing sign-in.
   const [twoFa, setTwoFa] = useState<{ method: "TOTP" | "EMAIL" } | null>(null);
   const [code, setCode] = useState("");
+  // "Use a backup code": the same second step, with a one-time code instead.
+  const [codeMode, setCodeMode] = useState<"usual" | "backup">("usual");
+  // After a backup code worked: how many are left, before signing in.
+  const [backupResult, setBackupResult] = useState<BackupCodeSignInOutcome | null>(null);
   const [rememberDevice, setRememberDevice] = useState(false);
   const [recoverySent, setRecoverySent] = useState(false);
   const adminRecoveryMode = searchParams.get("admin") === "1";
@@ -129,11 +134,19 @@ export default function LoginPageV2() {
           password: form.password,
           code,
           remember: rememberDevice,
+          ...(codeMode === "backup" ? { method: "backup" } : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(body.error || "Invalid or expired code.");
+        setLoading(false);
+        return;
+      }
+      if (body?.backupCode && typeof body.backupCode.remaining === "number") {
+        // Show how many are left before moving on; the code itself is never echoed.
+        setCode("");
+        setBackupResult(body.backupCode as BackupCodeSignInOutcome);
         setLoading(false);
         return;
       }
@@ -157,11 +170,19 @@ export default function LoginPageV2() {
     setRecoverySent(true);
   }
 
-  async function doSignIn() {
+  function switchCodeMode(next: "usual" | "backup") {
+    setCodeMode(next);
+    setCode("");
+    setError(null);
+  }
+
+  async function doSignIn(afterPath?: string) {
     try {
-      const callbackUrl = adminRecoveryMode
-        ? `${window.location.origin}/v2/admin`
-        : `${window.location.origin}${v2CallbackPath}`;
+      const callbackUrl = afterPath
+        ? `${window.location.origin}${afterPath}`
+        : adminRecoveryMode
+          ? `${window.location.origin}/v2/admin`
+          : `${window.location.origin}${v2CallbackPath}`;
       const res = await signInWithCredentials({
         email: form.email,
         password: form.password,
@@ -246,7 +267,7 @@ export default function LoginPageV2() {
               <p className="text-[0.8125rem] font-[550] text-[hsl(var(--e-text-secondary))]">{branding.companyName}</p>
               <EEyebrow className="mt-1 justify-center">PRIVATE PORTAL</EEyebrow>
               <h1 className="e-display-sm mt-1.5">
-                {twoFa ? "Verify it\u2019s you" : adminRecoveryMode ? "Admin recovery sign in" : "Sign in to your portal"}
+                {backupResult ? "Backup code accepted" : twoFa ? "Verify it\u2019s you" : adminRecoveryMode ? "Admin recovery sign in" : "Sign in to your portal"}
               </h1>
               {!twoFa && !adminRecoveryMode ? (
                 <p className="mt-1 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
@@ -289,30 +310,73 @@ export default function LoginPageV2() {
               </div>
             ) : null}
 
-            {twoFa ? (
+            {twoFa && backupResult ? (
+              <BackupCodeAccepted
+                result={backupResult}
+                busy={loading}
+                onContinue={(path) => {
+                  setLoading(true);
+                  void doSignIn(path);
+                }}
+              />
+            ) : twoFa ? (
               <form onSubmit={handleVerify} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label htmlFor="twofa-code" className={E_LABEL_CLASS}>
-                    {twoFa.method === "EMAIL" ? "Email code" : "Authenticator code"}
-                  </label>
-                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                    {twoFa.method === "EMAIL"
-                      ? `We sent a 6-digit code to ${form.email}.`
-                      : "Enter the 6-digit code from your authenticator app."}{" "}
-                    You can also use a backup code.
-                  </p>
-                  <input
-                    id="twofa-code"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    autoFocus
-                    placeholder="123456"
-                    required
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    className={E_INPUT_CLASS}
-                  />
-                </div>
+                {codeMode === "backup" ? (
+                  <div className="space-y-1.5">
+                    <label htmlFor="twofa-backup" className={E_LABEL_CLASS}>Backup code</label>
+                    <p id="twofa-backup-hint" className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                      Enter one of the ten codes you saved, like ABCDE-FGHJK. Each code works once.
+                    </p>
+                    <input
+                      id="twofa-backup"
+                      aria-describedby="twofa-backup-hint"
+                      autoComplete="off"
+                      autoCapitalize="characters"
+                      spellCheck={false}
+                      autoFocus
+                      placeholder="ABCDE-FGHJK"
+                      required
+                      maxLength={16}
+                      value={code}
+                      disabled={loading}
+                      onChange={(e) => setCode(e.target.value)}
+                      className={`${E_INPUT_CLASS} font-mono uppercase tracking-[0.06em]`}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <label htmlFor="twofa-code" className={E_LABEL_CLASS}>
+                      {twoFa.method === "EMAIL" ? "Email code" : "Authenticator code"}
+                    </label>
+                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                      {twoFa.method === "EMAIL"
+                        ? `We sent a 6-digit code to ${form.email}.`
+                        : "Enter the 6-digit code from your authenticator app."}
+                    </p>
+                    <input
+                      id="twofa-code"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      autoFocus
+                      placeholder="123456"
+                      required
+                      value={code}
+                      disabled={loading}
+                      onChange={(e) => setCode(e.target.value)}
+                      className={E_INPUT_CLASS}
+                    />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="inline-flex min-h-11 items-center text-[0.8125rem] font-[550] text-[hsl(var(--e-gold-ink))] underline-offset-4 hover:underline disabled:opacity-50"
+                  disabled={loading}
+                  onClick={() => switchCodeMode(codeMode === "backup" ? "usual" : "backup")}
+                >
+                  {codeMode === "backup"
+                    ? twoFa.method === "EMAIL" ? "Use the email code instead" : "Use your authenticator code instead"
+                    : "Use a backup code"}
+                </button>
                 <label className="flex items-center gap-2 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
                   <input
                     type="checkbox"
@@ -328,7 +392,7 @@ export default function LoginPageV2() {
                 <button
                   type="button"
                   className="w-full text-center text-[0.8125rem] text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"
-                  onClick={() => { setTwoFa(null); setCode(""); setError(null); }}
+                  onClick={() => { setTwoFa(null); setCode(""); setError(null); setCodeMode("usual"); }}
                 >
                   Back
                 </button>
@@ -448,5 +512,56 @@ export default function LoginPageV2() {
         </p>
       </div>
     </main>
+  );
+}
+
+/**
+ * After a backup code worked, before signing in: how many codes are left, and
+ * a prompt to make new ones at three or fewer. Nothing here repeats the code.
+ */
+function BackupCodeAccepted({
+  result,
+  busy,
+  onContinue,
+}: {
+  result: BackupCodeSignInOutcome;
+  busy: boolean;
+  onContinue: (path?: string) => void;
+}) {
+  const left = `${result.remaining} backup code${result.remaining === 1 ? "" : "s"} left`;
+  return (
+    <div className="space-y-4" role="status" aria-live="polite">
+      <p className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
+        That code is now used and will not work again. <strong className="font-[600] text-[hsl(var(--e-foreground))]">{left}.</strong>{" "}
+        We sent you a notice saying a backup code was used.
+      </p>
+      {result.makeNewSuggested ? (
+        <div className={`rounded-[var(--e-radius-lg)] p-4 text-[0.8125rem] ${toneNoticeClass("attention")}`}>
+          <strong className="block">{result.remaining === 0 ? "You have no backup codes left." : "You are running low."}</strong>
+          {result.newCodesPath
+            ? "Make a new set now. It replaces every older code."
+            : "Make a new set in your profile: switch method, or turn two-step off and on again."}
+        </div>
+      ) : null}
+      {result.makeNewSuggested && result.newCodesPath ? (
+        <>
+          <EButton type="button" variant="gold" size="lg" className="w-full" disabled={busy} onClick={() => onContinue(result.newCodesPath ?? undefined)}>
+            {busy ? "Signing in..." : "Sign in and make new codes"}
+          </EButton>
+          <button
+            type="button"
+            className="inline-flex min-h-11 w-full items-center justify-center text-[0.8125rem] text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))] disabled:opacity-50"
+            disabled={busy}
+            onClick={() => onContinue()}
+          >
+            Not now, continue
+          </button>
+        </>
+      ) : (
+        <EButton type="button" variant="gold" size="lg" className="w-full" disabled={busy} onClick={() => onContinue()}>
+          {busy ? "Signing in..." : "Continue"}
+        </EButton>
+      )}
+    </div>
   );
 }

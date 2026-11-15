@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { consumeRecoveryToken } from "@/lib/auth/recovery";
+import { deleteBackupCodes } from "@/lib/auth/backup-codes";
 
 const schema = z.object({ email: z.string().email(), token: z.string().min(10) });
 
@@ -19,13 +20,16 @@ export async function POST(req: NextRequest) {
     const user = await db.user.findUnique({ where: { email: lower }, select: { id: true } });
     if (!user) return NextResponse.json({ error: "Account not found." }, { status: 400 });
 
-    await db.$transaction([
-      db.user.update({
+    await db.$transaction(async (tx) => {
+      await tx.user.update({
         where: { id: user.id },
         data: { twoFactorEnabled: false, twoFactorMethod: null, totpSecret: null, twoFactorBackupCodes: null },
-      }),
-      db.trustedDevice.deleteMany({ where: { userId: user.id } }),
-    ]);
+      });
+      await tx.trustedDevice.deleteMany({ where: { userId: user.id } });
+      // Turning two-step off by the emailed recovery link deletes the backup codes too.
+      const removed = await deleteBackupCodes(tx, user.id);
+      await tx.auditLog.create({ data: { userId: user.id, action: "TWO_FACTOR_BACKUP_CODES_DELETED", entity: "User", entityId: user.id, after: { reason: "two_step_recovery_link", count: removed } } });
+    });
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {

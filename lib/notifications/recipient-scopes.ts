@@ -59,11 +59,16 @@ const OPS_POLICY_SETTING_KEY = "ops_feature_permissions_v1";
  *   the request's write pack at "manage" (plus its capability). Only while the
  *   request is still WAITING (a decided or expired request is not delivered).
  *
+ * - ACCOUNT_HOLDER (id = recipient user id, 2026-11-17): the account's own
+ *   security notices (a two-step backup code was used). Any active account of
+ *   any role, addressed only to itself; a deactivated account or a changed
+ *   role is skipped.
+ *
  * In every scope the role recorded in the envelope must still be the
  * recipient's role: a role change between queueing and dispatch skips the
  * delivery instead of disclosing to a different kind of account.
  */
-export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "LAUNDRY_TASK_SUPPLIER_TEAM", "STAFF_MEMBER", "JOB_CLIENT_CONTACT", "LOST_ITEM_PROPERTY_CLIENT", "URGENT_STOCK_PURCHASE_ASK", "URGENT_STOCK_OFFICE", "JOB_OFFICE", "AGENT_ACTION_APPROVER"] as const;
+export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "LAUNDRY_TASK_SUPPLIER_TEAM", "STAFF_MEMBER", "JOB_CLIENT_CONTACT", "LOST_ITEM_PROPERTY_CLIENT", "URGENT_STOCK_PURCHASE_ASK", "URGENT_STOCK_OFFICE", "JOB_OFFICE", "AGENT_ACTION_APPROVER", "ACCOUNT_HOLDER"] as const;
 export type RecipientScopeType = (typeof RECIPIENT_SCOPE_TYPES)[number];
 
 export { STAFF_MESSAGE_ROLES };
@@ -206,5 +211,7 @@ export async function authorizeEntityRecipient(reader: ScopeReader, recipient: R
     }
     case "AGENT_ACTION_APPROVER":
       return (await agentApproverRecipientAllowed(reader, user, scope.id)) ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
+    case "ACCOUNT_HOLDER":
+      return scope.id === user.id ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
   }
 }

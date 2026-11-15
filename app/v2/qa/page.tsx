@@ -13,6 +13,7 @@ import { getAppSettings } from "@/lib/settings";
 import { qaAssignmentOwnerWhere } from "@/lib/qa/ownership";
 import { resolveReworkScope, reworkScopeWhere } from "@/lib/qa/rework-list";
 import { toneNoticeClass } from "@/components/v2/ui/tone-band";
+import { tourTarget } from "@/lib/tutorials/targets";
 
 export const metadata = { title: "Today · Estate QA" };
 export const dynamic = "force-dynamic";
@@ -101,7 +102,7 @@ export default async function QaTodayPage() {
           Some QA figures could not be loaded. <a href="/v2/qa" className="underline">Retry</a>
         </div>
       ) : null}
-      <section aria-label="Today's figures" className="grid grid-cols-3 gap-2 sm:gap-4">
+      <section aria-label="Today's figures" className="grid grid-cols-3 gap-2 sm:gap-4" {...tourTarget("qa.today.figures")}>
         <EStatCard label="To inspect" value={figure(toInspect)} delta={canAssign ? "team" : "yours"} deltaTone="neutral" />
         <EStatCard label="Rework open" value={figure(reworkOpen)} delta={canAssign ? "team-wide" : "yours"} deltaTone="neutral" />
         <EStatCard label="Done" value={figure(done)} delta="today" deltaTone={done ? "success" : "neutral"} />
@@ -127,13 +128,15 @@ export default async function QaTodayPage() {
           {queue}
         </section>
       ) : (
-        <OperationsDisclosure
-          title="All inspections"
-          description="Search, filter by type or readiness, pick up open work and see submitted inspections. Changes nothing until you act."
-          icon={<ListFilter className="h-4 w-4" />}
-        >
-          {queue}
-        </OperationsDisclosure>
+        <div {...tourTarget("qa.today.queue")}>
+          <OperationsDisclosure
+            title="All inspections"
+            description="Search, filter by type or readiness, pick up open work and see submitted inspections. Changes nothing until you act."
+            icon={<ListFilter className="h-4 w-4" />}
+          >
+            {queue}
+          </OperationsDisclosure>
+        </div>
       )}
     </div>
   );
