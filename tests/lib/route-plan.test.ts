@@ -1,9 +1,9 @@
 // @vitest-environment node
 /**
- * Route order and links (board "Route map", 2026-11-17; owner defaults pending
- * confirmation): start time first (the old suburb A-to-Z sort put a 10:00 job
- * last), every stop kept, the Google Maps link split into consecutive links
- * instead of silently keeping the first ten.
+ * Route order and links (board "Route map", 2026-11-17): the order is the
+ * Scheduling rules' order, unchanged (owner instruction); the page only says
+ * what the rules do. Google Maps links are split into consecutive links that
+ * say which stops they cover instead of silently keeping the first ten.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -13,30 +13,27 @@ import {
 
 const stop = (jobId: string, propertyName: string, suburb: string, startTime: string | null, dueTime: string | null = null) => ({ jobId, propertyName, suburb, startTime, dueTime });
 
-describe("route order", () => {
+describe("route order follows the Scheduling rules unchanged", () => {
   const tom = [
     stop("j1", "Darlinghurst Terrace", "Darlinghurst", "12:00", "14:00"),
     stop("j2", "Potts Point Apartment", "Potts Point", "14:30", "16:30"),
     stop("j3", "Surry Hills Studio", "Surry Hills", "10:00", "12:00"),
   ];
 
-  it("puts the 10:00 job first, not last (the board's Tom Nguyen case)", () => {
-    expect(orderRouteStops(tom, { groupBySuburb: true }).map((item) => item.startTime)).toEqual(["10:00", "12:00", "14:30"]);
+  it("group by suburb On: suburb A to Z, then start time (the 10:00 job can come last)", () => {
+    expect(orderRouteStops(tom, { groupBySuburb: true }).map((item) => item.jobId)).toEqual(["j1", "j2", "j3"]);
+  });
+
+  it("group by suburb Off: start time", () => {
     expect(orderRouteStops(tom, { groupBySuburb: false }).map((item) => item.jobId)).toEqual(["j3", "j1", "j2"]);
   });
 
-  it("keeps same-suburb jobs together only among jobs that start at the same time", () => {
-    const tied = [stop("a", "Zeta", "Bondi", "09:00"), stop("b", "Alpha", "Coogee", "09:00"), stop("c", "Beta", "Bondi", "09:00")];
-    expect(orderRouteStops(tied, { groupBySuburb: true }).map((item) => item.jobId)).toEqual(["c", "a", "b"]);
-    expect(orderRouteStops(tied, { groupBySuburb: false }).map((item) => item.jobId)).toEqual(["b", "c", "a"]);
+  it("sorts a stop without a start time as 23:59 and keeps ties in their incoming order", () => {
+    const stops = [stop("a", "A", "X", null), stop("b", "B", "X", "11:00"), stop("c", "C", "X", "11:00")];
+    expect(orderRouteStops(stops, { groupBySuburb: true }).map((item) => item.jobId)).toEqual(["b", "c", "a"]);
   });
 
-  it("lists stops without a start time last, by due time, and never drops one", () => {
-    const stops = [stop("a", "A", "X", null, "15:00"), stop("b", "B", "X", null, null), stop("c", "C", "X", "11:00")];
-    expect(orderRouteStops(stops, { groupBySuburb: true }).map((item) => item.jobId)).toEqual(["c", "a", "b"]);
-  });
-
-  it("reads only HH:MM clock times", () => {
+  it("reads only HH:MM clock times for the time checks", () => {
     expect(clockMinutes("09:30")).toBe(570);
     expect(clockMinutes("9:30")).toBeNull();
     expect(clockMinutes("24:10")).toBeNull();
@@ -45,32 +42,35 @@ describe("route order", () => {
 });
 
 describe("rough travel and time issues", () => {
-  it("is the rough rule from the first job: 8 in a suburb, 22 between", () => {
-    const travel = roughTravel([{ suburb: "Bondi" }, { suburb: "bondi " }, { suburb: "Coogee" }]);
-    expect(travel.fromPrevious).toEqual([0, 8, 22]);
-    expect(travel.total).toBe(30);
+  it("is the rough rule from the first job: 8 in the same suburb, 22 otherwise (exact names, as always)", () => {
+    const travel = roughTravel([{ suburb: "Bondi" }, { suburb: "Bondi" }, { suburb: "Coogee" }, { suburb: "coogee" }]);
+    expect(travel.fromPrevious).toEqual([0, 8, 22, 22]);
+    expect(travel.total).toBe(52);
     expect(roughDurationWords(132)).toBe("about 2 h 12 min");
     expect(roughDurationWords(0)).toBe("no driving between stops");
   });
 
-  it("flags out of time order, overlaps and missing start times without reordering", () => {
+  it("flags out of time order (possible when grouped by suburb), overlaps and missing start times without reordering", () => {
+    const grouped = orderRouteStops([
+      stop("j1", "Darlinghurst Terrace", "Darlinghurst", "12:00", "14:00"),
+      stop("j3", "Surry Hills Studio", "Surry Hills", "10:00", "12:00"),
+    ], { groupBySuburb: true });
+    expect(routeTimeIssues(grouped)).toEqual([{ kind: "out_of_order", stopIndex: 1, earlierIndex: 0 }]);
     const issues = routeTimeIssues([
       { startTime: "12:00", dueTime: "14:00" },
       { startTime: "13:30", dueTime: "15:00" },
-      { startTime: "10:00", dueTime: "12:00" },
       { startTime: null, dueTime: null },
     ]);
     expect(issues).toEqual([
       { kind: "overlap", stopIndex: 1, earlierIndex: 0 },
-      { kind: "out_of_order", stopIndex: 2, earlierIndex: 0 },
-      { kind: "no_start_time", stopIndex: 3 },
+      { kind: "no_start_time", stopIndex: 2 },
     ]);
     expect(routeTimeIssues([{ startTime: "09:00", dueTime: "11:00" }, { startTime: "11:30", dueTime: "13:30" }])).toEqual([]);
   });
 });
 
 describe("Google Maps links", () => {
-  it("covers every one of 14 stops with consecutive links that share their joining stop", () => {
+  it("covers every one of 14 addresses with consecutive links that share their joining stop", () => {
     const addresses = Array.from({ length: 14 }, (_, index) => `${index + 1} Test St, Bondi`);
     const chunks = routeLinkChunks(addresses);
     expect(chunks.map((chunk) => [chunk.from, chunk.to])).toEqual([[0, 9], [9, 13]]);

@@ -1,12 +1,12 @@
 // @vitest-environment node
 /**
- * Route map day (board "Route map", 2026-11-17): every stop is kept above the
- * stops-per-route setting (the 13th used to vanish), routes are ordered by
- * start time, and the "Nobody on these jobs" suggestions come from the
+ * Route map day (board "Route map", 2026-11-17): routes follow the Scheduling
+ * rules exactly as on origin/main (owner instruction), the stops the limit
+ * hides are counted and said, and the "Nobody on these jobs" suggestions come from the
  * existing scorer WITHOUT writing anything. The API keeps today's rights:
  * ADMIN and OPS_MANAGER, and the Jobs pack for managers.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Role } from "@prisma/client";
 
 const m = vi.hoisted(() => ({
@@ -55,7 +55,7 @@ vi.mock("@/lib/settings", async (original) => {
   return { ...actual, getAppSettings: async () => actual.DEFAULT_SETTINGS };
 });
 
-import { buildDailyRoutePlan } from "@/lib/ops/dispatch";
+import { buildDailyRoutePlan, buildDetailedRoutePlan } from "@/lib/ops/dispatch";
 import { loadRouteMapDay } from "@/lib/ops/route-map-day";
 import { GET } from "@/app/api/admin/jobs/route-map/route";
 import { allOpsLevels, canUseOpsPath, opsRequestFeature } from "@/lib/rbac/ops-catalog";
@@ -86,21 +86,84 @@ beforeEach(() => {
   m.requireRole.mockResolvedValue({ user: { id: "admin", role: Role.ADMIN } });
 });
 
-describe("buildDailyRoutePlan", () => {
-  it("keeps every one of 14 stops, in start-time order, and passes the notice limit back", async () => {
-    const [route] = await buildDailyRoutePlan("2026-11-15");
-    expect(route.stops).toHaveLength(14);
-    expect(route.stopNoticeAbove).toBe(12);
-    expect(route.stops.map((stop) => stop.startTime)).toEqual(Array.from({ length: 14 }, (_, index) => `${String(7 + index).padStart(2, "0")}:00`));
-    expect(route.totalEstimatedTravelMins).toBe(13 * 22);
+/**
+ * origin/main's buildDailyRoutePlan, copied verbatim (grouping, sort, travel,
+ * slice) as the reference: the owner's rules must behave exactly as before.
+ */
+type OriginRow = { userId: string; user: { id: string; name: string | null; email: string }; job: { id: string; jobType: string; status: string; startTime: string | null; dueTime: string | null; property: { name: string; suburb: string; address: string } } };
+function originRoutePlan(assignments: OriginRow[], settings: { routeOptimization: { groupBySuburb: boolean; maxStopsPerRun: number } }) {
+  const groups = new Map<string, { cleanerId: string; cleanerName: string; cleanerEmail: string; stops: Array<{ jobId: string; propertyName: string; suburb: string; address: string; startTime: string | null; dueTime: string | null; jobType: string; status: string; estimatedTravelMinsFromPrev: number }>; totalEstimatedTravelMins: number }>();
+  for (const row of assignments) {
+    const key = row.userId;
+    const current = groups.get(key) ?? { cleanerId: row.user.id, cleanerName: row.user.name ?? row.user.email, cleanerEmail: row.user.email, stops: [], totalEstimatedTravelMins: 0 };
+    current.stops.push({ jobId: row.job.id, propertyName: row.job.property.name, suburb: row.job.property.suburb, address: row.job.property.address, startTime: row.job.startTime ?? null, dueTime: row.job.dueTime ?? null, jobType: row.job.jobType, status: row.job.status, estimatedTravelMinsFromPrev: 0 });
+    groups.set(key, current);
+  }
+  const routes = Array.from(groups.values()).map((group) => {
+    const sortedStops = [...group.stops].sort((a, b) => {
+      if (settings.routeOptimization.groupBySuburb) {
+        const suburbCompare = a.suburb.localeCompare(b.suburb);
+        if (suburbCompare !== 0) return suburbCompare;
+      }
+      return (a.startTime ?? "23:59").localeCompare(b.startTime ?? "23:59");
+    });
+    let totalTravel = 0;
+    for (let index = 0; index < sortedStops.length; index += 1) {
+      if (index === 0) continue;
+      const prev = sortedStops[index - 1];
+      const curr = sortedStops[index];
+      const estimated = prev.suburb === curr.suburb ? 8 : 22;
+      curr.estimatedTravelMinsFromPrev = estimated;
+      totalTravel += estimated;
+    }
+    return { ...group, stops: sortedStops.slice(0, settings.routeOptimization.maxStopsPerRun), totalEstimatedTravelMins: totalTravel };
+  });
+  return routes.sort((a, b) => a.cleanerName.localeCompare(b.cleanerName));
+}
+
+function mixedFixture(): unknown[] {
+  const rows: unknown[] = [];
+  const suburbs = ["Surry Hills", "Bondi", "bondi", "Coogee", "Bondi", "Darlinghurst"];
+  for (let index = 0; index < 15; index += 1) {
+    const a = assignment(index + 1, index % 5 === 0 ? (null as unknown as string) : `${String(6 + ((index * 7) % 12)).padStart(2, "0")}:${index % 2 ? "30" : "00"}`, suburbs[index % suburbs.length]);
+    rows.push(a);
+  }
+  rows.push({ ...assignment(40, "09:00", "Glebe"), userId: "c-tom", user: { id: "c-tom", name: null, email: "tom@x" } });
+  rows.push({ ...assignment(41, "08:00", "Glebe"), userId: "c-tom", user: { id: "c-tom", name: null, email: "tom@x" } });
+  return rows;
+}
+
+afterEach(() => vi.restoreAllMocks());
+
+describe("buildDailyRoutePlan (the Scheduling rules, unchanged)", () => {
+  it.each([true, false])("returns exactly what origin/main returns with group by suburb %s", async (groupBySuburb) => {
+    const settings = await import("@/lib/settings");
+    const current = { ...settings.DEFAULT_SETTINGS, routeOptimization: { ...settings.DEFAULT_SETTINGS.routeOptimization, groupBySuburb } };
+    vi.spyOn(settings, "getAppSettings").mockResolvedValue(current);
+    m.routeAssignments = mixedFixture();
+    const expected = originRoutePlan(m.routeAssignments as OriginRow[], current);
+    expect(await buildDailyRoutePlan("2026-11-15")).toEqual(expected);
+    // 15 stops on the first route: the rule shows 12.
+    expect(expected.find((route) => route.cleanerId === "c-maria")?.stops).toHaveLength(12);
+  });
+
+  it("the detailed plan reports the stops the rule leaves out instead of dropping them silently", async () => {
+    const [route] = await buildDetailedRoutePlan("2026-11-15");
+    expect(route.stops).toHaveLength(12);
+    expect(route.hiddenStopCount).toBe(2);
+    expect(route.stopLimit).toBe(12);
+    // Group by suburb is On by default: suburbs A to Z, so "Suburb M" … "Suburb X" are shown and Y, Z are not.
+    expect(route.stops[0].suburb).toBe("Suburb M");
+    expect(route.stops.map((stop) => stop.suburb)).not.toContain("Suburb Z");
   });
 });
 
 describe("loadRouteMapDay", () => {
-  it("returns every stop with consecutive Maps links and a read-only suggestion", async () => {
+  it("returns the shown stops, says how many are hidden, with labelled Maps links and a read-only suggestion", async () => {
     const day = await loadRouteMapDay("2026-11-15");
-    expect(day.routes[0].stops).toHaveLength(14);
-    expect(day.routes[0].mapsLinks.map((link) => link.label)).toEqual(["stops 1–10", "stops 10–14"]);
+    expect(day.routes[0].stops).toHaveLength(12);
+    expect(day.routes[0].hiddenStopCount).toBe(2);
+    expect(day.routes[0].mapsLinks.map((link) => link.label)).toEqual(["stops 1–10", "stops 10–12"]);
     expect(day.routes[0].letter).toBe("M");
     expect(day.unassigned).toHaveLength(1);
     const suggestion = day.unassigned[0].suggestion;
@@ -116,13 +179,13 @@ describe("loadRouteMapDay", () => {
   });
 
   it("places a property without a saved position at its suburb centre, or nowhere", async () => {
-    m.properties = [{ suburb: "Suburb Y", latitude: -33.8, longitude: 151.1 }, { suburb: "Suburb Y", latitude: -33.9, longitude: 151.3 }];
+    m.properties = [{ suburb: "Suburb W", latitude: -33.8, longitude: 151.1 }, { suburb: "Suburb W", latitude: -33.9, longitude: 151.3 }];
     const day = await loadRouteMapDay("2026-11-15");
     const stops = day.routes[0].stops;
-    const placed = stops.find((stop) => stop.suburb === "Suburb Y");
+    const placed = stops.find((stop) => stop.suburb === "Suburb W");
     expect(placed?.position).toEqual({ lat: -33.85, lng: 151.2, precision: "suburb" });
     expect(stops.find((stop) => stop.suburb === "Suburb X")?.position).toEqual({ lat: -33.9, lng: 151.25, precision: "property" });
-    expect(stops.find((stop) => stop.suburb === "Suburb W")?.position).toBeNull();
+    expect(stops.find((stop) => stop.suburb === "Suburb U")?.position).toBeNull();
   });
 
   it("says suggestions are off rather than showing nobody", async () => {
@@ -149,7 +212,8 @@ describe("GET /api/admin/jobs/route-map", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.date).toBe("2026-11-15");
-    expect(body.routes[0].stops).toHaveLength(14);
+    expect(body.routes[0].stops).toHaveLength(12);
+    expect(body.routes[0].hiddenStopCount).toBe(2);
   });
 
   it("is a Jobs route for operations managers: off blocks it, view allows it", () => {

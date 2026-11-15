@@ -1,7 +1,7 @@
 import "server-only";
 /**
  * The route map's day (`GET /api/admin/jobs/route-map`): every assigned
- * cleaner's route from `buildDailyRoutePlan`, the day's jobs with nobody on
+ * cleaner's route from `buildDetailedRoutePlan` (the Scheduling rules, unchanged), the day's jobs with nobody on
  * them with the existing automatic-assignment scorer's best match, and the
  * active cleaners for the shared assign dialog.
  *
@@ -16,7 +16,7 @@ import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { buildGoogleMapsDirectionsUrl } from "@/lib/jobs/schedule-order";
 import { getAppSettings } from "@/lib/settings";
 import { suburbCentres, suburbKey, type LatLng } from "@/lib/maps/suburb-centre";
-import { buildDailyRoutePlan, suggestAutoAssignment } from "./dispatch";
+import { buildDetailedRoutePlan, suggestAutoAssignment } from "./dispatch";
 import { routeLetters, routeMapsLinks, routeTimeIssues } from "./route-plan";
 import type { RouteMapDay, RouteMapPosition, RouteMapSuggestionState, RouteMapUnassignedJob } from "./route-map-types";
 
@@ -94,7 +94,7 @@ async function unassignedJobs(date: string, centres: Map<string, LatLng>, sugges
 export async function loadRouteMapDay(date: string): Promise<RouteMapDay> {
   const [settings, plan, placedProperties, cleaners] = await Promise.all([
     getAppSettings(),
-    buildDailyRoutePlan(date),
+    buildDetailedRoutePlan(date),
     db.property.findMany({ where: { isActive: true, latitude: { not: null }, longitude: { not: null } }, select: { suburb: true, latitude: true, longitude: true } }),
     db.user.findMany({ where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) }, select: { id: true, name: true, email: true }, orderBy: [{ name: "asc" }, { email: "asc" }] }),
   ]);
@@ -107,7 +107,8 @@ export async function loadRouteMapDay(date: string): Promise<RouteMapDay> {
     letter: letters.get(route.cleanerId) ?? "?",
     lookIndex: index,
     totalTravelMinutes: route.totalEstimatedTravelMins,
-    stopNoticeAbove: route.stopNoticeAbove,
+    stopLimit: route.stopLimit,
+    hiddenStopCount: route.hiddenStopCount,
     mapsLinks: routeMapsLinks(route.stops.map((stop) => `${stop.address}, ${stop.suburb}`)),
     timeIssues: routeTimeIssues(route.stops),
     stops: route.stops.map((stop) => ({

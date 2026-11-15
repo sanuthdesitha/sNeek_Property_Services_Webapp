@@ -36,10 +36,13 @@ export type RouteMapRoute = {
   /** Index into the route looks (colour and line pattern). */
   lookIndex: number;
   stops: RouteMapStop[];
+  /** Rough driving over the whole ordered route (hidden stops included), as the route APIs have always reported. */
   totalTravelMinutes: number;
-  /** Above this many stops the route carries a notice; every stop is still listed. */
-  stopNoticeAbove: number;
-  /** Consecutive Google Maps links, at most 10 stops each, covering every stop. */
+  /** The "Routes: stops shown" rule (jobs.routeMaxStopsPerRun). */
+  stopLimit: number;
+  /** Stops beyond the rule's limit: not shown (the rule is unchanged), but said out loud. */
+  hiddenStopCount: number;
+  /** Consecutive Google Maps links (at most 10 stops each) over the shown stops; each label says which stops. */
   mapsLinks: Array<{ label: string; href: string }>;
   timeIssues: RouteTimeIssue[];
 };
@@ -90,7 +93,7 @@ export type RouteMapDay = {
   routes: RouteMapRoute[];
   unassigned: RouteMapUnassignedJob[];
   cleaners: RouteMapCleaner[];
-  /** "Start time first, then suburb" or "Start time first". */
+  /** The "Routes: group by suburb" rule: On = suburb A to Z, then start time; Off = start time. */
   groupBySuburb: boolean;
   /** Suggestions are worked out for at most this many jobs with nobody on them. */
   suggestionLimit: number;

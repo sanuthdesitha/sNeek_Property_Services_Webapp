@@ -156,12 +156,12 @@ export function travelWords(minutes: number): string {
 export function routeFlag(route: RouteMapRoute): { pill: string; summary: string } | null {
   const outOfOrder = route.timeIssues.find((issue) => issue.kind === "out_of_order");
   if (outOfOrder) {
-    return { pill: "Out of time order", summary: `stop ${outOfOrder.stopIndex + 1} starts before stop ${outOfOrder.earlierIndex + 1}` };
+    return { pill: "Out of time order", summary: `grouped by suburb: stop ${outOfOrder.stopIndex + 1} starts before stop ${outOfOrder.earlierIndex + 1}` };
   }
   const overlap = route.timeIssues.find((issue) => issue.kind === "overlap");
   if (overlap) {
     return { pill: "Times overlap", summary: `stop ${overlap.stopIndex + 1} starts before stop ${overlap.earlierIndex + 1} is due to finish` };
   }
-  if (route.stops.length > route.stopNoticeAbove) return { pill: `More than ${route.stopNoticeAbove} stops`, summary: "every stop listed" };
+  if (route.hiddenStopCount > 0) return { pill: `${route.hiddenStopCount} more not shown`, summary: `the rule shows ${route.stopLimit} stops` };
   return null;
 }

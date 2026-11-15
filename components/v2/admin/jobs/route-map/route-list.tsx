@@ -8,6 +8,7 @@
  * multi-stop Google Maps link (now split into consecutive links above ten
  * stops, so none is left out).
  */
+import type * as React from "react";
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -175,8 +176,15 @@ export function UnassignedCard({
 
 function travelLine(stop: RouteMapStop, index: number, previous: RouteMapStop | undefined): string {
   if (index === 0 || !previous) return "First stop of the run";
-  const same = previous.suburb.trim().toLowerCase() === stop.suburb.trim().toLowerCase();
+  const same = previous.suburb === stop.suburb;
   return `About ${stop.travelFromPrevious} min from stop ${index} (${same ? "same suburb" : "different suburb"})`;
+}
+
+const RULES_HREF = "/v2/admin/settings/scheduling-rules";
+
+/** A link to the rule, so the owner can change it themselves. */
+function RuleLink({ children }: { children: React.ReactNode }) {
+  return <Link href={RULES_HREF} className="font-[600] underline underline-offset-2">{children}</Link>;
 }
 
 function StopRow({ route, stop, index, selected, onSelect }: { route: RouteMapRoute; stop: RouteMapStop; index: number; selected: boolean; onSelect: (key: string) => void }) {
@@ -212,8 +220,8 @@ function StopRow({ route, stop, index, selected, onSelect }: { route: RouteMapRo
 }
 
 function routeSummary(route: RouteMapRoute, flagSummary: string | null): string {
-  const count = `${route.stops.length} stop${route.stops.length === 1 ? "" : "s"}`;
-  const travel = route.stops.length < 2 ? "no driving between stops" : `${travelWords(route.totalTravelMinutes)} driving between stops`;
+  const count = route.hiddenStopCount > 0 ? `${route.stops.length} of ${route.stops.length + route.hiddenStopCount} stops shown` : `${route.stops.length} stop${route.stops.length === 1 ? "" : "s"}`;
+  const travel = route.stops.length < 2 && route.hiddenStopCount === 0 ? "no driving between stops" : `${travelWords(route.totalTravelMinutes)} driving between stops`;
   return [count, travel, flagSummary].filter(Boolean).join(" · ");
 }
 
@@ -224,13 +232,20 @@ function collapsedSummary(route: RouteMapRoute): string {
   return `${route.stops.length} stop${route.stops.length === 1 ? "" : "s"} · ${names.join(", ")}${more} · ${travel}`;
 }
 
+/** "3 stops", or "the 12 shown stops" when the rule hides some. */
+function linkCoverage(route: RouteMapRoute): string {
+  const count = `${route.stops.length} stop${route.stops.length === 1 ? "" : "s"}`;
+  return route.hiddenStopCount > 0 ? `the ${count} shown` : count;
+}
+
 export function MapsLinks({ route, compact = false }: { route: RouteMapRoute; compact?: boolean }) {
   if (route.mapsLinks.length === 0) return null;
   if (route.mapsLinks.length === 1) {
+    const coverage = linkCoverage(route);
     return (
       <EButton asChild size="sm" variant="outline">
-        <a href={route.mapsLinks[0].href} target="_blank" rel="noreferrer" aria-label={`Open ${route.cleanerName}'s route in Google Maps`}>
-          {compact ? "Whole route in Maps" : "Open route in Google Maps"} <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+        <a href={route.mapsLinks[0].href} target="_blank" rel="noreferrer" aria-label={`Open ${route.cleanerName}'s route in Google Maps, ${coverage}`}>
+          {compact ? `Route in Maps (${coverage})` : `Open route in Google Maps (${coverage})`} <ExternalLink className="h-3.5 w-3.5" aria-hidden />
         </a>
       </EButton>
     );
@@ -262,9 +277,9 @@ export function RouteCard({
   onSelect: (key: string) => void;
 }) {
   const flag = routeFlag(route);
-  const overLimit = route.stops.length > route.stopNoticeAbove;
   const noTime = route.timeIssues.filter((issue) => issue.kind === "no_start_time").length;
-  const overlap = route.timeIssues.find((issue) => issue.kind === "overlap" || issue.kind === "out_of_order");
+  const outOfOrder = route.timeIssues.find((issue) => issue.kind === "out_of_order");
+  const overlap = route.timeIssues.find((issue) => issue.kind === "overlap");
   const titleId = `route-${route.cleanerId}`;
   return (
     <EToneCard
@@ -290,10 +305,9 @@ export function RouteCard({
         </EButton>
       </div>
       <div id={`${titleId}-stops`} hidden={!expanded}>
-        {overLimit ? (
+        {route.hiddenStopCount > 0 ? (
           <EToneNotice tone="attention" className="mx-3.5 mb-3 rounded-[var(--e-radius)] px-3 py-2 text-[0.75rem]">
-            {route.stops.length} stops: more than the {route.stopNoticeAbove} per route set in Settings › Scheduling rules. Every stop is listed here.
-            {route.mapsLinks.length > 1 ? ` Google Maps takes 10 stops per link, so this route opens as ${route.mapsLinks.length} links, each starting where the last one ended.` : ""}
+            {route.hiddenStopCount} more stop{route.hiddenStopCount === 1 ? " is" : "s are"} not shown — the rule &lsquo;Routes: stops shown&rsquo; is set to {route.stopLimit}. They are not on the map or in the Google Maps link. <RuleLink>Settings › Scheduling rules</RuleLink>
           </EToneNotice>
         ) : null}
         <ol className="divide-y divide-[hsl(var(--e-border))] border-t border-[hsl(var(--e-border))]">
@@ -301,15 +315,18 @@ export function RouteCard({
             <StopRow key={stop.jobId} route={route} stop={stop} index={index} selected={selectedKey === stopKey(route.cleanerId, stop.jobId)} onSelect={onSelect} />
           ))}
         </ol>
+        {outOfOrder ? (
+          <EToneNotice tone="info" className="mx-3.5 my-3 rounded-[var(--e-radius)] px-3 py-2 text-[0.75rem]">
+            Grouped by suburb: a {route.stops[outOfOrder.stopIndex].startTime} stop comes after a {route.stops[outOfOrder.earlierIndex].startTime} stop. This is the rule &lsquo;Routes: group by suburb&rsquo;, which can be changed in <RuleLink>Settings › Scheduling rules</RuleLink>.
+          </EToneNotice>
+        ) : null}
         {overlap ? (
           <EToneNotice tone="attention" className="mx-3.5 my-3 rounded-[var(--e-radius)] px-3 py-2 text-[0.75rem]">
-            {overlap.kind === "out_of_order"
-              ? `${route.stops[overlap.stopIndex].propertyName} starts at ${route.stops[overlap.stopIndex].startTime}, before stop ${overlap.earlierIndex + 1}. Check the times on the jobs.`
-              : `${route.stops[overlap.stopIndex].propertyName} starts at ${route.stops[overlap.stopIndex].startTime}, before ${route.stops[overlap.earlierIndex].propertyName} is due to finish at ${route.stops[overlap.earlierIndex].dueTime}. Check the times or change a cleaner.`}
+            {`${route.stops[overlap.stopIndex].propertyName} starts at ${route.stops[overlap.stopIndex].startTime}, before ${route.stops[overlap.earlierIndex].propertyName} is due to finish at ${route.stops[overlap.earlierIndex].dueTime}. Check the times or change a cleaner.`}
           </EToneNotice>
         ) : null}
         {noTime > 0 ? (
-          <p className={cn("px-3.5 py-2.5 text-[0.75rem]", MUTED)}>{noTime} stop{noTime === 1 ? " has" : "s have"} no start time, so {noTime === 1 ? "it is" : "they are"} listed last.</p>
+          <p className={cn("px-3.5 py-2.5 text-[0.75rem]", MUTED)}>{noTime} stop{noTime === 1 ? " has" : "s have"} no start time; the route order treats {noTime === 1 ? "it" : "them"} as 23:59.</p>
         ) : null}
       </div>
     </EToneCard>

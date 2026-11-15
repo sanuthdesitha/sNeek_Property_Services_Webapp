@@ -154,7 +154,7 @@ function SurveyLink({ row }: { row: CoverageRow }) {
   return (
     <Popover.Root open={open} onOpenChange={(next) => { setOpen(next); if (next && state.status === "idle") void make(); }}>
       <Popover.Trigger asChild>
-        <button type="button" className="min-h-9 px-2 text-[0.8125rem] font-[550] text-[hsl(var(--e-text-secondary))] hover:text-[hsl(var(--e-foreground))] max-sm:min-h-11">
+        <button type="button" className="min-h-9 whitespace-nowrap px-2 text-[0.8125rem] font-[550] text-[hsl(var(--e-text-secondary))] hover:text-[hsl(var(--e-foreground))] max-sm:min-h-11">
           Client link
         </button>
       </Popover.Trigger>

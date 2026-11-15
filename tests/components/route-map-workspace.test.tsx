@@ -42,9 +42,9 @@ function day(overrides: Partial<RouteMapDay> = {}): RouteMapDay {
     }],
     routes: [{
       cleanerId: "c-maria", cleanerName: "Maria Santos", cleanerEmail: "maria@x", letter: "M", lookIndex: 0,
-      stops: Array.from({ length: 14 }, (_, index) => stop(index + 1)),
-      totalTravelMinutes: 104, stopNoticeAbove: 12,
-      mapsLinks: [{ label: "stops 1–10", href: "https://www.google.com/maps/dir/?a" }, { label: "stops 10–14", href: "https://www.google.com/maps/dir/?b" }],
+      stops: Array.from({ length: 12 }, (_, index) => stop(index + 1)),
+      totalTravelMinutes: 104, stopLimit: 12, hiddenStopCount: 2,
+      mapsLinks: [{ label: "stops 1–10", href: "https://www.google.com/maps/dir/?a" }, { label: "stops 10–12", href: "https://www.google.com/maps/dir/?b" }],
       timeIssues: [],
     }],
     ...overrides,
@@ -76,7 +76,7 @@ function mount(date = "2026-11-15") {
 }
 
 describe("route map list without a Maps key", () => {
-  it("shows loading, then every stop, the notice above 12 stops and that the map is not configured", async () => {
+  it("shows loading, then the shown stops, says the rule hides 2 more, and that the map is not configured", async () => {
     mount();
     expect(screen.getByRole("status", { name: "Loading routes" })).toBeInTheDocument();
     expect(screen.queryByText(/Nobody is assigned/)).not.toBeInTheDocument();
@@ -84,12 +84,14 @@ describe("route map list without a Maps key", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Route map" })).toBeInTheDocument();
     expect(screen.getByText("The map is not configured")).toBeInTheDocument();
     const card = screen.getByRole("heading", { name: "Maria Santos" }).closest("[aria-labelledby]") as HTMLElement;
-    expect(within(card).getAllByRole("listitem")).toHaveLength(14);
-    expect(within(card).getByText("Stop 13")).toBeInTheDocument();
-    expect(within(card).getByText("Stop 14")).toBeInTheDocument();
-    expect(within(card).getByText(/14 stops: more than the 12 per route/)).toBeInTheDocument();
-    expect(within(card).getByRole("link", { name: /stops 10–14/ })).toHaveAttribute("href", "https://www.google.com/maps/dir/?b");
-    expect(within(card).getByText("More than 12 stops")).toBeInTheDocument();
+    expect(within(card).getAllByRole("listitem")).toHaveLength(12);
+    expect(within(card).getByText("Stop 12")).toBeInTheDocument();
+    expect(within(card).getByText(/2 more stops are not shown — the rule ‘Routes: stops shown’ is set to 12/)).toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: "Settings › Scheduling rules" })).toHaveAttribute("href", "/v2/admin/settings/scheduling-rules");
+    expect(within(card).getByRole("link", { name: /stops 10–12/ })).toHaveAttribute("href", "https://www.google.com/maps/dir/?b");
+    expect(within(card).getByText("2 more not shown")).toBeInTheDocument();
+    // The map key says it too.
+    expect(screen.getByText(/Maria Santos: 2 more stops are not on the map/)).toBeInTheDocument();
   });
 
   it("puts Nobody on these jobs first with the scorer's reasons", async () => {
@@ -165,6 +167,17 @@ describe("states", () => {
     expect(screen.getByText(/Nobody is assigned to a job on Mon 16 Nov 2026/)).toBeInTheDocument();
   });
 
+  it("says a grouped-by-suburb route is out of time order, as information with a link to the rule", async () => {
+    const base = day();
+    const two = [{ ...base.routes[0].stops[0], propertyName: "Darlinghurst Terrace", startTime: "13:00" }, { ...base.routes[0].stops[1], propertyName: "Surry Hills Studio", startTime: "10:00" }];
+    const route = { ...base.routes[0], stops: two, hiddenStopCount: 0, timeIssues: [{ kind: "out_of_order" as const, stopIndex: 1, earlierIndex: 0 }], mapsLinks: [{ label: "stops 1–2", href: "https://www.google.com/maps/dir/?c" }] };
+    mount();
+    await answer(routeCalls()[0], { ...base, routes: [route] });
+    expect(screen.getByText("Out of time order")).toBeInTheDocument();
+    expect(screen.getByText(/Grouped by suburb: a 10:00 stop comes after a 13:00 stop/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Maria Santos's route in Google Maps, 2 stops" })).toHaveTextContent("Open route in Google Maps (2 stops)");
+  });
+
   it("flags a route whose times overlap", async () => {
     const base = day();
     const route = { ...base.routes[0], stops: base.routes[0].stops.slice(0, 2), timeIssues: [{ kind: "overlap" as const, stopIndex: 1, earlierIndex: 0 }], mapsLinks: base.routes[0].mapsLinks.slice(0, 1) };
@@ -217,7 +230,7 @@ describe("pins", () => {
     expect(buildMapPins(base, { search: "", show: "nobody" }).map((pin) => pin.look.text)).toEqual(["?"]);
     const onActivate = vi.fn();
     render(<RouteStopPin look={pins[1].look} ariaLabel={pins[1].ariaLabel} onActivate={onActivate} />);
-    const button = screen.getByRole("button", { name: /M1: Maria Santos, stop 1 of 14/ });
+    const button = screen.getByRole("button", { name: /M1: Maria Santos, stop 1 of 12/ });
     expect(button).toHaveAttribute("data-pin-text", "M1");
     fireEvent.click(button);
     expect(onActivate).toHaveBeenCalled();

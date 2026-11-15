@@ -62,7 +62,7 @@ export type QaTemplateEditorProps = {
   onSaved: (template: TemplateRow, revision: number | null) => void;
 };
 
-const CELL = "px-2 py-1.5 align-middle";
+const CELL = "px-1.5 py-1.5 align-middle";
 
 function errorText(body: unknown, fallback: string): string {
   return body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string" ? (body as { error: string }).error : fallback;
@@ -215,7 +215,7 @@ export function QaTemplateEditor({ template, revisions, canWrite, overlapNote, o
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <ECard className="min-w-0 p-4">
           <div className="flex flex-wrap items-end gap-3">
             <EField label="Template name" className="min-w-0 flex-1">
@@ -297,7 +297,7 @@ export function QaTemplateEditor({ template, revisions, canWrite, overlapNote, o
                       </div>
                       {isOpen ? (
                         <div className="overflow-x-auto" role="region" aria-label={`Criteria of ${sectionTitle(section, sectionIndex)}`}>
-                          <table className="w-full min-w-[44rem] text-left text-[0.8125rem]">
+                          <table className="w-full min-w-[38rem] text-left text-[0.8125rem]">
                             <thead className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
                               <tr className="border-b border-[hsl(var(--e-border))]">
                                 <th scope="col" className={CELL}><span className="sr-only">Order</span></th>
@@ -323,31 +323,31 @@ export function QaTemplateEditor({ template, revisions, canWrite, overlapNote, o
                                         <EButton type="button" variant="ghost" size="icon" aria-label={`Move ${label} down`} disabled={locked || fieldIndex === fields.length - 1} onClick={() => moveField(sectionIndex, fieldIndex, 1)}><ArrowDown className="h-3.5 w-3.5" /></EButton>
                                       </span>
                                     </td>
-                                    <td className={CELL}><EInput aria-label="Criterion" className="h-9 min-w-[12rem]" value={String(field.label ?? "")} onChange={(event) => patchField(sectionIndex, fieldIndex, { label: event.target.value })} /></td>
+                                    <td className={CELL}><EInput aria-label="Criterion" className="h-9 min-w-[9rem]" value={String(field.label ?? "")} onChange={(event) => patchField(sectionIndex, fieldIndex, { label: event.target.value })} /></td>
                                     <td className={CELL}>
-                                      <ESelect aria-label={`Type of ${label}`} className="h-9 w-[8rem]" value={type} onChange={(event) => patchField(sectionIndex, fieldIndex, { type: event.target.value })}>
+                                      <ESelect aria-label={`Type of ${label}`} className="h-9 w-[6.75rem]" value={type} onChange={(event) => patchField(sectionIndex, fieldIndex, { type: event.target.value })}>
                                         {types.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
                                       </ESelect>
                                     </td>
                                     <td className={CELL}>
                                       {isScorable(field) || fieldWeight(field) !== null ? (
-                                        <EInput aria-label={`Weight of ${label}`} type="number" min={0} step="0.5" className="h-9 w-[4.5rem]" value={fieldWeight(field) ?? ""} onChange={(event) => setScore(sectionIndex, fieldIndex, "weight", event.target.value)} />
-                                      ) : <span className="text-[hsl(var(--e-text-faint))]">Not used</span>}
+                                        <EInput aria-label={`Weight of ${label}`} type="number" min={0} step="0.5" className="h-9 w-[3.5rem]" value={fieldWeight(field) ?? ""} onChange={(event) => setScore(sectionIndex, fieldIndex, "weight", event.target.value)} />
+                                      ) : <span className="whitespace-nowrap text-[0.75rem] text-[hsl(var(--e-text-faint))]">Not used</span>}
                                     </td>
                                     <td className={CELL}>
                                       {isScorable(field) ? (
-                                        <EInput aria-label={`Max of ${label}`} type="number" min={0} className="h-9 w-[4.5rem]" value={fieldMax(field) ?? ""} onChange={(event) => setScore(sectionIndex, fieldIndex, "max", event.target.value)} />
-                                      ) : <span className="text-[hsl(var(--e-text-faint))]">Not used</span>}
+                                        <EInput aria-label={`Max of ${label}`} type="number" min={0} className="h-9 w-[3.5rem]" value={fieldMax(field) ?? ""} onChange={(event) => setScore(sectionIndex, fieldIndex, "max", event.target.value)} />
+                                      ) : <span className="whitespace-nowrap text-[0.75rem] text-[hsl(var(--e-text-faint))]">Not used</span>}
                                     </td>
                                     <td className={CELL}>
                                       {hasOptions(field) ? (
                                         <EInput
                                           aria-label={`Options of ${label}, comma separated`}
-                                          className="h-9 min-w-[9rem]"
+                                          className="h-9 min-w-[7rem]"
                                           value={optionWords(field).join(", ")}
                                           onChange={(event) => patchField(sectionIndex, fieldIndex, { options: event.target.value.split(",").map((option) => option.trim()).filter(Boolean) })}
                                         />
-                                      ) : <span className="text-[hsl(var(--e-text-faint))]">Not used</span>}
+                                      ) : <span className="whitespace-nowrap text-[0.75rem] text-[hsl(var(--e-text-faint))]">Not used</span>}
                                     </td>
                                     <td className={CELL}>
                                       <input type="checkbox" aria-label={`${label} is required`} className="h-5 w-5 accent-[hsl(var(--e-primary))]" checked={field.required === true} onChange={(event) => patchField(sectionIndex, fieldIndex, { required: event.target.checked })} />

@@ -3,15 +3,11 @@
  * route plan (`lib/ops/dispatch.ts`), the route map API and the route map
  * components all read it; never add "use client" here.
  *
- * Owner defaults (2026-11-17, board "Route map", pending owner confirmation):
- *  - Stops are ordered by start time first. The old order sorted suburbs A to Z
- *    before start times, so a 10:00 clean in Surry Hills could be listed (and
- *    sent to Google Maps) after a 14:30 clean in Potts Point. With the
- *    "group by suburb" setting on, jobs that start at the same time are kept
- *    together by suburb; it no longer outranks the clock.
- *  - Every stop is kept. The "stops per route" setting is now the point above
- *    which a notice appears; the 13th stop onwards is never dropped.
- *  - Travel starts at the first job, never at anyone's home.
+ * The order and the stop limit are the Scheduling rules "Routes: group by
+ * suburb" and "Routes: stops shown", unchanged (owner instruction: "do not
+ * change any rules"). This module only describes the result honestly: time
+ * issues in the listed order, and Google Maps links that say which stops they
+ * cover. Travel starts at the first job, never at anyone's home.
  *
  * Travel minutes are the existing rough rule (same suburb / other suburb), not
  * a map estimate.
@@ -35,40 +31,27 @@ export function clockMinutes(value: string | null | undefined): number | null {
   return hours * 60 + minutes;
 }
 
-/** A stop without a start time sorts after every timed stop (by its due time when known). */
-const NO_TIME = 24 * 60;
-
-function sortMinutes(stop: RouteOrderInput): number {
-  return clockMinutes(stop.startTime) ?? NO_TIME + (clockMinutes(stop.dueTime) ?? NO_TIME);
-}
-
-function normalisedSuburb(value: string): string {
-  return value.trim().toLowerCase();
-}
-
 /**
- * Start time first; ties by suburb when grouping is on (same-suburb jobs stay
- * together), then by property name and job id so the order is stable.
+ * The Scheduling rules' route order, exactly as it has always been (owner
+ * instruction: the rules are not changed): "Routes: group by suburb" On sorts
+ * suburbs A to Z, then start time; Off sorts by start time. A stop without a
+ * start time sorts as 23:59. Ties keep their incoming order (stable sort).
  */
 export function orderRouteStops<T extends RouteOrderInput>(stops: readonly T[], options: { groupBySuburb: boolean }): T[] {
   return [...stops].sort((a, b) => {
-    const time = sortMinutes(a) - sortMinutes(b);
-    if (time !== 0) return time;
     if (options.groupBySuburb) {
-      const suburb = normalisedSuburb(a.suburb).localeCompare(normalisedSuburb(b.suburb));
-      if (suburb !== 0) return suburb;
+      const suburbCompare = a.suburb.localeCompare(b.suburb);
+      if (suburbCompare !== 0) return suburbCompare;
     }
-    const name = a.propertyName.localeCompare(b.propertyName);
-    return name !== 0 ? name : a.jobId.localeCompare(b.jobId);
+    return (a.startTime ?? "23:59").localeCompare(b.startTime ?? "23:59");
   });
 }
 
-/** Rough minutes from the previous stop (0 for the first) and the route total. */
+/** Rough minutes from the previous stop (0 for the first) and the route total: same suburb or not, as always. */
 export function roughTravel(stops: readonly Pick<RouteOrderInput, "suburb">[]): { fromPrevious: number[]; total: number } {
   const fromPrevious = stops.map((stop, index): number => {
     if (index === 0) return 0;
-    const previous = stops[index - 1];
-    return normalisedSuburb(previous.suburb) === normalisedSuburb(stop.suburb) ? DISPATCH_SAME_SUBURB_TRAVEL_MIN : DISPATCH_OTHER_SUBURB_TRAVEL_MIN;
+    return stops[index - 1].suburb === stop.suburb ? DISPATCH_SAME_SUBURB_TRAVEL_MIN : DISPATCH_OTHER_SUBURB_TRAVEL_MIN;
   });
   return { fromPrevious, total: fromPrevious.reduce((sum, minutes) => sum + minutes, 0) };
 }

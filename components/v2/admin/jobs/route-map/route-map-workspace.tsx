@@ -194,6 +194,11 @@ function MapKey({ day }: { day: RouteMapDay }) {
           </span>
         ) : null}
       </div>
+      {day.routes.filter((route) => route.hiddenStopCount > 0).map((route) => (
+        <p key={route.cleanerId} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-band-attention-line))] bg-[hsl(var(--e-band-attention-bg))] px-2.5 py-1.5 text-[hsl(var(--e-band-attention-fg))]">
+          {route.cleanerName}: {route.hiddenStopCount} more stop{route.hiddenStopCount === 1 ? " is" : "s are"} not on the map — the rule &lsquo;Routes: stops shown&rsquo; is set to {route.stopLimit}. <Link href="/v2/admin/settings/scheduling-rules" className="font-[600] underline">Settings › Scheduling rules</Link>
+        </p>
+      ))}
       <p className={MUTED}>
         Pins carry the cleaner&apos;s letter and stop number, and each route has its own line pattern, so colour is never the only way to tell routes apart. Picking a pin selects the same stop in the list, and the reverse. A dashed ring means the property has no saved map position and sits at its suburb centre.
       </p>
@@ -255,7 +260,7 @@ export function RouteMapWorkspace({ date, today, tomorrow, mapConfigured }: { da
     const chosen = expanded[route.cleanerId];
     if (chosen !== undefined) return chosen;
     const holdsSelection = selectedKey?.startsWith(`s:${route.cleanerId}:`) ?? false;
-    return index < OPEN_ROUTES || route.timeIssues.some((issue) => issue.kind !== "no_start_time") || route.stops.length > route.stopNoticeAbove || holdsSelection;
+    return index < OPEN_ROUTES || route.timeIssues.some((issue) => issue.kind !== "no_start_time") || route.hiddenStopCount > 0 || holdsSelection;
   }, [expanded, selectedKey]);
 
   const select = useCallback((key: string) => {
@@ -425,14 +430,14 @@ export function RouteMapWorkspace({ date, today, tomorrow, mapConfigured }: { da
         <div className="max-sm:hidden">
           <FactTile
             label="Order rule"
-            value={day ? (day.groupBySuburb ? "Start time first, then suburb" : "Start time first") : "–"}
+            value={day ? (day.groupBySuburb ? "Suburb A to Z, then start time" : "Start time") : "–"}
             sub={<Link href="/v2/admin/settings/scheduling-rules" className="underline-offset-2 hover:underline">Settings › Scheduling rules</Link>}
           />
         </div>
       </div>
       {/* Phones: the route count is in the description; the order rule is one line. */}
       <p className={cn("text-[0.75rem] sm:hidden", MUTED)}>
-        Order: {day ? (day.groupBySuburb ? "start time first, then suburb" : "start time first") : "–"} · <Link href="/v2/admin/settings/scheduling-rules" className="underline">Scheduling rules</Link>
+        Order: {day ? (day.groupBySuburb ? "suburb A to Z, then start time" : "start time") : "–"} · <Link href="/v2/admin/settings/scheduling-rules" className="underline">Scheduling rules</Link>
       </p>
 
       <div className="sm:hidden" role="group" aria-label="Show the list or the map">
