@@ -105,7 +105,7 @@ export function PersonTabsView({ profile, caps, onChanged }: ViewProps) {
         ))}
       </div>
       {PERSON_TABS.filter((key) => visited.has(key)).map((key) => (
-        <div key={`${profile.id}-${key}`} id={`person-panel-${key}`} role="tabpanel" aria-labelledby={`person-tab-${key}`} hidden={tab !== key} className="flex flex-col gap-2.5">
+        <div key={`${profile.id}-${key}`} id={`person-panel-${key}`} role="tabpanel" aria-labelledby={`person-tab-${key}`} hidden={tab !== key} className={cn("flex-col gap-2.5", tab === key ? "flex" : "hidden")}>
           <TabBody tab={key} profile={profile} caps={caps} onChanged={onChanged} />
         </div>
       ))}

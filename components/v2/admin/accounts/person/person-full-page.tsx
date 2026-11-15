@@ -174,7 +174,7 @@ export function PersonFullPage({ profile, caps }: { profile: PersonProfile; caps
             </p>
           ) : null}
           {PAGE_TABS.filter((key) => visited.has(key)).map((key) => (
-            <div key={`${profile.id}-${key}`} id={`page-panel-${key}`} role="tabpanel" aria-labelledby={`page-tab-${key}`} hidden={tab !== key} className="flex flex-col gap-3">
+            <div key={`${profile.id}-${key}`} id={`page-panel-${key}`} role="tabpanel" aria-labelledby={`page-tab-${key}`} hidden={tab !== key} className={cn("flex-col gap-3", tab === key ? "flex" : "hidden")}>
               <TabBody tab={key} profile={profile} caps={caps} onChanged={refresh} />
             </div>
           ))}

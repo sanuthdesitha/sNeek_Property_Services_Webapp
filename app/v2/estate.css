@@ -430,6 +430,11 @@
   .e-job-row-status, .e-job-row-actions { grid-column: auto; grid-row: auto; max-width: none; }
 }
 
+/* The hidden attribute must always hide. A display utility on the same element
+   (flex, grid, block) otherwise wins over the browser's own [hidden] rule, which
+   left every visited tab panel and every folded section on screen (2026-11-17). */
+[hidden]:not([hidden="until-found"]) { display: none !important; }
+
 /*
  * Scroll containers contain their absolutely positioned descendants.
  * A visually hidden label (`sr-only`, position: absolute) inside a table or tab
