@@ -271,9 +271,10 @@ export function PropertyFormEditor({ initialConfig, initialRevision = null, canW
             const lockedFields = fields.filter((field) => field.locked);
             const editable = fields.filter((field) => !field.locked);
             if (fields.length === 0) return null;
-            const isOpen = expanded[group.id] === true || editable.some((field) => systemFieldChanged(field.id, saved, draft));
-            const shown = isOpen ? editable : editable.slice(0, GROUP_PREVIEW_ROWS);
-            const rest = editable.slice(shown.length);
+            const isOpen = expanded[group.id] === true;
+            // Collapsed groups show their first rows plus any changed row, so a change never hides.
+            const shown = isOpen ? editable : editable.filter((field, index) => index < GROUP_PREVIEW_ROWS || systemFieldChanged(field.id, saved, draft) || Boolean(draft.systemFields[field.id]?.conditional));
+            const rest = editable.filter((field) => !shown.includes(field));
             return (
               <ECard key={group.id} className="min-w-0 overflow-hidden p-0">
                 <div className="p-4 pb-3">

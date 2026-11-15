@@ -408,7 +408,7 @@ export function ThemeManager({ canWrite = true }: { canWrite?: boolean }) {
   );
 
   return (
-    <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_minmax(0,28rem)]">
+    <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-[13rem_minmax(0,1fr)] xl:grid-cols-[12.5rem_minmax(0,1fr)_minmax(0,22rem)]">
       <section aria-labelledby="themes-heading" className="min-w-0 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <h2 id="themes-heading" className="text-[0.9375rem] font-[600]">Themes</h2>
@@ -543,7 +543,7 @@ export function ThemeManager({ canWrite = true }: { canWrite?: boolean }) {
 
             {canWrite ? (
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[hsl(var(--e-border))] pt-3">
-                <p className="min-w-0 flex-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">Saving changes future reports only. Sent PDFs keep their look until regenerated.</p>
+                <p className="min-w-[12rem] flex-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">Saving changes future reports only. Sent PDFs keep their look until regenerated.</p>
                 <div className="flex gap-2 max-sm:w-full">
                   <EButton variant="outline" disabled={saving || !dirty} onClick={() => { setDraft(draftOf(selected)); setError(null); }} className="max-sm:flex-1">Discard</EButton>
                   <EButton disabled={saving || !dirty || badTitle.length > 0} onClick={() => void save()} className="max-sm:flex-1">{saving ? "Saving…" : "Save theme"}</EButton>
