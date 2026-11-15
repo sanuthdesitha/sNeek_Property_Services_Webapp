@@ -18,6 +18,7 @@ import { db } from "@/lib/db";
 import { adjustmentSignedAmount } from "@/lib/finance/pay-adjustments";
 import { holidayRateSnapshotKey } from "@/lib/finance/holiday-rates";
 import { sydneyDateKey } from "@/lib/time/sydney-range";
+import { calendarDay } from "@/components/v2/admin/pay-records/format";
 
 export type PayoutBreakdownJob = {
   jobId: string;
@@ -98,7 +99,7 @@ async function loadShopping(runId: string, cleanerId: string): Promise<PayoutBre
     .map((row) => ({
       id: row.id,
       label: `Shopping: ${row.shoppingRun?.title ?? "Shopping run"}`,
-      detail: row.shoppingRun?.approvedAt ? `approved ${sydneyDateKey(row.shoppingRun.approvedAt)}` : null,
+      detail: row.shoppingRun?.approvedAt ? `approved ${calendarDay(sydneyDateKey(row.shoppingRun.approvedAt))}` : null,
       amount: finiteOrNull(row.paySettledAmount),
     }));
 }
@@ -112,7 +113,7 @@ async function loadAdjustments(runId: string, cleanerId: string): Promise<Payout
   return rows.map((row) => ({
     id: row.id,
     label: `${row.title?.trim() || "Pay adjustment"}${row.job?.jobNumber ? `, ${row.job.jobNumber}` : ""}`,
-    detail: row.reviewedAt ? `approved ${sydneyDateKey(row.reviewedAt)}` : null,
+    detail: row.reviewedAt ? `approved ${calendarDay(sydneyDateKey(row.reviewedAt))}` : null,
     amount: adjustmentSignedAmount(row),
   }));
 }

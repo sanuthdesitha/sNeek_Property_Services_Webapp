@@ -108,9 +108,12 @@ function DesktopRow({ run, payout, open, onToggle, actions }: { run: PayrollRunV
         <PersonCell payout={payout} open={open} onToggle={onToggle} />
         <td className={cn("px-3 py-2.5 align-top", SMALL)}>
           {method.method}
+          {payout.status === "FAILED" && payout.failureReason ? (
+            <p className="text-[hsl(var(--e-danger))]">Failed: {payout.failureReason}</p>
+          ) : null}
           {flagged ? (
             <p className="font-[600] text-[hsl(var(--e-warning))]">{flagged.detail}</p>
-          ) : payout.failureReason ? (
+          ) : payout.failureReason && payout.status !== "FAILED" ? (
             <p className="text-[hsl(var(--e-danger))]">Failed: {payout.failureReason}</p>
           ) : method.detail ? (
             <p className={MUTED}>{method.detail}</p>
@@ -128,7 +131,7 @@ function DesktopRow({ run, payout, open, onToggle, actions }: { run: PayrollRunV
             {flagged?.code === "NO_BANK_DETAILS" ? (
               <Link href={`/v2/admin/accounts?open=${encodeURIComponent(payout.cleanerId)}`} className={cn(SMALL, "whitespace-nowrap underline underline-offset-2")}>Add bank details</Link>
             ) : (
-              <a href={payslipHref(run, payout)} target="_blank" rel="noreferrer" className={cn(SMALL, "underline underline-offset-2")}>Payslip PDF</a>
+              <a href={payslipHref(run, payout)} target="_blank" rel="noreferrer" className={cn(SMALL, "whitespace-nowrap underline underline-offset-2")}>Payslip PDF</a>
             )}
             <ERowMenu label={`More actions for ${nameOf(payout)}'s payout`} items={rowMenu(payout, actions, run)} disabled={actions.disabled} />
           </div>

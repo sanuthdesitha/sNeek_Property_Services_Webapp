@@ -45,11 +45,12 @@ export function coverageText(coverage: ShoppingCostCoverage): string {
 }
 
 export function ShoppingItemsTable({ lines, coverage, actualTotal, ownerName }: { lines: ShoppingRunLineView[]; coverage: ShoppingCostCoverage; actualTotal: number; ownerName: string }) {
-  const listed = listedLines(lines);
+  // Grouped by property, in the run's own order within each property.
+  const listed = groupByProperty(listedLines(lines)).flatMap((group) => group.lines);
   const missing = coverage.boughtLines - coverage.costedLines;
   return (
     <div className="overflow-x-auto" role="region" aria-label="Item lines" tabIndex={0}>
-      <table className="w-full min-w-[44rem] text-[0.875rem]">
+      <table className="w-full min-w-[34rem] text-[0.875rem]">
         <thead className="bg-[hsl(var(--e-surface-raised))] text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
           <tr>
             <th scope="col" className="px-3 py-2 text-left font-[500]">Property · item</th>

@@ -58,7 +58,7 @@ function PhotoTile({ photo, index, ratio, chosen, disabled, onToggle, onCheckBef
       <div className="relative aspect-[4/5] bg-[hsl(var(--e-surface-sunken))]">
         {photo.state === "checking" ? (
           <div className="flex h-full items-center justify-center p-3 text-center text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Still being checked</div>
-        ) : photo.state === "left_out" && !photo.score ? (
+        ) : photo.state === "left_out" && photo.score === null ? (
           <div className="flex h-full items-center justify-center p-3 text-center text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">No preview</div>
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
@@ -68,9 +68,9 @@ function PhotoTile({ photo, index, ratio, chosen, disabled, onToggle, onCheckBef
         <span className="absolute right-2 top-2 rounded-full bg-[hsl(var(--e-surface)/0.92)] px-2 py-0.5 text-[0.8125rem] font-[650] e-tnum" aria-label={photo.score === null ? "Score not worked out" : `Score ${photo.score} of 100`}>{photo.score ?? "–"}</span>
       </div>
       <div className="space-y-1.5 p-2.5">
-        <div className="flex items-start justify-between gap-2">
-          <p className="min-w-0 text-[0.8125rem] font-[600] [overflow-wrap:anywhere]">{photo.room || "Photo"}</p>
-          <span className={cn("shrink-0 text-[0.6875rem]", tone ? tonePillClass(tone) : "text-[hsl(var(--e-muted-foreground))]")}>{statePill(photo)}</span>
+        <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+          <p className="min-w-0 text-[0.8125rem] font-[600]">{photo.room || "Photo"}</p>
+          <span className={cn("text-[0.6875rem]", tone ? tonePillClass(tone) : "text-[hsl(var(--e-muted-foreground))]")}>{statePill(photo)}</span>
         </div>
         <details className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
           <summary className="cursor-pointer list-none [overflow-wrap:anywhere] sm:hidden">{reasons[0] ?? "No reasons recorded"} · reasons</summary>

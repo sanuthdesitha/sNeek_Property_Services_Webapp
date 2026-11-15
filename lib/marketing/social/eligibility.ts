@@ -437,7 +437,7 @@ function summarise(jobs: JobRow[], jobVerdicts: Map<string, JobVerdict>, photos:
  * posting). A photo not scored yet is still usable here: a person or agent
  * picked it, and the hard stops are what protect people.
  */
-export async function checkPhotos(photoIds: readonly string[], options: { now?: Date; ratio?: SocialRatio } = {}): Promise<{ eligible: Map<string, EligiblePhoto>; refused: Array<{ photoId: string; reason: string }> }> {
+export async function checkPhotos(photoIds: readonly string[], options: { now?: Date; ratio?: SocialRatio; allowLeftOut?: boolean } = {}): Promise<{ eligible: Map<string, EligiblePhoto>; refused: Array<{ photoId: string; reason: string }> }> {
   const ids = Array.from(new Set(photoIds));
   const media = (await db.submissionMedia.findMany({ where: { id: { in: ids } }, select: MEDIA_SELECT })) as MediaRow[];
   const jobIds = Array.from(new Set(media.map((row) => row.submission.jobId)));
@@ -449,7 +449,8 @@ export async function checkPhotos(photoIds: readonly string[], options: { now?: 
     const verdict = evaluation.verdicts.find((item) => item.photoId === id);
     if (!verdict) refused.push({ photoId: id, reason: "This photo no longer exists." });
     else if (!verdict.ok) refused.push({ photoId: id, reason: verdict.state === "checking" ? "This photo is still being checked." : verdict.reason });
-    else if (verdict.measured?.leftOut) refused.push({ photoId: id, reason: verdict.measured.leftOut });
+    // A photo the score left out (blurry, dark, small) may still be previewed by the office; it is never used in a post.
+    else if (verdict.measured?.leftOut && !options.allowLeftOut) refused.push({ photoId: id, reason: verdict.measured.leftOut });
     else eligible.set(id, verdict.photo);
   }
   return { eligible, refused };

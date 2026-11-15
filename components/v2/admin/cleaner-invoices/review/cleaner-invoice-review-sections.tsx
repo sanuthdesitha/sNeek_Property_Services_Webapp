@@ -80,7 +80,7 @@ export function LinesCard({ review }: { review: CleanerInvoiceReview }) {
       {lines.length ? (
         <>
           <div className="overflow-x-auto max-sm:hidden" role="region" aria-label="Invoice lines" tabIndex={0}>
-            <table className="w-full min-w-[40rem] text-[0.875rem]">
+            <table className="w-full min-w-[30rem] text-[0.875rem]">
               <thead className="bg-[hsl(var(--e-surface-raised))] text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                 <tr>
                   <th scope="col" className="px-3 py-2 text-left font-[500]">Line</th>

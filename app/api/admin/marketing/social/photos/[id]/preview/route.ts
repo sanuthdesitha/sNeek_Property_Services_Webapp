@@ -15,7 +15,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   try {
     await requireSocialSession();
     const ratio = (SOCIAL_RATIOS as readonly string[]).includes(req.nextUrl.searchParams.get("ratio") ?? "") ? (req.nextUrl.searchParams.get("ratio") as SocialRatio) : "4:5";
-    const { eligible, refused } = await checkPhotos([params.id], { ratio });
+    const { eligible, refused } = await checkPhotos([params.id], { ratio, allowLeftOut: true });
     const photo = eligible.get(params.id);
     if (!photo) return NextResponse.json({ error: refused[0]?.reason ?? "This photo cannot be used." }, { status: 404 });
     const copy = await makeSocialCrop(await readEvidencePhoto(photo.s3Key), ratio);

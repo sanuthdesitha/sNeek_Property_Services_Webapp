@@ -377,7 +377,7 @@ export function SocialGenerator({ initialGroupId, timeZone, onClose }: { initial
           const sub = item.step === 1 ? `${chosen.length} chosen` : item.step === 2 ? group?.format.toLowerCase().replace("_", " ") ?? "–" : item.step === 3 ? "5 networks" : "a person clicks";
           return (
             <li key={item.step} className="min-w-0 border-[hsl(var(--e-border))] [&+li]:border-l">
-              <button type="button" aria-current={current ? "step" : undefined} disabled={saving || (item.step > 1 && !group)} onClick={() => void goTo(item.step)} className={cn("flex min-h-11 w-full flex-col items-start gap-0.5 px-2 py-2 text-left sm:px-3", current ? "bg-[hsl(var(--e-gold-soft))]" : "")}>
+              <button type="button" aria-label={`Step ${item.step}: ${item.label}, ${sub}`} aria-current={current ? "step" : undefined} disabled={saving || (item.step > 1 && !group)} onClick={() => void goTo(item.step)} className={cn("flex min-h-11 w-full flex-col items-start gap-0.5 px-2 py-2 text-left sm:px-3", current ? "bg-[hsl(var(--e-gold-soft))]" : "")}>
                 <span className="text-[0.75rem] font-[650]"><span className="mr-1 e-tnum">{item.step}</span><span className="max-sm:hidden">{item.label}</span><span className="sm:hidden">{item.short}</span></span>
                 <span className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))] max-sm:hidden">{sub}</span>
               </button>

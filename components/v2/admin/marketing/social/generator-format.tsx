@@ -107,7 +107,7 @@ export function GeneratorFormat({ group, onChange, copies, onMakeCopies, frozen 
       <ECard className="space-y-3 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-[0.875rem] font-[600]">Cleaned copies</h3>
-          <EButton size="sm" variant="outline" onClick={onMakeCopies} disabled={copies.state === "making"}>{copies.state === "making" ? "Making copies…" : group.derivatives.length ? "Make them again" : "Make the copies"}</EButton>
+          {group.derivatives.length ? <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Made for this version</span> : <EButton size="sm" variant="outline" onClick={onMakeCopies} disabled={copies.state === "making"}>{copies.state === "making" ? "Making copies…" : "Make the copies"}</EButton>}
         </div>
         <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Stamp band and top strip cut off, camera and location data removed, saved as new files in Images and linked to the photo and job. The original evidence photos are unchanged.</p>
         {copies.state === "failed" ? (
