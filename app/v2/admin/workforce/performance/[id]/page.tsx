@@ -53,7 +53,7 @@ export default async function EstatePerformanceDetailPage({ params }: { params: 
       <EPageHeader
         eyebrow="Workforce · Performance"
         title={`${user.name ?? user.email}, performance`}
-        description={`${facts}. Figures cover jobs completed in each window, Sydney dates.`}
+        description={`${facts}. Figures cover their finished jobs scheduled in each window (Sydney days); attendance covers past jobs. Each figure says what it was worked out over.`}
         actions={
           <>
             <EButton asChild variant="outline" size="sm"><Link href={`/v2/admin/accounts/users/${user.id}`}>Account</Link></EButton>

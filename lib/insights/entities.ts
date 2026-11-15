@@ -5,8 +5,8 @@
  */
 import type { JobType } from "@prisma/client";
 import { cleanTotalsByCleaner } from "@/lib/quality/cleans";
-import { ALL_TIME, summarise, toCleanFacts, type HoursItem } from "./aggregate";
-import type { JobFact } from "./job-facts";
+import { ALL_TIME, summarise, toCleanFacts } from "./aggregate";
+import type { CleanerShare, JobFact } from "./job-facts";
 import { jobsHref, qualityCleanersHref, qualityIssuesHref, invoicesHref, type DaySpan } from "./links";
 import { MIN_BASIS_ROW } from "./measure";
 import type { IssueCounts } from "./load-facts";
@@ -111,9 +111,9 @@ export function cleanerRows(
   span: DaySpan,
 ): CleanerRow[] {
   const qa = cleanTotalsByCleaner(toCleanFacts(facts), ALL_TIME);
-  const byCleaner = new Map<string, { facts: JobFact[]; hours: HoursItem[] }>();
+  const byCleaner = new Map<string, { facts: JobFact[]; hours: CleanerShare[] }>();
   const ensure = (id: string) => {
-    const entry = byCleaner.get(id) ?? { facts: [], hours: [] };
+    const entry = byCleaner.get(id) ?? { facts: [] as JobFact[], hours: [] as CleanerShare[] };
     byCleaner.set(id, entry);
     return entry;
   };
@@ -137,6 +137,7 @@ export function cleanerRows(
         issues: issues.byCleaner.get(cleanerId) ?? 0,
         reworkJobs,
         hoursItems: entry.hours,
+        onTimeItems: entry.hours,
         qa: qa.get(cleanerId) ?? { cleans: 0, reviewed: 0, avgScore: null },
       }),
       links: [

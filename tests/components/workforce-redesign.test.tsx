@@ -140,7 +140,7 @@ describe("Team leave", () => {
 describe("Performance windows", () => {
   it("shows a timed-out window as not worked out and retries that window only", async () => {
     setPhone(false);
-    const metrics = { userId: "u", windowDays: 30, windowStart: "2026-10-15T00:00:00Z", quality: { score: 94, sampleSize: 41 }, reliability: { onTimePercent: 97, sampleSize: 31 }, punctuality: { avgMinutesLate: -4, sampleSize: 31 }, attendance: { completedJobs: 31, assignedJobs: 31, percent: 100 }, documentation: { fullyDocumentedPercent: 100, sampleSize: 31 }, customerSatisfaction: { avgRating: 4.9, sampleSize: 14 }, responseRate: { acceptedPercent: 96, sampleSize: 31 }, disputeRate: { disputes: 0, totalJobs: 31, percent: 0 }, noShowRate: { noShows: 0, scheduled: 31, percent: 0 }, documentCompliance: { current: 5, expired: 1, percent: 83 }, trainingCompletion: { completed: 5, assigned: 5, percent: 100 }, reworkRate: { reworks: 0, majorReworks: 0, minutesLost: 0, amountLost: 0, totalJobs: 31, percent: 0 }, currentStreak: 3, last5Avg: 94, last10Avg: 93 };
+    const metrics = { userId: "u", windowDays: 30, windowStart: "2026-10-15T00:00:00Z", minimumSample: 3, finishedJobs: 31, quality: { score: 94, sampleSize: 28, jobs: 31 }, reliability: { onTimePercent: 97, sampleSize: 30, onTime: 29, jobs: 31, noClockIn: 1, noStartTime: 0 }, punctuality: { avgMinutesLate: -4, sampleSize: 30, jobs: 31, noClockIn: 1, noStartTime: 0 }, attendance: { completedJobs: 31, assignedJobs: 31, percent: 100, dueJobs: 31, notRecorded: 0 }, documentation: { fullyDocumentedPercent: 90, sampleSize: 31, documented: 28, withoutForm: 3, formWithoutPhotos: 0 }, customerSatisfaction: { avgRating: 4.9, sampleSize: 14, jobs: 31 }, responseRate: { acceptedPercent: 96, sampleSize: 25, repliedWithinHour: 24, officeAccepted: 0 }, disputeRate: { disputes: 0, totalJobs: 31, percent: 0 }, noShowRate: { noShows: 0, scheduled: 31, percent: 0, notRecorded: 0 }, documentCompliance: { current: 5, expired: 1, percent: 83 }, trainingCompletion: { completed: 5, assigned: 5, percent: 100 }, reworkRate: { reworks: 0, majorReworks: 0, minutesLost: 0, amountLost: 0, totalJobs: 31, percent: 0 }, currentStreak: 3, last5Avg: 94, last10Avg: 93 };
     m.fetch.mockResolvedValue(ok({ status: "ready", windowDays: 365, metrics: { ...metrics, windowDays: 365 } }));
     render(<PerformanceView userId="u" initial={[{ status: "ready", windowDays: 30, metrics }, { status: "ready", windowDays: 90, metrics: { ...metrics, windowDays: 90 } }, { status: "timed_out", windowDays: 365 }]} />);
     expect(screen.getByText("94%", { selector: "p" })).toBeInTheDocument();
@@ -150,8 +150,22 @@ describe("Performance windows", () => {
     expect(within(failed).getAllByText("– not worked out")).toHaveLength(3);
     expect(within(failed).queryByText("0%")).toBeNull();
     fireEvent.click(within(failed).getByRole("button", { name: "Try again" }));
-    await waitFor(() => expect(within(screen.getByRole("region", { name: "Last 365 days" })).getByText("Last 365 days · 31 jobs")).toBeInTheDocument());
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Last 365 days" })).getByText("Last 365 days · 31 finished jobs")).toBeInTheDocument());
     expect(m.fetch).toHaveBeenCalledWith("/api/admin/workforce/performance/u?window=365", expect.anything());
+  });
+
+  it("states each figure's denominator, says Not enough data below the minimum and explains how each is worked out", () => {
+    setPhone(false);
+    const base = { userId: "u", windowDays: 30, windowStart: "2026-10-15T00:00:00Z", minimumSample: 3, finishedJobs: 30, quality: { score: null, sampleSize: 0, jobs: 30 }, reliability: { onTimePercent: null, sampleSize: 2, onTime: 2, jobs: 30, noClockIn: 28, noStartTime: 0 }, punctuality: { avgMinutesLate: null, sampleSize: 2, jobs: 30, noClockIn: 28, noStartTime: 0 }, attendance: { completedJobs: 12, assignedJobs: 13, percent: 92, dueJobs: 30, notRecorded: 17 }, documentation: { fullyDocumentedPercent: 33, sampleSize: 30, documented: 10, withoutForm: 20, formWithoutPhotos: 0 }, customerSatisfaction: { avgRating: null, sampleSize: 0, jobs: 30 }, responseRate: { acceptedPercent: 40, sampleSize: 10, repliedWithinHour: 4, officeAccepted: 2 }, disputeRate: { disputes: 1, totalJobs: 30, percent: 3.3 }, noShowRate: { noShows: 1, scheduled: 13, percent: 7.7, notRecorded: 17 }, documentCompliance: { current: 0, expired: 0, percent: null }, trainingCompletion: { completed: 0, assigned: 2, percent: null }, reworkRate: { reworks: 0, majorReworks: 0, minutesLost: 0, amountLost: 0, totalJobs: 30, percent: 0 }, currentStreak: 0, last5Avg: null, last10Avg: null };
+    render(<PerformanceView userId="u" initial={[{ status: "ready", windowDays: 30, metrics: base }, { status: "timed_out", windowDays: 90 }, { status: "timed_out", windowDays: 365 }]} />);
+    const window30 = screen.getByRole("region", { name: "Last 30 days" });
+    expect(within(window30).getByText("Last 30 days · 30 finished jobs")).toBeInTheDocument();
+    expect(within(window30).getByText("10 of 30 jobs · 20 without a form")).toBeInTheDocument();
+    expect(within(window30).getByText(/^Not enough data · 2 of 2 on time · 2 of 30 jobs had their clock-in and a start time \(28 without their clock-in\)$/)).toBeInTheDocument();
+    expect(within(window30).getByText("1 of 30 jobs")).toBeInTheDocument();
+    expect(within(window30).getByText("12 of 13 past jobs · 17 not recorded")).toBeInTheDocument();
+    expect(within(window30).getAllByText("How this is worked out").length).toBe(11);
+    expect(screen.getByText("2 of 30 jobs had a clock-in", { exact: false })).toBeInTheDocument();
   });
 
   it("switches windows with a segmented control on a phone", () => {

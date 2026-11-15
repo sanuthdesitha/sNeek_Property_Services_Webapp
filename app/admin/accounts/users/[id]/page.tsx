@@ -91,7 +91,8 @@ export default async function StaffSummaryPage({ params }: { params: { id: strin
   const [summary, extended, perf] = await Promise.all([
     getUserSummary(user.id, currentRate),
     getUserExtendedProfile(user.id),
-    isFieldRole ? getPerformanceMetrics(user.id, 30) : Promise.resolve(null),
+    // A failed window hides the KPIs rather than breaking the page.
+    isFieldRole ? getPerformanceMetrics(user.id, 30).catch(() => null) : Promise.resolve(null),
   ]);
 
   const birthday = user.dateOfBirth ? formatBirthday(new Date(user.dateOfBirth)) : null;
