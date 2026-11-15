@@ -37,7 +37,7 @@ it("preserves retained-account validation and page permission checks", async () 
   const response = await middleware(request(`${prefix}/api/admin/jobs/job`, "POST"), event);
   expect(response.headers.get("x-middleware-request-x-sneek-request-path")).toBe("/api/admin/jobs/job");
   expect(response.headers.get("x-middleware-request-x-sneek-request-method")).toBe("POST");
-  expect((await middleware(request(`${prefix}/v2/admin/finance`), event)).headers.get("location")).toBe(`https://example.invalid${prefix}/v2/admin/access-denied`);
+  expect((await middleware(request(`${prefix}/v2/admin/finance`), event)).headers.get("location")).toBe(`https://example.invalid${prefix}/v2/admin/access-denied?from=%2Fv2%2Fadmin%2Ffinance`);
 });
 it("still validates owner navigation via the internal transport when reachable", async () => {
   tokenState.role = "ADMIN";

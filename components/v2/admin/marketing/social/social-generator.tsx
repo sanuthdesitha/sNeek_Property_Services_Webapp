@@ -363,7 +363,7 @@ export function SocialGenerator({ initialGroupId, timeZone, onClose }: { initial
     <div className="min-w-0 space-y-4" data-unsaved={dirty ? "true" : undefined}>
       <div className="flex flex-wrap items-center justify-between gap-2 text-[0.8125rem]">
         <p className="text-[hsl(var(--e-muted-foreground))]">
-          {group ? <>Draft saved {new Date(group.updatedAt).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", timeZone })} · &quot;{group.title}&quot;{group.createdVia === "AGENT" ? " · drafted by an agent" : ""}</> : "Nothing saved yet: the draft is created when you go to step 2."}
+          {group ? <>{posted ? "Posted · last change" : "Draft saved"} {new Date(group.updatedAt).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", timeZone })} · &quot;{group.title}&quot;{group.createdVia === "AGENT" ? " · drafted by an agent" : ""}</> : "Nothing saved yet: the draft is created when you go to step 2."}
         </p>
         <div className="flex gap-2">
           {group ? <EButton size="sm" variant="ghost" onClick={startNew}>Start a new draft</EButton> : null}

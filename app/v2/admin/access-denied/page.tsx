@@ -1,42 +1,20 @@
-import Link from "next/link";
-import { EPageHeader, ECard, ECardBody } from "@/components/v2/ui/primitives";
+import { DenialPage } from "@/components/v2/access/denial-view";
+import { loadOfficeDenial } from "@/lib/access/denial-server";
+import { fromSearchParam } from "@/lib/access/return-path";
 
-const COPY = {
-  feature: {
-    title: "Feature access is turned off",
-    description:
-      "Your operations-manager permission pack does not include this feature. Ask an administrator to review your access in Settings → Access → Roles.",
-  },
-  role: {
-    title: "This page is for administrators",
-    description:
-      "Your account does not include this page. It is limited to administrators and cannot be granted through a permission pack.",
-  },
-};
+export const metadata = { title: "Access · Estate admin" };
+export const dynamic = "force-dynamic";
 
-export default function AccessDeniedPage({
-  searchParams,
-}: {
-  searchParams?: { reason?: string };
-}) {
-  const copy = searchParams?.reason === "role" ? COPY.role : COPY.feature;
-  return (
-    <div className="space-y-6">
-      <EPageHeader title={copy.title} description={copy.description} />
-      <ECard>
-        <ECardBody className="pt-6">
-          <p className="mb-4">
-            Choose an available feature from the navigation, or return to your
-            profile.
-          </p>
-          <Link
-            href="/v2/admin/profile"
-            className="inline-flex min-h-11 items-center underline"
-          >
-            Open my profile
-          </Link>
-        </ECardBody>
-      </ECard>
-    </div>
-  );
+/**
+ * Why an office page refused (board "Access denied"): an area turned off in
+ * the person's access (`reason` absent), an administrators-only page
+ * (`?reason=role`) or a page of another portal (`?reason=portal`). `from` is
+ * the refused page, validated as a same-origin path and only named here.
+ * While testing as someone, it shows their answer.
+ */
+export default async function AccessDeniedPage({ searchParams }: { searchParams?: { reason?: string | string[]; from?: string | string[] } }) {
+  const from = fromSearchParam(searchParams?.from);
+  const reason = typeof searchParams?.reason === "string" ? searchParams.reason : undefined;
+  const view = await loadOfficeDenial({ reason, from });
+  return <DenialPage view={view} fromPath={from} />;
 }

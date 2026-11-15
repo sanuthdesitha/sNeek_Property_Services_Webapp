@@ -65,7 +65,7 @@ export function TemplatesEditor() {
             {load.templates.frames.map((frame) => (
               <li key={frame.key}>
                 <ECard className="overflow-hidden">
-                  <div className="flex aspect-[4/5] flex-col justify-end bg-[hsl(var(--e-surface-sunken))]">
+                  <div className="flex aspect-[2/1] flex-col justify-end bg-[hsl(var(--e-surface-sunken))]">
                     <div className="flex items-center justify-between gap-2 bg-[hsl(var(--e-primary))] px-3 py-2 text-[hsl(var(--e-primary-foreground))]">
                       <span className="font-serif text-[0.9375rem]">sNeek</span>
                       <span className="text-[0.75rem] opacity-90">{frame.line}</span>

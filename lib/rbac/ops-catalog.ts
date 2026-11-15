@@ -612,7 +612,9 @@ export function opsRequestFeature(input: string): OpsRequestFeature {
         .replace(/^\/(?:api\/)?admin(?:\/|$)/, "")
         .split("/")
         .filter(Boolean)[0] ?? "";
-    if (["profile", "access-denied"].includes(section)) return null;
+    // "access-requests": "Ask an administrator" from the access-denied page
+    // (board "Access denied"); the route re-checks the person itself.
+    if (["profile", "access-denied", "access-requests"].includes(section)) return null;
     return ADMIN_SECTIONS[section] ?? "unmapped";
   }
   if (/^\/api\/me\/jobs-views(?:\/|$)/.test(path)) return "jobs";

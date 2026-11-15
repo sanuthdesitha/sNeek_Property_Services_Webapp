@@ -106,6 +106,7 @@ function MetaCard({ network, account, data, timeZone, onCheck, onConnect, onDisc
         {data.canConnect && account && network === "FACEBOOK" ? <EButton size="sm" variant="ghost" disabled={busy} onClick={() => onDisconnect(account)}>Disconnect…</EButton> : null}
       </div>
       {!data.canConnect ? <p className="mt-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Only an administrator, acting as themselves, can connect or disconnect.</p> : null}
+      {data.canConnect && network === "FACEBOOK" && (!data.metaApp.appId || !data.metaApp.hasSecret) ? <p className="mt-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Add the Meta app details below first; Connect needs them.</p> : null}
     </EToneCard>
   );
 }

@@ -35,7 +35,7 @@ it("validates the chosen identity and rewrites with isolated cookies and trusted
 });
 it("enforces the selected cleaner role on admin navigation", async () => {
  const result = await middleware(request(`/_accounts/${id}/v2/admin`), event);
- expect(result.headers.get("location")).toBe(`https://example.invalid/_accounts/${id}/unauthorized`);
+ expect(result.headers.get("location")).toBe(`https://example.invalid/_accounts/${id}/unauthorized?from=%2Fv2%2Fadmin`);
 });
 it.each([false, "failure"])("expires or fails closed without a shared-cookie fallback (%s)", async failure => {
  (fetch as any).mockImplementation(async () => { if (failure) throw new Error("unavailable"); return new Response("{}", { status: 401 }); });
@@ -55,7 +55,7 @@ it("uses the browser origin behind a proxy for missing-context protection and re
  const req = new NextRequest("http://0.0.0.0:3000/api/admin/users", { method: "POST", headers: { host: "app.example.invalid", "x-forwarded-proto": "https", referer: `https://app.example.invalid/_accounts/${id}/v2/cleaner` } });
  expect((await middleware(req, event)).status).toBe(409);
  const page = new NextRequest(`http://0.0.0.0:3000/_accounts/${id}/v2/admin`, { headers: { host: "app.example.invalid", "x-forwarded-proto": "https" } });
- expect((await middleware(page, event)).headers.get("location")).toBe(`https://app.example.invalid/_accounts/${id}/unauthorized`);
+ expect((await middleware(page, event)).headers.get("location")).toBe(`https://app.example.invalid/_accounts/${id}/unauthorized?from=%2Fv2%2Fadmin`);
 });
 it("lets the app's own pages use the camera and microphone, and no other origin", async () => {
  const response = await middleware(request("/login"), event);

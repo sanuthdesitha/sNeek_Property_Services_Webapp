@@ -12,7 +12,7 @@ import { Providers } from "./providers";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/auth-options";
 import { getThemeForUser } from "@/lib/theme/server";
-import { getImpersonationBanner, ImpersonationSlot } from "@/components/admin/impersonation-slot";
+import { getImpersonationBanner, getTestAsEnded, ImpersonationSlot, TestAsEndedSlot } from "@/components/admin/impersonation-slot";
 import { opsNavigationSeed } from "@/lib/rbac/ops-navigation-seed";
 
 // Fonts are served from files in app/fonts (latin subset, variable weight, SIL
@@ -104,6 +104,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // fixed warning bar pushes the page (and any sticky portal header) down
   // rather than covering it.
   const impersonation = await getImpersonationBanner();
+  // "Your test as … ended after one hour" on the first page after it ran out.
+  const testAsEnded = impersonation ? null : await getTestAsEnded();
   // The rail's first answer, so it never starts with only "My profile".
   const opsSeed = await opsNavigationSeed({ userId: session?.user?.id, impersonating: Boolean(impersonation), retainedContext: Boolean(accountContext) });
   const viewScope = createHash("sha256").update(JSON.stringify([
@@ -144,6 +146,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             adds .has-impersonation-bar to <html> so sticky portal headers are
             pushed below it instead of hiding underneath. */}
         {impersonation ? <ImpersonationSlot banner={impersonation} /> : null}
+        {testAsEnded ? <TestAsEndedSlot ended={testAsEnded} /> : null}
         <AccountScopeProvider contextId={accountContext}><ViewMemoryProvider><Providers accountContext={accountContext} opsSeed={opsSeed}>{children}</Providers></ViewMemoryProvider></AccountScopeProvider>
       </body>
     </html>

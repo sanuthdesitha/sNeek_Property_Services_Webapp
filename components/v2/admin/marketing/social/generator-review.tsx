@@ -291,7 +291,7 @@ export function GeneratorReview({
       {showResults ? (
         <section aria-labelledby="social-results-heading" className="space-y-2">
           <h3 id="social-results-heading" className="font-serif text-[1.125rem]">
-            {results ? `Results, ${formatOrgDateTime(results.at, timeZone)}: ${results.rows.filter((row) => row.outcome === "POSTED").length} posted, ${results.rows.filter((row) => row.outcome !== "POSTED").length} waiting for you` : "Each network"}
+            {results ? `Results, ${formatOrgDateTime(results.at, timeZone)}: ${results.rows.filter((row) => row.outcome === "POSTED").length} posted, ${group.posts.filter((post) => post.status !== "PUBLISHED" && post.status !== "CANCELLED").length} waiting for you` : "Each network"}
           </h3>
           <ul className="grid grid-cols-1 gap-2 lg:grid-cols-2">
             {group.posts.map((post) => (
@@ -304,7 +304,7 @@ export function GeneratorReview({
         </section>
       ) : null}
 
-      <div className="sm:hidden">
+      <div className={posted ? "hidden" : "sm:hidden"}>
         <EButton className="w-full" disabled={blocked || busy || posted || chosen.length === 0 || when !== "now"} onClick={() => setConfirming(true)}>Post to {chosen.length} network{chosen.length === 1 ? "" : "s"}…</EButton>
       </div>
 

@@ -44,6 +44,7 @@ const TASKS: ScheduledTaskInfo[] = [
   { name: "property-care", plainName: "Property care reminders", description: "Care tasks coming due", ifItFails: "Property care tasks may not have been raised on time." },
   { name: "urgent-stock-reminders", plainName: "Urgent stock reminders", description: "Urgent needs not yet handled", ifItFails: "Reminders about urgent stock may be late." },
   { name: "agent-request-expiry", plainName: "Expire agent requests", description: "Agent requests nobody approved in time", ifItFails: "Old agent requests stay open a little longer; nothing is approved by it." },
+  { name: "test-as-notices", plainName: "Tell people they were tested as", description: "Full-access Test as sessions that ended by themselves", ifItFails: "Someone tested as with full access may hear about it later; it is never sent twice." },
   { name: "admin-attention-summary", plainName: "Office attention summary", description: "What is waiting for the office", ifItFails: "The office summary may be late." },
   { name: "tomorrow-prep-dispatch", plainName: "Tomorrow's jobs summary", description: "Tomorrow's work for cleaners and drivers", ifItFails: "Tomorrow's summary may not have reached everyone; it is not sent twice.", fix: SAFEGUARDS },
   { name: "workforce-post-dispatch", plainName: "Team posts", description: "Scheduled posts to the team", ifItFails: "Scheduled team posts may be late." },

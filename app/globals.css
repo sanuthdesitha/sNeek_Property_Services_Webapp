@@ -1216,11 +1216,21 @@ gmp-place-autocomplete::part(prediction-item-selected) {
  * page fully usable while impersonating.
  * --------------------------------------------------------------------- */
 html.impersonating body {
-  padding-top: 2.25rem; /* h-9 */
+  padding-top: 3.25rem; /* phone banner: Stop is 44px tall (board "Test as") */
 }
 
 html.impersonating .sticky.top-0 {
-  top: 2.25rem;
+  top: 3.25rem;
+}
+
+@media (min-width: 640px) {
+  html.impersonating body {
+    padding-top: 2.75rem; /* h-11 */
+  }
+
+  html.impersonating .sticky.top-0 {
+    top: 2.75rem;
+  }
 }
 
 /* Shared workflow vectors: restrained, finite motion; never an activity claim. */

@@ -164,6 +164,13 @@ const DICTIONARY: Record<string, Entry> = {
   emailName: { label: "Email name", sample: "Job reminder (24 hours)" },
   version: { label: "Version", sample: "6" },
   changeSummary: { label: "What changed", sample: "Subject changed; + Callout." },
+  // Test as and access requests (2026-11-17)
+  testerName: { label: "Who tested", sample: "Hannah" },
+  testedFrom: { label: "Test started", sample: "Sat 14 Nov, 2:32 pm" },
+  testedTo: { label: "Test ended", sample: "3:32 pm" },
+  requesterName: { label: "Who asked", sample: "Chloe Martin" },
+  areaName: { label: "Area asked for", sample: "Finance and invoicing" },
+  fromPage: { label: "Page they came from", sample: "Invoices and pay" },
 };
 
 export function variableDefinition(name: string): WordingVariable {

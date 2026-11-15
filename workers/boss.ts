@@ -34,6 +34,7 @@ import { sendStockAlerts } from "@/lib/ops/stock-alerts";
 import { dispatchPropertyCare } from "@/lib/property-care/service";
 import { dispatchUrgentStockReminders } from "@/lib/inventory/urgent-stock";
 import { expireAgentRequests } from "@/lib/agents/action-requests";
+import { sweepTestedAsNotices } from "@/lib/auth/tested-as-notice";
 import { dispatchTomorrowPrepSummaries } from "@/lib/ops/tomorrow-prep";
 import { dispatchScheduledEmailCampaigns } from "@/lib/marketing/email-campaigns";
 import { refreshGoogleReviewsCache } from "@/lib/public-site/google-reviews";
@@ -333,6 +334,16 @@ async function main() {
     await boss.work("agent-request-expiry", safeHandler("agent-request-expiry", async () => {
       const result = await expireAgentRequests();
       if (result.expired > 0) logger.info(result, "Agent requests expired");
+    }));
+  }
+
+  // Full-access "Test as" sessions that ended by themselves: tell the person
+  // once, in their inbox (owner default, pending owner confirmation).
+  if (jobEnabled("test-as-notices")) {
+    await boss.schedule("test-as-notices", "*/15 * * * *", {}, { tz: TZ });
+    await boss.work("test-as-notices", safeHandler("test-as-notices", async () => {
+      const result = await sweepTestedAsNotices();
+      if (result.sent > 0) logger.info(result, "Tested-as notices queued");
     }));
   }
 

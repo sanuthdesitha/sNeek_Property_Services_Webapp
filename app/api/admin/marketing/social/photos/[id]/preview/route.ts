@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkPhotos } from "@/lib/marketing/social/eligibility";
-import { makeSocialCrop } from "@/lib/marketing/social/image-pipeline";
+import { makeSocialPreview } from "@/lib/marketing/social/image-pipeline";
 import { SOCIAL_RATIOS, type SocialRatio } from "@/lib/marketing/social/networks";
 import { readEvidencePhoto } from "@/lib/marketing/social/storage";
 import { requireSocialSession, socialErrorResponse } from "@/lib/marketing/social/route-helpers";
@@ -18,8 +18,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const { eligible, refused } = await checkPhotos([params.id], { ratio, allowLeftOut: true });
     const photo = eligible.get(params.id);
     if (!photo) return NextResponse.json({ error: refused[0]?.reason ?? "This photo cannot be used." }, { status: 404 });
-    const copy = await makeSocialCrop(await readEvidencePhoto(photo.s3Key), ratio);
-    return new NextResponse(new Uint8Array(copy.bytes), { headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
+    const copy = await makeSocialPreview(await readEvidencePhoto(photo.s3Key), ratio);
+    return new NextResponse(new Uint8Array(copy), { headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff" } });
   } catch (error) {
     return socialErrorResponse(error);
   }

@@ -4,6 +4,7 @@ import { withAuth } from "next-auth/middleware";
 import type { NextRequestWithAuth } from "next-auth/middleware";
 import { NextRequest, NextResponse, type NextFetchEvent } from "next/server";
 import { readAccountPath, bindAccountUrl, ACCOUNT_PATH_PREFIX } from "@/lib/auth/account-request-scope";
+import { withFrom } from "@/lib/access/return-path";
 import { Role } from "@prisma/client";
 import {
   IMPERSONATION_COOKIE,
@@ -48,7 +49,7 @@ async function portalMiddleware(req: NextRequestWithAuth & { retainedValidation?
         NextResponse.json(
           {
             error:
-              "Read-only test session: writes are blocked while viewing as another user. Switch to full test mode to change data.",
+              "Not saved. This is a view-only test: changes are blocked. Switch to full access to try it for real.",
             code: "IMPERSONATION_READ_ONLY",
           },
           { status: 403 },
@@ -104,10 +105,11 @@ async function portalMiddleware(req: NextRequestWithAuth & { retainedValidation?
       heldRoles = validation.heldRoles ?? (role ? [role] : undefined);
       houseLook = validation.defaultPortalVersion;
       if (validation.valid === "indeterminate" && role === Role.OPS_MANAGER) {
-        return applySecurityHeaders(new NextResponse("Permissions are temporarily unavailable. Please retry.", { status: 503 }));
+        // Not a denial: the permission read failed (board "Access denied").
+        return applySecurityHeaders(accessUncheckedResponse());
       }
       if (validation.opsAccess && !canUseOpsPath(validation.opsAccess, pathname + req.nextUrl.search, req.method, validation.opsGrants ?? [])) {
-        return applySecurityHeaders(NextResponse.redirect(new URL("/v2/admin/access-denied", req.url)));
+        return applySecurityHeaders(NextResponse.redirect(deniedUrl("/v2/admin/access-denied", req)));
       }
 
       const isForcePasswordPage = pathname === "/force-password-reset";
@@ -210,7 +212,7 @@ async function portalMiddleware(req: NextRequestWithAuth & { retainedValidation?
           (pathname.startsWith("/v2/qa") && has(Role.QA_INSPECTOR)) ||
           (pathname.startsWith("/v2/maintenance") && has(Role.MAINTENANCE));
         if (!ownsPortal) {
-          return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
+          return applySecurityHeaders(NextResponse.redirect(deniedUrl("/unauthorized", req)));
         }
       }
     }
@@ -223,7 +225,7 @@ async function portalMiddleware(req: NextRequestWithAuth & { retainedValidation?
     // Admin routes
     if (pathname.startsWith("/admin")) {
       if (!holds(Role.ADMIN) && !holds(Role.OPS_MANAGER)) {
-        return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
+        return applySecurityHeaders(NextResponse.redirect(deniedUrl("/unauthorized", req)));
       }
       // Certain admin-only sub-routes
       if (
@@ -231,23 +233,23 @@ async function portalMiddleware(req: NextRequestWithAuth & { retainedValidation?
           pathname.startsWith("/admin/settings/pay-rates")) &&
         !holds(Role.ADMIN)
       ) {
-        return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
+        return applySecurityHeaders(NextResponse.redirect(deniedUrl("/unauthorized", req)));
       }
     }
 
     // Cleaner routes
     if (pathname.startsWith("/cleaner") && !holds(Role.CLEANER)) {
-      return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
+      return applySecurityHeaders(NextResponse.redirect(deniedUrl("/unauthorized", req)));
     }
 
     // Client routes — a VA enters the same portal as the client they act for.
     if (pathname.startsWith("/client") && !holds(Role.CLIENT) && !holds(Role.VA)) {
-      return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
+      return applySecurityHeaders(NextResponse.redirect(deniedUrl("/unauthorized", req)));
     }
 
     // Laundry routes
     if (pathname.startsWith("/laundry") && !holds(Role.LAUNDRY)) {
-      return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
+      return applySecurityHeaders(NextResponse.redirect(deniedUrl("/unauthorized", req)));
     }
 
     // Maintenance routes — workers, plus admin/ops for oversight
@@ -257,7 +259,7 @@ async function portalMiddleware(req: NextRequestWithAuth & { retainedValidation?
       !holds(Role.ADMIN) &&
       !holds(Role.OPS_MANAGER)
     ) {
-      return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
+      return applySecurityHeaders(NextResponse.redirect(deniedUrl("/unauthorized", req)));
     }
 
     return applySecurityHeaders(NextResponse.next());
@@ -425,6 +427,25 @@ async function routeRequest(original: NextRequest, event: NextFetchEvent) {
   result.headers.forEach((value, key) => { if (!key.startsWith("x-middleware-")) response.headers.set(key, value); });
   response.headers.set("Cache-Control", "private, no-store");
   return response;
+}
+
+/**
+ * A denial destination carrying the page the person tried (`?from=`, a
+ * validated same-origin path; board "Access denied"). The denial page only
+ * names the area; it never redirects to `from`.
+ */
+function deniedUrl(destination: string, req: NextRequest): URL {
+  return new URL(withFrom(destination, req.nextUrl.pathname + req.nextUrl.search), req.url);
+}
+
+/**
+ * "Access could not be checked" (board "Access denied"): the session check
+ * failed, so access is unknown. Kept closed (503) and said plainly, with Try
+ * again, never as a refusal. Static text only: nothing from the request is echoed.
+ */
+function accessUncheckedResponse(): NextResponse {
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Permissions are temporarily unavailable</title><style>body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f7f5f0;color:#1d2a24}main{max-width:36rem;margin:12vh auto;padding:0 16px}div{border:1px solid #e6d3a6;background:#f7ecd2;border-radius:12px;padding:16px}h1{font-size:1.375rem;margin:0 0 .5rem}p{margin:0 0 1rem;color:#5c4a26}a{display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:8px;background:#1e4a3b;color:#fff;text-decoration:none;font-weight:600}span{display:inline-block;margin-bottom:.5rem;padding:2px 10px;border-radius:999px;background:#fff;color:#6b4a12;font-size:.75rem;font-weight:600}@media (prefers-color-scheme:dark){body{background:#141a17;color:#ece6d8}div{background:#2b2416;border-color:#4a3f28}p{color:#d9cba6}span{background:#141a17;color:#e9cf93}a{background:#c9b27a;color:#141a17}}</style></head><body><main><div><span>Unknown</span><h1>Permissions are temporarily unavailable</h1><p>Try again in a moment. This is not a refusal: your access could not be checked just now.</p><a href="">Try again</a></div></main></body></html>`;
+  return new NextResponse(html, { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Retry-After": "5" } });
 }
 
 function applySecurityHeaders(response: NextResponse) {

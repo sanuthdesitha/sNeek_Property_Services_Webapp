@@ -34,9 +34,10 @@ export const IMPERSONATION_COOKIE = "sneek.test-as";
 /**
  * Deliberately short. This is a testing tool, not a way to work as someone
  * else all day — an unattended admin laptop shouldn't stay logged in as a
- * cleaner. Re-entering takes two clicks.
+ * cleaner. Re-entering takes two clicks. (Value in impersonation-limits.ts.)
  */
-export const IMPERSONATION_MAX_AGE_SECONDS = 60 * 60; // 1 hour
+import { IMPERSONATION_MAX_AGE_SECONDS } from "./impersonation-limits";
+export { IMPERSONATION_MAX_AGE_SECONDS };
 
 /**
  * READ_ONLY is the default and blocks every state-changing request (see
@@ -58,6 +59,12 @@ export type ImpersonationTicket = {
   mode: ImpersonationMode;
   /** Epoch ms; used for the "started N min ago" display. */
   startedAt: number;
+  /**
+   * The IMPERSONATE_START audit row (2026-11-17). Ties the stop, the "you were
+   * tested as" note and the activity log to one session. Absent on tickets
+   * issued before it existed.
+   */
+  startAuditId?: string;
 };
 
 function secret(): string {
@@ -90,7 +97,7 @@ export async function readImpersonationTicket(
   try {
     const decoded = await decode({ token: raw, secret: secret() });
     if (!decoded) return null;
-    const { actorId, actorEmail, targetId, targetRole, mode, startedAt } = decoded as Record<
+    const { actorId, actorEmail, targetId, targetRole, mode, startedAt, startAuditId } = decoded as Record<
       string,
       unknown
     >;
@@ -108,6 +115,58 @@ export async function readImpersonationTicket(
       targetRole: targetRole as Role,
       mode,
       startedAt: typeof startedAt === "number" ? startedAt : Date.now(),
+      ...(typeof startAuditId === "string" && startAuditId ? { startAuditId } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** When a ticket's session ends by itself (epoch ms). */
+export function impersonationEndsAt(ticket: Pick<ImpersonationTicket, "startedAt">): number {
+  return ticket.startedAt + IMPERSONATION_MAX_AGE_SECONDS * 1000;
+}
+
+/**
+ * "Your test as Marco Rossi ended after one hour" (board "Test as"): the
+ * ticket cookie disappears with its session, so a second signed cookie
+ * remembers the session for a while longer. It grants nothing: it is read
+ * only to show that note to the same administrator and to record the end.
+ */
+export const TEST_AS_ENDED_COOKIE = "sneek.test-as-ended";
+export const TEST_AS_ENDED_MAX_AGE_SECONDS = 13 * 60 * 60;
+
+export type TestAsEndedMarker = {
+  actorId: string;
+  targetId: string;
+  targetName: string;
+  mode: ImpersonationMode;
+  startedAt: number;
+  endsAt: number;
+  startAuditId?: string;
+};
+
+export async function signTestAsEndedMarker(marker: TestAsEndedMarker): Promise<string> {
+  return encode({ token: marker as unknown as Record<string, unknown>, secret: secret(), maxAge: TEST_AS_ENDED_MAX_AGE_SECONDS });
+}
+
+export async function readTestAsEndedMarker(raw: string | undefined | null): Promise<TestAsEndedMarker | null> {
+  if (!raw) return null;
+  try {
+    const decoded = (await decode({ token: raw, secret: secret() })) as Record<string, unknown> | null;
+    if (!decoded) return null;
+    const { actorId, targetId, targetName, mode, startedAt, endsAt, startAuditId } = decoded;
+    if (typeof actorId !== "string" || !actorId || typeof targetId !== "string" || !targetId) return null;
+    if (mode !== "READ_ONLY" && mode !== "FULL") return null;
+    if (typeof startedAt !== "number" || typeof endsAt !== "number") return null;
+    return {
+      actorId,
+      targetId,
+      targetName: typeof targetName === "string" && targetName ? targetName : "that person",
+      mode,
+      startedAt,
+      endsAt,
+      ...(typeof startAuditId === "string" && startAuditId ? { startAuditId } : {}),
     };
   } catch {
     return null;

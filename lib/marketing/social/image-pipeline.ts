@@ -150,6 +150,14 @@ export async function makeSocialCrop(bytes: Buffer, ratio: SocialRatio): Promise
   return finished(await encodeClean(shaped.pipeline), shaped.width, shaped.height);
 }
 
+/** A small cleaned preview for the office screen (same crop and metadata rules, smaller and faster). */
+export async function makeSocialPreview(bytes: Buffer, ratio: SocialRatio): Promise<Buffer> {
+  const shaped = await shapedCrop(bytes, ratioValue(ratio), 480);
+  const output = await shaped.pipeline.toColorspace("srgb").jpeg({ quality: 78 }).toBuffer();
+  await assertNoMetadata(output);
+  return output;
+}
+
 function escapeXml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[char] ?? char);
 }

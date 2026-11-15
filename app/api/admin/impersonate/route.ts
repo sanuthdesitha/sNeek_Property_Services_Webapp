@@ -7,10 +7,16 @@ import { requireRealSession } from "@/lib/auth/session";
 import {
   IMPERSONATION_COOKIE,
   IMPERSONATION_MAX_AGE_SECONDS,
+  TEST_AS_ENDED_COOKIE,
+  TEST_AS_ENDED_MAX_AGE_SECONDS,
   impersonationCookieOptions,
+  impersonationEndsAt,
   readImpersonationTicket,
+  readTestAsEndedMarker,
   signImpersonationTicket,
+  signTestAsEndedMarker,
 } from "@/lib/auth/impersonation";
+import { sendTestedAsNotice, startAuditIdFor } from "@/lib/auth/tested-as-notice";
 import { TEST_AS_UNLOCK_COOKIE, isTestAsUnlocked } from "@/lib/auth/test-as-unlock";
 import { delegatedTestAsAllowed, realActorHolds } from "@/lib/rbac/delegated-admin";
 
@@ -108,20 +114,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const ticket = {
-    actorId: session.user.id,
-    actorEmail: session.user.email ?? "",
-    targetId: target.id,
-    targetRole: target.role,
-    mode,
-    startedAt: Date.now(),
-  };
-  const token = await signImpersonationTicket(ticket);
+  const startedAt = Date.now();
 
   // Audited BEFORE the cookie is handed over, so a crash can't produce an
   // un-recorded impersonation. `userId` is the audit actor column — the real
   // admin — and the entity is the account being viewed.
-  await db.auditLog.create({
+  const startAudit = await db.auditLog.create({
     data: {
       userId: session.user.id,
       action: "IMPERSONATE_START",
@@ -136,12 +134,40 @@ export async function POST(request: NextRequest) {
       },
       ipAddress: clientIp(request),
     },
+    select: { id: true },
   });
+
+  const ticket = {
+    actorId: session.user.id,
+    actorEmail: session.user.email ?? "",
+    targetId: target.id,
+    targetRole: target.role,
+    mode,
+    startedAt,
+    // Ties the stop, the "you were tested as" note and the log to this session.
+    startAuditId: startAudit.id,
+  };
+  const token = await signImpersonationTicket(ticket);
 
   cookies().set(
     IMPERSONATION_COOKIE,
     token,
     impersonationCookieOptions(IMPERSONATION_MAX_AGE_SECONDS),
+  );
+  // Remembers the session past its hour, only to say "it ended after one
+  // hour" to this administrator (board "Test as"). It grants nothing.
+  cookies().set(
+    TEST_AS_ENDED_COOKIE,
+    await signTestAsEndedMarker({
+      actorId: session.user.id,
+      targetId: target.id,
+      targetName: target.name || target.email || "that person",
+      mode,
+      startedAt,
+      endsAt: impersonationEndsAt(ticket),
+      startAuditId: startAudit.id,
+    }),
+    impersonationCookieOptions(TEST_AS_ENDED_MAX_AGE_SECONDS),
   );
 
   return NextResponse.json({
@@ -149,6 +175,7 @@ export async function POST(request: NextRequest) {
     target: { id: target.id, name: target.name, email: target.email, role: target.role },
     mode,
     home: v2PortalHome(target.role),
+    endsAt: new Date(impersonationEndsAt(ticket)).toISOString(),
   });
 }
 
@@ -164,11 +191,15 @@ export async function DELETE(request: NextRequest) {
     request.cookies.get(IMPERSONATION_COOKIE)?.value,
   );
 
+  const marker = await readTestAsEndedMarker(request.cookies.get(TEST_AS_ENDED_COOKIE)?.value);
+
   // Always clear, even if the ticket was unreadable or belonged to someone
   // else — "stop" must never be able to leave you stuck.
   cookies().set(IMPERSONATION_COOKIE, "", impersonationCookieOptions(0));
+  cookies().set(TEST_AS_ENDED_COOKIE, "", impersonationCookieOptions(0));
 
   if (existing && existing.actorId === session.user.id) {
+    const stoppedAt = new Date();
     await db.auditLog.create({
       data: {
         userId: session.user.id,
@@ -182,9 +213,44 @@ export async function DELETE(request: NextRequest) {
         ipAddress: clientIp(request),
       },
     });
+    // Owner default (pending owner confirmation): the person is told once,
+    // in their inbox, after a FULL access session only. A failure here never
+    // keeps anyone in the test; the worker sweep tries again.
+    if (existing.mode === "FULL") await notifyTestedPerson(existing, stoppedAt);
+    return NextResponse.json({ ok: true, stopped: { targetId: existing.targetId, mode: existing.mode, startedAt: new Date(existing.startedAt).toISOString(), stoppedAt: stoppedAt.toISOString() } });
+  }
+
+  // The session already ended by itself (the hour passed): record that it
+  // ended, once, and tell the person if it was full access.
+  if (!existing && marker && marker.actorId === session.user.id && marker.endsAt <= Date.now()) {
+    await db.auditLog.create({
+      data: {
+        userId: session.user.id,
+        action: "IMPERSONATE_EXPIRED",
+        entity: "User",
+        entityId: marker.targetId,
+        after: { mode: marker.mode, durationSeconds: IMPERSONATION_MAX_AGE_SECONDS, startAuditId: marker.startAuditId ?? null },
+        ipAddress: clientIp(request),
+      },
+    });
+    if (marker.mode === "FULL") {
+      await notifyTestedPerson({ actorId: marker.actorId, targetId: marker.targetId, startedAt: marker.startedAt, startAuditId: marker.startAuditId }, new Date(marker.endsAt));
+    }
   }
 
   return NextResponse.json({ ok: true });
+}
+
+async function notifyTestedPerson(
+  session: { actorId: string; targetId: string; startedAt: number; startAuditId?: string },
+  endedAt: Date,
+): Promise<void> {
+  try {
+    const startAuditId = await startAuditIdFor(session);
+    if (startAuditId) await sendTestedAsNotice({ startAuditId, endedAt });
+  } catch {
+    /* the worker sweep (test-as-notices) sends it later */
+  }
 }
 
 function v2PortalHome(role: Role): string {

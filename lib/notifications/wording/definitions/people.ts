@@ -23,6 +23,12 @@ export const PEOPLE_WORDING: readonly TypeWordingDefinition[] = [
   editable("account.backup_code_used", [
     inbox("used", "Backup code used", "A backup code was used to sign in", "Someone signed in to your account with a backup code on {{usedAt}}, from {{browser}}. {{remaining}} left. Not you? Change your password now.", { required: ["usedAt", "remaining"], note: "Inbox notice to the account holder, once per code used. The email that goes with it is the block design \"Backup code used\" (Email designs)." }),
   ]),
+  editable("account.tested_as", [
+    inbox("tested", "Tested as you", "Someone from the office tested the app as you", "{{testerName}} from the office used Test as to open the app as you, with full access, from {{testedFrom}} to {{testedTo}}. Anything changed in that time was saved under your name. Questions? Ask the office.", { required: ["testerName", "testedFrom", "testedTo"], note: "Inbox only, once per full-access test session (owner default, pending owner confirmation). Never says what was viewed." }),
+  ]),
+  editable("access.request", [
+    inbox("asked", "Access request", "Access request: {{areaName}}", "{{requesterName}} asked for {{areaName}}, from {{fromPage}}. Nothing changes until an administrator updates their access in Settings › Access and permissions.", { required: ["requesterName", "areaName"], note: "Inbox only, to administrators; at most one per person per area per day (owner default, pending owner confirmation). Asking grants nothing." }),
+  ]),
   editable("account.invitations", INVITATION_PARTS, "A temporary password the template leaves out is still appended automatically (credential fail-safe)."),
   elsewhere("money.finance_events", "Each finance event's email is an Email design (\"Finance: …\", under this type's details); SMS and push wording stay in Preferences, Finance notification templates.", "/v2/admin/notifications?tab=preferences#finance-notifications"),
   WORKFORCE_WORDING,
