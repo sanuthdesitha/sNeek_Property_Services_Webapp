@@ -184,7 +184,23 @@ export function ComplianceBoard(props: ComplianceBoardProps) {
 
   return (
     <div className="space-y-5">
-      <section aria-label="Compliance figures" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5 max-sm:[&>*:first-child]:col-span-2">
+      {/* Phone (board M-Workforce): one line and three small figures. */}
+      <section aria-label="Compliance figures" className="space-y-2 sm:hidden">
+        <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{figures.needsAction} need action · {figures.waitingReview} waiting for your review</p>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            [figures.expired, "Expired"],
+            [figures.expiring, "Expiring"],
+            [figures.requested, "Requested"],
+          ].map(([value, label]) => (
+            <div key={label} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-3 py-2">
+              <p className="e-tnum text-[1rem] font-[600]">{value}</p>
+              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{label}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+      <section aria-label="Compliance figures in full" className="grid grid-cols-2 gap-3 max-sm:hidden md:grid-cols-3 xl:grid-cols-5">
         <EStatCard label="Needs action" value={String(figures.needsAction)} delta="all rows below" deltaTone="neutral" />
         <EStatCard label="Expired" value={String(figures.expired)} delta={firstExpired ? `${firstExpired.personName}, ${firstExpired.title.toLowerCase()}` : "none"} deltaTone={figures.expired ? "danger" : "neutral"} />
         <EStatCard label="Expiring soon" value={String(figures.expiring)} delta="files 14 days ahead, licence 30, visa 60" deltaTone="neutral" />

@@ -77,7 +77,7 @@ function DocumentsCell({ row }: { row: RosterRow }) {
 }
 
 function roleLine(row: RosterRow, timeZone: string): string {
-  const roles = [row.role, ...row.extraRoles].map((role) => (role === "QA_INSPECTOR" ? "QA inspector" : prettify(role)));
+  const roles = [row.role, ...row.extraRoles].map((role) => (role === "QA_INSPECTOR" ? "QA inspector" : prettify(role.toLowerCase())));
   const started = Date.now() - Date.parse(row.startedAt) < 45 * 86_400_000
     ? ` · started ${new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short", timeZone }).format(new Date(row.startedAt))}`
     : "";

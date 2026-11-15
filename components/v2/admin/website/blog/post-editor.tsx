@@ -174,8 +174,8 @@ export function PostEditor({
   }
 
   return (
-    <div className="grid min-w-0 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,300px)]">
-      <div className="min-w-0 space-y-3 p-4 xl:border-r xl:border-[hsl(var(--e-border))]">
+    <div className="grid min-w-0 grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_minmax(0,300px)]">
+      <div className="min-w-0 space-y-3 p-4 max-2xl:border-b max-2xl:border-[hsl(var(--e-border))] 2xl:border-r 2xl:border-[hsl(var(--e-border))]">
         <EField label="Title">
           <EInput value={form.title} onChange={(e) => setForm((c) => ({ ...c, title: e.target.value }))} placeholder="How we turn over a property in 90 minutes" />
         </EField>
@@ -304,7 +304,7 @@ export function PostEditor({
             <p className="text-[hsl(var(--e-muted-foreground))] [overflow-wrap:anywhere]">{truncate(form.excerpt || "The excerpt appears here.", 155)}</p>
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-1">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 2xl:grid-cols-1">
           <EField label="Author">
             <EInput value={form.authorName} onChange={(e) => setForm((c) => ({ ...c, authorName: e.target.value }))} />
           </EField>

@@ -36,7 +36,7 @@ export default async function EstatePerformanceDetailPage({ params }: { params: 
   ]);
   const timeZone = settings?.timezone || "Australia/Sydney";
   const base = profiles?.get?.(user.id)?.baseLocation ?? null;
-  const roles = [user.role, ...user.extraRoles.map((row) => row.role)].map((role) => (role === Role.QA_INSPECTOR ? "QA inspector" : prettify(role))).join(" + ");
+  const roles = [user.role, ...user.extraRoles.map((row) => row.role)].map((role) => (role === Role.QA_INSPECTOR ? "QA inspector" : prettify(role.toLowerCase()))).join(" + ");
   const facts = [
     roles,
     base,

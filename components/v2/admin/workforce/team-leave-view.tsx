@@ -177,7 +177,7 @@ function GridRow({ person, window }: { person: TeamLeavePerson; window: LeaveWin
       <td key={day} className="p-0.5">
         {cell.kind === "usual" ? (
           <div className="flex min-h-10 items-center justify-center rounded-[4px] border border-dashed border-[hsl(var(--e-border-strong))] px-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]" title={patternWords(cell.pattern)}>
-            <span className="truncate">Usually off</span>
+            <span className="truncate">Usual</span>
           </div>
         ) : null}
       </td>,

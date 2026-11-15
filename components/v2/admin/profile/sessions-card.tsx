@@ -31,6 +31,8 @@ type Ready = {
   sessionsValidFrom: string | null;
 };
 
+const SESSIONS_SHOWN = 4;
+
 type Load = { kind: "loading" } | { kind: "failed"; message: string } | { kind: "impersonating" } | { kind: "ready"; data: Ready };
 
 function when(iso: string, timeZone: string): string {
@@ -76,7 +78,9 @@ export function SessionsCard({ timeZone, readOnlyReason }: { timeZone: string; r
     return () => controller.abort();
   }, [attempt]);
 
+  const [showAll, setShowAll] = React.useState(false);
   const data = load.kind === "ready" ? load.data : null;
+  const visibleSessions = data ? (showAll ? data.sessions : data.sessions.slice(0, SESSIONS_SHOWN)) : [];
   const others = data ? data.sessions.filter((session) => !session.current).length : 0;
 
   return (
@@ -103,7 +107,7 @@ export function SessionsCard({ timeZone, readOnlyReason }: { timeZone: string; r
                 <span className="inline-flex items-center gap-1 text-[0.75rem] font-[600]"><span aria-hidden className="h-2 w-2 rounded-full bg-[hsl(var(--e-primary))]" />You</span>
               </li>
             ) : null}
-            {data.sessions.map((session) => (
+            {visibleSessions.map((session) => (
               <li key={session.id} className="flex items-start gap-3">
                 <DeviceIcon kind={session.deviceKind} />
                 <span className="min-w-0 flex-1">
@@ -122,6 +126,11 @@ export function SessionsCard({ timeZone, readOnlyReason }: { timeZone: string; r
               </li>
             ))}
           </ul>
+          {data.sessions.length > SESSIONS_SHOWN ? (
+            <EButton variant="ghost" size="sm" onClick={() => setShowAll((value) => !value)}>
+              {showAll ? "Show fewer" : `Show ${data.sessions.length - SESSIONS_SHOWN} more`}
+            </EButton>
+          ) : null}
           {data.olderSignInsMayExist ? (
             <p className={PROFILE_HINT}>Sign-ins made before this list existed cannot be listed one by one; &ldquo;Sign out everywhere else&rdquo; ends them too.</p>
           ) : null}

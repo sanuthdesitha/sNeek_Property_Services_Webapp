@@ -244,25 +244,22 @@ function FigureRow({
 }) {
   const change = useFieldChange(`home.stats[${index}]`);
   return (
-    <div
-      className={cn(
-        "flex flex-wrap items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2 sm:flex-nowrap",
-        change.changed && CHANGED_OUTLINE_CLASS
-      )}
-    >
+    <div className={cn("flex items-start gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2", change.changed && CHANGED_OUTLINE_CLASS)}>
       {!readOnly ? (
-        <span className="flex shrink-0 flex-col">
-          <button type="button" className="px-1 text-[hsl(var(--e-muted-foreground))] disabled:opacity-30 max-sm:min-h-[22px]" disabled={index === 0} onClick={() => onMove(-1)} aria-label={`Move figure ${index + 1} up`}>
+        <span className="flex shrink-0 flex-col pt-1">
+          <button type="button" className="min-h-[22px] px-1 text-[hsl(var(--e-muted-foreground))] disabled:opacity-30" disabled={index === 0} onClick={() => onMove(-1)} aria-label={`Move figure ${index + 1} up`}>
             <ArrowUp className="h-3 w-3" aria-hidden />
           </button>
-          <button type="button" className="px-1 text-[hsl(var(--e-muted-foreground))] disabled:opacity-30 max-sm:min-h-[22px]" disabled={index === count - 1} onClick={() => onMove(1)} aria-label={`Move figure ${index + 1} down`}>
+          <button type="button" className="min-h-[22px] px-1 text-[hsl(var(--e-muted-foreground))] disabled:opacity-30" disabled={index === count - 1} onClick={() => onMove(1)} aria-label={`Move figure ${index + 1} down`}>
             <ArrowDown className="h-3 w-3" aria-hidden />
           </button>
         </span>
       ) : null}
-      <EInput aria-label={`Figure ${index + 1} value`} className="w-24 shrink-0 font-[600]" value={item.value} disabled={readOnly} onChange={(e) => onPatch({ value: e.target.value })} placeholder="4,800+" />
-      <EInput aria-label={`Figure ${index + 1} label`} className="min-w-0 flex-1" value={item.label} disabled={readOnly} onChange={(e) => onPatch({ label: e.target.value })} placeholder="turnovers this year" />
-      <EInput aria-label={`Figure ${index + 1} note`} className="min-w-0 flex-1 max-sm:basis-full" value={item.note} disabled={readOnly} onChange={(e) => onPatch({ note: e.target.value })} placeholder="Note (optional)" />
+      <div className="grid min-w-0 flex-1 grid-cols-[6rem_minmax(0,1fr)] gap-1.5">
+        <EInput aria-label={`Figure ${index + 1} value`} className="font-[600]" value={item.value} disabled={readOnly} onChange={(e) => onPatch({ value: e.target.value })} placeholder="4,800+" />
+        <EInput aria-label={`Figure ${index + 1} label`} value={item.label} disabled={readOnly} onChange={(e) => onPatch({ label: e.target.value })} placeholder="turnovers this year" />
+        <EInput aria-label={`Figure ${index + 1} note`} className="col-span-2 h-9 text-[0.8125rem]" value={item.note} disabled={readOnly} onChange={(e) => onPatch({ note: e.target.value })} placeholder="Note (optional)" />
+      </div>
       {!readOnly ? (
         <EButton variant="ghost" size="icon" onClick={onRemove} aria-label={`Remove figure ${index + 1}`}>
           <X className="h-3.5 w-3.5" aria-hidden />

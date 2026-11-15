@@ -93,6 +93,15 @@ export function ProfileWorkspace(props: ProfileWorkspaceProps) {
   );
 }
 
+const DESKTOP_STATES = new Set<ProfileSectionId>(["own-pin", "two-step", "passkeys", "sessions", "sending"]);
+
+function desktopState(id: ProfileSectionId, summary: string, phone: boolean): string {
+  if (phone) return summary;
+  if (id === "two-step") return summary.startsWith("On") ? "on" : "off";
+  if (id === "sending") return summary.replace(/ saved$/, "");
+  return summary.toLowerCase();
+}
+
 function SectionList({ summaries, phone, onOpen }: { summaries: ProfileSummaries; phone: boolean; onOpen: (id: ProfileSectionId) => void }) {
   const groups = ["You", "Security", "Notices"] as const;
   return (
@@ -113,7 +122,8 @@ function SectionList({ summaries, phone, onOpen }: { summaries: ProfileSummaries
                 >
                   <span className="min-w-0">{section.label}</span>
                   <span className="inline-flex min-w-0 shrink items-center gap-1 truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                    {summaries[section.id]}
+                    {/* Desktop rail: only the short states (board: "set", "on", counts); the phone list shows every line. */}
+                    {phone || DESKTOP_STATES.has(section.id) ? desktopState(section.id, summaries[section.id], phone) : null}
                     {phone ? <ChevronRight aria-hidden className="h-4 w-4 shrink-0" /> : null}
                   </span>
                 </button>

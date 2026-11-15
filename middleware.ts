@@ -325,7 +325,27 @@ const normalMiddleware = withAuth(portalMiddleware, {
 );
 
 
+/**
+ * The website editor shows its live preview (/v2/admin/website/preview) in a
+ * same-origin frame (board "Website and blog", 2026-11-16). Only that page may
+ * be framed, and only by this origin; every other page stays DENY / 'none'.
+ */
+const SAME_ORIGIN_FRAME_PATHS = new Set(["/v2/admin/website/preview"]);
+
+function allowSameOriginFrame(response: Response | undefined, pathname: string) {
+  if (!response || !SAME_ORIGIN_FRAME_PATHS.has(pathname)) return response;
+  response.headers.set("X-Frame-Options", "SAMEORIGIN");
+  const csp = response.headers.get("Content-Security-Policy");
+  if (csp) response.headers.set("Content-Security-Policy", csp.replace("frame-ancestors 'none'", "frame-ancestors 'self'"));
+  return response;
+}
+
 export default async function middleware(original: NextRequest, event: NextFetchEvent) {
+  const response = await routeRequest(original, event);
+  return allowSameOriginFrame(response, readAccountPath(original.nextUrl.pathname)?.pathname ?? original.nextUrl.pathname);
+}
+
+async function routeRequest(original: NextRequest, event: NextFetchEvent) {
   const headers = new Headers(original.headers);
   headers.delete("x-sneek-retained-context");
   // Overwrite client-supplied metadata before any server authorization reads it.

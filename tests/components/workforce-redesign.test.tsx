@@ -133,7 +133,7 @@ describe("Team leave", () => {
     render(<TeamLeaveView people={people} window={leaveWindow("2026-11-16", 14)} view="fortnight" previousHref="#" nextHref="#" todayKey="2026-11-16" canRecord />);
     const grid = screen.getByRole("region", { name: "Team leave by day" });
     expect(within(grid).getByRole("link", { name: "4 jobs need cover" })).toBeInTheDocument();
-    expect(within(grid).getAllByText("Usually off").length).toBe(2);
+    expect(within(grid).getAllByText("Usual").length).toBe(2);
   });
 });
 

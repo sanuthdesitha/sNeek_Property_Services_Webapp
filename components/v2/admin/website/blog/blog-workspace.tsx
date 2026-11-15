@@ -337,7 +337,7 @@ export function BlogWorkspace({ timeZone }: { timeZone: string }) {
                             >
                               {post.title}
                             </button>
-                            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))] [overflow-wrap:anywhere]">
+                            <p className="line-clamp-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))] [overflow-wrap:anywhere]">
                               {[(post.tags ?? []).join(", "), post.authorName].filter(Boolean).join(" · ")}
                               {hasDraft ? <span className="ml-1 font-[600] text-[hsl(var(--e-warning))]">· unsaved edits</span> : null}
                             </p>
