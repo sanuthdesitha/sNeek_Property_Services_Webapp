@@ -24,13 +24,13 @@ import {
 } from "@/lib/quality/types";
 import type { HubContext, QualityIssueRow } from "./hub-types";
 import { isIssues } from "./hub-types";
-import { issueColumns } from "./issue-columns";
+import { issueColumns, issueLeadCellClass } from "./issue-columns";
 import { IssueBulkBar } from "./issue-bulk";
 import { useQualityRead, useReloadOn } from "./use-quality-read";
 import { severityLabel } from "@/lib/quality/severity";
 import { useIsPhone } from "@/components/v2/ui/use-phone";
 import type { EActiveFilter } from "@/components/v2/ui/filter-bar";
-import type { IssueActionKey } from "../issues/issue-actions";
+import type { IssueActionKey } from "../issues/issue-action-forms";
 import { issuePhoneActionsColumn } from "./issue-columns";
 
 export const ISSUE_PAGE_SIZE = 25;
@@ -115,6 +115,7 @@ export function IssuesTab({
   onOpenIssue,
   onOpenIssueAction,
   onChanged,
+  activeIssueId = null,
 }: {
   /** Period + shared filters + the tab's own status filters, serialised. */
   apiQuery: string;
@@ -132,6 +133,8 @@ export function IssuesTab({
   /** Phones: open the issue on one of its actions (the card's Mark fixed and "⋯"). */
   onOpenIssueAction?: (issue: QualityIssueRow, action: IssueActionKey) => void;
   onChanged: () => void;
+  /** The issue open in the side panel, highlighted in the list. */
+  activeIssueId?: string | null;
 }) {
   const activeSort: IssueSort = (ISSUE_SORTS as readonly string[]).includes(sort) ? (sort as IssueSort) : "created";
   const activeDir = dir || "desc";
@@ -154,10 +157,10 @@ export function IssuesTab({
   const phone = useIsPhone();
   const phoneActions = phone && context.canManage && onOpenIssueAction ? onOpenIssueAction : null;
   const columns = React.useMemo(() => {
-    const base = issueColumns({ labelFor, timeZone: context.timeZone, onOpen: onOpenIssue });
+    const base = issueColumns({ labelFor, timeZone: context.timeZone, onOpen: onOpenIssue, falseConfirmationDeduction: context.falseConfirmationDeduction });
     // Phones only: each card carries its actions (board "M-PeopleQuality"); the desktop table is unchanged.
     return phoneActions ? [...base, issuePhoneActionsColumn({ labelFor, onOpen: onOpenIssue, onAction: phoneActions })] : base;
-  }, [labelFor, context.timeZone, onOpenIssue, phoneActions]);
+  }, [labelFor, context.timeZone, context.falseConfirmationDeduction, onOpenIssue, phoneActions]);
   const exportParams = new URLSearchParams(apiQuery);
   exportParams.set("sort", activeSort);
   exportParams.set("dir", activeDir);
@@ -166,7 +169,12 @@ export function IssuesTab({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         {/* Phones: the status filters are in the hub's one filter sheet. */}
-        {phone ? null : <IssueStatusFilters filters={filters} onFilters={onFilters} />}
+        {phone ? null : (
+          <>
+            <IssueStatusFilters filters={filters} onFilters={onFilters} />
+            <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">This tab only.</span>
+          </>
+        )}
         <span className="min-w-0 flex-1" />
         <EButton asChild size="sm" variant="outline">
           <a href={`/api/admin/quality/issues/export?${exportParams.toString()}`} download>
@@ -174,10 +182,6 @@ export function IssuesTab({
           </a>
         </EButton>
       </div>
-
-      {context.canManage ? (
-        <IssueBulkBar selected={selected} onSelectionChange={setSelected} onDone={onChanged} describe={(id) => seen.current.get(id) ?? "Issue"} />
-      ) : null}
 
       <ECard className="overflow-hidden p-0">
         <EDataTable<QualityIssueRow, IssueSort>
@@ -201,11 +205,22 @@ export function IssuesTab({
           onRetry={read.reload}
           emptyTitle="No QA issues match"
           emptyDescription="Change the period or filters, or check back after the next inspection."
-          minWidth="60rem"
+          minWidth="46rem"
+          leadCellClassName={issueLeadCellClass}
+          activeRowKey={activeIssueId}
+          onRowClick={onOpenIssue}
         />
       </ECard>
       {read.data ? (
         <EPagination page={read.data.page} pageSize={read.data.pageSize} total={read.data.total} onPageChange={onPage} disabled={read.loading} noun="issues" />
+      ) : null}
+      {read.data && read.data.total > 0 ? (
+        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          Tinted rows have a fix owed for over 48 hours or a critical issue, and the pill says which.
+        </p>
+      ) : null}
+      {context.canManage ? (
+        <IssueBulkBar selected={selected} onSelectionChange={setSelected} onDone={onChanged} describe={(id) => seen.current.get(id) ?? "Issue"} />
       ) : null}
     </div>
   );

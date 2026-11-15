@@ -19,6 +19,8 @@ const EXPLICIT: Record<string, AudienceGroup> = {
   "laundry.cleaner_nudge": "Cleaners",
   "account.security": "Accounts",
   "account.invitations": "Accounts",
+  "account.tested_as": "Accounts",
+  "access.request": "Office",
   "office.new_profile": "Accounts",
   "money.finance_events": "Office",
   "marketing.campaigns": "Clients",

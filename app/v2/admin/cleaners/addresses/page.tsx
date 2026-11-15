@@ -1,23 +1,35 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { EButton, ECard, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
 import { Role } from "@prisma/client";
+import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
 import { requireRole } from "@/lib/auth/session";
-import { holdsRoleWhere } from "@/lib/auth/role-query";
-import { db } from "@/lib/db";
+import { getServerMapsKey } from "@/lib/maps/server-key";
+import { loadHomeAddresses, recordHomeAddressesViewed } from "@/lib/workforce/home-addresses";
+import { HomeAddressNotes, HomeAddressesWorkspace } from "@/components/v2/admin/cleaners/home-addresses-workspace";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Cleaner addresses · Route planning" };
+export const metadata = { title: "Cleaner home addresses · Estate admin" };
 
+/**
+ * Cleaner home addresses (board "Cleaner home addresses", 2026-11-17).
+ * ADMIN only, checked before anything is read; while testing as another
+ * account the tested account's rights apply (a cleaner sees nothing).
+ *
+ * Every opening is written to the activity log before the addresses are
+ * shown (owner default, pending confirmation): if the record cannot be
+ * written the page does not show them. The browser receives street addresses
+ * for the table only; map pins are suburb level and carry no stored position.
+ */
 export default async function CleanerAddressesPage() {
-  await requireRole([Role.ADMIN]);
-  const cleaners = await db.user.findMany({
-    where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) },
-    select: { id: true, name: true, address: true, suburb: true },
-    orderBy: [{ suburb: "asc" }, { name: "asc" }, { id: "asc" }],
+  const session = await requireRole([Role.ADMIN]);
+  const [view, mapsKey] = await Promise.all([loadHomeAddresses(), getServerMapsKey()]);
+  await recordHomeAddressesViewed({
+    actorId: session.impersonation?.actorId ?? session.user.id,
+    effectiveUserId: session.user.id,
+    activeCleaners: view.counts.active,
   });
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <EButton asChild variant="ghost" size="sm">
         <Link href="/v2/admin/cleaners">
           <ArrowLeft className="h-4 w-4" aria-hidden />
@@ -25,34 +37,12 @@ export default async function CleanerAddressesPage() {
         </Link>
       </EButton>
       <EPageHeader
-        eyebrow="Workforce"
+        eyebrow="People and quality · Accounts"
         title="Cleaner home addresses"
-        description="Residential details already on file for active cleaners, for route planning."
+        description="Residential details on file for active cleaners. Administrators only."
       />
-      {cleaners.length ? (
-        <ECard className="overflow-x-auto">
-          <table className="w-full min-w-[32rem] text-left text-[0.875rem]">
-            <thead>
-              <tr className="border-b border-[hsl(var(--e-border))] text-[0.6875rem] uppercase tracking-[0.14em] text-[hsl(var(--e-muted-foreground))]">
-                <th className="px-4 py-3 font-semibold">Cleaner</th>
-                <th className="px-4 py-3 font-semibold">Residential address</th>
-                <th className="px-4 py-3 font-semibold">Suburb</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cleaners.map((cleaner) => (
-                <tr key={cleaner.id} className="border-b border-[hsl(var(--e-border))] last:border-0">
-                  <th scope="row" className="px-4 py-3 font-medium">{cleaner.name}</th>
-                  <td className="px-4 py-3">{cleaner.address || "Not recorded"}</td>
-                  <td className="px-4 py-3">{cleaner.suburb || "Not recorded"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </ECard>
-      ) : (
-        <EEmptyState title="No active cleaners" description="Addresses appear here once a cleaner account is active." />
-      )}
+      <HomeAddressNotes />
+      <HomeAddressesWorkspace rows={view.rows} pins={view.pins} counts={view.counts} mapConfigured={Boolean(mapsKey)} />
     </div>
   );
 }

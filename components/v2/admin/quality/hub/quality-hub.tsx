@@ -11,7 +11,7 @@ import { Download } from "lucide-react";
 import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
 import { sharedFiltersOnly } from "@/lib/quality/filters";
 import { QUALITY_TAB_LABEL, type IssueListFilters, type QualityTab } from "@/lib/quality/types";
-import { IssueDetail } from "../issues/issue-detail";
+import { IssuePanel } from "../issues/issue-panel";
 import type { HubContext, QualityIssueRow } from "./hub-types";
 import { isOptions, isSummary } from "./hub-types";
 import { hubApiQuery, useHubState } from "./use-hub-state";
@@ -23,7 +23,7 @@ import { SharedFilters } from "./shared-filters";
 import { CleanersTab } from "./cleaners-tab";
 import { IssueStatusFilters, IssuesTab, issueStatusActiveFilters } from "./issues-tab";
 import { useIsPhone } from "@/components/v2/ui/use-phone";
-import type { IssueActionKey } from "../issues/issue-actions";
+import { emptyIssueDraft, type IssueActionKey, type IssueDraft } from "../issues/issue-action-forms";
 import { InspectorsTab } from "./inspectors-tab";
 import { CategoriesTab } from "./categories-tab";
 import { ReviewTab } from "./review-tab";
@@ -49,6 +49,9 @@ export function QualityHub({ context }: { context: HubContext }) {
   const { state, update, hrefForTab } = useHubState(tabs, defaultTab);
   const [refreshToken, setRefreshToken] = React.useState(0);
   const [detail, setDetail] = React.useState<OpenDetail | null>(null);
+  // Unsent text in the issue's forms. Closing the panel keeps it; opening a
+  // different issue (or a save that succeeds) starts a fresh draft.
+  const [draft, setDraft] = React.useState<IssueDraft | null>(null);
 
   const sharedQuery = hubApiQuery({ period: state.period, filters: sharedFiltersOnly(state.filters) }).toString();
   const issueQuery = hubApiQuery({ period: state.period, filters: state.filters }).toString();
@@ -73,9 +76,13 @@ export function QualityHub({ context }: { context: HubContext }) {
   const onFilters = React.useCallback((patch: Partial<IssueListFilters>) => update({ filters: patch }), [update]);
   const onSort = React.useCallback((sort: string, dir: "asc" | "desc") => update({ sort, dir }), [update]);
   const onPage = React.useCallback((page: number) => update({ page }), [update]);
-  const openIssue = React.useCallback((issue: QualityIssueRow) => setDetail({ issue, action: null }), []);
-  const openIssueRequest = React.useCallback((request: OpenIssueRequest) => setDetail(request), []);
-  const openIssueAction = React.useCallback((issue: QualityIssueRow, action: IssueActionKey) => setDetail({ issue, action }), []);
+  const showIssue = React.useCallback((issue: QualityIssueRow, action: IssueActionKey | null) => {
+    setDraft((current) => (current && current.issueId === issue.id ? current : emptyIssueDraft(issue)));
+    setDetail({ issue, action });
+  }, []);
+  const openIssue = React.useCallback((issue: QualityIssueRow) => showIssue(issue, null), [showIssue]);
+  const openIssueRequest = React.useCallback((request: OpenIssueRequest) => showIssue(request.issue, request.action), [showIssue]);
+  const openIssueAction = React.useCallback((issue: QualityIssueRow, action: IssueActionKey) => showIssue(issue, action), [showIssue]);
   const phone = useIsPhone();
   // Phones: the Issues tab's status filters join the shared filter sheet.
   const phoneIssueFilters = phone && state.tab === "issues";
@@ -116,83 +123,88 @@ export function QualityHub({ context }: { context: HubContext }) {
         phoneExtraActive={phoneIssueFilters ? issueStatusActiveFilters(state.filters, onFilters) : undefined}
       />
 
-      <div className="min-w-0">
-        <h2 className="sr-only">{QUALITY_TAB_LABEL[state.tab]}</h2>
-        {state.tab === "cleaners" ? (
-          <CleanersTab
-            apiQuery={sharedQuery}
-            sort={state.sort}
-            dir={state.dir}
-            context={context}
-            labelFor={labelFor}
-            refreshToken={refreshToken}
-            hrefForTab={hrefForTab}
-            onSort={onSort}
-            onOpenIssue={openIssueRequest}
-            onChanged={onChanged}
-          />
-        ) : null}
-        {state.tab === "issues" ? (
-          <IssuesTab
-            apiQuery={issueQuery}
-            filters={state.filters}
-            sort={state.sort}
-            dir={state.dir}
-            page={state.page}
-            context={context}
-            labelFor={labelFor}
-            refreshToken={refreshToken}
-            onFilters={onFilters}
-            onSort={onSort}
-            onPage={onPage}
-            onOpenIssue={openIssue}
-            onOpenIssueAction={openIssueAction}
-            onChanged={onChanged}
-          />
-        ) : null}
-        {state.tab === "inspectors" ? (
-          <InspectorsTab apiQuery={sharedQuery} sort={state.sort} dir={state.dir} refreshToken={refreshToken} hrefForTab={hrefForTab} onSort={onSort} />
-        ) : null}
-        {state.tab === "categories" ? (
-          <CategoriesTab apiQuery={sharedQuery} sort={state.sort} dir={state.dir} refreshToken={refreshToken} hrefForTab={hrefForTab} onSort={onSort} />
-        ) : null}
-        {state.tab === "review" ? (
-          <ReviewTab
-            filterQuery={queueQuery}
-            sort={state.sort}
-            dir={state.dir}
-            page={state.page}
-            quickScoreTotal={summary.data?.tabs.quickScore ?? null}
+      <div className="lg:flex lg:items-start lg:gap-5">
+        <div className="min-w-0 lg:flex-1">
+          <h2 className="sr-only">{QUALITY_TAB_LABEL[state.tab]}</h2>
+          {state.tab === "cleaners" ? (
+            <CleanersTab
+              apiQuery={sharedQuery}
+              sort={state.sort}
+              dir={state.dir}
+              context={context}
+              labelFor={labelFor}
+              refreshToken={refreshToken}
+              hrefForTab={hrefForTab}
+              onSort={onSort}
+              onOpenIssue={openIssueRequest}
+              onChanged={onChanged}
+            />
+          ) : null}
+          {state.tab === "issues" ? (
+            <IssuesTab
+              apiQuery={issueQuery}
+              filters={state.filters}
+              sort={state.sort}
+              dir={state.dir}
+              page={state.page}
+              context={context}
+              labelFor={labelFor}
+              refreshToken={refreshToken}
+              onFilters={onFilters}
+              onSort={onSort}
+              onPage={onPage}
+              onOpenIssue={openIssue}
+              onOpenIssueAction={openIssueAction}
+              onChanged={onChanged}
+              activeIssueId={detail?.issue.id ?? null}
+            />
+          ) : null}
+          {state.tab === "inspectors" ? (
+            <InspectorsTab apiQuery={sharedQuery} sort={state.sort} dir={state.dir} refreshToken={refreshToken} hrefForTab={hrefForTab} onSort={onSort} />
+          ) : null}
+          {state.tab === "categories" ? (
+            <CategoriesTab apiQuery={sharedQuery} sort={state.sort} dir={state.dir} refreshToken={refreshToken} hrefForTab={hrefForTab} onSort={onSort} />
+          ) : null}
+          {state.tab === "review" ? (
+            <ReviewTab
+              filterQuery={queueQuery}
+              sort={state.sort}
+              dir={state.dir}
+              page={state.page}
+              quickScoreTotal={summary.data?.tabs.quickScore ?? null}
+              timeZone={context.timeZone}
+              refreshToken={refreshToken}
+              onSort={onSort}
+              onPage={onPage}
+              onChanged={onChanged}
+            />
+          ) : null}
+          {state.tab === "coaching" && coaching.visible ? <CoachingTab canManage={coaching.canManage} fullPageLink={coaching.fullPageLink} /> : null}
+        </div>
+        {detail && draft && draft.issueId === detail.issue.id ? (
+          <IssuePanel
+            key={`${detail.issue.id}:${detail.action ?? "view"}`}
+            issue={detail.issue}
+            categoryLabel={labelFor(detail.issue.category)}
+            canManage={context.canManage}
+            initialAction={detail.action}
+            falseConfirmationDeduction={context.falseConfirmationDeduction}
             timeZone={context.timeZone}
-            refreshToken={refreshToken}
-            onSort={onSort}
-            onPage={onPage}
-            onChanged={onChanged}
+            draft={draft}
+            onDraft={setDraft}
+            onClose={() => setDetail(null)}
+            onChanged={() => {
+              setDetail(null);
+              setDraft(null);
+              onChanged();
+            }}
           />
         ) : null}
-        {state.tab === "coaching" && coaching.visible ? <CoachingTab canManage={coaching.canManage} fullPageLink={coaching.fullPageLink} /> : null}
       </div>
 
       {/* Restored for quality-pack viewers (parity audit 2026-11-12): the same
           figures as Laundry statistics, read through the quality pack. */}
       {context.inspectorView ? null : <LaundryTeamSection laundryStatsLink={context.laundryStatsLink ?? true} />}
-
-      {detail ? (
-        <IssueDetail
-          key={`${detail.issue.id}:${detail.action ?? "view"}`}
-          issue={detail.issue}
-          categoryLabel={labelFor(detail.issue.category)}
-          canManage={context.canManage}
-          initialAction={detail.action}
-          falseConfirmationDeduction={context.falseConfirmationDeduction}
-          timeZone={context.timeZone}
-          onClose={() => setDetail(null)}
-          onChanged={() => {
-            setDetail(null);
-            onChanged();
-          }}
-        />
-      ) : null}
     </div>
   );
 }

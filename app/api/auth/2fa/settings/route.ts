@@ -8,9 +8,8 @@ import { twoStepRequirement } from "@/lib/auth/two-step-policy";
 import { sendEmail } from "@/lib/notifications/email";
 import { getAppSettings } from "@/lib/settings";
 import { buildDesignedEmail } from "@/lib/email-design/build-email";
+import { backupCodeStatus, createBackupCodeSet, deleteBackupCodes } from "@/lib/auth/backup-codes";
 import {
-  countBackupCodes,
-  generateBackupCodes,
   generateTotpSecret,
   issueEmailTwoFaCode,
   totpKeyUri,
@@ -26,6 +25,8 @@ async function sessionOr401() {
   }
 }
 
+const NO_STORE = { "Cache-Control": "private, no-store" };
+
 /** Changes are the signed-in person's own: refused while testing as someone else. */
 function impersonationRefusal(session: { impersonation?: unknown }) {
   if (!session.impersonation) return null;
@@ -38,8 +39,9 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const user = await db.user.findUnique({
     where: { id: session.user.id },
-    select: { twoFactorEnabled: true, twoFactorMethod: true, twoFactorBackupCodes: true, passwordHash: true, email: true, twoStepRequiredSince: true },
+    select: { twoFactorEnabled: true, twoFactorMethod: true, passwordHash: true, email: true, twoStepRequiredSince: true },
   });
+  const backupCodes = user?.twoFactorEnabled ? await backupCodeStatus(session.user.id) : { total: 0, remaining: 0, createdAt: null, olderSet: false };
   const held = session.user.heldRoles ?? [session.user.role];
   const requirement = twoStepRequirement({
     holdsAdmin: held.includes(Role.ADMIN),
@@ -55,10 +57,12 @@ export async function GET() {
         : requirement,
     enabled: !!user?.twoFactorEnabled,
     method: user?.twoFactorMethod ?? null,
-    backupCodesRemaining: countBackupCodes(user?.twoFactorBackupCodes ?? null),
+    // Older screens read the count; the profile reads the full status. Never the codes.
+    backupCodesRemaining: backupCodes.remaining,
+    backupCodes,
     hasPassword: !!user?.passwordHash,
     email: user?.email ?? null,
-  });
+  }, { headers: NO_STORE });
 }
 
 /** Begin setup for a chosen method. Stores a candidate TOTP secret (not yet
@@ -102,7 +106,11 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ method });
 }
 
-/** Confirm setup with a code → enable 2FA and return one-time backup codes. */
+/**
+ * Confirm setup with a code → enable 2FA and return a new set of backup codes,
+ * shown once (only their hashes are kept). Re-confirming to switch method
+ * makes a new set too; the old codes stop working in the same commit.
+ */
 export async function PUT(req: NextRequest) {
   const session = await sessionOr401();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -127,26 +135,34 @@ export async function PUT(req: NextRequest) {
   }
   if (!verified) return NextResponse.json({ error: "That code is incorrect or expired." }, { status: 400 });
 
-  const { plain, hashedJson } = generateBackupCodes();
-  await db.$transaction([
-    db.user.update({
-      where: { id: session.user.id },
+  const userId = session.user.id;
+  const created = await db.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: userId },
       data: {
         twoFactorEnabled: true,
         twoFactorMethod: method,
-        twoFactorBackupCodes: hashedJson,
+        twoFactorBackupCodes: null,
         // Email method doesn't use a TOTP secret.
         ...(method === "EMAIL" ? { totpSecret: null } : {}),
       },
-    }),
+    });
     // Re-configuring 2FA (often because the account may be compromised) must
     // invalidate any "remember this device" tokens minted under the old setup —
     // otherwise a previously-trusted device keeps skipping the new second factor.
-    db.trustedDevice.deleteMany({ where: { userId: session.user.id } }),
-    db.auditLog.create({ data: { userId: session.user.id, action: "OWN_TWO_FACTOR_ENABLED", entity: "User", entityId: session.user.id, after: { method } } }),
-  ]);
+    await tx.trustedDevice.deleteMany({ where: { userId } });
+    const set = await createBackupCodeSet(tx, userId);
+    await tx.auditLog.create({ data: { userId, action: "OWN_TWO_FACTOR_ENABLED", entity: "User", entityId: userId, after: { method } } });
+    await tx.auditLog.create({
+      data: { userId, action: "TWO_FACTOR_BACKUP_CODES_CREATED", entity: "User", entityId: userId, after: { reason: "two_step_confirmed", method, count: set.codes.length, replaced: set.replaced, setId: set.setId } },
+    });
+    return set;
+  });
 
-  return NextResponse.json({ ok: true, backupCodes: plain });
+  return NextResponse.json(
+    { ok: true, backupCodes: created.codes, backupCodesCreatedAt: created.createdAt.toISOString() },
+    { headers: NO_STORE },
+  );
 }
 
 /** Disable 2FA — requires the account password. Clears trusted devices too. */
@@ -169,14 +185,17 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Incorrect password." }, { status: 403 });
   }
 
-  await db.$transaction([
-    db.user.update({
-      where: { id: session.user.id },
+  const userId = session.user.id;
+  await db.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: userId },
       data: { twoFactorEnabled: false, twoFactorMethod: null, totpSecret: null, twoFactorBackupCodes: null },
-    }),
-    db.trustedDevice.deleteMany({ where: { userId: session.user.id } }),
-    db.auditLog.create({ data: { userId: session.user.id, action: "OWN_TWO_FACTOR_DISABLED", entity: "User", entityId: session.user.id } }),
-  ]);
+    });
+    await tx.trustedDevice.deleteMany({ where: { userId } });
+    const removed = await deleteBackupCodes(tx, userId);
+    await tx.auditLog.create({ data: { userId, action: "OWN_TWO_FACTOR_DISABLED", entity: "User", entityId: userId } });
+    await tx.auditLog.create({ data: { userId, action: "TWO_FACTOR_BACKUP_CODES_DELETED", entity: "User", entityId: userId, after: { reason: "two_step_turned_off", count: removed } } });
+  });
 
   return NextResponse.json({ ok: true });
 }

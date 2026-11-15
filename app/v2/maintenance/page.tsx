@@ -21,6 +21,7 @@ import { EButton } from "@/components/v2/ui/primitives";
 import { listMaintenanceItemsForUser } from "@/lib/maintenance/assignments";
 import { MAINTENANCE_STAGES } from "@/lib/maintenance/ticket-stage";
 import { NewAssignments, isNewAssignment, type NewAssignmentEntry } from "@/components/v2/maintenance/today/new-assignments";
+import { tourTarget } from "@/lib/tutorials/targets";
 import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 const TZ = "Australia/Sydney";
@@ -198,7 +199,7 @@ export default async function MaintenanceTodayPage() {
 
       {newAssignments ? <NewAssignments entries={newAssignments} /> : null}
 
-      <section aria-labelledby="maintenance-due" className="space-y-2">
+      <section aria-labelledby="maintenance-due" className="space-y-2" {...tourTarget("maintenance.today.due")}>
         <h2 id="maintenance-due" className="e-eyebrow">Due today</h2>
         {dueItems === null ? (
           <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Today&apos;s schedule is unavailable.</p>

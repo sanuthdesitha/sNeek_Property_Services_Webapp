@@ -36,6 +36,11 @@ export async function getAuthoritativeQaReview(jobId: string, database: Pick<Pri
     orderBy: { createdAt: "desc" },
     select: { id: true, jobId: true, score: true, passed: true, kind: true, createdAt: true },
   });
+  return pickAuthoritativeReview(reviews);
+}
+
+/** The same rule over reviews already read (one query for many jobs). */
+export function pickAuthoritativeReview<T extends { kind: string; createdAt: Date }>(reviews: readonly T[]): T | null {
   if (reviews.length === 0) return null;
   return reviews.reduce((best, current) => {
     const bestPriority = KIND_PRIORITY[best.kind] ?? 1;

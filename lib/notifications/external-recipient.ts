@@ -26,7 +26,7 @@ import { dispatchNotificationOnce } from "./dispatch-once";
  *   the delivery log with the provider's truthful state (accepted, never
  *   "delivered").
  */
-export type ExternalMessageKind = "guest.message" | "laundry.supplier_chase" | "onboarding.client_link";
+export type ExternalMessageKind = "guest.message" | "laundry.supplier_chase" | "onboarding.client_link" | "checklist.amenities_link";
 export type ExternalTransport = "EMAIL" | "SMS";
 export type ExternalMessageState = "provider_accepted" | "already_requested" | "skipped" | "failed";
 
@@ -78,6 +78,17 @@ export const EXTERNAL_MESSAGE_KINDS: Record<ExternalMessageKind, KindPolicy> = {
     logBody: (id) => `Onboarding client link for survey ${id}`,
     entityTooOften: "This onboarding's client has been sent too many links today.",
     senderTooMany: "Too many client links. Try again later.",
+  },
+  "checklist.amenities_link": {
+    auditAction: "AMENITIES_LINK_EMAILED",
+    auditEntity: "Property",
+    recipientNoun: "client",
+    entityDailyLimit: 5,
+    senderHourlyLimit: 20,
+    eventPrefix: "amenities-link",
+    logBody: (id) => `Amenities survey link for property ${id}`,
+    entityTooOften: "This property's client has been emailed the survey link too often today.",
+    senderTooMany: "Too many survey links emailed. Try again later.",
   },
 };
 
@@ -143,6 +154,8 @@ export type ExternalSendInput = {
   to: string;
   subject: string;
   body: string;
+  /** An email already rendered by the email design system (a wording part's block design); used instead of `body` for EMAIL. */
+  email?: { subject: string; html: string };
   idempotencyKey?: string;
   /** Extra fields for the audit row (never the full address). */
   audit?: Record<string, unknown>;
@@ -163,7 +176,7 @@ async function enforceRateLimits(policy: KindPolicy, input: ExternalSendInput, n
 }
 
 async function deliverEmail(policy: KindPolicy, input: ExternalSendInput): Promise<ExternalMessageResult> {
-  const sent = await sendEmailDetailed({ to: input.to, ...plainMessageEmail({ subject: input.subject, text: input.body }) });
+  const sent = await sendEmailDetailed({ to: input.to, ...(input.email ?? plainMessageEmail({ subject: input.subject, text: input.body })) });
   await db.notification.create({ data: {
     userId: null, jobId: input.jobId, channel: "EMAIL", subject: input.subject, body: policy.logBody(input.entityId),
     status: sent.ok ? "SENT" : "FAILED", sentAt: sent.ok ? new Date() : undefined, errorMsg: sent.ok ? undefined : sent.error ?? "Email delivery failed.",

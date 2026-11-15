@@ -462,6 +462,29 @@ model UserSignIn {
   @@index([userId, revokedAt])
 }
 
+/// One single-use two-step backup code (2026-11-17). Only a hash is stored:
+/// HMAC-SHA256 keyed with the server secret over the user id and the code
+/// (hashScheme "hmac-sha256-v1"), or the plain sha256 of an older set copied
+/// from User.twoFactorBackupCodes ("sha256-legacy"). A new set replaces every
+/// row of the person; a use stamps usedAt with a conditional update so two
+/// attempts with the same code cannot both succeed. See lib/auth/backup-codes.ts.
+model TwoFactorBackupCode {
+  id         String    @id @default(cuid())
+  userId     String
+  /// The generation this code belongs to (ten codes share one).
+  setId      String
+  codeHash   String
+  hashScheme String    @default("hmac-sha256-v1")
+  /// Null only for codes copied from the older store, whose creation was never recorded.
+  createdAt  DateTime? @default(now())
+  usedAt     DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, codeHash])
+  @@index([userId, usedAt])
+}
+
 model TrustedDevice {
   id         String    @id @default(cuid())
   userId     String
@@ -813,7 +836,10 @@ model User {
   twoFactorEnabled     Boolean          @default(false)
   twoFactorMethod      TwoFactorMethod?
   totpSecret           String? // base32 secret (TOTP method only)
-  twoFactorBackupCodes String? // JSON array of sha256-hashed one-time codes
+  /// Retired 2026-11-17: older sets were copied into TwoFactorBackupCode by
+  /// migration 20261117010000_two_factor_backup_codes and this column cleared.
+  /// Nothing writes it any more (disable paths still null it, harmlessly).
+  twoFactorBackupCodes String?
   /// When the "two-step sign-in is required for administrators" grace period
   /// started for this person (first admin page seen without two-step on).
   /// Null: never prompted. See lib/auth/two-step-policy.ts.
@@ -851,6 +877,7 @@ model User {
   qaReworkReviewed             QaReworkTransfer[]          @relation("QaReworkReviewedBy")
   webauthnCredentials          WebAuthnCredential[]
   trustedDevices               TrustedDevice[]
+  twoFactorBackupCodeRows      TwoFactorBackupCode[]
   signIns                      UserSignIn[]                @relation("UserSignInUser")
   pushSubscriptions            PushSubscription[]
   maintenanceReported          PropertyMaintenanceItem[]   @relation("MaintenanceReportedBy")
@@ -4054,6 +4081,10 @@ enum SocialChannel {
   INSTAGRAM
   YOUTUBE
   TIKTOK
+  /// Social post generator (2026-11-17): Google Business Profile and LinkedIn
+  /// start on the download-and-copy fallback until each network approves API access.
+  GOOGLE_BUSINESS
+  LINKEDIN
 }
 
 enum SocialPostStatus {
@@ -4062,49 +4093,97 @@ enum SocialPostStatus {
   PUBLISHED
   FAILED
   CANCELLED
+  /// Claimed for one publish attempt (social post generator, 2026-11-17).
+  SENDING
+  /// The network accepted the upload into the person's own inbox; not public yet.
+  SENT_TO_INBOX
+  /// Sent, but the network's answer never arrived (timeout): check before retrying.
+  UNCONFIRMED
 }
 
 model MarketingAsset {
-  id           String   @id @default(cuid())
-  name         String
-  url          String   @db.Text
-  s3Key        String?
-  mediaType    String // "IMAGE" | "VIDEO" | "GIF"
-  width        Int?
-  height       Int?
-  durationSec  Int?
-  tags         String[] @default([])
-  description  String?  @db.Text
-  uploadedById String?
-  uploadedBy   User?    @relation("MarketingAssetUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                      String   @id @default(cuid())
+  name                    String
+  url                     String   @db.Text
+  s3Key                   String?
+  mediaType               String // "IMAGE" | "VIDEO" | "GIF"
+  width                   Int?
+  height                  Int?
+  durationSec             Int?
+  tags                    String[] @default([])
+  description             String?  @db.Text
+  uploadedById            String?
+  uploadedBy              User?    @relation("MarketingAssetUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  /// Social post generator (2026-11-17): a NEW derivative file made from cleaner
+  /// evidence ("social_crop", "social_frame", "social_split"). The evidence
+  /// original is never modified; these link the copy to its source for audit,
+  /// "used before" and revoking.
+  derivativeKind          String?
+  sourceSubmissionMediaId String?
+  /// Second source photo of a before/after split (the "before").
+  sourceSecondMediaId     String?
+  sourceJobId             String?
+  sourcePropertyId        String?
+  socialGroupId           String?
+  /// "4:5" | "1:1" | "1.91:1"
+  ratio                   String?
+  sha256                  String?
+  exifStripped            Boolean  @default(false)
 
   socialPostAssets SocialPostAsset[]
 
   @@index([mediaType])
   @@index([createdAt])
+  @@index([sourceSubmissionMediaId])
+  @@index([socialGroupId])
 }
 
 model SocialPost {
-  id            String           @id @default(cuid())
-  channel       SocialChannel
-  status        SocialPostStatus @default(DRAFT)
-  caption       String           @db.Text
-  scheduledFor  DateTime?
-  publishedAt   DateTime?
-  externalId    String?
-  externalUrl   String?
-  failureReason String?
-  createdById   String?
-  createdBy     User?            @relation("SocialPostCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  id              String           @id @default(cuid())
+  channel         SocialChannel
+  status          SocialPostStatus @default(DRAFT)
+  caption         String           @db.Text
+  scheduledFor    DateTime?
+  publishedAt     DateTime?
+  externalId      String?
+  externalUrl     String?
+  failureReason   String?
+  createdById     String?
+  createdBy       User?            @relation("SocialPostCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  /// Social post generator (2026-11-17). One composed post (group) has one row
+  /// per network. Rows without a group are the older "post it yourself" posts.
+  groupId         String?
+  /// "API": sNeek posts through the network's official API on a person's click
+  /// or at the time a person planned. "MANUAL": the person posts and pastes the link.
+  deliveryMode    String?
+  /// groupId:network. One publish claim per post and network (double clicks and
+  /// overlapping planned runs cannot post twice).
+  idempotencyKey  String?          @unique
+  hashtags        String[]         @default([])
+  attemptCount    Int              @default(0)
+  /// The network's answer, sanitised (no tokens).
+  networkResponse Json?
+  failureCode     String?
+  socialAccountId String?
+  /// Marketing permission revoked after posting: a person removes the post on the
+  /// network and marks it done. sNeek never claims it removed anything.
+  removalNeededAt DateTime?
+  removalDoneAt   DateTime?
+  removalDoneById String?
 
-  assets SocialPostAsset[]
+  group    SocialPostGroup?       @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  assets   SocialPostAsset[]
+  attempts SocialPublishAttempt[]
+  metrics  SocialPostMetric[]
 
   @@index([channel, status])
   @@index([scheduledFor])
+  @@index([groupId])
+  @@index([status, scheduledFor])
 }
 
 model SocialPostAsset {
@@ -4113,6 +4192,8 @@ model SocialPostAsset {
   assetId      String
   asset        MarketingAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
   order        Int            @default(0)
+  /// Required for generator posts at publish time (2026-11-17).
+  altText      String?        @db.Text
 
   @@id([socialPostId, assetId])
 }
@@ -5999,4 +6080,212 @@ model TourSetting {
 enum TourSettingScope {
   ROLE
   TOUR
+}
+
+// ─── Social post generator (2026-11-17) ─────────────────────────────────────
+// Owner request: photos from finished jobs become posts published to linked
+// social accounts with one reviewed click. See docs/SYSTEM.md "Social post
+// generator". Migration 20261117020000_social_post_generator.
+
+/// Marketing permission register, per client with the properties it covers.
+/// Append-only (database trigger): a row is never edited except to end it
+/// once; a change of terms ends the old row and creates a new one. Missing
+/// means no. Ids are plain strings so the history outlives a deleted client.
+model MarketingConsent {
+  id             String    @id @default(cuid())
+  clientId       String
+  allowSuburb    Boolean   @default(false)
+  allowBefore    Boolean   @default(false)
+  /// PORTAL | SIGNED_FORM | EMAIL | PHONE
+  method         String
+  givenByName    String
+  /// The client login that ticked it in the portal.
+  givenByUserId  String?
+  /// The office person who recorded it (null for a portal tick).
+  recordedById   String?
+  evidenceS3Key  String?
+  evidenceNote   String?   @db.Text
+  wordingVersion String
+  givenAt        DateTime  @default(now())
+  endedAt        DateTime?
+  endedById      String?
+  /// PORTAL | OFFICE | REPLACED
+  endedVia       String?
+  endedReason    String?
+  createdAt      DateTime  @default(now())
+
+  properties MarketingConsentProperty[]
+
+  @@index([clientId, endedAt])
+  @@index([endedAt])
+}
+
+model MarketingConsentProperty {
+  consentId  String
+  propertyId String
+
+  consent MarketingConsent @relation(fields: [consentId], references: [id], onDelete: Restrict)
+
+  @@id([consentId, propertyId])
+  @@index([propertyId])
+}
+
+/// Photo score worked out on the server with sharp (no AI). score null means
+/// "could not be scored" (error says why); it is never stored as 0.
+model SocialPhotoScore {
+  id                String   @id @default(cuid())
+  submissionMediaId String   @unique
+  jobId             String
+  propertyId        String
+  version           Int
+  score             Int?
+  components        Json?
+  reasons           Json?
+  /// LISTING | FINAL | BEFORE
+  fieldKind         String
+  width             Int?
+  height            Int?
+  laplacianVar      Float?
+  meanLuma          Float?
+  clipLow           Float?
+  clipHigh          Float?
+  contrast          Float?
+  error             String?
+  computedAt        DateTime @default(now())
+
+  @@index([jobId])
+  @@index([propertyId])
+}
+
+/// One composed post. Each network is a SocialPost row under it.
+model SocialPostGroup {
+  id                   String    @id @default(cuid())
+  /// SINGLE | CAROUSEL | BEFORE_AFTER | FRAME
+  format               String
+  title                String
+  /// DRAFT | SCHEDULED | POSTED | CANCELLED (each network row keeps its own result)
+  status               String    @default("DRAFT")
+  /// USER | AGENT
+  createdVia           String    @default("USER")
+  createdById          String?
+  agentActionRequestId String?   @unique
+  /// "I looked at every photo": the person and time; cleared when the photos change.
+  reviewedAt           DateTime?
+  reviewedById         String?
+  plannedFor           DateTime?
+  plannedById          String?
+  /// "4:5" | "1:1" | "1.91:1": every photo is cropped to this shape.
+  ratio                String    @default("4:5")
+  /// Before/after layout: SIDE | STACK | SLIDES
+  splitLayout          String?
+  frameKey             String?
+  frameText            String?
+  revision             Int       @default(0)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  photos SocialPostGroupPhoto[]
+  posts  SocialPost[]
+
+  @@index([status, plannedFor])
+  @@index([createdAt])
+}
+
+model SocialPostGroupPhoto {
+  id                String    @id @default(cuid())
+  groupId           String
+  submissionMediaId String
+  order             Int
+  /// PHOTO | BEFORE | AFTER
+  role              String    @default("PHOTO")
+  altText           String    @default("") @db.Text
+  /// A person's "no guest belongings, faces, mail, screens or plates" tick on a before photo.
+  beforeCheckedAt   DateTime?
+  beforeCheckedById String?
+
+  group SocialPostGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, submissionMediaId])
+  @@index([submissionMediaId])
+}
+
+/// One row per attempt to send a post to its network, numbered per post: a
+/// retry is attempt 2, never a second attempt 1 (unique). Results are exactly
+/// what the network confirmed.
+model SocialPublishAttempt {
+  id           String    @id @default(cuid())
+  socialPostId String
+  attempt      Int
+  /// CLICK | SCHEDULE | RETRY
+  trigger      String
+  actorId      String?
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  /// POSTED | SENT_TO_INBOX | FAILED | UNCONFIRMED | NOT_CONNECTED | REFUSED (null while sending)
+  outcome      String?
+  externalId   String?
+  externalUrl  String?
+  errorCode    String?
+  reason       String?
+
+  socialPost SocialPost @relation(fields: [socialPostId], references: [id], onDelete: Cascade)
+
+  @@unique([socialPostId, attempt])
+}
+
+/// A connected business account (sNeek's own). Tokens are encrypted with the
+/// server's credential key and never leave the server.
+model SocialAccount {
+  id                String    @id @default(cuid())
+  /// FACEBOOK | INSTAGRAM | TIKTOK | GOOGLE_BUSINESS | LINKEDIN
+  network           String
+  externalId        String
+  displayName       String
+  /// The Facebook Page an Instagram account publishes through.
+  parentAccountId   String?
+  tokenCiphertext   String?   @db.Text
+  tokenExpiresAt    DateTime?
+  refreshCiphertext String?   @db.Text
+  scopes            String[]  @default([])
+  connectedById     String
+  connectedAt       DateTime  @default(now())
+  /// CONNECTED | NEEDS_RECONNECT | DISCONNECTED
+  status            String    @default("CONNECTED")
+  statusReason      String?
+  lastCheckAt       DateTime?
+  lastCheckResult   String?
+  /// Non-secret facts read at the last check (Instagram publishing limit).
+  facts             Json?
+  disconnectedAt    DateTime?
+  disconnectedById  String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([network, status])
+}
+
+/// OAuth state for a connect flow: single use, short-lived, only the hash stored.
+model SocialOAuthState {
+  id          String    @id @default(cuid())
+  network     String
+  stateHash   String    @unique
+  createdById String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+/// Reach and reactions as the network reported them. null = not recorded.
+model SocialPostMetric {
+  id           String   @id @default(cuid())
+  socialPostId String
+  fetchedAt    DateTime @default(now())
+  reach        Int?
+  likes        Int?
+  comments     Int?
+  shares       Int?
+
+  socialPost SocialPost @relation(fields: [socialPostId], references: [id], onDelete: Cascade)
+
+  @@index([socialPostId, fetchedAt])
 }

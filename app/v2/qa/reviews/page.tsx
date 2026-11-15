@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { qaAssignmentOwnerWhere } from "@/lib/qa/ownership";
 import { EBadge, EButton, ECard, ECardBody, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
+import { tourTarget } from "@/lib/tutorials/targets";
 import { ChevronRight } from "lucide-react";
 
 export const metadata = { title: "Reviews · Estate QA" };
@@ -142,7 +143,7 @@ export default async function QaReviewsPage() {
         <EEmptyState eyebrow="Quiet" title="No reviews yet" description="Inspections will appear here as jobs are submitted." />
       ) : (
         <div className="space-y-3">
-          {ordered.map((r) => {
+          {ordered.map((r, index) => {
             const propName = r.job?.property?.name ?? "Property";
             const suburb = r.job?.property?.suburb ?? "";
             const cleaner = r.job?.assignments[0]?.user?.name ?? "Unassigned";
@@ -156,8 +157,10 @@ export default async function QaReviewsPage() {
             const reviewedAt = dateTime(r.completedAt);
             const verdict = r.job?.qaReviews?.[0] ?? null;
             const inspector = r.assignedTo?.name ?? null;
+            // The first row carries the Reviews tour's targets.
+            const first = index === 0;
             return (
-              <ECard key={r.id}>
+              <ECard key={r.id} {...(first ? tourTarget("qa.reviews.row") : {})}>
                 <ECardBody className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-6">
                   <div className="min-w-0 flex-1">
                     <p className="text-[0.875rem] font-medium">{propName}{suburb ? `, ${suburb}` : ""}</p>
@@ -180,16 +183,18 @@ export default async function QaReviewsPage() {
                   </div>
                   {/* The verdict — the whole point of a review. */}
                   {verdict?.score != null ? (
-                    <EBadge tone={verdict.passed === false ? "danger" : "success"} soft>
-                      {verdict.passed === false ? "Failed" : "Passed"} · {Math.round(verdict.score)}%
-                    </EBadge>
+                    <span className="inline-flex" {...(first ? tourTarget("qa.reviews.verdict") : {})}>
+                      <EBadge tone={verdict.passed === false ? "danger" : "success"} soft>
+                        {verdict.passed === false ? "Failed" : "Passed"} · {Math.round(verdict.score)}%
+                      </EBadge>
+                    </span>
                   ) : null}
                   {r.onSiteMinutes ? (
                     <span className="e-numeral text-[0.9375rem] tabular-nums">{r.onSiteMinutes}m</span>
                   ) : null}
                   <EBadge tone={statusTone(r.status)} soft>{titleCase(r.status)}</EBadge>
                   {jobId ? (
-                    <EButton asChild variant={isDone ? "outline" : "gold"} size="sm"><Link href={`/v2/qa/jobs/${jobId}`}>
+                    <EButton asChild variant={isDone ? "outline" : "gold"} size="sm" {...(first ? tourTarget("qa.reviews.open") : {})}><Link href={`/v2/qa/jobs/${jobId}`}>
                         {/* A submitted inspection is not terminal — the workspace
                             offers "Reopen inspection" to whoever may amend it
                             (lib/qa/reopen.ts), so say so on the way in. */}

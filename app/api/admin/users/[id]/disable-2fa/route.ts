@@ -7,6 +7,7 @@ import { getAppSettings } from "@/lib/settings";
 import { buildDesignedEmail } from "@/lib/email-design/build-email";
 import { verifySensitiveAction, isSensitiveRefusal } from "@/lib/security/admin-verification";
 import { DelegatedActionDenied, requireDelegatedAction } from "@/lib/rbac/delegated-admin";
+import { deleteBackupCodes } from "@/lib/auth/backup-codes";
 
 /**
  * Admin-side 2FA reset: turn off a user's two-step verification and forget their
@@ -32,13 +33,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "User not found." }, { status: 404 });
     }
 
-    await db.$transaction([
-      db.user.update({
+    const removedBackupCodes = await db.$transaction(async (tx) => {
+      await tx.user.update({
         where: { id: user.id },
         data: { twoFactorEnabled: false, twoFactorMethod: null, totpSecret: null, twoFactorBackupCodes: null },
-      }),
-      db.trustedDevice.deleteMany({ where: { userId: user.id } }),
-    ]);
+      });
+      await tx.trustedDevice.deleteMany({ where: { userId: user.id } });
+      // The person's backup codes go with it (2026-11-17), recorded against the actual actor.
+      const removed = await deleteBackupCodes(tx, user.id);
+      await tx.auditLog.create({
+        data: { userId: session.user.id, action: "TWO_FACTOR_BACKUP_CODES_DELETED", entity: "User", entityId: user.id, after: { reason: "two_step_reset_by_administrator", count: removed, actorRole: actor.role } as never },
+      });
+      return removed;
+    });
 
     await db.auditLog.create({
       data: {
@@ -49,6 +56,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         after: {
           actorRole: actor.role,
           wasEnabled: user.twoFactorEnabled,
+          backupCodesDeleted: removedBackupCodes,
         } as any,
       },
     });

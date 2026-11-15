@@ -4,6 +4,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { QaInspectionWorkspace } from "@/components/v2/qa/qa-inspection-workspace";
+import { tourTarget } from "@/lib/tutorials/targets";
 
 export const metadata = { title: "Inspection · Estate QA" };
 export const dynamic = "force-dynamic";
@@ -24,7 +25,9 @@ export default async function QaInspectionPage({ params }: { params: { id: strin
   return (
     <div className="space-y-6">
       <QaInspectionWorkspace jobId={params.id} />
-      <PhotoReviewPanel jobId={params.id} />
+      <div {...tourTarget("qa.inspection.aiReview")}>
+        <PhotoReviewPanel jobId={params.id} />
+      </div>
     </div>
   );
 }

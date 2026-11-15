@@ -34,6 +34,7 @@ import { sendStockAlerts } from "@/lib/ops/stock-alerts";
 import { dispatchPropertyCare } from "@/lib/property-care/service";
 import { dispatchUrgentStockReminders } from "@/lib/inventory/urgent-stock";
 import { expireAgentRequests } from "@/lib/agents/action-requests";
+import { sweepTestedAsNotices } from "@/lib/auth/tested-as-notice";
 import { dispatchTomorrowPrepSummaries } from "@/lib/ops/tomorrow-prep";
 import { dispatchScheduledEmailCampaigns } from "@/lib/marketing/email-campaigns";
 import { refreshGoogleReviewsCache } from "@/lib/public-site/google-reviews";
@@ -333,6 +334,16 @@ async function main() {
     await boss.work("agent-request-expiry", safeHandler("agent-request-expiry", async () => {
       const result = await expireAgentRequests();
       if (result.expired > 0) logger.info(result, "Agent requests expired");
+    }));
+  }
+
+  // Full-access "Test as" sessions that ended by themselves: tell the person
+  // once, in their inbox (owner default, pending owner confirmation).
+  if (jobEnabled("test-as-notices")) {
+    await boss.schedule("test-as-notices", "*/15 * * * *", {}, { tz: TZ });
+    await boss.work("test-as-notices", safeHandler("test-as-notices", async () => {
+      const result = await sweepTestedAsNotices();
+      if (result.sent > 0) logger.info(result, "Tested-as notices queued");
     }));
   }
 
@@ -730,6 +741,22 @@ async function main() {
   if (jobEnabled("media-integrity")) {
     await boss.schedule("media-integrity", "*/5 * * * *", {}, { tz: TZ });
     await boss.work("media-integrity", safeHandler("media-integrity", async () => { const { processPhotoIntegrityQueue } = await import("@/lib/media/photo-integrity-queue"); await processPhotoIntegrityQueue(); }));
+  }
+
+  // Social post generator (2026-11-17): photo scores (sharp, no AI), posts a
+  // person planned for a time (re-checked then; no automatic retries), and
+  // reach figures read once a day from the network when it returns them.
+  if (jobEnabled("social-photo-score")) {
+    await boss.schedule("social-photo-score", "*/10 * * * *", {}, { tz: TZ });
+    await boss.work("social-photo-score", safeHandler("social-photo-score", async () => { const { processSocialScoreQueue } = await import("@/lib/marketing/social/score-queue"); await processSocialScoreQueue(); }));
+  }
+  if (jobEnabled("social-planned-posts")) {
+    await boss.schedule("social-planned-posts", "*/5 * * * *", {}, { tz: TZ });
+    await boss.work("social-planned-posts", safeHandler("social-planned-posts", async () => { const { processPlannedSocialPosts } = await import("@/lib/marketing/social/scheduled"); await processPlannedSocialPosts(); }));
+  }
+  if (jobEnabled("social-insights")) {
+    await boss.schedule("social-insights", "23 4 * * *", {}, { tz: TZ });
+    await boss.work("social-insights", safeHandler("social-insights", async () => { const { collectSocialInsights } = await import("@/lib/marketing/social/insights"); await collectSocialInsights(); }));
   }
 
   if (jobEnabled("ai-photo-review")) {

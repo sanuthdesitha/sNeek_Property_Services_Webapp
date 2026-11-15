@@ -83,6 +83,13 @@ export const REASON_CHOICES = {
     { id: "test", label: "Test below pass mark" },
     OTHER,
   ],
+  // Pay run › Set status manually (board "Pay run", 2026-11-17): kept on the run's history.
+  payrollRunStatus: [
+    { id: "paid-outside", label: "Paid outside the app" },
+    { id: "made-by-mistake", label: "Made by mistake (Void)" },
+    { id: "retry-after-failure", label: "Retry after failure" },
+    OTHER,
+  ],
   onboardingReject: [
     { id: "client-withdrew", label: "Client withdrew" },
     { id: "outside-area", label: "Outside our service area" },

@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -5,12 +7,14 @@ import { EPageHeader } from "@/components/v2/ui/primitives";
 import { LabelManager } from "@/components/v2/admin/inventory/label-manager";
 
 /**
- * Shelf labels: generate, select, print.
+ * Shelf labels (board "Shelf labels", 2026-11-17): make, tick, print.
+ * ADMIN and OPS_MANAGER (with the inventory pack), as before.
  *
  * Dynamic because it lists labels minted seconds ago — a cached page here means
  * an admin generates forty labels and prints an empty sheet.
  */
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Shelf labels · Estate admin" };
 
 export default async function LabelsPage() {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
@@ -24,8 +28,13 @@ export default async function LabelsPage() {
   return (
     <div className="space-y-5">
       <EPageHeader
+        eyebrow={(
+          <Link href="/v2/admin/inventory" className="inline-flex items-center gap-1 normal-case tracking-normal hover:underline">
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Stock
+          </Link>
+        )}
         title="Shelf labels"
-        description="Print a barcode for any item, pinned to a property or general. Cleaners scan these to adjust stock."
+        description="Print a barcode for any item, pinned to a property or general. Cleaners scan these to count and adjust stock."
       />
       <LabelManager properties={properties} />
     </div>

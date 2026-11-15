@@ -14,6 +14,8 @@
 import * as React from "react";
 import { Lock, ShieldCheck } from "lucide-react";
 import { EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
+import { cn } from "@/lib/utils";
 import { OwnPinFields, useOwnPinPrompt } from "@/components/v2/shared/own-pin-fields";
 import { sensitiveVerificationText } from "@/lib/security/pin-rules";
 
@@ -24,7 +26,7 @@ function messageFor(body: { error?: string; retryAfterSec?: number }): string {
       return `Too many attempts. Try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`;
     }
     case "FORBIDDEN":
-      return "Only a full admin can open the Test as console.";
+      return "Only an administrator, or someone they gave Test as, can open this.";
     case "UNAUTHORIZED":
       return "Your session expired. Sign in again.";
     default:
@@ -32,7 +34,7 @@ function messageFor(body: { error?: string; retryAfterSec?: number }): string {
   }
 }
 
-export function TestAsLock() {
+export function TestAsLock({ relocked = false, isAdministrator = true }: { relocked?: boolean; isAdministrator?: boolean }) {
   const ownPin = useOwnPinPrompt(true);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -70,40 +72,36 @@ export function TestAsLock() {
   }
 
   return (
-    <div className="mx-auto flex min-h-[50vh] max-w-md items-center">
-      <ECard variant="ceremony" className="w-full">
-        <ECardBody className="space-y-5 p-6">
-          <div className="flex items-center gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-gold-soft))] text-[hsl(var(--e-gold-ink))]">
-              <Lock className="h-5 w-5" />
-            </span>
-            <div>
-              <h2 className="text-[1rem] font-semibold">Confirm with your PIN</h2>
-              <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                Enter your own PIN to view the portals as another user.
-              </p>
-            </div>
-          </div>
-
-          <p className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))] px-3 py-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-            Being signed in as an admin is not enough for this console — it can act as any user in
-            the business. The unlock lasts 15 minutes and is recorded against your account.
+    <ECard>
+      <ECardBody className="space-y-4 p-4 sm:p-5">
+        <div className="space-y-1">
+          <h2 className="flex items-center gap-2 text-[0.9375rem] font-[600]">
+            <Lock aria-hidden className="h-4 w-4 text-[hsl(var(--e-muted-foreground))]" />
+            Before the list: confirm it is you
+          </h2>
+          <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+            {isAdministrator ? "Being an administrator opens this page" : "Your Test as permission opens this page"}; the list needs your PIN, valid for 15 minutes.
           </p>
-
-          <form onSubmit={submit} className="space-y-4">
-            <OwnPinFields {...ownPin.fieldProps} disabled={busy || lockedOut} />
-            {error ? (
-              <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">
-                {error}
-              </p>
-            ) : null}
-            <EButton type="submit" variant="gold" className="w-full" disabled={busy || lockedOut}>
-              <ShieldCheck className="h-4 w-4" />
-              {busy ? "Verifying…" : "Unlock"}
-            </EButton>
-          </form>
-        </ECardBody>
-      </ECard>
-    </div>
+        </div>
+        {relocked ? (
+          <p role="status" className={cn("rounded-[var(--e-radius)] px-3 py-2 text-[0.8125rem]", toneNoticeClass("attention"))}>
+            The 15-minute unlock has ended. Enter your PIN again.
+          </p>
+        ) : null}
+        <form onSubmit={submit} className="space-y-3">
+          <OwnPinFields {...ownPin.fieldProps} disabled={busy || lockedOut} />
+          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">5 wrong tries lock it for 15 minutes.</p>
+          {error ? (
+            <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">
+              {error}
+            </p>
+          ) : null}
+          <EButton type="submit" variant="primary" disabled={busy || lockedOut} className="max-sm:w-full">
+            <ShieldCheck className="h-4 w-4" aria-hidden />
+            {busy ? "Checking…" : "Unlock"}
+          </EButton>
+        </form>
+      </ECardBody>
+    </ECard>
   );
 }

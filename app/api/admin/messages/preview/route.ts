@@ -7,6 +7,8 @@ import { resolveTemplate, type VariableContext } from "@/lib/messages/variables"
 const schema = z.object({
   subject: z.string().optional(),
   body: z.string().default(""),
+  /** The template editor's preview writes "[not filled]" where a value is empty instead of leaving a gap. */
+  markMissing: z.boolean().optional(),
   context: z
     .object({
       clientId: z.string().optional(),
@@ -40,7 +42,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { subject, body, context } = parsed.data;
+  const { subject, body, context, markMissing } = parsed.data;
+  const options = markMissing ? { missingText: "[not filled]" } : {};
   const ctx: VariableContext = {
     client: context?.clientId ? { id: context.clientId } : undefined,
     cleaner: context?.cleanerId ? { id: context.cleanerId } : undefined,
@@ -50,8 +53,8 @@ export async function POST(req: NextRequest) {
   };
 
   const [resolvedSubject, resolvedBody] = await Promise.all([
-    subject ? resolveTemplate(subject, ctx) : Promise.resolve(undefined),
-    resolveTemplate(body, ctx),
+    subject ? resolveTemplate(subject, ctx, options) : Promise.resolve(undefined),
+    resolveTemplate(body, ctx, options),
   ]);
 
   return NextResponse.json({

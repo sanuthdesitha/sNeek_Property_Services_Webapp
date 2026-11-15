@@ -4,7 +4,9 @@ import { SettingsHome } from "@/components/v2/admin/settings/settings-home";
 import { loadSettingsHomeState } from "@/lib/admin/settings-home";
 import { HolidayRatesWorkspace } from "@/components/finance/holiday-rates-workspace";
 import { PropertyFormEditor } from "@/components/v2/admin/settings/property-form-editor";
-import { getPropertyFormConfig } from "@/lib/property-form/config-store";
+import { getPropertyFormConfigWithRevision } from "@/lib/property-form/config-store";
+import { getOpsAccess } from "@/lib/rbac/ops-access";
+import { canUseOpsPath } from "@/lib/rbac/ops-catalog";
 import { Role } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { can } from "@/lib/rbac/can";
@@ -71,8 +73,12 @@ export default async function SettingsPage({
   const availableTabs = availableSettings(isAdmin, canEditAccess ? ["roles"] : []);
   const requested = availableTabs.find((t) => t.key === searchParams.tab)?.key;
   const activeTab = requested ?? "overview";
-  const propertyFormConfig =
-    activeTab === "property-form" ? await getPropertyFormConfig() : null;
+  const propertyForm =
+    activeTab === "property-form" ? await getPropertyFormConfigWithRevision() : null;
+  // Property form: administrators and operations managers edit, as before;
+  // a manager whose Property form settings pack is at View reads only.
+  const propertyFormLevels = activeTab === "property-form" && !isAdmin ? await getOpsAccess(session.user) : null;
+  const canEditPropertyForm = !propertyFormLevels || canUseOpsPath(propertyFormLevels, "/api/admin/settings/property-form", "PUT");
   // Settings home (2026-11 board): every category and destination at once,
   // filtered by the same availableSettings call as the category navigation.
   const home = activeTab === "overview" ? await loadSettingsHomeState({ isAdmin }).catch(() => ({ states: {}, recent: null })) : null;
@@ -80,6 +86,23 @@ export default async function SettingsPage({
 
   return (
     <div className="min-w-0 space-y-6">
+      {activeTab === "property-form" ? (
+        // Board "Property form": the destination has its own heading; the breadcrumb returns to Settings.
+        <EPageHeader
+          eyebrow={
+            <span>
+              <Link href="/v2/admin/settings" className="underline">Settings</Link> · Operations
+            </span>
+          }
+          title="Property form"
+          description="Which fields staff must fill, may fill, or never see when adding a property, fields that show only when a condition is met, and your own extra fields. New properties use it as soon as you save."
+          actions={
+            <EButton asChild variant="outline" size="sm">
+              <Link href="/v2/admin/properties/new">Open the new property form</Link>
+            </EButton>
+          }
+        />
+      ) : (
       <EPageHeader
         eyebrow="Configuration"
         title="Settings"
@@ -96,8 +119,9 @@ export default async function SettingsPage({
           ) : undefined
         }
       />
+      )}
 
-      {activeTab === "overview" && home ? (
+      {activeTab === "property-form" ? null : activeTab === "overview" && home ? (
         <SettingsHome
           groups={SETTINGS_GROUPS.map((group) => ({ key: group.key, label: group.label, description: group.description }))}
           destinations={availableTabs.map((tab) => ({ key: tab.key, label: tab.label, description: tab.description, group: tab.group, adminOnly: tab.adminOnly, href: settingsHref(tab.key) }))}
@@ -142,12 +166,9 @@ export default async function SettingsPage({
           />
         </section>
       ) : null}
-      {activeTab === "property-form" && propertyFormConfig ? (
-        <section aria-labelledby="property-form-heading" className="space-y-3">
-          <h2 id="property-form-heading" className="text-lg font-semibold">
-            Property form
-          </h2>
-          <PropertyFormEditor initialConfig={propertyFormConfig} />
+      {activeTab === "property-form" && propertyForm ? (
+        <section aria-label="Property form editor" className="space-y-3">
+          <PropertyFormEditor initialConfig={propertyForm.config} initialRevision={propertyForm.revision} canWrite={canEditPropertyForm} />
         </section>
       ) : null}
 

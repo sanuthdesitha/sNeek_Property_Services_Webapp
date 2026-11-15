@@ -21,7 +21,7 @@ export const PORTFOLIO_FLAG_LABEL: Record<PortfolioFlag, string> = {
 };
 
 /** The filter chips as drawn. "attention" is any flag. */
-export const PORTFOLIO_CHIPS = ["attention", "sync-error", "key-lost", "no-laundry-partner"] as const;
+export const PORTFOLIO_CHIPS = ["attention", "sync-error", "key-lost", "no-laundry-partner", "missing-details"] as const;
 export type PortfolioChip = (typeof PORTFOLIO_CHIPS)[number];
 
 export const PORTFOLIO_CHIP_LABEL: Record<PortfolioChip, string> = {
@@ -29,6 +29,9 @@ export const PORTFOLIO_CHIP_LABEL: Record<PortfolioChip, string> = {
   "sync-error": "Sync error",
   "key-lost": "Key lost",
   "no-laundry-partner": "No laundry partner",
+  // A field the property form now requires is blank (2026-11-17). Not a flag:
+  // it does not count towards "Needs attention" and nothing is blocked.
+  "missing-details": "Missing required details",
 };
 
 export const PORTFOLIO_VIEWS = ["list", "cards", "map"] as const;
@@ -74,6 +77,8 @@ export type PortfolioRow = {
   nextClean: NextClean | null;
   qa: QaFigure;
   flags: PortfolioFlag[];
+  /** Labels of fields the property form requires that this property leaves blank. */
+  missingRequired?: string[];
 };
 
 export type PortfolioFilters = {

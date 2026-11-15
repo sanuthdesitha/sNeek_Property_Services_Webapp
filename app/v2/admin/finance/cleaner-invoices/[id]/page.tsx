@@ -38,7 +38,10 @@ export default async function CleanerInvoiceReviewRoute({
       </div>
     );
   }
-  const review = await loadCleanerInvoiceReview(params.id);
+  // The client charge of a pay request is shown read only to a viewer with
+  // finance access (owner default 2026-11-17); payroll access alone does not show it.
+  const showClientCharge = !levels || canUseOpsPath(levels, "/v2/admin/finance?tab=invoices");
+  const review = await loadCleanerInvoiceReview(params.id, { showClientCharge });
   if (!review) notFound();
   return <CleanerInvoiceReviewPage key={review.row.id} review={review} role={session.user.role} backHref={backHref(searchParams?.back)} />;
 }

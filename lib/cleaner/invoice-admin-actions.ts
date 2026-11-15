@@ -171,6 +171,9 @@ export async function pushCleanerInvoiceOnce(id: string, actor: CleanerInvoiceAc
   });
 
   const isoDate = (d: Date) => d.toISOString().slice(0, 10);
+  // A push that does not finish leaves the invoice XERO_EXPORTING (its money
+  // stays reserved). Its reason is written to the history (2026-11-17) so the
+  // Xero card can say why; nothing else changes and nothing is retried here.
   const pushed = await pushCleanerBillToXero({
     idempotencyKey: `cleaner-invoice-${sub.id}`,
     cleanerName: contact.name || cleaner?.name || payeeLabel,
@@ -188,6 +191,9 @@ export async function pushCleanerInvoiceOnce(id: string, actor: CleanerInvoiceAc
       quantity: Number(line.quantity ?? 1),
       unitAmount: Number(line.unitAmount ?? 0),
     })),
+  }).catch(async (error: unknown) => {
+    await recordXeroPushFailure(sub.id, actor.id, error);
+    throw error;
   });
 
   await db.cleanerInvoiceSubmission.update({
@@ -211,6 +217,24 @@ export async function pushCleanerInvoiceOnce(id: string, actor: CleanerInvoiceAc
     logger.error({ err, submissionId: sub.id }, "[cleaner-invoice] pushed to Xero but the audit entry could not be written");
   }
   return result({ ok: true, xeroBillId: pushed.xeroBillId });
+}
+
+/** Best effort: the history says why a push did not finish; the push error itself still reaches the caller. */
+async function recordXeroPushFailure(submissionId: string, actorId: string, error: unknown): Promise<void> {
+  const reason = error instanceof Error && error.message ? error.message.slice(0, 500) : "No reason was given.";
+  try {
+    await db.auditLog.create({
+      data: {
+        userId: actorId,
+        action: "CLEANER_INVOICE_XERO_PUSH_FAILED",
+        entity: "CleanerInvoiceSubmission",
+        entityId: submissionId,
+        after: { status: "XERO_EXPORTING", reason },
+      },
+    });
+  } catch (err) {
+    logger.error({ err, submissionId }, "[cleaner-invoice] Xero push failed and its reason could not be recorded");
+  }
 }
 
 /** Hard-delete an unexported, unpaid invoice and hand its work back. */

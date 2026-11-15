@@ -111,6 +111,7 @@ import {
 } from "@/components/v2/qa/accountability";
 import { normalizeVerdictScale } from "@/lib/qa/verdict-scale";
 import { toneNoticeClass } from "@/components/v2/ui/tone-band";
+import { tourTarget } from "@/lib/tutorials/targets";
 
 /* ── helpers ──────────────────────────────────────────────────────────── */
 function dataUrlToBlob(dataUrl: string): Blob {
@@ -2313,9 +2314,12 @@ export function QaInspectionWorkspace({
   const countByStock = new Map(tools.inventoryCount.map((l) => [l.propertyStockId, l.countedOnHand]));
   const hasQaSubmission = (job?.qaFormSubmissions?.length ?? 0) > 0;
   const sections = template?.schema?.sections ?? [];
+  // Tutorials: no tour starts over the running on-site timer (a clock), or
+  // before the check-in / monitoring step that hides the inspection steps.
+  const tourBusy = timer.running ? "clock" : needsCheckIn || monitoring ? "check-in" : undefined;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-tour-busy={tourBusy}>
       {/* toasts */}
       {toasts.length > 0 ? (
         <div className="fixed inset-x-0 top-4 z-[60] flex flex-col items-center gap-2 px-4">
@@ -2540,7 +2544,7 @@ export function QaInspectionWorkspace({
 
       <div className={needsCheckIn || monitoring ? "hidden" : "space-y-6"}>
       {/* step tabs */}
-      <div className="sticky top-0 z-20 flex gap-2 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]/95 p-2 backdrop-blur">
+      <div className="sticky top-0 z-20 flex gap-2 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]/95 p-2 backdrop-blur" {...tourTarget("qa.inspection.steps")}>
         {QA_STEPS.map((label, i) => (
           <button
             key={label}
@@ -2550,6 +2554,7 @@ export function QaInspectionWorkspace({
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}
             aria-current={i === step ? "step" : undefined}
+            {...(i === 1 ? tourTarget("qa.inspection.tabInspect") : i === 2 ? tourTarget("qa.inspection.tabSignOff") : {})}
             className="flex min-h-11 flex-1 items-center gap-2 rounded-[var(--e-radius)] px-2.5 py-1.5 text-left text-[0.8125rem] font-[550] transition-colors"
             style={{
               backgroundColor: i === step ? "hsl(var(--e-gold-soft))" : "transparent",
@@ -2623,7 +2628,7 @@ export function QaInspectionWorkspace({
                 The cleaner clocked out before submitting their form — there are no submitted photos to review against.
               </EAlert>
             ) : mediaItems.length > 0 ? (
-              <div>
+              <div {...tourTarget("qa.inspection.submitted")}>
                 <p className="mb-2 text-[0.75rem] font-[550] text-[hsl(var(--e-text-secondary))]">
                   What the cleaner submitted
                 </p>
@@ -2965,7 +2970,7 @@ export function QaInspectionWorkspace({
         </ECard>
 
         {/* rework */}
-        <ECard>
+        <ECard {...tourTarget("qa.inspection.rework")}>
           <ECardHeader>
             <ECardTitle className="flex items-center gap-2">
               <RotateCcw className="h-4 w-4" style={{ color: "hsl(var(--e-warning))" }} /> Send back for rework
@@ -3529,7 +3534,7 @@ export function QaInspectionWorkspace({
       </div>
 
       {/* step nav */}
-      <div className="sticky bottom-0 z-20 flex items-center justify-between gap-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]/95 px-3 py-2.5 backdrop-blur">
+      <div className="sticky bottom-0 z-20 flex items-center justify-between gap-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]/95 px-3 py-2.5 backdrop-blur" {...tourTarget("qa.inspection.stepNav")}>
         <EButton
           variant="outline"
           size="sm"

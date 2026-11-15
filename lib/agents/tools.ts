@@ -12,6 +12,7 @@ import type { AgentScopeKey } from "./scopes";
 import type { AgentWriteScopeKey } from "./write-scopes";
 import { AGENT_ACTIONS, type AgentActionDefinition } from "./action-catalog";
 import { AgentRequestRefused, agentRequestStatus, proposeAgentAction } from "./action-requests";
+import { SOCIAL_AGENT_TOOLS, SocialToolError } from "./social-tools";
 
 /**
  * Agent tools (2026-11-14). Read tools: every query names its fields explicitly,
@@ -443,8 +444,26 @@ export const ACTION_STATUS_TOOL: AgentTool = {
 
 export const AGENT_WRITE_TOOLS: AgentTool[] = AGENT_ACTIONS.map(writeTool);
 
+/**
+ * Social post generator read tools (pack "social", 2026-11-17). Kept out of
+ * AGENT_TOOLS so the in-app assistant never offers them.
+ */
+export const SOCIAL_READ_TOOLS: AgentTool[] = SOCIAL_AGENT_TOOLS.map((tool) => ({
+  ...tool,
+  kind: "read" as const,
+  scope: "social" as const,
+  run: async (context: AgentContext, args: Record<string, unknown>) => {
+    try {
+      return await tool.run(context, args);
+    } catch (error) {
+      if (error instanceof SocialToolError) throw new ToolInputError(error.message);
+      throw error;
+    }
+  },
+}));
+
 /** Every tool the server knows (read, status and write). */
-export const ALL_AGENT_TOOLS: AgentTool[] = [...AGENT_TOOLS, ACTION_STATUS_TOOL, ...AGENT_WRITE_TOOLS];
+export const ALL_AGENT_TOOLS: AgentTool[] = [...AGENT_TOOLS, ...SOCIAL_READ_TOOLS, ACTION_STATUS_TOOL, ...AGENT_WRITE_TOOLS];
 
 /** Tools this agent may see and call right now. */
 export function toolsFor(context: AgentContext): AgentTool[] {

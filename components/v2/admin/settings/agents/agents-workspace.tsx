@@ -266,7 +266,7 @@ export function AgentsWorkspace() {
             <pre className="mt-1 overflow-x-auto rounded border p-3 text-xs">{snippet("<token>")}</pre>
           </li>
           <li><strong>Claude Code:</strong> <code className="break-all">claude mcp add --transport http sneek {state.mcpUrl} --header &quot;Authorization: Bearer &lt;token&gt;&quot;</code></li>
-          <li><strong>Claude apps (custom connector):</strong> not available. The connector needs an OAuth sign-in, which is not built; use Claude Code or Hermes meanwhile.</li>
+          <li><strong>Claude apps (custom connector, web or desktop; not tried with sNeek yet):</strong> Anthropic documents fixed credentials sent as request headers instead of OAuth. In Claude, open Customize, Connectors, choose Add, then add a custom connector. Name it &quot;sNeek&quot; and paste the address above. Under Authentication choose no OAuth, and under Request headers add <code>Authorization</code> with the value <code>Bearer &lt;token&gt;</code>. Claude reaches sNeek from Anthropic&apos;s cloud, so the address must be your public https site. On Team or Enterprise plans an owner adds it in Organization settings, and everyone who connects uses the same token, so give that agent only what all of them may read. Claude Code is the tested path.</li>
           <li>Ask the agent to call <code>whoami</code> to check the connection; the call appears under Recent calls. To stop an agent at once, revoke it, or pause all agents.</li>
           <li>With a write pack, the agent&apos;s <code>request_…</code> tools create requests that wait in Approvals, Agent requests (24 hours, then they expire); <code>get_action_request</code> tells the agent what happened.</li>
         </ol>

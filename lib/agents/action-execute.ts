@@ -18,6 +18,10 @@ import {
   type ActionPreview, type AgentActionTool,
 } from "./action-catalog";
 import { readPreview } from "./action-requests";
+import { socialDraftArgs } from "./social-draft-action";
+import { createGroup } from "@/lib/marketing/social/groups";
+import { socialRightRefusal } from "@/lib/marketing/social/access";
+import { isSocialNetwork } from "@/lib/marketing/social/networks";
 import type { AgentRequestStatus } from "./write-scopes";
 
 /**
@@ -161,6 +165,22 @@ export const ACTION_EXECUTORS: Readonly<Record<AgentActionTool, ActionExecutor>>
         reason: `${input.reason} (asked by the agent ${request.agent.name})`, observedCount: null, observedAt: null, needResolved: false,
       });
       return { message: "Marked as acknowledged.", entityId: input.needId };
+    },
+  },
+  request_social_draft: {
+    // Only someone who could make the post themselves may accept the draft (ADMIN, or OPS_MANAGER with Marketing at Manage).
+    approverRefusal: (approver) => socialRightRefusal(approver.id, "post"),
+    execute: async ({ approver, request, args }) => {
+      const input = socialDraftArgs.parse(args);
+      const captions = Object.fromEntries(
+        Object.entries(input.captions).filter(([key]) => isSocialNetwork(key)).map(([key, caption]) => [key, { caption, ...(input.hashtags?.[key as keyof typeof input.hashtags] ? { hashtags: input.hashtags[key as keyof typeof input.hashtags] } : {}) }]),
+      );
+      // A DRAFT only: never posted or planned here, whatever the agent suggested.
+      const groupId = await createGroup(
+        { format: input.format, photoIds: input.photoIds, title: input.title ?? `Drafted by ${request.agent.name}`, captions, altText: input.altText },
+        { userId: approver.id, via: "AGENT", agentActionRequestId: request.id },
+      );
+      return { message: "Social post draft created. Review the photos and post it from Marketing › Social posts.", entityId: groupId };
     },
   },
 };

@@ -99,6 +99,47 @@ export const TOUR_TARGETS = {
   "laundry.stop.confirm": { page: "/v2/laundry/stop/practice", label: "Confirm pickup", portal: "laundry" },
   "laundry.stop.count": { page: "/v2/laundry/stop/practice", label: "Bag count", portal: "laundry" },
   "laundry.stop.failed": { page: "/v2/laundry/stop/practice", label: "Failed pickup", portal: "laundry" },
+
+  // QA · Today (/v2/qa)
+  "qa.today.figures": { page: "/v2/qa", label: "Today's figures", portal: "qa" },
+  "qa.today.visitOrder": { page: "/v2/qa", label: "Visit order", portal: "qa" },
+  "qa.today.start": { page: "/v2/qa", label: "Start the next inspection", portal: "qa" },
+  "qa.today.queue": { page: "/v2/qa", label: "All inspections", portal: "qa" },
+
+  // QA · an inspection (/v2/qa/jobs/[id])
+  "qa.inspection.steps": { page: "/v2/qa/jobs/[id]", label: "Step tabs", portal: "qa" },
+  "qa.inspection.submitted": { page: "/v2/qa/jobs/[id]", label: "What the cleaner submitted", portal: "qa" },
+  "qa.inspection.tabInspect": { page: "/v2/qa/jobs/[id]", label: "Inspect tab", portal: "qa" },
+  "qa.inspection.tabSignOff": { page: "/v2/qa/jobs/[id]", label: "Sign off tab", portal: "qa" },
+  "qa.inspection.rework": { page: "/v2/qa/jobs/[id]", label: "Send back for rework", portal: "qa" },
+  "qa.inspection.stepNav": { page: "/v2/qa/jobs/[id]", label: "Step bar (Back, next step)", portal: "qa" },
+  "qa.inspection.aiReview": { page: "/v2/qa/jobs/[id]", label: "AI photo review", portal: "qa" },
+
+  // QA · Reviews history (/v2/qa/reviews)
+  "qa.reviews.row": { page: "/v2/qa/reviews", label: "First review in the list", portal: "qa" },
+  "qa.reviews.verdict": { page: "/v2/qa/reviews", label: "Passed or failed, with the score", portal: "qa" },
+  "qa.reviews.open": { page: "/v2/qa/reviews", label: "Open / reopen button", portal: "qa" },
+
+  // Maintenance · Today (/v2/maintenance)
+  "maintenance.today.newAssignment": { page: "/v2/maintenance", label: "New for you (Accept, Can't take it)", portal: "maintenance" },
+  "maintenance.today.price": { page: "/v2/maintenance", label: "Other price", portal: "maintenance" },
+  "maintenance.today.due": { page: "/v2/maintenance", label: "Due today", portal: "maintenance" },
+
+  // Maintenance · Tickets (/v2/maintenance/tickets)
+  "maintenance.tickets.view": { page: "/v2/maintenance/tickets", label: "By day / By stage", portal: "maintenance" },
+  "maintenance.tickets.filters": { page: "/v2/maintenance/tickets", label: "Search and status", portal: "maintenance" },
+  "maintenance.tickets.days": { page: "/v2/maintenance/tickets", label: "Tickets by day", portal: "maintenance" },
+  "maintenance.tickets.card": { page: "/v2/maintenance/tickets", label: "A ticket", portal: "maintenance" },
+
+  // Maintenance · a ticket's visit (/v2/maintenance/visits/[id])
+  "maintenance.visit.stages": { page: "/v2/maintenance/visits/[id]", label: "Visit stages", portal: "maintenance" },
+  "maintenance.visit.issue": { page: "/v2/maintenance/visits/[id]", label: "Reported issue", portal: "maintenance" },
+  "maintenance.visit.cost": { page: "/v2/maintenance/visits/[id]", label: "Cost", portal: "maintenance" },
+  "maintenance.visit.access": { page: "/v2/maintenance/visits/[id]", label: "Access details", portal: "maintenance" },
+  "maintenance.visit.travel": { page: "/v2/maintenance/visits/[id]", label: "Start driving and I've arrived", portal: "maintenance" },
+  "maintenance.visit.clockIn": { page: "/v2/maintenance/visits/[id]", label: "Clock in / Start work", portal: "maintenance" },
+  "maintenance.visit.photos": { page: "/v2/maintenance/visits/[id]", label: "Finish photos or video", portal: "maintenance" },
+  "maintenance.visit.complete": { page: "/v2/maintenance/visits/[id]", label: "Complete job", portal: "maintenance" },
 } as const satisfies Record<string, TourTargetInfo>;
 
 export type TourTargetId = keyof typeof TOUR_TARGETS;

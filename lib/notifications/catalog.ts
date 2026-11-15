@@ -11,6 +11,7 @@
  * Dependency-free (data only): safe to import from client components.
  */
 import { ACTION_NOTIFICATION_TYPES } from "./catalog-actions";
+import { CHECKLIST_NOTIFICATION_TYPES } from "./catalog-checklists";
 import { JOB_NOTIFICATION_TYPES } from "./catalog-jobs";
 import { OFFICE_NOTIFICATION_TYPES } from "./catalog-office";
 import { ONBOARDING_NOTIFICATION_TYPES } from "./catalog-onboarding";
@@ -27,6 +28,7 @@ export const NOTIFICATION_CATALOG: readonly NotificationTypeEntry[] = [
   ...ACTION_NOTIFICATION_TYPES,
   ...SAFEGUARD_NOTIFICATION_TYPES,
   ...ONBOARDING_NOTIFICATION_TYPES,
+  ...CHECKLIST_NOTIFICATION_TYPES,
 ];
 
 /**

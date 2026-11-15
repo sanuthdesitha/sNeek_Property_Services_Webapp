@@ -41,6 +41,7 @@ vi.mock("@/lib/db", () => {
     user: { update: m.userUpdate },
     trustedDevice: { deleteMany: m.trustedDelete },
     auditLog: { create: m.audit },
+    twoFactorBackupCode: { deleteMany: async () => ({ count: 0 }), createMany: async () => ({ count: 10 }) },
   };
   return {
     db: {
@@ -180,6 +181,12 @@ describe("Two-step sign-in settings", () => {
     const response = await twoFactorRoute.PUT(json({ method: "TOTP", code: "123456" }, "PUT"));
     expect(response.status).toBe(200);
     expect(m.audit.mock.calls.map((call) => call[0].data.action)).toContain("OWN_TWO_FACTOR_ENABLED");
+    // A new set of backup codes comes with it, shown once; the audit never holds a code.
+    const body = await response.json();
+    expect(body.backupCodes).toHaveLength(10);
+    expect(m.audit.mock.calls.map((call) => call[0].data.action)).toContain("TWO_FACTOR_BACKUP_CODES_CREATED");
+    const audited = JSON.stringify(m.audit.mock.calls);
+    for (const code of body.backupCodes as string[]) expect(audited).not.toContain(code);
   });
 });
 

@@ -70,7 +70,8 @@ it("never claims sNeek posted anything: planned posts wait for your link, posted
   expect(screen.getByText("Waiting for your link")).toBeInTheDocument();
   expect(screen.getByText("Posted by you")).toBeInTheDocument();
   expect(screen.getByText(/planned for Fri 13 Nov 18:00/)).toBeInTheDocument();
-  expect(screen.getByText(/sNeek does not post to Instagram, Facebook, TikTok or YouTube, and does not send reminders/)).toBeInTheDocument();
+  // 2026-11-17: hand-written posts are still never posted by sNeek; the generator (Create from jobs) is the only one-click path.
+  expect(screen.getByText(/sNeek does not post these and does not send reminders/)).toBeInTheDocument();
   expect(screen.queryByText(/^Published$|^Scheduled$|Publish now|Post now/)).not.toBeInTheDocument();
   expect(screen.getAllByRole("button", { name: "Paste the link…" })).toHaveLength(2);
 });

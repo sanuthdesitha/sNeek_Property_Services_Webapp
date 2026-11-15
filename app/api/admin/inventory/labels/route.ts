@@ -21,6 +21,15 @@ export const runtime = "nodejs";
  * that one at a time is the sort of chore that means it never gets done.
  */
 
+/** The list returns at most this many labels, newest first, and says when it was cut. */
+const LABEL_LIST_LIMIT = 1000;
+/** Fresh codes for the whole batch are tried this many times before giving up. */
+const MAKE_ATTEMPTS = 5;
+
+function isUniqueViolation(error: unknown): boolean {
+  return (error as { code?: string } | null)?.code === "P2002";
+}
+
 const createSchema = z.object({
   /** One label per item id. */
   itemIds: z.array(z.string().trim().min(1)).min(1).max(500),
@@ -48,8 +57,8 @@ export async function GET(req: NextRequest) {
         // one too and the admin prints the wrong sheet.
         ...(propertyId ? { propertyId: propertyId === "GENERAL" ? null : propertyId } : {}),
       },
-      orderBy: [{ createdAt: "desc" }],
-      take: 1000,
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      take: LABEL_LIST_LIMIT + 1,
       select: {
         id: true,
         code: true,
@@ -62,7 +71,8 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ labels });
+    // Said, not hidden: a list cut at the limit must not read as "every label".
+    return NextResponse.json({ labels: labels.slice(0, LABEL_LIST_LIMIT), truncated: labels.length > LABEL_LIST_LIMIT });
   } catch (err: any) {
     const status = err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: "Could not load the labels." }, { status });
@@ -107,38 +117,50 @@ export async function POST(req: NextRequest) {
     const alreadyLabelled = new Set(existing.map((row) => row.itemId));
     const toCreate = items.filter((item) => !alreadyLabelled.has(item.id));
 
-    const created = [];
-    for (const item of toCreate) {
-      // Retried rather than assumed unique. Forty bits of randomness makes a
-      // collision vanishingly unlikely, but across thousands of labels that is
-      // not the same as impossible, and one duplicate key would otherwise fail
-      // the whole batch.
-      for (let attempt = 0; attempt < 5; attempt += 1) {
-        try {
-          const row = await db.itemBarcode.create({
-            data: {
-              itemId: item.id,
-              code: generateLabelCode(),
-              kind: "LABEL",
-              propertyId: body.propertyId ?? null,
-              label: body.label ?? null,
-              packSize: body.packSize ?? 1,
-              symbology: "LABEL",
-              createdById: session.user.id,
-            },
-            select: {
-              id: true,
-              code: true,
-              packSize: true,
-              item: { select: { id: true, name: true, unit: true } },
-              property: { select: { id: true, name: true, suburb: true } },
-            },
-          });
-          created.push(row);
-          break;
-        } catch {
-          // Collision or transient failure — try a fresh code.
-        }
+    // All or nothing (board "Shelf labels": "nothing is half made"): the whole
+    // batch is one transaction. A code collision (forty random bits make it
+    // very unlikely, not impossible) rolls the batch back and it is tried again
+    // with fresh codes; before 2026-11-17 a label whose five tries failed was
+    // silently left out while the rest were made.
+    let created: Array<{
+      id: string;
+      code: string;
+      packSize: number;
+      createdAt: Date;
+      item: { id: string; name: string; unit: string | null };
+      property: { id: string; name: string; suburb: string | null } | null;
+    }> = [];
+    for (let attempt = 1; attempt <= MAKE_ATTEMPTS; attempt += 1) {
+      try {
+        created = await db.$transaction(async (tx) => {
+          const rows: typeof created = [];
+          for (const item of toCreate) {
+            rows.push(await tx.itemBarcode.create({
+              data: {
+                itemId: item.id,
+                code: generateLabelCode(),
+                kind: "LABEL",
+                propertyId: body.propertyId ?? null,
+                label: body.label ?? null,
+                packSize: body.packSize ?? 1,
+                symbology: "LABEL",
+                createdById: session.user.id,
+              },
+              select: {
+                id: true,
+                code: true,
+                packSize: true,
+                createdAt: true,
+                item: { select: { id: true, name: true, unit: true } },
+                property: { select: { id: true, name: true, suburb: true } },
+              },
+            }));
+          }
+          return rows;
+        });
+        break;
+      } catch (error) {
+        if (!isUniqueViolation(error) || attempt === MAKE_ATTEMPTS) throw error;
       }
     }
 
@@ -156,7 +178,7 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     );
   } catch (err: any) {
-    const status = err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: "Could not generate the labels." }, { status });
+    const status = err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : err instanceof z.ZodError ? 400 : 500;
+    return NextResponse.json({ error: "The labels were not made." }, { status });
   }
 }

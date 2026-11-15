@@ -13,7 +13,12 @@ import { buildDefaultSelections } from "@/lib/checklists/compose";
  *   POST — bulk "generate defaults": create DRAFT profiles (from the library +
  *          each property's attributes/features) for the selected properties
  *          that don't have one yet. The admin then reviews/approves each from
- *          the property's Forms tab.
+ *          the property's Forms tab. Answers per property (created / skipped
+ *          because it is already set up / not found).
+ *
+ * A property with no checklist is never blocked from jobs (the job type form
+ * is the fallback), and a checklist flagged for review keeps its approved
+ * forms live until someone reviews it (owner defaults 2026-11-17).
  */
 export async function GET() {
   try {
@@ -28,8 +33,8 @@ export async function GET() {
         bathrooms: true,
         hasBalcony: true,
         features: true,
-        client: { select: { name: true } },
-        checklistProfile: { select: { status: true, approvedAt: true, updatedAt: true } },
+        client: { select: { name: true, email: true } },
+        checklistProfile: { select: { status: true, approvedAt: true, updatedAt: true, createdAt: true } },
       },
       orderBy: [{ name: "asc" }],
     });
@@ -45,6 +50,11 @@ export async function GET() {
         hasFeatures: Boolean(property.features && Object.keys(property.features as object).length > 0),
         checklistStatus: property.checklistProfile?.status ?? "NONE",
         approvedAt: property.checklistProfile?.approvedAt ?? null,
+        // When the profile last changed: a draft's creation, or when it was
+        // flagged for review (the client answered the amenities survey).
+        profileCreatedAt: property.checklistProfile?.createdAt ?? null,
+        profileUpdatedAt: property.checklistProfile?.updatedAt ?? null,
+        clientHasEmail: Boolean(property.client?.email?.trim()),
       })),
     });
   } catch (err: any) {
@@ -85,10 +95,15 @@ export async function POST(req: NextRequest) {
 
     let created = 0;
     let skipped = 0;
+    const results: Array<{ propertyId: string; outcome: "created" | "skipped" | "not_found" }> = [];
+    for (const id of body.propertyIds) {
+      if (!properties.some((property) => property.id === id)) results.push({ propertyId: id, outcome: "not_found" });
+    }
     for (const property of properties) {
       // Never clobber an existing profile (draft OR approved) in bulk.
       if (property.checklistProfile) {
         skipped += 1;
+        results.push({ propertyId: property.id, outcome: "skipped" });
         continue;
       }
       const defaults = buildDefaultSelections(library, property);
@@ -100,6 +115,7 @@ export async function POST(req: NextRequest) {
         },
       });
       created += 1;
+      results.push({ propertyId: property.id, outcome: "created" });
     }
 
     await db.auditLog.create({
@@ -111,7 +127,7 @@ export async function POST(req: NextRequest) {
         after: { requested: body.propertyIds.length, created, skipped } as any,
       },
     });
-    return NextResponse.json({ ok: true, created, skipped });
+    return NextResponse.json({ ok: true, created, skipped, results, createdBy: session.user.name ?? null, at: new Date().toISOString() });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

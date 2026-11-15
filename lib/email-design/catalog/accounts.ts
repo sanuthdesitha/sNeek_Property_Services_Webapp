@@ -3,7 +3,7 @@
  * libraries (two-step sign-in, invitation link). Security emails keep their
  * whole body fixed: only the theme applies. Plain module.
  */
-import { callout, design, doc, heading, note, paragraph, v } from "./build";
+import { button, callout, design, details, doc, heading, note, paragraph, v } from "./build";
 import type { EmailDesignDefinition } from "../types";
 
 const CODE = v("code", "Code", "482913", { format: "code", required: true });
@@ -56,6 +56,26 @@ export const ACCOUNT_DESIGNS: readonly EmailDesignDefinition[] = [
       heading("Two-step verification was reset", { lock: "fixed" }),
       paragraph("Hi {{userName}}, an administrator turned off two-step verification on your sNeek account. You can sign in with your password, then set two-step verification up again from your profile.", { lock: "fixed" }),
       callout("action", "If this wasn't expected, contact your administrator.", { lock: "fixed" }),
+    ]),
+  }),
+  design({
+    key: "twoFactorBackupCodeUsed", label: "Backup code used", group: "accounts", typeKey: "account.backup_code_used", audience: "Person who signed in with a backup code",
+    trigger: "Someone completes two-step sign-in with one of the account's backup codes. Sent once per code, with the inbox notice.", security: true, whyLine: "", preferences: "none",
+    mustStay: ["When", "Browser", "Codes left", "Whole body fixed"], source: "lib/auth/backup-code-notice.ts (new 2026-11-17)",
+    variables: [
+      v("userName", "Person's name", "Jane", { fallback: "there" }),
+      v("usedAt", "When it was used", "Tue 17 Nov 2026, 9:42 am (Sydney time)", { required: true }),
+      v("browser", "Browser", "Chrome on macOS", { fallback: "browser not recorded" }),
+      v("remaining", "Codes left", "7", { required: true }),
+      v("profileUrl", "Two-step settings link", "https://app.sneek.example/v2/admin/profile?setup=two-step", { format: "url" }),
+    ],
+    defaults: doc("A backup code was used to sign in", "{{remaining}} backup codes left. Not you? Change your password.", [
+      heading("A backup code was used", { lock: "fixed" }),
+      paragraph("Hi {{userName}}, someone signed in to your sNeek account with one of your two-step backup codes. That code no longer works.", { lock: "fixed" }),
+      details([["When", "{{usedAt}}"], ["Browser", "{{browser}}"], ["Codes left", "{{remaining}}"]], { lock: "fixed" }),
+      callout("action", "Not you? Change your password now, then make new backup codes. Making new codes cancels the old ones.", { lock: "fixed" }),
+      button("Open two-step sign-in", "profileUrl", { lock: "fixed" }),
+      note("We never send your codes by email. The office will never ask you for one.", { lock: "fixed" }),
     ]),
   }),
   design({

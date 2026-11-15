@@ -13,6 +13,7 @@ import {
   isOpenRectification,
   type IssueSeverity,
 } from "./types";
+import { isFixOverdue } from "./fix-age";
 
 export type IssueFact = {
   id: string;
@@ -78,8 +79,6 @@ export type IssueTotals = {
 
 export type LabelFor = (category: string) => string;
 
-const OPEN_AGE_MS = 48 * 3_600_000;
-
 export function emptySeverityCounts(): SeverityCounts {
   return { MINOR: 0, MAJOR: 0, CRITICAL: 0 };
 }
@@ -115,7 +114,7 @@ export function issueTotals(issues: readonly IssueFact[], now: Date): IssueTotal
     countSeverity(totals.bySeverity, issue.severity);
     if (isOpenRectification(issue.rectificationStatus)) {
       totals.openFixes += 1;
-      if (now.getTime() - issue.createdAt.getTime() > OPEN_AGE_MS) totals.openOver48h += 1;
+      if (isFixOverdue(issue.rectificationStatus, issue.createdAt, now)) totals.openOver48h += 1;
     }
     if (typeof issue.rectificationCost === "number") {
       cost += issue.rectificationCost;

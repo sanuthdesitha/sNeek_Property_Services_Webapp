@@ -195,7 +195,8 @@ describe.skipIf(!url)("agent actions (database)", () => {
   });
 
   it("asks for the approver's own PIN only where the same action by a person needs one", async () => {
-    expect(AGENT_ACTION_TOOLS.map(decisionNeedsPin)).toEqual([false, false, false, false]);
+    // Five tools since the social draft request was added (2026-11-17); creating a draft needs no PIN.
+    expect(AGENT_ACTION_TOOLS.map(decisionNeedsPin)).toEqual([false, false, false, false, false]);
     const request = await proposeAgentAction(context, "request_case_note", { caseId, note: "PIN path", idempotencyKey: key() });
     const executors = { ...ACTION_EXECUTORS, request_case_note: { ...ACTION_EXECUTORS.request_case_note, sensitiveAction: "cases.delete" as const } };
     m.verify.mockRejectedValueOnce(Object.assign(new Error("Enter your PIN."), { code: "PIN_REQUIRED" }));

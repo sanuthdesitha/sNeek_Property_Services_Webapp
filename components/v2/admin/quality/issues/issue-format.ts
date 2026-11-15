@@ -103,3 +103,11 @@ export function qaPhotoKeyList(raw: unknown): string[] {
     })
     .filter((key): key is string => typeof key === "string" && key.length > 0);
 }
+
+/** A recorded instant with weekday and time, as the Issues tab draws it ("Fri 13 Nov 16:40"). */
+export function formatIssueMoment(value: string | Date | null | undefined, timeZone: string = SYDNEY_TZ): string {
+  if (!value) return "–";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "–";
+  return formatInTimeZone(date, timeZone, "EEE d MMM HH:mm");
+}

@@ -24,6 +24,35 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Where the prompt sends someone after the grace period. */
 export const TWO_STEP_SETUP_PATH = "/v2/admin/profile?setup=two-step";
 
+/**
+ * Where a person manages their own two-step sign-in (and backup codes), by
+ * primary role. Used by the "backup code used" notice and the sign-in screen.
+ */
+export function twoStepSettingsPath(role: string): string {
+  switch (role) {
+    case "ADMIN":
+    case "OPS_MANAGER":
+      return TWO_STEP_SETUP_PATH;
+    case "MAINTENANCE":
+      return "/v2/maintenance/settings";
+    case "CLEANER":
+      return "/v2/cleaner/profile";
+    case "CLIENT":
+      return "/v2/client/profile";
+    case "LAUNDRY":
+      return "/v2/laundry/profile";
+    case "QA_INSPECTOR":
+      return "/v2/qa/profile";
+    default:
+      return "/v2";
+  }
+}
+
+/** Only administrators and operations managers can make a new set on its own (Your profile). */
+export function canMakeBackupCodesInProfile(role: string): boolean {
+  return role === "ADMIN" || role === "OPS_MANAGER";
+}
+
 export type TwoStepRequirementInput = {
   holdsAdmin: boolean;
   holdsOpsManager: boolean;

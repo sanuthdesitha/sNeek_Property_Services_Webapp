@@ -8,6 +8,7 @@ import { readNeed } from "@/lib/inventory/urgent-stock-store";
 import { URGENT_STAGE_LABEL } from "@/lib/inventory/urgent-stock-actions";
 import { validateUrgentStockTransition } from "@/lib/inventory/urgent-stock-policy";
 import type { AgentWriteScopeKey } from "./write-scopes";
+import { previewSocialDraft, SOCIAL_DRAFT_INPUT_SCHEMA_PROPERTIES, socialDraftArgs } from "./social-draft-action";
 
 /**
  * The agent ACTIONS (step 6): what each write tool accepts and its dry run.
@@ -27,15 +28,15 @@ import type { AgentWriteScopeKey } from "./write-scopes";
  * exists once sent), and reimplementing them here is not allowed.
  */
 
-export type AgentActionTool = "request_reschedule_job" | "request_case_note" | "request_create_case" | "request_acknowledge_stock_need";
+export type AgentActionTool = "request_reschedule_job" | "request_case_note" | "request_create_case" | "request_acknowledge_stock_need" | "request_social_draft";
 
-export const AGENT_ACTION_TOOLS: readonly AgentActionTool[] = ["request_reschedule_job", "request_case_note", "request_create_case", "request_acknowledge_stock_need"];
+export const AGENT_ACTION_TOOLS: readonly AgentActionTool[] = ["request_reschedule_job", "request_case_note", "request_create_case", "request_acknowledge_stock_need", "request_social_draft"];
 
 export function isAgentActionTool(value: string): value is AgentActionTool {
   return (AGENT_ACTION_TOOLS as readonly string[]).includes(value);
 }
 
-export type ActionEntity = { type: "Job" | "IssueTicket" | "UrgentStockNeed" | "NewCase"; id: string | null; label: string };
+export type ActionEntity = { type: "Job" | "IssueTicket" | "UrgentStockNeed" | "NewCase" | "SocialDraft"; id: string | null; label: string };
 
 /** What the approver sees, and the state it was made against. */
 export type ActionPreview = {
@@ -257,6 +258,16 @@ export const AGENT_ACTIONS: readonly AgentActionDefinition[] = [
     input: acknowledgeStockArgs,
     auditKeys: ["needId", "idempotencyKey"],
     preview: previewAcknowledgeStock,
+  },
+  {
+    tool: "request_social_draft",
+    title: "Ask to create a social post draft",
+    description: `Ask to create a social post DRAFT from eligible photos (ids from list_social_candidates), with a caption per network and alt text per photo. Permission, eligibility, network limits and a check for addresses or names run now and again at approval. The draft is never posted or planned by you: a person reviews the photos and posts it. ${ASKS_ONLY}`,
+    writeScope: "social_drafts",
+    inputSchema: object(SOCIAL_DRAFT_INPUT_SCHEMA_PROPERTIES, ["photoIds", "format", "captions", "altText"]),
+    input: socialDraftArgs,
+    auditKeys: ["format", "idempotencyKey"],
+    preview: (args) => previewSocialDraft(args, (message) => new ActionPreconditionError(message)),
   },
 ];
 

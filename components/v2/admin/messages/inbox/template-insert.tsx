@@ -4,21 +4,24 @@
  * Message templates (managed in Forms → Message templates), read lazily, and
  * the reply box's "Insert template": the template body is resolved for this
  * client through the preview route before it is inserted, so no raw
- * `{{variables}}` reach a portal message.
+ * `{{variables}}` reach a portal message. With an audience the list holds
+ * only the categories meant for that person (cleaner-facing for cleaners,
+ * laundry-facing for laundry partners, the rest for clients).
  */
 import * as React from "react";
+import type { TemplateAudience } from "@/lib/messages/template-audience";
 
 export type MessageTemplate = { id: string; name: string; category: string; channel: "EMAIL" | "SMS" | "BOTH"; subject?: string | null; body: string };
 type TemplatesState = { status: "idle" | "loading" | "ready" | "failed"; rows: MessageTemplate[] };
 
-export function useTemplates(enabled: boolean): TemplatesState & { retry: () => void } {
+export function useTemplates(enabled: boolean, audience: TemplateAudience | null = null): TemplatesState & { retry: () => void } {
   const [state, setState] = React.useState<TemplatesState>({ status: "idle", rows: [] });
   const [attempt, setAttempt] = React.useState(0);
   React.useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
     setState({ status: "loading", rows: [] });
-    fetch("/api/admin/messages/templates", { signal: controller.signal })
+    fetch(audience ? `/api/admin/messages/templates?audience=${audience}` : "/api/admin/messages/templates", { signal: controller.signal })
       .then(async (res) => {
         const body = (await res.json().catch(() => ({}))) as { templates?: MessageTemplate[] };
         if (controller.signal.aborted) return;
@@ -28,7 +31,7 @@ export function useTemplates(enabled: boolean): TemplatesState & { retry: () => 
         if (!controller.signal.aborted) setState({ status: "failed", rows: [] });
       });
     return () => controller.abort();
-  }, [enabled, attempt]);
+  }, [enabled, attempt, audience]);
   return { ...state, retry: () => setAttempt((n) => n + 1) };
 }
 
@@ -36,7 +39,7 @@ export function TemplateInsert({ clientId, onInsert }: { clientId: string; onIns
   const [enabled, setEnabled] = React.useState(false);
   const [resolving, setResolving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const templates = useTemplates(enabled);
+  const templates = useTemplates(enabled, "client");
 
   async function insert(id: string) {
     const template = templates.rows.find((t) => t.id === id);

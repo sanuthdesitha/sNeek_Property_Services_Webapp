@@ -6,6 +6,8 @@
  * someone who is simply not allowed here, and it looks like a broken app.
  * API routes keep throwing: their handlers turn the error into a 403 response.
  */
+import { withFrom } from "@/lib/access/return-path";
+
 export const REQUEST_PATH_HEADER = "x-sneek-request-path";
 
 /** Returns the page to redirect to, or null when the caller must throw (API). */
@@ -16,7 +18,9 @@ export function pageDenialDestination(requestPath: string | null | undefined): s
   // Never redirect a denial page to itself.
   if (pathname === "/unauthorized" || pathname.endsWith("/access-denied")) return null;
   if (pathname === "/v2/admin" || pathname.startsWith("/v2/admin/")) {
-    return "/v2/admin/access-denied?reason=role";
+    return withFrom("/v2/admin/access-denied?reason=role", requestPath);
   }
-  return "/unauthorized";
+  // The refused page rides along (validated, never redirected to) so the
+  // denial page can say what was tried (board "Access denied").
+  return withFrom("/unauthorized", requestPath);
 }

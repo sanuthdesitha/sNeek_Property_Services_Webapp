@@ -1,11 +1,12 @@
 "use client";
 
 /**
- * Social posts tab (board "Marketing", 2026-11-16). Told honestly: sNeek does
- * NOT post to Instagram, Facebook, TikTok or YouTube, and does not send
- * reminders (owner default, pending owner confirmation: no direct social
- * posting). A post is a draft with an optional planned time; you post it in
- * the app yourself, then paste the link here, which marks it Posted.
+ * Social posts tab (board "Marketing", 2026-11-16): posts written here and
+ * posted by the person, told honestly: sNeek does not post these and does not
+ * send reminders. A post is a draft with an optional planned time; you post it
+ * in the app yourself, then paste the link here, which marks it Posted.
+ * (Since 2026-11-17 the owner allows direct posting of posts made with
+ * "Create from jobs"; see components/v2/admin/marketing/social/.)
  * Caption help uses the provider in AI configuration and saves nothing until
  * you use the suggestion and save the post.
  */
@@ -237,7 +238,7 @@ export function SocialManager({
     <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
       <ECard className="min-w-0 space-y-3 p-4">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-[0.9375rem] font-[600]">Social posts</h2>
+          <h2 className="text-[0.9375rem] font-[600]">Posts you write and post yourself</h2>
           <EButton variant="outline" size="sm" onClick={() => startPost()}>
             <Plus className="h-3.5 w-3.5" aria-hidden /> New post
           </EButton>
@@ -288,7 +289,7 @@ export function SocialManager({
           </ul>
         )}
         <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-          sNeek does not post to Instagram, Facebook, TikTok or YouTube, and does not send reminders. The planned time is shown here so you know when to post it yourself.
+          sNeek does not post these and does not send reminders: the planned time is shown so you know when to post it yourself. To post photos from finished jobs to connected accounts with one reviewed click, use Create from jobs.
         </p>
       </ECard>
 

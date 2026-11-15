@@ -18,6 +18,7 @@ import { EField, EInput, ESelect, ETextarea } from "@/components/v2/admin/estate
 import { cn } from "@/lib/utils";
 import { TRANSPORT_LABEL, checkVariables, sendBlock, sendButtonLabel, transportOptions } from "@/lib/messages/compose-checks";
 import { useTemplates } from "./template-insert";
+import { AUDIENCE_LABEL, audienceForRecipient } from "@/lib/messages/template-audience";
 import type { ComposeState } from "./use-compose";
 
 const SMALL = "text-[0.75rem] text-[hsl(var(--e-muted-foreground))]";
@@ -87,7 +88,8 @@ function FilledFrom({ compose }: { compose: ComposeState }) {
 
 export function ComposePanel({ compose, canSend, showBack, onClose }: { compose: ComposeState; canSend: boolean; showBack: boolean; onClose: () => void }) {
   const c = compose;
-  const templates = useTemplates(true);
+  const audience = audienceForRecipient(c.recipient);
+  const templates = useTemplates(true, audience);
   const options = transportOptions(c.recipient);
   const block = sendBlock({ canSend, recipient: c.recipient, transport: c.transport, body: c.body, sending: c.sending });
   const failed = c.outcomes.some((o) => o.state !== "sent");
@@ -103,7 +105,7 @@ export function ComposePanel({ compose, canSend, showBack, onClose }: { compose:
       <p className={SMALL}>Variables fill from the client, property or job you pick. Templates are managed in <Link className="font-[600] underline" href="/v2/admin/forms?tab=messages">Forms</Link>.</p>
       <fieldset disabled={c.sending} className="min-w-0 space-y-3">
         <RecipientPicker compose={c} />
-        <EField label="Template">
+        <EField label="Template" hint={audience && audience !== "client" ? `Showing ${AUDIENCE_LABEL[audience]} templates for this person.` : undefined}>
           <ESelect value={c.templateId ?? ""} onChange={(e) => c.applyTemplate(templates.rows.find((t) => t.id === e.target.value) ?? null)}>
             <option value="">{templates.status === "loading" ? "Loading templates…" : templates.status === "failed" ? "Templates could not load" : "No template (write your own)"}</option>
             {templates.rows.map((t) => <option key={t.id} value={t.id}>{t.name} · {t.channel === "BOTH" ? "Email or SMS" : t.channel === "SMS" ? "SMS" : "Email"}</option>)}

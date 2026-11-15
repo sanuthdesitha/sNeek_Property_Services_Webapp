@@ -7,7 +7,8 @@
  */
 import * as React from "react";
 import { EBulkBar, EBulkButton } from "@/components/v2/ui/bulk-bar";
-import { FIXED_RECTIFICATION_STATUSES, titleCaseKey, type FixedRectificationStatus } from "@/lib/quality/types";
+import { FIXED_RECTIFICATION_STATUSES, type FixedRectificationStatus } from "@/lib/quality/types";
+import { FIXED_BY_LABEL } from "@/lib/quality/issue-presentation";
 import type { BulkFixResponse } from "@/lib/quality/bulk-fix";
 
 export type BulkOutcomeNote = { id: string; reason: string };
@@ -74,18 +75,19 @@ export function IssueBulkBar({
           onSelectionChange(new Set());
           setRefused([]);
         }}
-        note="Only issues whose fix is still owed are changed. Add minutes or photos from the issue itself."
+        note="Only issues whose fix is still owed are changed. The answer is per issue, and refused issues stay selected with their reason. Minutes and photos are added from the issue itself."
       >
         <label className="inline-flex items-center gap-1.5 text-[0.75rem]">
-          <span className="sr-only">Fixed by</span>
+          <span>Fixed by</span>
           <select
             value={status}
+            disabled={busy}
             onChange={(event) => setStatus(event.target.value as FixedRectificationStatus)}
             className="h-8 rounded-[var(--e-radius)] border border-[hsl(var(--e-sidebar-hairline))] bg-transparent px-2 text-[0.75rem] text-[hsl(var(--e-sidebar-active-bg))] [&>option]:text-black"
           >
             {FIXED_RECTIFICATION_STATUSES.map((value) => (
               <option key={value} value={value}>
-                {titleCaseKey(value)}
+                {FIXED_BY_LABEL[value]}
               </option>
             ))}
           </select>

@@ -10,6 +10,7 @@ import { getAppSettings } from "@/lib/settings";
 import type { EmailCampaignRow, LibraryAssetRow, SocialPostRow } from "@/lib/marketing/workspace-types";
 import { EPageHeader, EButton } from "@/components/v2/ui/primitives";
 import { MarketingHub } from "@/components/v2/admin/marketing/marketing-hub";
+import { listGroups } from "@/lib/marketing/social/groups";
 
 export const metadata = { title: "Marketing · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -60,13 +61,15 @@ async function loadCampaignRows(): Promise<{ rows: EmailCampaignRow[]; failed: b
 export default async function V2AdminMarketingPage() {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
-  const [discounts, plans, campaignLoad, socialPosts, assets, settings] = await Promise.all([
+  const [discounts, plans, campaignLoad, socialPosts, assets, settings, socialGroups] = await Promise.all([
     getMarketingCampaigns().catch(() => null),
     getMarketingSubscriptionPlans().catch(() => null),
     loadCampaignRows(),
-    db.socialPost.findMany({ orderBy: [{ createdAt: "desc" }], take: 200 }).catch(() => null),
+    // Posts written and posted by hand; posts made from jobs (with a group) are listed by group.
+    db.socialPost.findMany({ where: { groupId: null }, orderBy: [{ createdAt: "desc" }], take: 200 }).catch(() => null),
     db.marketingAsset.findMany({ orderBy: [{ createdAt: "desc" }], take: 500 }).catch(() => null),
     getAppSettings(),
+    listGroups().catch(() => null),
   ]);
 
   const socialPlain: SocialPostRow[] | null = socialPosts
@@ -96,7 +99,7 @@ export default async function V2AdminMarketingPage() {
       <EPageHeader
         eyebrow="Money · Growth"
         title="Marketing"
-        description="Email campaigns, discount codes, public plans, social posts, templates and images. Growth shows the summary; this is the workspace."
+        description="Email campaigns, discount codes, public plans, social posts (including posts made from finished jobs), templates and images. Growth shows the summary; this is the workspace."
         actions={
           <div className="flex flex-wrap gap-2">
             <EButton asChild variant="outline" size="sm">
@@ -114,6 +117,7 @@ export default async function V2AdminMarketingPage() {
         plans={plans as any}
         emailCampaigns={campaignLoad.failed ? null : campaignLoad.rows}
         socialPosts={socialPlain}
+        socialGroups={socialGroups}
         assets={assetsPlain}
         brand={{ companyName: settings.companyName || "sNeek Property Services", logoUrl: settings.logoUrl ?? "" }}
         timeZone={settings.timezone}

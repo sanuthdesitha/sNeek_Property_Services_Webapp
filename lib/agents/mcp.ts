@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { AgentAuthError, authenticateAgent, type AgentContext } from "./access";
 import { ALL_AGENT_TOOLS, ToolDeniedError, ToolInputError, toolsFor, UNTRUSTED_NOTICE, type AgentTool } from "./tools";
+import { MCP_IMAGE_KEY } from "./social-tools";
 
 /**
  * A small Model Context Protocol server over Streamable HTTP (2026-11-14),
@@ -124,7 +125,7 @@ export async function handleMcpPost(input: { authorization: string | null; body:
       return { status: 200, body: rpcError(replyId, -32602, `Unknown tool: ${name.slice(0, 100)}`) };
     }
     const summary = summarize(args, tool.auditKeys);
-    const toolResult = (text: string, isError: boolean, structured?: Record<string, unknown>) => ({ status: 200, body: { jsonrpc: "2.0", id: replyId, result: { content: [{ type: "text", text }], ...(structured ? { structuredContent: structured } : {}), isError } } });
+    const toolResult = (text: string, isError: boolean, structured?: Record<string, unknown>, image?: { data: string; mimeType: string }) => ({ status: 200, body: { jsonrpc: "2.0", id: replyId, result: { content: [{ type: "text", text }, ...(image ? [{ type: "image", data: image.data, mimeType: image.mimeType }] : [])], ...(structured ? { structuredContent: structured } : {}), isError } } });
     if (!toolsFor(context).includes(tool)) {
       await audit({ context, method, tool: tool.name, argsSummary: summary, outcome: "DENIED", errorCode: "SCOPE", started });
       return toolResult(`This agent cannot use ${tool.name}: the area is outside its access, or its creator can no longer read it.`, true);
@@ -135,10 +136,15 @@ export async function handleMcpPost(input: { authorization: string | null; body:
       return toolResult(`Invalid arguments for ${tool.name}: ${valid.error.issues.map((issue) => `${issue.path.join(".") || "(arguments)"} ${issue.message}`).join("; ")}`, true);
     }
     try {
-      const data = await tool.run(context, valid.data);
+      const raw = await tool.run(context, valid.data);
+      // A tool may return one image (get_social_photo): sent as MCP image content, never inside the JSON text.
+      const { [MCP_IMAGE_KEY]: imageValue, ...data } = raw;
+      const image = imageValue && typeof imageValue === "object" && typeof (imageValue as { data?: unknown }).data === "string"
+        ? { data: (imageValue as { data: string }).data, mimeType: String((imageValue as { mimeType?: unknown }).mimeType ?? "image/jpeg") }
+        : undefined;
       const text = JSON.stringify(data);
-      await audit({ context, method, tool: tool.name, argsSummary: summary, outcome: "OK", resultBytes: text.length, started });
-      return toolResult(text, false, data);
+      await audit({ context, method, tool: tool.name, argsSummary: summary, outcome: "OK", resultBytes: text.length + (image ? image.data.length : 0), started });
+      return toolResult(text, false, data, image);
     } catch (error) {
       const known = error instanceof ToolInputError || error instanceof ToolDeniedError;
       await audit({ context, method, tool: tool.name, argsSummary: summary, outcome: error instanceof ToolDeniedError ? "DENIED" : known ? "INVALID" : "ERROR", errorCode: known ? error.name : "INTERNAL", started });

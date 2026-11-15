@@ -56,7 +56,7 @@ describe("GET /api/admin/ai/settings read access", () => {
     expect(body.credentials[0]).toEqual({ provider: "anthropic", state: "saved", hint: null });
     expect(JSON.stringify(body)).not.toContain("a9F2");
     expect(body).toMatchObject({ canEdit: false, isAdmin: false });
-    expect(body.routes).toHaveLength(8);
+    expect(body.routes).toHaveLength(9) // social_post added 2026-11-17;
   });
 
   it("an administrator testing as someone reads without edit rights; other roles are refused", async () => {

@@ -10,6 +10,7 @@ import { EAlert, EBadge, ECard, ECardBody, EEmptyState } from "@/components/v2/u
 import { EInput, ESelect } from "@/components/v2/admin/estate-kit";
 import { MAINTENANCE_STAGES, maintenanceScheduleLabel, maintenanceVisitStage, type MaintenanceTicketSummary } from "@/lib/maintenance/ticket-stage";
 import { groupTicketsByDay } from "@/lib/maintenance/tickets-by-day";
+import { tourTarget } from "@/lib/tutorials/targets";
 
 const PRIORITY_LABEL: Record<string, string> = { URGENT: "Urgent", HIGH: "High", MEDIUM: "Medium", LOW: "Low" };
 const PRIORITY_TONE: Record<string, "danger" | "warning" | "info" | "neutral"> = {
@@ -20,11 +21,11 @@ const PRIORITY_TONE: Record<string, "danger" | "warning" | "info" | "neutral"> =
 };
 
 /** The whole card opens the visit; the link's name stays the ticket title. */
-function TicketCard({ ticket }: { ticket: MaintenanceTicketSummary }) {
+function TicketCard({ ticket, tourFirst = false }: { ticket: MaintenanceTicketSummary; tourFirst?: boolean }) {
   const approval = ticket.costApprovalStatus;
   const location = [ticket.property?.name ?? "Property", ticket.property?.suburb].filter(Boolean).join(", ");
   return (
-    <ECard className="relative transition-colors hover:border-[hsl(var(--e-border-strong))] focus-within:border-[hsl(var(--e-ring))]">
+    <ECard className="relative transition-colors hover:border-[hsl(var(--e-border-strong))] focus-within:border-[hsl(var(--e-ring))]" {...(tourFirst ? tourTarget("maintenance.tickets.card") : {})}>
       <ECardBody className="flex items-start gap-3 p-4 pt-4">
         <div className="min-w-0 flex-1 space-y-2">
           <div>
@@ -88,6 +89,7 @@ function ViewToggle({ view, onChange }: { view: "list" | "board"; onChange: (vie
     <div
       role="group"
       aria-label="Ticket view"
+      {...tourTarget("maintenance.tickets.view")}
       className="inline-flex gap-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1"
     >
       {option("list", "By day", <List className="h-4 w-4" aria-hidden />)}
@@ -106,6 +108,10 @@ export function MaintenanceTicketsWorkspace({ tickets, page = 1, totalCount = ti
     return text.includes(search.trim().toLowerCase());
   }), [tickets, status, search]);
   const statuses = Array.from(new Set([...Object.keys(MAINTENANCE_STAGES), ...(tickets ?? []).map((ticket) => ticket.status)]));
+  // The first ticket shown carries the Tickets tour's card target.
+  const firstTicketId = view === "list"
+    ? groupTicketsByDay(filtered)[0]?.tickets[0]?.id ?? null
+    : statuses.filter((key) => status === "all" || key === status).flatMap((key) => filtered.filter((ticket) => ticket.status === key))[0]?.id ?? null;
 
   if (tickets === null) return (
     <div role="alert">
@@ -117,7 +123,7 @@ export function MaintenanceTicketsWorkspace({ tickets, page = 1, totalCount = ti
 
   return <div className="space-y-4">
     <ViewToggle view={view} onChange={setView} />
-    <div className="grid gap-2 sm:grid-cols-2">
+    <div className="grid gap-2 sm:grid-cols-2" {...tourTarget("maintenance.tickets.filters")}>
       <EInput aria-label="Search tickets" placeholder="Search ticket or property" value={search} onChange={(event) => setSearch(event.target.value)} />
       <ESelect aria-label="Work order status" value={status} onChange={(event) => setStatus(event.target.value)}>
         <option value="all">All statuses</option>
@@ -132,11 +138,11 @@ export function MaintenanceTicketsWorkspace({ tickets, page = 1, totalCount = ti
     </nav>
     {tickets.length === 0 ? <EEmptyState title={page === 1 ? "No tickets" : "No tickets on this page"} description={page === 1 ? "Maintenance requests will appear here." : "Return to a previous page to view tickets."} />
       : filtered.length === 0 ? <EEmptyState title="No matching tickets" description="Change the search or status filter." />
-      : view === "list" ? <div className="space-y-5">
+      : view === "list" ? <div className="space-y-5" {...tourTarget("maintenance.tickets.days")}>
         {/* Board "By day": today first, then each later day, then past and unscheduled work. */}
         {groupTicketsByDay(filtered).map((group) => <div key={group.key} className="space-y-2">
           <h2 className="e-eyebrow">{group.label} <span className="e-tnum">({group.tickets.length})</span></h2>
-          <div className="space-y-3">{group.tickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} />)}</div>
+          <div className="space-y-3">{group.tickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} tourFirst={ticket.id === firstTicketId} />)}</div>
         </div>)}
       </div>
       : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -147,7 +153,7 @@ export function MaintenanceTicketsWorkspace({ tickets, page = 1, totalCount = ti
             <h2 className="flex items-center justify-between text-[0.8125rem] font-[600]">
               {label} ({items.length})
             </h2>
-            {items.length ? items.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} />) : <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No tickets in this stage.</p>}
+            {items.length ? items.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} tourFirst={ticket.id === firstTicketId} />) : <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No tickets in this stage.</p>}
           </section>;
         })}
       </div>}

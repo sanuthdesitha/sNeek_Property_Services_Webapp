@@ -1210,17 +1210,20 @@ gmp-place-autocomplete::part(prediction-item-selected) {
  * Admin "test as" (impersonation) bar.
  *
  * The bar is position:fixed at the very top so it survives every portal
- * shell, v1 and v2. Padding alone would not be enough: portal headers use
- * `sticky top-0`, which anchors to the VIEWPORT, so they would slide
- * underneath the bar on scroll. Offsetting both by the bar height keeps the
- * page fully usable while impersonating.
+ * shell, v1 and v2; the body is padded by its height so the page header sits
+ * right under it, never covered (board "Test as"). Sticky headers are NOT
+ * offset as well: html/body clip horizontal overflow, so the body is the
+ * sticky scroll container and an extra `top` only opened a gap above the
+ * header (and pushed sticky rows inside scrolling tables down).
  * --------------------------------------------------------------------- */
 html.impersonating body {
-  padding-top: 2.25rem; /* h-9 */
+  padding-top: 3.25rem; /* phone banner: Stop is 44px tall */
 }
 
-html.impersonating .sticky.top-0 {
-  top: 2.25rem;
+@media (min-width: 640px) {
+  html.impersonating body {
+    padding-top: 2.75rem; /* h-11 */
+  }
 }
 
 /* Shared workflow vectors: restrained, finite motion; never an activity claim. */

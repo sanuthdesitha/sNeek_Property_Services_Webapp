@@ -7,8 +7,14 @@
  *
  * Switching method runs the new method's setup first, so nobody is left
  * without one: two-step stays on with the old method until the new code is
- * confirmed. Turning off asks for the password. Backup codes are shown in full
- * only once, when they are created.
+ * confirmed. Turning off asks for the password.
+ *
+ * Backup codes (2026-11-17): the card says whether a set exists, how many are
+ * left and when it was made; it never shows codes again. New codes are shown
+ * once (BackupCodesDisplay), straight after two-step is turned on and after
+ * "Make new backup codes…" (tier C, own PIN or password, which cancels every
+ * older code). When the two-step prompt sent an administrator here, the setup
+ * ends on their codes, then continues to Command.
  *
  * Requirement (lib/auth/two-step-policy.ts): administrators must turn it on;
  * the card names the grace deadline, or says it is now needed before other
@@ -17,6 +23,10 @@
 import * as React from "react";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EToneNotice } from "@/components/v2/ui/tone-band";
+import { EConfirmDialog } from "@/components/v2/ui/confirm-dialog";
+import { BackupCodesDisplay } from "@/components/v2/shared/backup-codes-display";
+import { BACKUP_CODES_LOW } from "@/lib/auth/backup-code-format";
+import { sensitiveVerificationText } from "@/lib/security/pin-rules";
 import { PROFILE_HINT, PROFILE_INPUT, PROFILE_LABEL, ProfileCard, ProfileMessage, type CardState } from "./profile-card";
 
 type Method = "TOTP" | "EMAIL";
@@ -28,10 +38,21 @@ type Requirement =
   | { kind: "grace"; deadline: string | null }
   | { kind: "setup_required"; since: string };
 
+type BackupCodeSummary = {
+  total: number;
+  remaining: number;
+  createdAt: string | null;
+  olderSet: boolean;
+};
+
+/** Codes from the one response that returned them; forgotten when the person is done. */
+type NewCodes = { codes: string[]; createdAt: string };
+
 type Status = {
   enabled: boolean;
   method: Method | null;
   backupCodesRemaining: number;
+  backupCodes?: BackupCodeSummary;
   hasPassword: boolean;
   email: string | null;
   requirement?: Requirement;
@@ -42,6 +63,31 @@ type Setup = { phase: "idle" } | { phase: "totp"; qr: string; secret: string } |
 type Message = { tone: "ok" | "error"; text: string } | null;
 
 const METHOD_WORD: Record<Method, string> = { TOTP: "authenticator app", EMAIL: "email code" };
+
+function formatMade(iso: string, timeZone: string, withTime: boolean): string {
+  try {
+    return new Intl.DateTimeFormat("en-AU", {
+      weekday: withTime ? "short" : undefined,
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      ...(withTime ? { hour: "numeric", minute: "2-digit" } : {}),
+      timeZone,
+    }).format(new Date(iso));
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
+function backupLine(summary: BackupCodeSummary, timeZone: string): string {
+  if (summary.total === 0) return "No backup codes yet. Make a set so you can still sign in without your usual second step.";
+  const made = summary.olderSet
+    ? "an older set, date not recorded"
+    : summary.createdAt
+      ? `made ${formatMade(summary.createdAt, timeZone, false)}`
+      : "date not recorded";
+  return `${summary.remaining} of ${summary.total} left · ${made}. Each works once; they are never shown again.`;
+}
 
 function formatDeadline(iso: string, timeZone: string): string {
   try {
@@ -59,14 +105,17 @@ export function TwoStepCard({ timeZone, readOnlyReason, prompted }: { timeZone: 
   const [code, setCode] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [showTurnOff, setShowTurnOff] = React.useState(false);
-  const [backupCodes, setBackupCodes] = React.useState<string[] | null>(null);
+  const [newCodes, setNewCodes] = React.useState<NewCodes | null>(null);
+  const [makingNew, setMakingNew] = React.useState(false);
+  const [makeNewError, setMakeNewError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState<Message>(null);
   const cardRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     const controller = new AbortController();
-    setLoad({ kind: "loading" });
+    // A refresh after a change keeps the card (and any new codes on screen) in place.
+    setLoad((previous) => (previous.kind === "ready" ? previous : { kind: "loading" }));
     void (async () => {
       try {
         const res = await fetch("/api/auth/2fa/settings", { cache: "no-store", signal: controller.signal });
@@ -89,7 +138,7 @@ export function TwoStepCard({ timeZone, readOnlyReason, prompted }: { timeZone: 
   async function start(method: Method) {
     setBusy(true);
     setMessage(null);
-    setBackupCodes(null);
+    setNewCodes(null);
     setCode("");
     try {
       const res = await fetch("/api/auth/2fa/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ method }) });
@@ -113,7 +162,9 @@ export function TwoStepCard({ timeZone, readOnlyReason, prompted }: { timeZone: 
       const res = await fetch("/api/auth/2fa/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ method, code: code.trim() }) });
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.ok) return setMessage({ tone: "error", text: typeof body?.error === "string" ? body.error : "That code was not accepted." });
-      setBackupCodes(Array.isArray(body.backupCodes) ? (body.backupCodes as string[]) : null);
+      setNewCodes(Array.isArray(body.backupCodes)
+        ? { codes: body.backupCodes as string[], createdAt: typeof body.backupCodesCreatedAt === "string" ? body.backupCodesCreatedAt : new Date().toISOString() }
+        : null);
       setSetup({ phase: "idle" });
       setCode("");
       setMessage({ tone: "ok", text: `Two-step sign-in is on with the ${METHOD_WORD[method]}.` });
@@ -135,7 +186,7 @@ export function TwoStepCard({ timeZone, readOnlyReason, prompted }: { timeZone: 
       setPassword("");
       if (!res.ok) return setMessage({ tone: "error", text: `Still on: ${typeof body?.error === "string" ? body.error : "try again."}` });
       setShowTurnOff(false);
-      setBackupCodes(null);
+      setNewCodes(null);
       setMessage({ tone: "ok", text: "Two-step sign-in is off. Anyone with your password can sign in." });
       setAttempt((value) => value + 1);
     } catch {
@@ -143,6 +194,37 @@ export function TwoStepCard({ timeZone, readOnlyReason, prompted }: { timeZone: 
     } finally {
       setBusy(false);
     }
+  }
+
+  async function makeNewCodes(credentials: unknown) {
+    setBusy(true);
+    setMakeNewError(null);
+    try {
+      const res = await fetch("/api/auth/2fa/backup-codes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ security: credentials }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !Array.isArray(body?.codes)) {
+        setMakeNewError(`No new codes were made; your old ones still work. ${sensitiveVerificationText(body?.error)}`);
+        return;
+      }
+      setMakingNew(false);
+      setNewCodes({ codes: body.codes as string[], createdAt: typeof body.createdAt === "string" ? body.createdAt : new Date().toISOString() });
+      setMessage({ tone: "ok", text: "New backup codes made. Every older code has stopped working." });
+      setAttempt((value) => value + 1);
+    } catch {
+      setMakeNewError("No new codes were made: the connection failed. Your old ones still work.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function finishWithCodes() {
+    setNewCodes(null);
+    // Sent here by the administrator requirement: setup ends on the codes, then back to work.
+    if (prompted) window.location.assign("/v2/admin");
   }
 
   const status = load.kind === "ready" ? load.status : null;
@@ -188,20 +270,28 @@ export function TwoStepCard({ timeZone, readOnlyReason, prompted }: { timeZone: 
                 : "Off. Turn on: scan the code (or get an email code), enter one code, save the backup codes."}
             </p>
 
-            {status.enabled ? (
-              <p className="text-[0.8125rem]">
-                Backup codes · <span className="e-tnum">{status.backupCodesRemaining}</span> of 10 left. Each works once if you lose your phone; shown in full only when created.
-              </p>
+            {status.enabled && !newCodes ? (
+              <div className="space-y-2">
+                <p className="text-[0.8125rem]">
+                  <span className="font-[600]">Backup codes</span> ·{" "}
+                  <span className="e-tnum">{backupLine(status.backupCodes ?? { total: status.backupCodesRemaining, remaining: status.backupCodesRemaining, createdAt: null, olderSet: false }, timeZone)}</span>
+                </p>
+                {status.backupCodes && status.backupCodes.total > 0 && status.backupCodes.remaining <= BACKUP_CODES_LOW ? (
+                  <EToneNotice tone="attention" title={status.backupCodes.remaining === 0 ? "No backup codes left" : `Only ${status.backupCodes.remaining} backup code${status.backupCodes.remaining === 1 ? "" : "s"} left`}>
+                    Make new ones before you run out. The new set replaces every older code.
+                  </EToneNotice>
+                ) : null}
+              </div>
             ) : null}
 
-            {backupCodes ? (
-              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
-                <p className="text-[0.8125rem] font-[600]">Your backup codes, shown once</p>
-                <ul className="mt-2 grid grid-cols-2 gap-1 font-mono text-[0.8125rem]">
-                  {backupCodes.map((backup) => <li key={backup}>{backup}</li>)}
-                </ul>
-                <p className={PROFILE_HINT}>Keep them somewhere safe. Each works once.</p>
-              </div>
+            {newCodes ? (
+              <BackupCodesDisplay
+                codes={newCodes.codes}
+                createdLabel={formatMade(newCodes.createdAt, timeZone, true)}
+                accountEmail={status.email}
+                onDone={finishWithCodes}
+                doneLabel={prompted ? "I've saved them, continue to Command" : "I've saved them"}
+              />
             ) : null}
 
             {setup.phase !== "idle" ? (
@@ -249,6 +339,7 @@ export function TwoStepCard({ timeZone, readOnlyReason, prompted }: { timeZone: 
                     <EButton variant="outline" size="sm" disabled={locked} onClick={() => void start(status.method === "EMAIL" ? "TOTP" : "EMAIL")}>
                       {status.method === "EMAIL" ? "Switch to authenticator app…" : "Switch to email code…"}
                     </EButton>
+                    <EButton variant="outline" size="sm" disabled={locked || Boolean(newCodes)} onClick={() => { setMakeNewError(null); setMakingNew(true); }}>Make new backup codes…</EButton>
                     <EButton variant="outline" size="sm" disabled={locked || !status.hasPassword} onClick={() => setShowTurnOff(true)}>Turn off…</EButton>
                   </>
                 ) : (
@@ -265,6 +356,20 @@ export function TwoStepCard({ timeZone, readOnlyReason, prompted }: { timeZone: 
             <ProfileMessage message={message} />
           </div>
         ) : null}
+        <EConfirmDialog
+          open={makingNew}
+          tier="sensitive"
+          title="Make new backup codes?"
+          description="You get ten new codes, shown once. Every code you have now stops working straight away."
+          confirmLabel="Make new codes"
+          busy={busy}
+          error={makeNewError}
+          onClose={() => { if (!busy) setMakingNew(false); }}
+          onConfirm={async ({ credentials }) => {
+            if (!credentials) return;
+            await makeNewCodes(credentials);
+          }}
+        />
       </ProfileCard>
     </div>
   );
