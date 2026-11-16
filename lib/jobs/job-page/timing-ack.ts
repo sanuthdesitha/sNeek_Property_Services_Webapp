@@ -21,6 +21,8 @@
 import {
   resolveStartBriefingItems,
   startBriefingHash,
+  startBriefingTimingHash,
+  type ResolvedStartBriefingItem,
   type StartBriefingJobTask,
 } from "@/lib/forms/start-briefing";
 import type { JobMeta } from "@/lib/jobs/meta";
@@ -54,7 +56,7 @@ type AckMeta = Pick<
 type ParsedAck =
   | { kind: "missing" }
   | { kind: "unreadable" }
-  | { kind: "record"; hash: string | null; entries: Map<string, string | null> };
+  | { kind: "record"; hash: string | null; timingHash: string | null; entries: Map<string, string | null> };
 
 function parseAck(raw: unknown): ParsedAck {
   if (raw === undefined || raw === null) return { kind: "missing" };
@@ -70,7 +72,8 @@ function parseAck(raw: unknown): ParsedAck {
     entries.set(itemId, typeof entry.at === "string" && entry.at.trim() ? entry.at.trim() : null);
   }
   const hash = typeof record.hash === "string" && record.hash.trim() ? record.hash.trim() : null;
-  return { kind: "record", hash, entries };
+  const timingHash = typeof record.timingHash === "string" && record.timingHash.trim() ? record.timingHash.trim() : null;
+  return { kind: "record", hash, timingHash, entries };
 }
 
 /** The latest tap among the timing items, formatted in the organisation timezone. */
@@ -83,15 +86,33 @@ function latestTapLabel(entries: Map<string, string | null>, itemIds: string[], 
   return formatAckTime(new Date(Math.max(...stamps)).toISOString(), timeZone);
 }
 
-function stateFor(raw: unknown, timingIds: string[], currentHash: string, timeZone: string): TimingAckState {
+/** The fingerprints of the briefing as it stands now. */
+type CurrentFingerprints = { hash: string; timingHash: string };
+
+/**
+ * Was the record given for the timing as it stands now? A record that carries
+ * the timing-only fingerprint is compared on that, so adding an unrelated task
+ * does not undo a timing confirmation. An older record without it can only be
+ * compared on the whole briefing, so any edit since counts as a change.
+ */
+function recordMatchesTiming(ack: Extract<ParsedAck, { kind: "record" }>, current: CurrentFingerprints): boolean {
+  if (ack.timingHash) return ack.timingHash === current.timingHash;
+  return ack.hash === current.hash;
+}
+
+function stateFor(raw: unknown, timingIds: string[], current: CurrentFingerprints, timeZone: string): TimingAckState {
   const ack = parseAck(raw);
   if (ack.kind === "missing") return { kind: "notAcknowledged" };
   if (ack.kind === "unreadable") return { kind: "unreadable" };
   const allTicked = timingIds.every((id) => ack.entries.has(id));
   if (!allTicked) return { kind: "notAcknowledged" };
   const atLabel = latestTapLabel(ack.entries, timingIds, timeZone);
-  if (ack.hash !== currentHash) return { kind: "earlierVersion", atLabel };
+  if (!recordMatchesTiming(ack, current)) return { kind: "earlierVersion", atLabel };
   return { kind: "acknowledged", atLabel };
+}
+
+function currentFingerprints(items: ResolvedStartBriefingItem[]): CurrentFingerprints {
+  return { hash: startBriefingHash(items), timingHash: startBriefingTimingHash(items) };
 }
 
 export function buildTimingAckSummary(input: {
@@ -110,13 +131,13 @@ export function buildTimingAckSummary(input: {
     return { kind: "error" };
   }
   const acks = (rawAcks ?? {}) as Record<string, unknown>;
-  const currentHash = startBriefingHash(items);
+  const current = currentFingerprints(items);
 
   const rows: TimingAckRow[] = input.cleaners.map((cleaner) => ({
     userId: cleaner.userId,
     name: cleaner.name,
     assigned: true,
-    state: stateFor(acks[cleaner.userId], timingIds, currentHash, input.timeZone),
+    state: stateFor(acks[cleaner.userId], timingIds, current, input.timeZone),
   }));
   // Someone who acknowledged and was later taken off the job: still a true record.
   const assignedIds = new Set(input.cleaners.map((cleaner) => cleaner.userId));
@@ -126,7 +147,7 @@ export function buildTimingAckSummary(input: {
       userId,
       name: input.names.get(userId) ?? userId,
       assigned: false,
-      state: stateFor(acks[userId], timingIds, currentHash, input.timeZone),
+      state: stateFor(acks[userId], timingIds, current, input.timeZone),
     });
   }
   return { kind: "rows", rows };
@@ -141,10 +162,37 @@ export function timingAckSentence(row: TimingAckRow): string {
         ? `${who} acknowledged at start · ${row.state.atLabel}`
         : `${who} acknowledged at start · time not recorded`;
     case "earlierVersion":
-      return `${who}: not acknowledged for the current timing. They read an earlier version of the briefing${row.state.atLabel ? ` (${row.state.atLabel})` : ""}, which has changed since.`;
+      return `${who}: not acknowledged for the current timing. Their confirmation${row.state.atLabel ? ` (${row.state.atLabel})` : ""} was for an earlier version, changed since.`;
     case "unreadable":
       return `${who}: acknowledgement could not be read`;
     default:
       return `${who}: not acknowledged yet`;
+  }
+}
+
+/**
+ * The signed-in cleaner's own timing acknowledgement, for their job screen.
+ *
+ *   none             the job has no timing rule;
+ *   current          they confirmed the timing as it stands now;
+ *   changed          they confirmed an earlier time, which the office changed;
+ *   notAcknowledged  no confirmation is recorded;
+ *   unreadable       a record exists but cannot be read (never treated as confirmed).
+ */
+export type OwnTimingAckStatus = "none" | "current" | "changed" | "notAcknowledged" | "unreadable";
+
+export function ownTimingAckStatus(input: { items: ResolvedStartBriefingItem[]; rawAck: unknown }): OwnTimingAckStatus {
+  const timingIds = input.items.filter((item) => item.source === "TIMING_RULE").map((item) => item.id);
+  if (timingIds.length === 0) return "none";
+  const state = stateFor(input.rawAck, timingIds, currentFingerprints(input.items), "UTC");
+  switch (state.kind) {
+    case "acknowledged":
+      return "current";
+    case "earlierVersion":
+      return "changed";
+    case "unreadable":
+      return "unreadable";
+    default:
+      return "notAcknowledged";
   }
 }

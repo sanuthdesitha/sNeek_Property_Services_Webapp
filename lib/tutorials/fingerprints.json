@@ -48,12 +48,12 @@
     ]
   },
   "admin.command": {
-    "version": 1,
-    "fingerprint": "719dbaa739576659"
+    "version": 2,
+    "fingerprint": "335a29b2f201b26c"
   },
   "admin.jobs": {
-    "version": 2,
-    "fingerprint": "f8c63e26d8e37798"
+    "version": 3,
+    "fingerprint": "0520c8cef5f035ec"
   },
   "admin.jobs.create": {
     "version": 1,
@@ -68,8 +68,8 @@
     "fingerprint": "6923fb3fa708cd91"
   },
   "cleaner.today": {
-    "version": 1,
-    "fingerprint": "09dfc930586a1f2e"
+    "version": 2,
+    "fingerprint": "4dcd86b9a5f83a4b"
   },
   "cleaner.job.practice": {
     "version": 1,

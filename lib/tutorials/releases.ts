@@ -24,6 +24,16 @@ export type ReleaseNote = {
 
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    release: "2026.11.17-guest-timing",
+    date: "2026-11-17",
+    author: "Guest timing tags and confirmation",
+    items: [
+      { change: "Jobs rows, phone cards and board cards say late checkout and early check-in in words (\"Late checkout · start after 11:00\"), instead of EARLY / LATE chips.", covered: { tourKey: "admin.jobs", version: 3, stepIds: ["timing"] } },
+      { change: "Command lists today's guest timing under the Today by cleaner bars, and the table view gains a Guest timing column.", covered: { tourKey: "admin.command", version: 2, stepIds: ["guestTiming"] } },
+      { change: "Offer cards on the cleaner's Today screen show the guest timing before Accept.", covered: { tourKey: "cleaner.today", version: 2, stepIds: ["offerTiming"] } },
+    ],
+  },
+  {
     release: "2026.11.17-qa-maintenance-tours",
     date: "2026-11-17",
     author: "QA and Maintenance page tours",

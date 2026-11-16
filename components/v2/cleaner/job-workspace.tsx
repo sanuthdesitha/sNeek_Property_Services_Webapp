@@ -82,6 +82,7 @@ import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 import { FinalCheckupDialog } from "@/components/v2/cleaner/final-checkup-dialog";
 import { StartBriefingDialog } from "@/components/v2/cleaner/start-briefing-dialog";
+import { TimingReconfirm, readTimingAckPayload } from "@/components/v2/cleaner/job-stages/timing-reconfirm";
 import {
   startBriefingHash,
   type ResolvedStartBriefingItem,
@@ -1749,6 +1750,16 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
           startTime={job?.startTime}
           dueTime={job?.dueTime}
           sameDayCheckin={{ active: job?.sameDayCheckin === true, time: job?.sameDayCheckinTime ?? null }}
+        />
+      ) : null}
+      {/* The office changed the guest timing after this cleaner confirmed it
+          (or they are working without a confirmation): read it again. */}
+      {!locked ? (
+        <TimingReconfirm
+          jobId={jobId}
+          ack={readTimingAckPayload(payload?.timingAck)}
+          jobUnderway={Boolean(ownStarted)}
+          onSaved={load}
         />
       ) : null}
 

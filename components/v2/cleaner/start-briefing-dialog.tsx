@@ -35,6 +35,7 @@ export function StartBriefingDialog({
   open,
   items,
   stale,
+  mode = "start",
   onClose,
   onComplete,
 }: {
@@ -42,6 +43,12 @@ export function StartBriefingDialog({
   items: ResolvedStartBriefingItem[];
   /** The items changed since a previous acknowledgement — say so. */
   stale?: boolean;
+  /**
+   * "start" (default): read before the clock starts. "reconfirm": the job is
+   * already underway and the office changed the briefing, so the last button
+   * confirms the reading and starts nothing.
+   */
+  mode?: "start" | "reconfirm";
   /** Dismiss without starting (the cleaner backed out). */
   onClose: () => void;
   /** Every item acknowledged — resolves with the ack entries in item order. */
@@ -97,7 +104,7 @@ export function StartBriefingDialog({
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--e-border))] px-4 py-3.5">
         <p className="e-eyebrow flex items-center gap-1.5">
-          <BookOpen className="h-4 w-4 text-[hsl(var(--e-gold))]" /> Before you start
+          <BookOpen className="h-4 w-4 text-[hsl(var(--e-gold))]" /> {mode === "reconfirm" ? "Read the change" : "Before you start"}
         </p>
         <div className="flex items-center gap-3">
           <span className="text-[0.8125rem] font-[600] tabular-nums text-[hsl(var(--e-text-secondary))]">
@@ -165,7 +172,7 @@ export function StartBriefingDialog({
         ) : null}
         <EButton variant="gold" className="flex-1" onClick={acknowledgeCurrent}>
           <CheckCircle2 className="h-4 w-4" />
-          {isLast ? "I've read this — start the job" : "I've read this"}
+          {isLast && mode === "start" ? "I've read this — start the job" : isLast ? "I've read this — confirm" : "I've read this"}
         </EButton>
         </div>
       </div>

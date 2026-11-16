@@ -21,7 +21,6 @@ import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
 import { TimingTags } from "@/components/v2/ui/timing-tags";
 import type { JobTimingBadges } from "@/lib/jobs/timing-badges";
 import { timingTagsFor, type TimingTag } from "@/lib/jobs/timing-tags";
-import { tourTarget } from "@/lib/tutorials/targets";
 import type { JobListRow } from "./jobs-query";
 
 const TZ = "Australia/Sydney";
@@ -121,7 +120,7 @@ export function FlagPills({ job }: { job: JobListRow }) {
   const skip = String(job.cleanSkipStatus ?? "");
   return (
     <>
-      <TimingTags {...tourTarget("admin.jobs.timing")} tags={rowTimingTags(job)} />
+      <TimingTags tags={rowTimingTags(job)} />
       {job.isRework ? <EBadge tone="aubergine" soft>Rework</EBadge> : null}
       {hasPayRequest ? <EBadge tone="info" soft>Pay request</EBadge> : null}
       {hasDamage ? <EBadge tone="danger" soft>Damage</EBadge> : null}

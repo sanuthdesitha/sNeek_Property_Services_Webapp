@@ -49,6 +49,13 @@ export interface StartBriefingAckEntry {
 export interface StartBriefingAck {
   /** Hash of the item set that was acknowledged — see `startBriefingHash`. */
   hash: string;
+  /**
+   * Hash of the TIMING_RULE items alone (`startBriefingTimingHash`), so the
+   * office can tell "the guest time changed since they confirmed it" apart
+   * from "another item was added". Absent on records written before
+   * 2026-11; readers then fall back to the whole-briefing `hash`.
+   */
+  timingHash?: string;
   items: StartBriefingAckEntry[];
 }
 
@@ -304,10 +311,30 @@ export function checkIncomingAckVersion(
   return items.some((item) => item.source === "TIMING_RULE") ? stale : { ok: true };
 }
 
+/**
+ * Fingerprint of the guest-timing items only (late checkout, early check-in).
+ * Same digest as `startBriefingHash`, over the TIMING_RULE subset.
+ */
+export function startBriefingTimingHash(
+  items: Array<Pick<ResolvedStartBriefingItem, "id" | "title" | "detail" | "source">>
+): string {
+  return startBriefingHash(items.filter((item) => item.source === "TIMING_RULE"));
+}
+
+type AckableItem = Pick<ResolvedStartBriefingItem, "id" | "title" | "detail"> &
+  Partial<Pick<ResolvedStartBriefingItem, "source">>;
+
 /** Build the ack record to persist from a completed dialog. */
 export function buildStartBriefingAck(
-  items: Array<Pick<ResolvedStartBriefingItem, "id" | "title" | "detail">>,
+  items: AckableItem[],
   entries: StartBriefingAckEntry[]
 ): StartBriefingAck {
-  return { hash: startBriefingHash(items), items: entries };
+  // The timing fingerprint needs every item's source; without it, leave it
+  // out rather than record a fingerprint of the wrong subset.
+  const sourced = items.every((item) => typeof item.source === "string");
+  return {
+    hash: startBriefingHash(items),
+    ...(sourced ? { timingHash: startBriefingTimingHash(items as ResolvedStartBriefingItem[]) } : {}),
+    items: entries,
+  };
 }

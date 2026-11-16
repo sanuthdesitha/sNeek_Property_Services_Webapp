@@ -29,6 +29,7 @@ import {
   validateStartBriefingAck,
   checkIncomingAckVersion,
 } from "@/lib/forms/start-briefing";
+import { loadStartBriefingItems } from "@/lib/forms/start-briefing-load";
 
 const schema = z.object({
   verificationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -294,36 +295,13 @@ export async function POST(
     // someone with a running clock.
     if (isFirstStartForCleaner) {
       const briefingMeta = parseJobInternalNotes(job.internalNotes);
-      const briefingTasks = await db.jobTask
-        .findMany({
-          // The same visibility rule the cleaner's task list uses. This query
-          // asked for EVERY task on the job, so client/office correspondence
-          // — reschedule requests, ETA chases, report requests — was read out
-          // to the cleaner before every clean.
-          where: { jobId: params.id, visibleToCleaner: true, executionStatus: "OPEN" },
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            source: true,
-            approvalStatus: true,
-            visibleToCleaner: true,
-            executionStatus: true,
-          },
-        })
-        .catch(() => []);
-      const briefingItems = resolveStartBriefingItems({
-        meta: briefingMeta,
-        jobTasks: briefingTasks.map((t) => ({
-          id: t.id,
-          title: t.title,
-          description: t.description,
-          source: String(t.source ?? ""),
-          approvalStatus: String(t.approvalStatus ?? ""),
-          visibleToCleaner: t.visibleToCleaner,
-          executionStatus: String(t.executionStatus ?? "OPEN"),
-        })),
-      });
+      // One loader for the gate, the re-confirm route and the cleaner's job
+      // payload (lib/forms/start-briefing-load.ts), so all three fingerprint
+      // the same list. It applies the cleaner visibility rule: client/office
+      // correspondence is never read out to the cleaner before a clean.
+      const briefingItems = await loadStartBriefingItems(params.id, briefingMeta, db).catch(() =>
+        resolveStartBriefingItems({ meta: briefingMeta, jobTasks: [] })
+      );
 
       // Accept the acknowledgement sent with THIS request, else fall back to
       // one already stored (the cleaner acked, then the POST failed for an
