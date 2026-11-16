@@ -131,9 +131,16 @@ export async function GET(
     // early-check-in / late-checkout chips (only enabled rules, resolved time).
     const earlyCheckinTime = resolveRuleTime(jobMeta.earlyCheckin);
     const lateCheckoutTime = resolveRuleTime(jobMeta.lateCheckout);
+    // A rule that is switched on but whose stored time cannot be read is named
+    // in `unreadable`, so the cleaner is told to confirm it rather than shown nothing.
+    const unreadableTimingRules = [
+      ...(jobMeta.earlyCheckin.enabled && !earlyCheckinTime ? ["earlyCheckin" as const] : []),
+      ...(jobMeta.lateCheckout.enabled && !lateCheckoutTime ? ["lateCheckout" as const] : []),
+    ];
     const timingRules = {
       ...(earlyCheckinTime ? { earlyCheckin: { time: earlyCheckinTime } } : {}),
       ...(lateCheckoutTime ? { lateCheckout: { time: lateCheckoutTime } } : {}),
+      ...(unreadableTimingRules.length > 0 ? { unreadable: unreadableTimingRules } : {}),
     };
 
     // Where the cleaner collects keys (from the quote's service context), surfaced

@@ -10,6 +10,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { getDashboardMetrics } from "@/lib/admin/dashboard";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { resolveTimingBadges } from "@/lib/jobs/timing-badges";
 import { STATUS_LABELS } from "@/lib/jobs/status-labels";
 import { loadLiveBoard } from "@/lib/ops/live-board";
 import { addDaysToKey, sydneyTodayKey } from "@/lib/time/sydney-range";
@@ -77,6 +78,7 @@ async function upcoming(todayKey: string): Promise<GlanceUpcoming[]> {
       when: `${formatInTimeZone(job.scheduledDate, "UTC", "EEE d MMM")}${job.startTime ? ` · ${job.startTime}` : ""}`,
       jobType: titleCase(job.jobType),
       statusLabel: STATUS_LABELS[job.status] ?? titleCase(job.status),
+      timingBadges: resolveTimingBadges(job.internalNotes),
     }));
 }
 

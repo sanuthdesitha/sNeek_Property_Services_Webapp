@@ -10,6 +10,8 @@
 import Link from "next/link";
 import { Star } from "lucide-react";
 import { EPill } from "@/components/v2/ui/pill";
+import { TimingTags } from "@/components/v2/ui/timing-tags";
+import { timingRuleTagsFor } from "@/lib/jobs/timing-tags";
 import type { GlancePayload } from "@/lib/dashboard/command-types";
 import { JOBS_TODAY_HREF, LAUNDRY_HREF, LIVE_OPS_HREF } from "@/lib/dashboard/work-queue-links";
 import { SectionBody } from "./section-state";
@@ -71,6 +73,7 @@ function UpcomingCard({ data }: { data: GlancePayload }) {
                 <span className="min-w-0">
                   <span className="block truncate text-[0.8125rem] font-[550]">{job.propertyName}</span>
                   <span className="block truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{job.when} · {job.jobType}</span>
+                  <TimingTags size="sm" className="mt-1" tags={timingRuleTagsFor(job.timingBadges)} />
                 </span>
                 <EPill>{job.statusLabel}</EPill>
               </Link>

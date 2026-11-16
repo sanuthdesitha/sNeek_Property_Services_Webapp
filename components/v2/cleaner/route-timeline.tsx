@@ -146,7 +146,7 @@ const routeStopsSchema = z.array(z.object({
   startTime: z.string().nullable(),
   jobType: z.string().optional(),
   dueTime: z.string().nullable().optional(),
-  timingBadges: z.object({ early: z.string().optional(), late: z.string().optional() }).nullable().optional(),
+  timingBadges: z.object({ early: z.string().optional(), late: z.string().optional(), earlyInvalid: z.literal(true).optional(), lateInvalid: z.literal(true).optional() }).nullable().optional(),
   sameDayCheckin: z.boolean().optional(),
   sameDayCheckinTime: z.string().nullable().optional(),
   estimatedHours: z.number().finite().nullable().optional(),

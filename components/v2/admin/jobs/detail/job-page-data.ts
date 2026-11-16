@@ -5,6 +5,8 @@
 import type { JobContinuationRow, TaskRequestRow } from "@/components/v2/admin/jobs/job-detail-reviews";
 import type { SubmissionRow } from "@/components/v2/admin/jobs/submission-review";
 import type { BriefingProof } from "@/lib/jobs/job-page/briefing";
+import type { TimingAckSummary } from "@/lib/jobs/job-page/timing-ack";
+import type { TimingTag } from "@/lib/jobs/timing-tags";
 import type { JobPageJob, JobPageRelated } from "@/lib/jobs/job-page/load";
 import type { JobPageManageJob } from "@/lib/jobs/job-page/rows";
 import type { JobPageModel, JobPageViewer } from "@/lib/jobs/job-page/view-model";
@@ -33,6 +35,10 @@ export type JobPageData = {
   manageJob: JobPageManageJob;
   panelAssignments: JobPanelAssignment[];
   briefing: BriefingProof;
+  /** Guest-timing tags for the header (late checkout, early / same-day check-in). */
+  timingTags: TimingTag[];
+  /** Whether each cleaner acknowledged the timing rules at start, from the stored record. */
+  timingAck: TimingAckSummary;
   pendingTaskCount: number;
   pendingContinuationCount: number;
 };

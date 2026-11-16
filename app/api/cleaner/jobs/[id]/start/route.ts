@@ -27,6 +27,7 @@ import {
   buildStartBriefingAck,
   resolveStartBriefingItems,
   validateStartBriefingAck,
+  checkIncomingAckVersion,
 } from "@/lib/forms/start-briefing";
 
 const schema = z.object({
@@ -46,6 +47,11 @@ const schema = z.object({
     .array(z.object({ itemId: z.string().trim().min(1), at: z.string().optional() }))
     .max(60)
     .optional(),
+  /**
+   * Fingerprint (`startBriefingHash`) of the briefing the cleaner was shown,
+   * so an acknowledgement given before an admin edit cannot cover the edit.
+   */
+  startBriefingHash: z.string().trim().min(1).max(64).optional(),
   /**
    * Where THIS cleaner is as THIS clock segment starts (live location
    * 2026-11). Required for every start and resume — teammates included —
@@ -326,7 +332,12 @@ export async function POST(
       const incomingAck = body.startBriefingAck
         ? buildStartBriefingAck(briefingItems, body.startBriefingAck)
         : null;
-      const check = validateStartBriefingAck(briefingItems, incomingAck ?? storedAck);
+      const versionCheck = incomingAck
+        ? checkIncomingAckVersion(briefingItems, body.startBriefingHash)
+        : ({ ok: true } as const);
+      const check = versionCheck.ok
+        ? validateStartBriefingAck(briefingItems, incomingAck ?? storedAck)
+        : versionCheck;
       if (!check.ok) {
         return NextResponse.json(
           {

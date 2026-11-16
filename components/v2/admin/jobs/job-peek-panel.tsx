@@ -14,12 +14,27 @@ import { cn } from "@/lib/utils";
 import { ESidePanel } from "@/components/v2/ui/side-panel";
 import { EButton } from "@/components/v2/ui/primitives";
 import { jobDetailTabHref } from "@/lib/jobs/detail-tabs";
-import { JobStatusPill, jobTypeLabel, scheduledLabel, timeWindowLabel } from "./job-row";
+import { TimingTags } from "@/components/v2/ui/timing-tags";
+import { timingTagsFor, type TimingTag } from "@/lib/jobs/timing-tags";
+import type { JobPeekSummary } from "@/lib/jobs/peek-types";
+import { JobStatusPill, jobTypeLabel, rowTimingTags, scheduledLabel, timeWindowLabel } from "./job-row";
 import type { JobListRow } from "./jobs-query";
 import { PeekActivity, PeekMoney, PeekPeople, PeekSuggestions, PeekSummaryList, SectionState } from "./peek-sections";
 import { PEEK_TABS, useJobPeek } from "./use-job-peek";
 import { CancelJobDialog } from "./cancel-job-dialog";
 import { RestoreJobControl } from "./restore-job-control";
+
+/** Guest timing for the preview: the loaded Summary wins; the list row stands in while it loads. */
+function peekTimingTags(summary: JobPeekSummary | null, row: JobListRow | null): TimingTag[] {
+  if (summary) {
+    return timingTagsFor({
+      timingBadges: summary.timingBadges ?? null,
+      sameDayCheckin: summary.sameDayCheckin === true,
+      sameDayCheckinTime: summary.sameDayCheckinTime ?? null,
+    });
+  }
+  return row ? rowTimingTags(row) : [];
+}
 
 type PeekPanelProps = {
   jobId: string | null;
@@ -65,6 +80,7 @@ export function JobPeekPanel({ jobId, row, readOnly, onClose, onChanged }: PeekP
         </>
       }
     >
+      <TimingTags className="flex" tags={peekTimingTags(summary, row)} />
       <div role="group" aria-label="Preview sections" className="flex gap-1 border-b border-[hsl(var(--e-border))]">
         {PEEK_TABS.map((tab) => (
           <button

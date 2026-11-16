@@ -86,7 +86,9 @@ export const jobListRowSchema = z.object({
   assignments: z.array(z.object({
     user: z.object({ id: nullableText, name: nullableText, email: nullableText }).passthrough().nullish(),
   }).passthrough()).optional(),
-  timingBadges: z.object({ early: nullableText, late: nullableText }).passthrough().nullish(),
+  timingBadges: z.object({ early: nullableText, late: nullableText, earlyInvalid: z.boolean().nullish(), lateInvalid: z.boolean().nullish() }).passthrough().nullish(),
+  sameDayCheckin: z.boolean().nullish(),
+  sameDayCheckinTime: nullableText,
   payAdjustments: z.array(z.unknown()).optional(),
   issueTickets: z.array(z.unknown()).optional(),
   guestIn: jobGuestInSchema.optional(),

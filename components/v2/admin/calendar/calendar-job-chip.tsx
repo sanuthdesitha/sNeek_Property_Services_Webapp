@@ -16,6 +16,7 @@ import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
 import type { DropPoint } from "@/lib/calendar/drop";
 import { CHIP_CATEGORY_LABEL, CHIP_CATEGORY_TEXT, chipCategory, type ChipCategory } from "@/lib/calendar/presentation";
 import type { CalendarJob } from "@/lib/calendar/types";
+import { timingRuleTagsFor, timingTagsSentence } from "@/lib/jobs/timing-tags";
 
 export type ChipActions = {
   readOnly: boolean;
@@ -64,6 +65,8 @@ export function chipDescription(job: CalendarJob): string {
     cleanerSummary(job),
   ];
   if (job.propertyMissingName) parts.push("no linked property name");
+  const timing = timingTagsSentence(timingRuleTagsFor(job.timingBadges));
+  if (timing) parts.push(timing);
   return parts.join(" · ");
 }
 
@@ -104,6 +107,7 @@ export function CalendarJobChip({ job, source, actions, showArrival, showCleaner
   const dragHint = draggable ? "Drag to another day or cleaner (on touch, press and hold first), or use the menu." : "Use the menu to move or reassign.";
   const hint = pending ? "A move for this job is being checked or saved." : job.moveBlock ?? (actions.readOnly ? "Read-only view: jobs cannot be moved." : dragHint);
   const menu = chipMenuItems(job, source, actions, pending);
+  const timingTags = timingRuleTagsFor(job.timingBadges);
 
   return (
     <div
@@ -136,6 +140,13 @@ export function CalendarJobChip({ job, source, actions, showArrival, showCleaner
           {suffix ? <span className="shrink-0">· {suffix}</span> : null}
         </span>
         {showCleaner && job.cleaners.length > 0 ? <span className="block truncate opacity-80">{cleanerSummary(job)}</span> : null}
+        {/* Guest timing in the shared wording; the chip is narrow, so each rule
+            is its own line and the full text is in the label and the preview. */}
+        {timingTags.map((tag) => (
+          <span key={tag.key} className={cn("block truncate font-[600]", tag.tone === "danger" ? "text-[hsl(var(--e-danger))]" : "text-[hsl(var(--e-warning))]")}>
+            {tag.label}
+          </span>
+        ))}
         {showArrival && job.guestArrival ? (
           <span className="block truncate">Guest in {job.guestArrival.time ?? "(time not set)"}</span>
         ) : null}

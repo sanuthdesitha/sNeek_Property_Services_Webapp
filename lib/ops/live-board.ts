@@ -7,6 +7,7 @@
 import { JobStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { resolveTimingBadges } from "@/lib/jobs/timing-badges";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { computeChecklistProgressPercent } from "@/lib/jobs/progress";
 import { parseRouteStops } from "@/lib/laundry/route-plan";
@@ -141,6 +142,7 @@ async function buildJobRow(
   return {
     jobId: job.id, jobNumber: job.jobNumber, propertyName: job.property.name, suburb: job.property.suburb, status: job.status,
     state: classification.state, startTime: job.startTime, dueTime: job.dueTime, sameDayCheckinTime: job.sameDayCheckinTime, cleaners,
+    timingBadges: resolveTimingBadges(job.internalNotes),
     minutes: classification.minutes,
     etaClock: classification.projectedArrival ? clockLabel(classification.projectedArrival, timeZone) : null,
     distanceMeters: classification.state === "off-site" ? chosen?.state.distanceMeters ?? null : null,

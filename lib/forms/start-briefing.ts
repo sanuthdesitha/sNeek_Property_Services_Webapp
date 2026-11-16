@@ -117,6 +117,15 @@ export function resolveStartBriefingItems(input: {
       detail: "Guests are still in the property until then. Do not enter or begin the clean.",
       source: "TIMING_RULE",
     });
+  } else if (input.meta.lateCheckout?.enabled) {
+    // Switched on, but the stored time cannot be read. Never skip it: the
+    // cleaner must confirm the time rather than assume the house is empty.
+    items.push({
+      id: LATE_CHECKOUT_ITEM_ID,
+      title: "Late checkout: start time not confirmed",
+      detail: "Guests may still be in the property. Confirm the start time with the office before you enter.",
+      source: "TIMING_RULE",
+    });
   }
   const early = resolveRuleTime(input.meta.earlyCheckin);
   if (early) {
@@ -124,6 +133,13 @@ export function resolveStartBriefingItems(input: {
       id: EARLY_CHECKIN_ITEM_ID,
       title: `Property must be guest-ready by ${early}`,
       detail: "New guests check in early. Everything must be finished and reset before this time.",
+      source: "TIMING_RULE",
+    });
+  } else if (input.meta.earlyCheckin?.enabled) {
+    items.push({
+      id: EARLY_CHECKIN_ITEM_ID,
+      title: "Early check-in: ready-by time not confirmed",
+      detail: "New guests check in early. Confirm with the office when the property must be guest-ready.",
       source: "TIMING_RULE",
     });
   }
@@ -263,6 +279,29 @@ export function validateStartBriefingAck(
     return { ok: false, reason: "STALE", missingIds: items.map((i) => i.id) };
   }
   return { ok: true };
+}
+
+/**
+ * Was the acknowledgement sent with a start request given for the items as
+ * they stand NOW?
+ *
+ * The server rebuilds the ack record from the ids the cleaner tapped, so ids
+ * alone would let a dialog opened before an edit ("start after 11:00")
+ * satisfy the edited briefing ("start after 12:30"): same id, new text. The
+ * client therefore echoes the fingerprint of the list it showed. An older
+ * client that sends no fingerprint is still accepted for briefings without a
+ * timing rule; a timing rule always needs the fingerprint, because that is the
+ * one instruction a cleaner cannot undo once they have walked in.
+ */
+export function checkIncomingAckVersion(
+  items: Array<Pick<ResolvedStartBriefingItem, "id" | "title" | "detail" | "source">>,
+  seenHash: string | null | undefined
+): { ok: true } | { ok: false; reason: "STALE"; missingIds: string[] } {
+  if (!Array.isArray(items) || items.length === 0) return { ok: true };
+  const stale = { ok: false as const, reason: "STALE" as const, missingIds: items.map((item) => item.id) };
+  const seen = typeof seenHash === "string" ? seenHash.trim() : "";
+  if (seen) return seen === startBriefingHash(items) ? { ok: true } : stale;
+  return items.some((item) => item.source === "TIMING_RULE") ? stale : { ok: true };
 }
 
 /** Build the ack record to persist from a completed dialog. */

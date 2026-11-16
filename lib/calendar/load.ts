@@ -7,6 +7,7 @@ import { loadLeaveForUsers } from "@/lib/accounts/leave";
 import { leaveOnDay, leaveReason, type LeaveEntry } from "@/lib/accounts/leave-rules";
 import { dayAvailabilityBlocker } from "@/lib/jobs/cleaner-suggestions";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { resolveTimingBadges } from "@/lib/jobs/timing-badges";
 import { addDaysToKey, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { calendarMoveBlock } from "./move-rules";
 import { HOURS_BASIS, chipCategory, guestArrivalOnDay, isJobLate, jobScheduledHours } from "./presentation";
@@ -92,6 +93,7 @@ function toCalendarJob(record: JobRecord, now: Date): CalendarJob {
       sameDayCheckinTime: record.sameDayCheckinTime,
       manuallyRescheduled: record.manuallyRescheduledAt != null,
     }),
+    timingBadges: resolveTimingBadges(record.internalNotes),
     moveBlock: calendarMoveBlock({ status: String(record.status), skipped, isDraft: meta.isDraft }),
     updatedAt: record.updatedAt.toISOString(),
     qa: qa

@@ -82,9 +82,10 @@ import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 import { FinalCheckupDialog } from "@/components/v2/cleaner/final-checkup-dialog";
 import { StartBriefingDialog } from "@/components/v2/cleaner/start-briefing-dialog";
-import type {
-  ResolvedStartBriefingItem,
-  StartBriefingAckEntry,
+import {
+  startBriefingHash,
+  type ResolvedStartBriefingItem,
+  type StartBriefingAckEntry,
 } from "@/lib/forms/start-briefing";
 import type {
   FinalCheckupAckEntry,
@@ -1034,7 +1035,9 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   async function clockIn(
     offSiteArg?: { code: string; note: string },
     /** Replayed on the retry that follows the start-briefing dialog. */
-    briefingAck?: StartBriefingAckEntry[]
+    briefingAck?: StartBriefingAckEntry[],
+    /** Fingerprint of the briefing the dialog showed, so an edit made meanwhile is caught. */
+    briefingHash?: string
   ) {
     if (onlineAction.blocked) { flash("danger", onlineAction.uncertain ? "Check the latest server status before clocking in." : "Clock-in needs a connection."); return; }
     // `clockIn` is also wired straight to onClick in places, which would pass a
@@ -1113,6 +1116,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         propertyCodeConfirmed,
         laundryBagConfirmed,
         ...(briefingAck ? { startBriefingAck: briefingAck } : {}),
+        ...(briefingAck && briefingHash ? { startBriefingHash: briefingHash } : {}),
         ...(startFix ? {
           startLocation: {
             lat: startFix.lat,
@@ -1951,8 +1955,10 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         stale={briefingPrompt?.stale}
         onClose={() => setBriefingPrompt(null)}
         onComplete={(ack) => {
+          // Fingerprint what was READ, before the prompt (and its items) is cleared.
+          const shownHash = startBriefingHash(briefingPrompt?.items ?? []);
           setBriefingPrompt(null);
-          void clockIn(undefined, ack);
+          void clockIn(undefined, ack, shownHash);
         }}
       />
 

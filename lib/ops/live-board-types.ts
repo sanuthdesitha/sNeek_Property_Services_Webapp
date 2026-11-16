@@ -3,6 +3,8 @@
  * Free of server imports.
  */
 
+import type { JobTimingBadges } from "@/lib/jobs/timing-badges";
+
 export type LiveExceptionKind = "late" | "off-site" | "continuation" | "not-started";
 
 export type LiveJobState = "late" | "off-site" | "not-started" | "on-site" | "travelling" | "planned" | "done";
@@ -40,6 +42,8 @@ export type LiveJobRow = {
   startTime: string | null;
   dueTime: string | null;
   sameDayCheckinTime: string | null;
+  /** Late checkout / early check-in rules (`resolveTimingBadges`); absent or null when neither is on. */
+  timingBadges?: JobTimingBadges | null;
   cleaners: LiveCleanerRef[];
   /** Minutes behind (late), past start (not started) or away (off site); null when unknown. */
   minutes: number | null;

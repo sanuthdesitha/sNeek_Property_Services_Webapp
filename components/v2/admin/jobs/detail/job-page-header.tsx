@@ -16,6 +16,7 @@ import { JobHeaderActions } from "./job-header-actions";
 import { titleCase, type JobPageData } from "./job-page-data";
 import { CancelledLead } from "./job-restore";
 import { JobSuggestions } from "./job-suggestions";
+import { JobGuestTiming } from "./job-timing";
 
 function FactCard({ fact }: { fact: JobFact }) {
   return (
@@ -174,6 +175,7 @@ export function JobPageHeader({ data, now, initialOpen }: { data: JobPageData; n
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
         {model.facts.map((fact) => <FactCard key={fact.key} fact={fact} />)}
       </div>
+      <JobGuestTiming tags={data.timingTags} ack={data.timingAck} />
       <Lead data={data} now={now} />
       {model.blockers.length > 0 ? (
         <section aria-label="Needs attention" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-warning)/0.4)] bg-[hsl(var(--e-warning-soft))] px-4 py-3 text-[0.8125rem] max-sm:flex-col max-sm:items-stretch max-sm:gap-0">
