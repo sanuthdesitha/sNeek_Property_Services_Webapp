@@ -158,9 +158,11 @@ export function timingAckSentence(row: TimingAckRow): string {
   const who = row.assigned ? row.name : `${row.name} (no longer on this job)`;
   switch (row.state.kind) {
     case "acknowledged":
+      // "the current timing", not "at start": a re-confirmation after an
+      // office change (briefing-ack route) is stored the same way.
       return row.state.atLabel
-        ? `${who} acknowledged at start · ${row.state.atLabel}`
-        : `${who} acknowledged at start · time not recorded`;
+        ? `${who} acknowledged the current timing · ${row.state.atLabel}`
+        : `${who} acknowledged the current timing · time not recorded`;
     case "earlierVersion":
       return `${who}: not acknowledged for the current timing. Their confirmation${row.state.atLabel ? ` (${row.state.atLabel})` : ""} was for an earlier version, changed since.`;
     case "unreadable":

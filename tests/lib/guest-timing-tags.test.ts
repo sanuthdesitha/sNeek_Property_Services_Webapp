@@ -157,7 +157,7 @@ describe("admin job page: was the timing acknowledged?", () => {
     const summary = buildTimingAckSummary({ meta, tasks: [], cleaners, names: new Map(), timeZone: TZ });
     if (summary.kind !== "rows") throw new Error("rows expected");
     expect(summary.rows[0].state).toEqual({ kind: "acknowledged", atLabel: "20 Nov 2026 · 11:10" });
-    expect(timingAckSentence(summary.rows[0])).toBe("Cleaner One acknowledged at start · 20 Nov 2026 · 11:10");
+    expect(timingAckSentence(summary.rows[0])).toBe("Cleaner One acknowledged the current timing · 20 Nov 2026 · 11:10");
   });
 
   it("an acknowledgement of 11:00 is not counted after the time moves to 12:30", () => {

@@ -61,18 +61,18 @@ describe("admin job page guest timing", () => {
     const section = screen.getByRole("region", { name: "Guest timing" });
     expect(within(section).getByText("Late checkout · start after 11:00")).toBeVisible();
     expect(within(section).getByText("Cleaner One: not acknowledged yet")).toBeVisible();
-    expect(within(section).queryByText(/acknowledged at start/)).toBeNull();
+    expect(within(section).queryByText(/acknowledged the current timing/)).toBeNull();
   });
 
   it("names who acknowledged and when", () => {
     render(<JobGuestTiming tags={tags} ack={{ kind: "rows", rows: [{ userId: "c1", name: "Cleaner One", assigned: true, state: { kind: "acknowledged", atLabel: "20 Nov 2026 · 11:10" } }] }} />);
-    expect(screen.getByText("Cleaner One acknowledged at start · 20 Nov 2026 · 11:10")).toBeVisible();
+    expect(screen.getByText("Cleaner One acknowledged the current timing · 20 Nov 2026 · 11:10")).toBeVisible();
   });
 
   it("says the record could not be read, never acknowledged", () => {
     render(<JobGuestTiming tags={tags} ack={{ kind: "error" }} />);
     expect(screen.getByText(/could not be read/)).toBeVisible();
-    expect(screen.queryByText(/acknowledged at start/)).toBeNull();
+    expect(screen.queryByText(/acknowledged the current timing/)).toBeNull();
   });
 
   it("renders nothing for a job without guest timing", () => {
