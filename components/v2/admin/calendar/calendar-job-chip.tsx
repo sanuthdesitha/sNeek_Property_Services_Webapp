@@ -17,6 +17,7 @@ import type { DropPoint } from "@/lib/calendar/drop";
 import { CHIP_CATEGORY_LABEL, CHIP_CATEGORY_TEXT, chipCategory, type ChipCategory } from "@/lib/calendar/presentation";
 import type { CalendarJob } from "@/lib/calendar/types";
 import { timingRuleTagsFor, timingTagsSentence } from "@/lib/jobs/timing-tags";
+import { TimingTags } from "@/components/v2/ui/timing-tags";
 
 export type ChipActions = {
   readOnly: boolean;
@@ -140,13 +141,10 @@ export function CalendarJobChip({ job, source, actions, showArrival, showCleaner
           {suffix ? <span className="shrink-0">· {suffix}</span> : null}
         </span>
         {showCleaner && job.cleaners.length > 0 ? <span className="block truncate opacity-80">{cleanerSummary(job)}</span> : null}
-        {/* Guest timing in the shared wording; the chip is narrow, so each rule
-            is its own line and the full text is in the label and the preview. */}
-        {timingTags.map((tag) => (
-          <span key={tag.key} className={cn("block truncate font-[600]", tag.tone === "danger" ? "text-[hsl(var(--e-danger))]" : "text-[hsl(var(--e-warning))]")}>
-            {tag.label}
-          </span>
-        ))}
+        {/* Guest timing with the shared tag component: the chip is narrow, so
+            the tags wrap rather than cut "Late checkout · start after 11:00"
+            down to "Late ch…". The full text is also in the chip's label. */}
+        <TimingTags size="sm" className="mt-0.5 flex" tags={timingTags} />
         {showArrival && job.guestArrival ? (
           <span className="block truncate">Guest in {job.guestArrival.time ?? "(time not set)"}</span>
         ) : null}

@@ -15,6 +15,8 @@ import { JobGuestTiming } from "@/components/v2/admin/jobs/detail/job-timing";
 import { guestTimingToday } from "@/components/v2/admin/command/today-by-cleaner";
 import { TimingReconfirm, readTimingAckPayload, timingReconfirmNeeded } from "@/components/v2/cleaner/job-stages/timing-reconfirm";
 import { timingTagsFor } from "@/lib/jobs/timing-tags";
+import { CalendarJobChip, type ChipActions } from "@/components/v2/admin/calendar/calendar-job-chip";
+import type { CalendarJob } from "@/lib/calendar/types";
 import type { ResolvedStartBriefingItem } from "@/lib/forms/start-briefing";
 import type { TodayByCleanerPayload } from "@/lib/dashboard/command-types";
 
@@ -76,6 +78,22 @@ describe("admin job page guest timing", () => {
   it("renders nothing for a job without guest timing", () => {
     const { container } = render(<JobGuestTiming tags={[]} ack={{ kind: "none" }} />);
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("admin calendar chip", () => {
+  it("shows the whole worded tag (wrapping, not cut to \"Late ch…\") and says it in the chip's label", () => {
+    const job = {
+      id: "j1", jobNumber: "J1", propertyId: "p", propertyName: "Harbour Loft", propertyMissingName: false, suburb: null, clientId: null, clientName: null,
+      jobType: "AIRBNB_TURNOVER", status: "ASSIGNED", day: "2026-11-20", startTime: "11:30", endTime: null, dueTime: "13:00", estimatedHours: 1.5, hours: 1.5,
+      cleaners: [{ id: "c1", name: "Cleaner One", isPrimary: true }], skipped: false, late: false, guestArrival: null,
+      timingBadges: { late: "11:00", early: "13:00" }, moveBlock: null, updatedAt: "2026-11-16T00:00:00.000Z", qa: null,
+    } as unknown as CalendarJob;
+    const actions: ChipActions = { readOnly: true, canDrag: false, onOpen: vi.fn(), onMove: vi.fn(), onAssign: vi.fn(), onQa: vi.fn(), onPointerDown: vi.fn(), consumeClickSuppression: () => false };
+    render(<CalendarJobChip job={job} source={{ lane: "cleaner", rowId: "c1", day: "2026-11-20" } as never} actions={actions} showArrival={false} />);
+    const late = screen.getByText("Late checkout · start after 11:00");
+    expect(late.className).not.toContain("truncate");
+    expect(screen.getByText("Early check-in · ready by 13:00")).toBeInTheDocument();
   });
 });
 
