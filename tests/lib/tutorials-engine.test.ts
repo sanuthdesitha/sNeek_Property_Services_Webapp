@@ -28,9 +28,14 @@ function context(partial: Partial<AutoRunContext> = {}): AutoRunContext {
 }
 
 // Pinned to the Jobs tour's first version so these engine cases do not move when the
-// real tour is bumped (it went to version 2 on 2026-11-16, "Everyday dialogs and sheets").
+// real tour is bumped (it went to version 2 on 2026-11-16, "Everyday dialogs and sheets",
+// and to version 3 on 2026-11-17 with the "timing" step, left out here).
 const liveJobs = findTour("admin.jobs")!;
-const jobs: TourDefinition = { ...liveJobs, version: 1, steps: liveJobs.steps.map((step) => ({ ...step, since: 1 })) };
+const jobs: TourDefinition = {
+  ...liveJobs,
+  version: 1,
+  steps: liveJobs.steps.filter((step) => step.since <= 2).map((step) => ({ ...step, since: 1 })),
+};
 
 /** The Jobs tour after a release that changed step 2 (board "Tutorials", section 6). */
 const jobsV2: TourDefinition = {

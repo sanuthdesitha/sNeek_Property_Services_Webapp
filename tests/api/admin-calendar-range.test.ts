@@ -87,7 +87,7 @@ describe("GET /api/admin/calendar", () => {
     expect(body.jobs.map((job: { id: string }) => job.id)).toEqual(["j1", "open"]);
     expect(Object.keys(body.jobs[0]).sort()).toEqual([
       "cleaners", "clientId", "clientName", "day", "dueTime", "endTime", "estimatedHours", "guestArrival", "hours", "id", "jobNumber",
-      "jobType", "late", "moveBlock", "propertyId", "propertyMissingName", "propertyName", "qa", "skipped", "startTime", "status", "suburb", "updatedAt",
+      "jobType", "late", "moveBlock", "propertyId", "propertyMissingName", "propertyName", "qa", "skipped", "startTime", "status", "suburb", "timingBadges", "updatedAt",
     ]);
     expect(body.summary).toMatchObject({ jobs: 2, withoutCleaner: 1, skipped: 0 });
     expect(body.hoursBasis).toMatch(/estimated hours/);
