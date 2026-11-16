@@ -77,6 +77,19 @@ describe("GET /api/admin/calendar", () => {
     expect(body.range.days).toHaveLength(7);
   });
 
+  it("attaches each job's guest-timing rules on the server, worded the same everywhere", async () => {
+    m.jobs.mockResolvedValue([
+      jobRecord({ internalNotes: JSON.stringify({ version: 1, lateCheckout: { enabled: true, preset: "11:00" }, earlyCheckin: { enabled: true, preset: "custom", time: "13:00" } }) }),
+      jobRecord({ id: "plain" }),
+    ]);
+    const body = await (await get("start=2026-11-09&end=2026-11-15")).json();
+    expect(body.jobs[0].timingBadges).toEqual({ late: "11:00", early: "13:00" });
+    expect(body.jobs[0].internalNotes).toBeUndefined();
+    expect(body.jobs[1].timingBadges).toBeNull();
+    const { chipDescription } = await import("@/components/v2/admin/calendar/calendar-job-chip");
+    expect(chipDescription(body.jobs[0])).toContain("Late checkout · start after 11:00; Early check-in · ready by 13:00");
+  });
+
   it("returns the slim shape without notes, and excludes drafts from jobs and counts", async () => {
     m.jobs.mockResolvedValue([
       jobRecord(),

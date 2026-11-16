@@ -48,6 +48,17 @@ describe("loadLiveBoard", () => {
     expect(board.counts.cleanersOnShift).toBe(12);
   });
 
+  it("attaches each job's guest-timing rules on the server, for Command's Today by cleaner", async () => {
+    m.jobs.mockResolvedValue([
+      job("t1", { internalNotes: serializeJobInternalNotes({ lateCheckout: { enabled: true, preset: "12:30" }, earlyCheckin: { enabled: true, preset: "custom", time: "15:00" } }) }),
+      job("t2"),
+    ]);
+    const board = await loadLiveBoard({ now: NOW, withProgress: false });
+    const byId = new Map(board.jobs.map((row) => [row.jobId, row]));
+    expect(byId.get("t1")?.timingBadges).toEqual({ late: "12:30", early: "15:00" });
+    expect(byId.get("t2")?.timingBadges).toBeNull();
+  });
+
   it("counts states for the chips and adds continuation requests to the exceptions", async () => {
     m.jobs.mockResolvedValue([
       job("late"),
