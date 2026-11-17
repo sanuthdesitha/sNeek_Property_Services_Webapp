@@ -15,6 +15,7 @@ import { assertHolidayRateSnapshots } from "@/lib/finance/holiday-rates";
 import { issueInvoiceNumber } from "@/lib/billing/invoice-sequence";
 import { buildMaintenanceInvoiceLines } from "@/lib/billing/maintenance-billing";
 import { groupInvoiceLines, shouldGroupInvoice } from "@/lib/billing/invoice-grouping";
+import { withSectionProperty, xeroLineOrder } from "@/lib/billing/client-invoice-xero-lines";
 import { isCreditNoteDocument, pdfClientNoteHtml, pdfDocumentTitle, pdfDueLine, pdfHeaderExtrasHtml, pdfMoney } from "./client-invoice-pdf-parts";
 import { effectivePaymentTermsDays, paymentTermsDaysFrom } from "./invoice-due";
 import { LIVE_INVOICE_WHERE } from "@/lib/invoicing/invoiced-job-rule";
@@ -1002,13 +1003,15 @@ export async function buildClientInvoiceXeroCsv(invoice: NonNullable<Awaited<Ret
     "AccountCode",
     "Reference",
   ];
-  const rows = invoice.lines.map((line) => [
+  // The PDF's order (grouped by property across properties), the same rule
+  // the API push uses, so an imported CSV reads like the PDF too.
+  const rows = xeroLineOrder(invoice.lines).lines.map(({ line, sectionProperty }) => [
     invoice.client.name,
     invoice.client.email || "",
     invoice.invoiceNumber,
     format(new Date(invoice.createdAt), "yyyy-MM-dd"),
     format(new Date(invoice.periodEnd || invoice.createdAt), "yyyy-MM-dd"),
-    line.description,
+    withSectionProperty(line.description, sectionProperty),
     line.quantity.toFixed(2),
     line.unitPrice.toFixed(2),
     shoppingXeroMapping(line.category, integrationSettings.xero, taxType).taxType ?? taxType,
