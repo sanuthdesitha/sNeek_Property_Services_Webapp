@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { format } from "date-fns";
+import { describeUploadContext } from "@/lib/uploads/failure-context";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +68,11 @@ export default async function UploadFailuresPage() {
                       <StatusPill variant="danger">{f.reason}</StatusPill>
                       {f.message && (
                         <p className="mt-1 text-xs text-muted-foreground">{f.message}</p>
+                      )}
+                      {describeUploadContext(f.context) && (
+                        <p className="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                          {describeUploadContext(f.context)}
+                        </p>
                       )}
                     </td>
                     <td className="p-3">

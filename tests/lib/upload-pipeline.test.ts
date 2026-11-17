@@ -35,7 +35,7 @@ vi.mock("@/lib/geo/get-position", () => ({
  * into the same concurrency counters.
  */
 const multipartHooks: {
-  run?: (file: { name: string; size: number }, onProgress?: (p: any) => void) => Promise<any>;
+  run?: (file: { name: string; size: number }, onProgress?: (p: any) => void, transfer?: any, signal?: AbortSignal) => Promise<any>;
 } = {};
 
 vi.mock("@/lib/uploads/multipart-client", () => ({
@@ -47,12 +47,14 @@ vi.mock("@/lib/uploads/multipart-client", () => ({
       onProgress?: (p: any) => void,
       _signal?: AbortSignal,
       folder?: string,
-      onAllocated?: (allocation: { key: string; uploadId: string }) => Promise<void>
+      onAllocated?: (allocation: { key: string; uploadId: string }) => Promise<void>,
+      _resume?: unknown,
+      transfer?: any
     ) => {
       if (!multipartHooks.run) throw new Error("multipart fake not installed");
       const allocation = { key: `${folder}/cleaner/${filename}`, uploadId: `upload-${filename}` };
       await onAllocated?.(allocation);
-      const receipt = await multipartHooks.run({ name: filename, size: blob.size }, onProgress);
+      const receipt = await multipartHooks.run({ name: filename, size: blob.size }, onProgress, transfer, _signal);
       return onAllocated ? { ...receipt, key: allocation.key } : receipt;
     }
   ),
@@ -492,4 +494,110 @@ it("uploads and acknowledges a capture retained in temporary memory when durable
  installFakeXhr(()=>"ok");vi.stubGlobal("fetch",vi.fn(async(_url,opts)=>{const body=JSON.parse(opts.body);return new Response(JSON.stringify({ok:true,captureId:body.captureId,key:body.key}));}));
  const advice=vi.fn();const result=await prepareAndUploadFiles([fakeFile("memory.jpg")],{...OPTS,onAdvice:advice,evidence:{jobId:"job",draftIdentity:"identity",templateId:"template",formRevision:"revision",fieldId:"photo"}});
  expect(result.failedCount).toBe(0);expect(result.results).toHaveLength(1);expect(advice).toHaveBeenCalledWith("memory.jpg",[expect.stringContaining("Keep this page open")]);expect([...evidenceStore.rows.values()][0].status).toBe("attached");
+});
+
+describe("video connection advice and failure diagnostics", () => {
+  const STATS = {
+    bytesPerSecond: 12_500, partsCompleted: 3, partsTotal: 20, route: "direct", concurrency: 1,
+    stalls: 5, failureMode: "stalled", lastStatus: null,
+  };
+  function logCalls(fetcher: ReturnType<typeof vi.fn>) {
+    return fetcher.mock.calls.filter(([url]) => url === "/api/admin/system/uploads/log-failure").map(([, init]) => JSON.parse(init.body));
+  }
+
+  it("logs a finally failed video with speed, parts, route, stall, connection type and encoding", async () => {
+    installFakeXhr(() => "ok");
+    multipartHooks.run = async (_file, _progress, transfer) => {
+      transfer.onFailureStats(STATS);
+      throw new Error("Upload stalled: no data moved for 60 seconds.");
+    };
+    const fetcher = vi.fn(async () => Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetcher);
+    Object.defineProperty(navigator, "connection", { configurable: true, value: { effectiveType: "3g" } });
+    try {
+      const result = await prepareAndUploadFiles([fakeFile("v0.mp4", 40 * 1024 * 1024, "video/mp4")], OPTS);
+      expect(result.failedCount).toBe(1);
+      const [logged] = logCalls(fetcher);
+      expect(logged).toMatchObject({
+        filename: "v0.mp4", mime: "video/mp4", reason: "S3_TIMEOUT",
+        message: "Upload stalled: no data moved for 60 seconds.",
+        context: {
+          kind: "video", encoding: "original_not_smaller", speedKbps: 100, partsDone: 3, partsTotal: 20,
+          failure: "stalled", route: "direct", concurrency: 1, stalls: 5, effectiveType: "3g",
+        },
+      });
+      expect(Object.keys(logged.context).length).toBeLessThanOrEqual(20);
+      expect(JSON.stringify(logged)).not.toMatch(/https?:|X-Amz|jobs\/1\/cleaner/);
+    } finally {
+      delete (navigator as any).connection;
+    }
+  });
+
+  it("records that the browser could not compress and sent the original", async () => {
+    installFakeXhr(() => "ok");
+    vi.mocked(compressVideo).mockRejectedValueOnce(new Error("unsupported codec"));
+    multipartHooks.run = async (_file, _progress, transfer) => {
+      transfer.onFailureStats({ ...STATS, failureMode: "refused", lastStatus: 403, route: "proxy", stalls: 0 });
+      throw new Error("Part 4 upload failed (403). Please retry.");
+    };
+    const fetcher = vi.fn(async () => Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetcher);
+    await prepareAndUploadFiles([fakeFile("v1.mov", 90 * 1024 * 1024, "video/quicktime")], OPTS);
+    expect(logCalls(fetcher)[0]).toMatchObject({ reason: "PART_REJECTED", context: { encoding: "original_unsupported", failure: "refused", route: "proxy", lastStatus: 403 } });
+  });
+
+  it("records a compressed video as compressed", async () => {
+    installFakeXhr(() => "ok");
+    vi.mocked(compressVideo).mockImplementationOnce(async () => ({ file: fakeFile("v2.mp4", 10 * 1024 * 1024, "video/mp4"), dispose: async () => {} }));
+    multipartHooks.run = async () => { throw new Error("network"); };
+    const fetcher = vi.fn(async () => Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetcher);
+    await prepareAndUploadFiles([fakeFile("v2.mp4", 40 * 1024 * 1024, "video/mp4")], OPTS);
+    expect(logCalls(fetcher)[0]).toMatchObject({ size: 10 * 1024 * 1024, reason: "UPLOAD_FAILED", context: { encoding: "compressed", originalBytes: 40 * 1024 * 1024, failure: "unknown" } });
+  });
+
+  it("does not log a video the cleaner cancelled", async () => {
+    installFakeXhr(() => "ok");
+    const controller = new AbortController();
+    multipartHooks.run = async () => { controller.abort(); throw new Error("cancelled"); };
+    const fetcher = vi.fn(async () => Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetcher);
+    const result = await prepareAndUploadFiles([fakeFile("v3.mp4", 40 * 1024 * 1024, "video/mp4")], { ...OPTS, signal: controller.signal });
+    expect(result.failedCount).toBe(0);
+    expect(logCalls(fetcher)).toHaveLength(0);
+  });
+
+  it("does not log successful videos or failed photos", async () => {
+    installFakeXhr(name => (name.startsWith("p") ? 400 : "ok"));
+    const fetcher = vi.fn(async () => Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetcher);
+    await prepareAndUploadFiles([fakeFile("v4.mp4", 40 * 1024 * 1024, "video/mp4"), fakeFile("p1.jpg")], OPTS);
+    expect(logCalls(fetcher)).toHaveLength(0);
+  });
+
+  it("passes slow and offline connection advice to the capture in plain words", async () => {
+    installFakeXhr(() => "ok");
+    multipartHooks.run = async (file, _progress, transfer) => {
+      transfer.onConnectionAdvice("slow");
+      transfer.onConnectionAdvice("offline");
+      return { key: `k-${file.name}`, url: `https://cdn.test/${file.name}` };
+    };
+    const advice = vi.fn();
+    await prepareAndUploadFiles([fakeFile("v5.mp4", 40 * 1024 * 1024, "video/mp4")], { ...OPTS, onAdvice: advice });
+    expect(advice).toHaveBeenCalledWith("Connection", ["Your connection is slow. Keep this page open; the video is still uploading."]);
+    expect(advice).toHaveBeenCalledWith("Connection", ["This phone is offline. Keep this page open; the video will continue when the connection returns."]);
+  });
+
+  it("replaces the still-uploading line when a slow upload finally fails", async () => {
+    installFakeXhr(() => "ok");
+    multipartHooks.run = async (_file, _progress, transfer) => {
+      transfer.onConnectionAdvice("slow");
+      transfer.onFailureStats(STATS);
+      throw new Error("Upload stalled: no data moved for 60 seconds.");
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ok: true })));
+    const advice = vi.fn();
+    await prepareAndUploadFiles([fakeFile("v6.mp4", 40 * 1024 * 1024, "video/mp4")], { ...OPTS, onAdvice: advice });
+    expect(advice).toHaveBeenLastCalledWith("Connection", [expect.stringContaining("too slow to finish")]);
+  });
 });

@@ -71,3 +71,22 @@ it("aborts a pending fetch with the caller's reason instead of treating cancella
   })));
   await expect(uploadRequest("/upload", {}, response => response.json(), parent.signal)).rejects.toBe(reason);
 });
+
+it("keeps the 30 second default for control requests while honouring a longer part deadline", async () => {
+  vi.useFakeTimers();
+  const pending = (_url: string, options: RequestInit) => new Promise<Response>((_resolve, reject) =>
+    options.signal!.addEventListener("abort", () => reject(options.signal!.reason), { once: true }));
+  vi.stubGlobal("fetch", vi.fn(pending));
+  const control = uploadRequest("/api/uploads/complete-multipart", {}, response => response.json());
+  const part = uploadRequest("https://storage.test/part", {}, async response => response, undefined, 15 * 60_000);
+  const controlTimedOut = expect(control).rejects.toThrow("timed out");
+  const partTimedOut = expect(part).rejects.toThrow("timed out");
+  let partSettled = false;
+  part.catch(() => { partSettled = true; });
+  await vi.advanceTimersByTimeAsync(30_001);
+  await controlTimedOut;
+  expect(partSettled).toBe(false);
+  await vi.advanceTimersByTimeAsync(15 * 60_000);
+  await partTimedOut;
+  expect(vi.getTimerCount()).toBe(0);
+});

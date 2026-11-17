@@ -42,7 +42,7 @@ import { cn } from "@/lib/utils";
 import { prepareUploadFile } from "@/lib/uploads/compress";
 import { isStampableImage, type StampGps, type StampOptions } from "@/lib/uploads/stamp";
 import { getAccuratePosition } from "@/lib/geo/get-position";
-import { uploadMultipart } from "@/lib/uploads/multipart-client";
+import { uploadMultipart, type ConnectionAdvice, type MultipartTransferOptions, type UploadTransferStats } from "@/lib/uploads/multipart-client";
 import { compressVideo, isVideoFile } from "@/lib/uploads/compress-video";
 import { getEvidence, listEvidence, putEvidence, isEvidenceVolatile, sameEvidenceScope, type EvidenceRecord, type EvidenceScope } from "@/lib/cleaner/evidence-store";
 import { processEvidence } from "@/lib/cleaner/evidence-client";
@@ -211,7 +211,8 @@ async function uploadLargeFile(
   onBytes?: (sent: number, total: number) => void,
   signal?: AbortSignal,
   onAllocated?: (allocation: { key: string; uploadId: string }) => Promise<void>,
-  resume?: { key: string; uploadId: string }
+  resume?: { key: string; uploadId: string },
+  transfer?: MultipartTransferOptions
 ): Promise<CapturedMedia> {
   try {
     const { url, key } = await uploadMultipart(
@@ -222,7 +223,8 @@ async function uploadLargeFile(
       signal,
       folder,
       onAllocated,
-      resume
+      resume,
+      transfer
     );
     if (typeof key !== "string" || !key.trim() || typeof url !== "string" || !url.trim()) {
       throw new PermanentUploadError("Upload response is incomplete. The file was not attached.");
@@ -259,12 +261,13 @@ function uploadOne(
   file: File,
   folder: string,
   onBytes?: (sent: number, total: number) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  transfer?: MultipartTransferOptions
 ): Promise<CapturedMedia> {
   // Big files bypass our server entirely: presigned parts, straight to S3.
   // Progress and cancellation both survive, so the UI is unchanged.
   if (isVideoFile(file) || file.size > MULTIPART_THRESHOLD_BYTES) {
-    return uploadLargeFile(file, folder, onBytes, signal);
+    return uploadLargeFile(file, folder, onBytes, signal, undefined, undefined, transfer);
   }
   return new Promise((resolve, reject) => {
     // Cancel has to reach the socket, not just the UI. Hiding the progress bar
@@ -340,17 +343,18 @@ async function uploadWithRetry(
   file: File,
   folder: string,
   onBytes?: (sent: number, total: number) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  transfer?: MultipartTransferOptions
 ): Promise<CapturedMedia> {
   try {
-    return await uploadOne(file, folder, onBytes, signal);
+    return await uploadOne(file, folder, onBytes, signal, transfer);
   } catch (err) {
     // A cancelled upload surfaces as PermanentUploadError, so the retry below
     // is skipped without needing its own abort check.
     if (err instanceof PermanentUploadError) throw err;
     if (isVideoFile(file) || file.size > AUTO_RETRY_MAX_BYTES) throw err;
     await new Promise((resolve) => setTimeout(resolve, 700));
-    return uploadOne(file, folder, onBytes, signal);
+    return uploadOne(file, folder, onBytes, signal, transfer);
   }
 }
 
@@ -372,6 +376,85 @@ const VIDEO_BYTES_THRESHOLD = 8 * 1024 * 1024;
 
 function isHeavyUpload(file: File): boolean {
   return isVideoFile(file) || file.size > VIDEO_BYTES_THRESHOLD;
+}
+
+/** What the browser sent for a video: its own compression or the original. */
+type VideoEncoding = "compressed" | "original_not_smaller" | "original_unsupported" | "saved_compressed" | "saved_original";
+
+/** Plain-language connection advice, shown through the existing capture advice. */
+function connectionAdviceMessage(advice: ConnectionAdvice, file: File): string {
+  const subject = isVideoFile(file) ? "the video" : "the upload";
+  return advice === "slow"
+    ? `Your connection is slow. Keep this page open; ${subject} is still uploading.`
+    : `This phone is offline. Keep this page open; ${subject} will continue when the connection returns.`;
+}
+
+const CONNECTION_FAILED_MESSAGE = "The connection was too slow to finish. Retry the saved upload with a better signal or on Wi-Fi; finished parts are not sent again.";
+
+function uploadFailureReason(stats: UploadTransferStats | null): string {
+  switch (stats?.failureMode) {
+    case "stalled": return "S3_TIMEOUT";
+    case "offline":
+    case "network": return "NETWORK_ERROR";
+    case "refused": return "PART_REJECTED";
+    case "setup": return "PRESIGN_REJECTED";
+    case "receipt": return "RECEIPT_INVALID";
+    default: return "UPLOAD_FAILED";
+  }
+}
+
+function effectiveConnectionType(): string | null {
+  const connection = (navigator as Navigator & { connection?: { effectiveType?: unknown } }).connection;
+  return typeof connection?.effectiveType === "string" ? connection.effectiveType.slice(0, 20) : null;
+}
+
+/**
+ * Best-effort telemetry for a video that finally failed, so the office can see
+ * why one phone fails where another succeeds. Diagnostics only: no URLs,
+ * storage keys or signatures, and nothing beyond the existing log fields.
+ */
+function recordVideoUploadFailure(input: {
+  original: File;
+  sent: File;
+  message: string;
+  encoding: VideoEncoding;
+  stats: UploadTransferStats | null;
+  jobId?: string;
+}) {
+  const { original, sent, message, encoding, stats, jobId } = input;
+  const context: Record<string, string | number | boolean | null> = {
+    kind: "video",
+    encoding,
+    originalBytes: original.size,
+    speedKbps: stats?.bytesPerSecond != null ? Math.round((stats.bytesPerSecond * 8) / 1000) : null,
+    partsDone: stats?.partsCompleted ?? null,
+    partsTotal: stats?.partsTotal ?? null,
+    failure: stats?.failureMode ?? "unknown",
+    route: stats?.route ?? null,
+    concurrency: stats?.concurrency ?? null,
+    stalls: stats?.stalls ?? null,
+    lastStatus: stats?.lastStatus ?? null,
+    effectiveType: effectiveConnectionType(),
+    online: typeof navigator.onLine === "boolean" ? navigator.onLine : null,
+  };
+  try {
+    void fetch("/api/admin/system/uploads/log-failure", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        filename: sent.name.slice(0, 300),
+        size: sent.size,
+        mime: (sent.type || original.type || "video").slice(0, 200),
+        reason: uploadFailureReason(stats),
+        message: message.slice(0, 2_000),
+        ...(jobId ? { jobId } : {}),
+        context,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    }).catch(() => {});
+  } catch {
+    // Telemetry never affects the upload outcome.
+  }
 }
 
 export interface UploadFailure {
@@ -417,6 +500,8 @@ export async function prepareAndUploadFiles(
     beforeNetwork?: () => Promise<void>;
     onAllocated?: (allocation: { key: string; uploadId: string }) => Promise<void>;
     noAutoRetry?: boolean;
+    /** Job a failed video upload is logged against (durable evidence only). */
+    telemetryJobId?: string;
     /** Fires as each file settles. */
     onProgress?: (done: number, total: number) => void;
     /** Fires as bytes move, so a big video shows movement rather than a spinner. */
@@ -470,7 +555,7 @@ export async function prepareAndUploadFiles(
             folder: `forms/${current.jobId}/${current.id}`, source: current.source, signal: opts.signal,
             stamp: current.stamp === null ? null : { ...current.stamp, capturedAt: current.createdAt },
             prepared, resume: current.allocation, onFileProgress: opts.onFileProgress, onAdvice: opts.onAdvice,
-            beforeNetwork, noAutoRetry: true,
+            beforeNetwork, noAutoRetry: true, telemetryJobId: current.jobId,
             onAllocated: async allocation => {
               const parts = allocation.key.split("/");
               if (parts.length !== 5 || parts[0] !== "forms" || parts[1] !== current.jobId || parts[2] !== current.id || !parts[3] || !parts[4]) {
@@ -525,6 +610,10 @@ export async function prepareAndUploadFiles(
         inFlight.set(index, { name: file.name, percent: null, phase: isVideoFile(file) ? "compressing" : "uploading" });
         publish();
         let dispose: (() => Promise<void>) | undefined;
+        let sent: File = file;
+        let encoding: VideoEncoding | null = null;
+        let transferStats: UploadTransferStats | null = null;
+        let connectionAdvised = false;
         try {
           if (opts.onAdvice && !opts.prepared) {
             const advice = await inspectImageCapture(file);
@@ -534,6 +623,7 @@ export async function prepareAndUploadFiles(
           let prepared: File;
           if (opts.prepared) {
             prepared = opts.prepared;
+            if (isVideoFile(file)) encoding = prepared.size < file.size ? "saved_compressed" : "saved_original";
           } else if (isVideoFile(file)) {
             try {
               const result = await compressVideo(file, {
@@ -545,16 +635,19 @@ export async function prepareAndUploadFiles(
               });
               prepared = result.file;
               dispose = result.dispose;
+              encoding = prepared === file ? "original_not_smaller" : "compressed";
             } catch (error) {
               opts.signal?.throwIfAborted();
               // Encoding support varies by phone/browser. Keep every track by
               // uploading the original instead of discarding valid evidence.
               prepared = file;
+              encoding = "original_unsupported";
               opts.onAdvice?.(file.name, ["This browser could not compress the video. Uploading the original; it may take longer and use more data."]);
             }
           } else {
             prepared = await prepareCapturedFile(file, opts.source, opts.stamp);
           }
+          sent = prepared;
           inFlight.set(index, { name: file.name, phase: "uploading", percent: 0 });
           publish();
           await opts.onPrepared?.(prepared);
@@ -570,15 +663,34 @@ export async function prepareAndUploadFiles(
               });
               publish();
             };
+          // Slow or offline connections are explained in plain words; failed
+          // transfer diagnostics are kept for the failure log below.
+          const transfer: MultipartTransferOptions = {
+            onConnectionAdvice: advice => {
+              connectionAdvised = true;
+              opts.onAdvice?.("Connection", [connectionAdviceMessage(advice, file)]);
+            },
+            onFailureStats: stats => { transferStats = stats; },
+          };
           slots[index] = opts.noAutoRetry
             ? await uploadLargeFile(prepared, opts.folder, onBytes, opts.signal, async allocation => {
                 await opts.onAllocated?.(allocation);
                 await opts.beforeNetwork?.();
-              }, opts.resume)
-            : await uploadWithRetry(prepared, opts.folder, onBytes, opts.signal);
+              }, opts.resume, transfer)
+            : await uploadWithRetry(prepared, opts.folder, onBytes, opts.signal, transfer);
         } catch (err: any) {
           // A file the cleaner cancelled is not a file that failed. Putting it
           // in the red retry box invites them to re-send what they just stopped.
+          // "Still uploading" must not outlive the upload it described.
+          if (!opts.signal?.aborted && connectionAdvised) {
+            opts.onAdvice?.("Connection", [CONNECTION_FAILED_MESSAGE]);
+          }
+          if (!opts.signal?.aborted && encoding !== null) {
+            recordVideoUploadFailure({
+              original: file, sent, message: err?.message || "Upload failed",
+              encoding, stats: transferStats, jobId: opts.telemetryJobId,
+            });
+          }
           if (!opts.signal?.aborted) {
             failed.push({
               name: file.name || `File ${index + 1}`,
