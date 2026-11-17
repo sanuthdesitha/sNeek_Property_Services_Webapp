@@ -1,7 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { uploadMultipart } from "@/lib/uploads/multipart-client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PART_ATTEMPTS, PART_CEILING_MS, uploadMultipart } from "@/lib/uploads/multipart-client";
 
-afterEach(() => vi.unstubAllGlobals());
+// These cases drive the fetch fallback; XHR transfers are covered in
+// the "XHR part transfers" block below with a scripted XMLHttpRequest.
+beforeEach(() => vi.stubGlobal("XMLHttpRequest", undefined));
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 function transport(part: () => Promise<Response>) {
   const fetcher = vi.fn(async (url: string) => {
@@ -91,7 +94,13 @@ it("retains successful parts after a failed durable upload and resumes only miss
     throw new Error(`Unexpected request ${url}`);
   });
   vi.stubGlobal("fetch", fetcher);
-  await expect(uploadMultipart(blob, "clip.mp4", "video/mp4", undefined, undefined, "jobs", saved)).rejects.toThrow("Part 2");
+  // Five attempts with 1/2/4/8 s backoff run on fake timers.
+  vi.useFakeTimers();
+  const failedRun = expect(uploadMultipart(blob, "clip.mp4", "video/mp4", undefined, undefined, "jobs", saved)).rejects.toThrow("Part 2");
+  await vi.runAllTimersAsync();
+  await failedRun;
+  vi.useRealTimers();
+  expect(fetcher.mock.calls.filter(([url]) => url === "https://storage.test/2")).toHaveLength(5);
   expect(fetcher).not.toHaveBeenCalledWith("/api/uploads/abort-multipart", expect.anything());
   retry = true;
   await uploadMultipart(blob, "clip.mp4", "video/mp4", undefined, undefined, "jobs", saved, { key: "jobs/user/clip.mp4", uploadId: "upload" });
@@ -120,20 +129,27 @@ it("uses the authenticated fallback when a signed URL expires", async () => {
   await expect(uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4")).resolves.toHaveProperty("key");
   expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/api/uploads/part?"), expect.anything());
 });
-it("bounds a stalled transfer and falls back without losing the capture", async () => {
+it("retries a part that hits the ceiling without progress on the same direct route, never the proxy", async () => {
+  // Without XHR there is no byte progress, so only the absolute ceiling bounds
+  // an attempt. A timeout is not a CORS refusal: the proxy is never used.
   vi.useFakeTimers();
   try {
+    let directAttempts = 0;
     const fetcher = vi.fn(async (url: string, options?: RequestInit): Promise<Response> => {
       if (url.endsWith("presign-multipart")) return Response.json({ key: "jobs/user/clip.mp4", uploadId: "upload", partUrls: ["https://storage.test/part"] });
-      if (url === "https://storage.test/part") return new Promise((_resolve, reject) => options?.signal?.addEventListener("abort", () => reject(options!.signal!.reason), { once: true }));
-      if (url.startsWith("/api/uploads/part?")) return Response.json({ etag: "receipt" });
+      if (url === "https://storage.test/part") {
+        if (++directAttempts === 2) return new Response(null, { headers: { etag: "receipt" } });
+        return new Promise((_resolve, reject) => options?.signal?.addEventListener("abort", () => reject(options!.signal!.reason), { once: true }));
+      }
+      if (url.startsWith("/api/uploads/part?")) throw new Error("A timeout must not switch to the proxy");
       return Response.json({ key: "jobs/user/clip.mp4", url: "https://cdn.test/clip.mp4" });
     });
     vi.stubGlobal("fetch", fetcher);
     const result = uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", undefined, undefined, undefined, async () => {});
-    await vi.advanceTimersByTimeAsync(120_001);
+    await vi.advanceTimersByTimeAsync(PART_CEILING_MS + 1_001);
     await expect(result).resolves.toHaveProperty("key");
-    expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/api/uploads/part?"), expect.anything());
+    expect(directAttempts).toBe(2);
+    expect(fetcher).not.toHaveBeenCalledWith(expect.stringContaining("/api/uploads/part?"), expect.anything());
   } finally { vi.useRealTimers(); }
 });
 it("keeps the durable allocation when a transfer is cancelled mid-request", async () => {
@@ -210,7 +226,8 @@ it("keeps the timeout active while reading a part proxy receipt", async () => {
     vi.stubGlobal("fetch", fetcher);
     const result = uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {});
     const assertion = expect(result).rejects.toThrow(/timed out/i);
-    await vi.advanceTimersByTimeAsync(362_000);
+    // Five ceiling-bounded proxy attempts with 1/2/4/8 s backoff between them.
+    await vi.advanceTimersByTimeAsync(PART_ATTEMPTS * PART_CEILING_MS + 16_000);
     await assertion;
     expect(fetcher).not.toHaveBeenCalledWith("/api/uploads/complete-multipart", expect.anything());
     expect(fetcher).not.toHaveBeenCalledWith("/api/uploads/abort-multipart", expect.anything());
