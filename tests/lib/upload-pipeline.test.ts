@@ -587,4 +587,17 @@ describe("video connection advice and failure diagnostics", () => {
     expect(advice).toHaveBeenCalledWith("Connection", ["Your connection is slow. Keep this page open; the video is still uploading."]);
     expect(advice).toHaveBeenCalledWith("Connection", ["This phone is offline. Keep this page open; the video will continue when the connection returns."]);
   });
+
+  it("replaces the still-uploading line when a slow upload finally fails", async () => {
+    installFakeXhr(() => "ok");
+    multipartHooks.run = async (_file, _progress, transfer) => {
+      transfer.onConnectionAdvice("slow");
+      transfer.onFailureStats(STATS);
+      throw new Error("Upload stalled: no data moved for 60 seconds.");
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ok: true })));
+    const advice = vi.fn();
+    await prepareAndUploadFiles([fakeFile("v6.mp4", 40 * 1024 * 1024, "video/mp4")], { ...OPTS, onAdvice: advice });
+    expect(advice).toHaveBeenLastCalledWith("Connection", [expect.stringContaining("too slow to finish")]);
+  });
 });

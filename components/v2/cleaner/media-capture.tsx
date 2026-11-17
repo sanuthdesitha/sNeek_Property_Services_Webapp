@@ -389,6 +389,8 @@ function connectionAdviceMessage(advice: ConnectionAdvice, file: File): string {
     : `This phone is offline. Keep this page open; ${subject} will continue when the connection returns.`;
 }
 
+const CONNECTION_FAILED_MESSAGE = "The connection was too slow to finish. Retry the saved upload with a better signal or on Wi-Fi; finished parts are not sent again.";
+
 function uploadFailureReason(stats: UploadTransferStats | null): string {
   switch (stats?.failureMode) {
     case "stalled": return "S3_TIMEOUT";
@@ -611,6 +613,7 @@ export async function prepareAndUploadFiles(
         let sent: File = file;
         let encoding: VideoEncoding | null = null;
         let transferStats: UploadTransferStats | null = null;
+        let connectionAdvised = false;
         try {
           if (opts.onAdvice && !opts.prepared) {
             const advice = await inspectImageCapture(file);
@@ -663,7 +666,10 @@ export async function prepareAndUploadFiles(
           // Slow or offline connections are explained in plain words; failed
           // transfer diagnostics are kept for the failure log below.
           const transfer: MultipartTransferOptions = {
-            onConnectionAdvice: advice => opts.onAdvice?.("Connection", [connectionAdviceMessage(advice, file)]),
+            onConnectionAdvice: advice => {
+              connectionAdvised = true;
+              opts.onAdvice?.("Connection", [connectionAdviceMessage(advice, file)]);
+            },
             onFailureStats: stats => { transferStats = stats; },
           };
           slots[index] = opts.noAutoRetry
@@ -675,6 +681,10 @@ export async function prepareAndUploadFiles(
         } catch (err: any) {
           // A file the cleaner cancelled is not a file that failed. Putting it
           // in the red retry box invites them to re-send what they just stopped.
+          // "Still uploading" must not outlive the upload it described.
+          if (!opts.signal?.aborted && connectionAdvised) {
+            opts.onAdvice?.("Connection", [CONNECTION_FAILED_MESSAGE]);
+          }
           if (!opts.signal?.aborted && encoding !== null) {
             recordVideoUploadFailure({
               original: file, sent, message: err?.message || "Upload failed",
