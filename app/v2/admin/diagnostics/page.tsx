@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { listSuppressed, MARKETING_OPT_OUT } from "@/lib/email/suppression";
 import { readSystemHealth } from "@/lib/ops/system-health";
+import { describeUploadContext } from "@/lib/uploads/failure-context";
 import { SystemHealthScreen } from "@/components/v2/admin/diagnostics/system-health-screen";
 import { resolveHealthTab } from "@/components/v2/admin/diagnostics/health-tabs";
 import type { EmailRow } from "@/components/v2/admin/diagnostics/diagnostics-hub";
@@ -54,6 +55,7 @@ export default async function DiagnosticsPage({ searchParams }: { searchParams?:
     occurredAt: failure.occurredAt ? failure.occurredAt.toISOString() : null,
     user: failure.user ? failure.user.name || failure.user.email : null,
     job: failure.job?.jobNumber ?? null,
+    detail: describeUploadContext(failure.context),
   }));
 
   return <SystemHealthScreen initialView={view} tab={tab} email={email} uploads={uploads} />;

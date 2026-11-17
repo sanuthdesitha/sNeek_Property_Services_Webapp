@@ -13,7 +13,7 @@ import { ETableShell } from "@/components/v2/admin/estate-kit";
 import { EConfirmDialog } from "@/components/v2/ui/confirm-dialog";
 
 export type EmailRow = { email: string; reason: string | null; createdAt: string | null };
-export type UploadRow = { id: string; reason: string; occurredAt: string | null; user: string | null; job: string | null };
+export type UploadRow = { id: string; reason: string; occurredAt: string | null; user: string | null; job: string | null; detail?: string | null };
 type Band = "good" | "warn" | "bad";
 // EStatCard.deltaTone has a narrower set (no "warning").
 function deltaTone(b: Band): "success" | "danger" | "neutral" {
@@ -240,7 +240,10 @@ export function UploadsTab({ rows }: { rows: UploadRow[] }) {
       {rows.map((r) => (
         <tr key={r.id} className="border-t border-[hsl(var(--e-border))]">
           <td className="px-4 py-2.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{fmt(r.occurredAt)}</td>
-          <td className="px-4 py-2.5 text-[0.8125rem]">{r.reason}</td>
+          <td className="px-4 py-2.5 text-[0.8125rem]">
+            {r.reason}
+            {r.detail ? <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))] [overflow-wrap:anywhere]">{r.detail}</p> : null}
+          </td>
           <td className="px-4 py-2.5 text-[0.8125rem]">{r.user ?? "—"}</td>
           <td className="px-4 py-2.5 text-[0.8125rem]">{r.job ?? "—"}</td>
         </tr>
