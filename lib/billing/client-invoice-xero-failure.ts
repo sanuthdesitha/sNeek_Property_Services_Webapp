@@ -55,3 +55,37 @@ export async function recordXeroPushFailure(invoiceId: string, message: string, 
     return false;
   }
 }
+
+/**
+ * Record a failed "Update in Xero" (2026-11-18). Only the attempt that is
+ * still PENDING under this request key is changed, under the row lock. The
+ * invoice stays pushed: xeroInvoiceId, xeroExportedAt and the push state are
+ * never touched, and the last successful update time is kept.
+ */
+export async function recordXeroUpdateFailure(invoiceId: string, requestKey: string, message: string, now: Date = new Date()): Promise<boolean> {
+  try {
+    return await db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "ClientInvoice" WHERE "id" = ${invoiceId} FOR UPDATE`;
+      const current = await tx.clientInvoice.findUnique({ where: { id: invoiceId }, select: { metadata: true } });
+      if (!current) return false;
+      const metadata = current.metadata && typeof current.metadata === "object" && !Array.isArray(current.metadata)
+        ? (current.metadata as Record<string, unknown>)
+        : {};
+      const update = metadata.xeroUpdate && typeof metadata.xeroUpdate === "object" ? (metadata.xeroUpdate as Record<string, unknown>) : null;
+      if (!update || update.state !== "PENDING" || update.key !== requestKey) return false;
+      await tx.clientInvoice.update({
+        where: { id: invoiceId },
+        data: {
+          metadata: {
+            ...metadata,
+            xeroUpdate: { ...update, state: "FAILED", reason: sanitiseXeroFailureReason(message), at: now.toISOString() },
+          } as object,
+        },
+      });
+      return true;
+    });
+  } catch (error) {
+    logger.error({ error, invoiceId }, "[invoice] Update in Xero failed and the failure could not be recorded");
+    return false;
+  }
+}

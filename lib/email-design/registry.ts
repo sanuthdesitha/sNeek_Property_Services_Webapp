@@ -6,9 +6,10 @@ import { OTHER_DESIGNS } from "./catalog/others";
 import { TEMPLATE_DESIGNS } from "./catalog/templates";
 import { ROUTE_DESIGNS } from "./catalog/routes";
 import { LIFECYCLE_DESIGNS } from "./catalog/lifecycle";
+import { REMINDER_DESIGNS } from "./catalog/reminders";
 import type { EmailDesignDefinition, EmailGroup } from "./types";
 
-export const EMAIL_DESIGNS: readonly EmailDesignDefinition[] = [...ACCOUNT_DESIGNS, ...TEMPLATE_DESIGNS, ...OTHER_DESIGNS, ...ROUTE_DESIGNS, ...LIFECYCLE_DESIGNS];
+export const EMAIL_DESIGNS: readonly EmailDesignDefinition[] = [...ACCOUNT_DESIGNS, ...TEMPLATE_DESIGNS, ...OTHER_DESIGNS, ...REMINDER_DESIGNS, ...ROUTE_DESIGNS, ...LIFECYCLE_DESIGNS];
 
 const BY_KEY = new Map(EMAIL_DESIGNS.map((definition) => [definition.key, definition]));
 

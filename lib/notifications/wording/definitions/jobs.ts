@@ -36,6 +36,23 @@ const DAY_REMINDER_EMAIL = `
         </p>
       </div>`;
 
+type DigestWording = { subject: string; heading: string; intro: string; outro: string; button: string };
+
+/**
+ * The sentences of a combined reminder email (one email listing several jobs
+ * for one cleaner; lib/email-design/catalog/reminders.ts). Only used when a
+ * run has two or more jobs for the same cleaner, so the words are plural.
+ */
+function digestLines(defaults: DigestWording, extraIntroVariables: readonly string[] = []) {
+  const note = "Combined email only (two or more jobs for one cleaner in one run).";
+  return [
+    linePart("digest-subject", "Combined email: subject", "INBOX", defaults.subject, ["jobCount", "dayList", "userName"], `${note} {{dayList}} lists the days of the jobs.`),
+    linePart("digest-heading", "Combined email: heading", "EMAIL", defaults.heading, ["jobCount", "dayList"], note),
+    linePart("digest-intro", "Combined email: introduction", "EMAIL", defaults.intro, ["userName", "jobCount", "dayList", ...extraIntroVariables], note),
+    linePart("digest-outro", "Combined email: closing line", "EMAIL", defaults.outro, ["jobCount"], note),
+    linePart("digest-button", "Combined email: button label", "INBOX", defaults.button, ["jobCount"], note),
+  ];
+}
 
 export const JOB_WORDING: readonly TypeWordingDefinition[] = [
   editable("job.cancelled", [
@@ -61,6 +78,14 @@ export const JOB_WORDING: readonly TypeWordingDefinition[] = [
       body: MANUAL_REMINDER_EMAIL,
     }, ["recipientName", "propertyName", "when", "jobNumber", "noteParagraph", "jobsUrl"], ["propertyName"]),
     linePart("note-paragraph", "Admin note paragraph", "EMAIL", "<p><em>Note from admin:</em> {{note}}</p>", ["note"], "Added to the email only when the sender writes a note."),
+    ...digestLines({
+      subject: "Reminder: {{jobCount}} unfinished jobs",
+      heading: "Unfinished jobs",
+      intro: "Hi {{userName}}, you have {{jobCount}} unfinished jobs. Please open each one and submit your checklist.",
+      outro: "— sNeek Ops",
+      button: "Open your jobs",
+    }),
+    linePart("digest-note", "Combined email: admin note", "EMAIL", "Note from admin: {{note}}", ["note"], "Shown in the combined email only when the sender writes a note."),
   ]),
   editable("job.reminder.scheduled", [
     storePart("cleaner", "Cleaner", "SMS", {
@@ -68,6 +93,13 @@ export const JOB_WORDING: readonly TypeWordingDefinition[] = [
     }, ["propertyName", "when", "propertyAddress", "timingSuffix"], ["when", "propertyName"], { note: "The 2-hour reminder." }),
     linePart("timing-line", "Timing notes line", "SMS", " {{timingFlags}}.", ["timingFlags"], "Added to the SMS only when the job has timing notes."),
     emailTemplatePart("cleaner", "Cleaner", "jobReminder24h", [], "The 24-hour reminder: shared email template \"24h Job Reminder\" (also in Forms). The client contact's reminder is the client lifecycle email (Forms, Lifecycle)."),
+    ...digestLines({
+      subject: "Your {{jobCount}} upcoming jobs ({{dayList}})",
+      heading: "Job reminder — your next {{jobCount}} jobs",
+      intro: "Hello {{userName}}, here are your upcoming jobs in one email. Please review each one and prepare before arrival.",
+      outro: "Check access instructions, equipment requirements, stock levels, and any special notes before attending each property. Open a job in your portal for full details.",
+      button: "Open my jobs",
+    }),
   ]),
   editable("job.reminder.unfinished_daily", [
     storePart("cleaner", "Cleaner", "INBOX", {
@@ -90,6 +122,13 @@ export const JOB_WORDING: readonly TypeWordingDefinition[] = [
       body: "sNeek Ops: Today at {{when}} you're cleaning {{propertyName}} ({{jobNumber}}). {{propertyAddress}}.{{timingSuffix}}",
     }, ["when", "propertyName", "jobNumber", "propertyAddress", "timingSuffix"], ["when", "propertyName"]),
     linePart("timing-line", "Timing notes line (SMS)", "SMS", " {{timingFlags}}.", ["timingFlags"], "Added only when the job has timing notes."),
+    ...digestLines({
+      subject: "Your {{jobCount}} jobs today ({{dayList}})",
+      heading: "Your jobs today",
+      intro: "Hello {{userName}}, you're rostered on {{jobCount}} jobs today. They are listed in start-time order.",
+      outro: "Open each job in the app for access details and the checklist.",
+      button: "Open my jobs",
+    }),
   ]),
   editable("job.offer", JOB_OFFER_PARTS, "The \"Assignment email sent to …\" rows in the delivery log are log entries, not messages."),
   JOB_CHANGED_WORDING,

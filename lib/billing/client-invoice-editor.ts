@@ -9,7 +9,8 @@ import { resolveClientDeliveryRecipients } from "@/lib/commercial/delivery-profi
 import { isShoppingDisbursement } from "@/lib/finance/shopping-accounting";
 import { getClientInvoice } from "./client-invoices";
 import { getClientInvoiceListRow } from "./client-invoice-list";
-import { invoiceEditLock, isShoppingLockedLine } from "./client-invoice-guards";
+import { invoiceEditLock, invoiceOrderLock, isShoppingLockedLine } from "./client-invoice-guards";
+import { readStoredXeroUpdate, xeroUpdateAvailability, xeroUpdateInFlight } from "./client-invoice-xero-update-rules";
 import { isDiscountLine } from "./client-invoice-adjustments";
 import { clientInvoiceApprovalChecks } from "./client-invoice-checks";
 import { clientInvoiceHistory } from "./client-invoice-history";
@@ -23,6 +24,7 @@ import type {
   EditorSendPanel,
   EditorStartedWork,
   EditorXeroPanel,
+  EditorXeroUpdate,
 } from "./client-invoice-editor-types";
 
 type LoadedInvoice = NonNullable<Awaited<ReturnType<typeof getClientInvoice>>>;
@@ -73,7 +75,17 @@ function toEditorLine(line: LoadedLine, timezone: string, startedWork: EditorSta
   };
 }
 
-async function readXeroPanel(invoice: LoadedInvoice, row: ClientInvoiceEditorData["row"], contactId: string | null): Promise<EditorXeroPanel> {
+function xeroUpdatePanel(invoice: LoadedInvoice, canManage: boolean): EditorXeroUpdate {
+  const availability = xeroUpdateAvailability(invoice, canManage);
+  return {
+    available: availability.available,
+    reason: availability.available ? null : availability.reason,
+    last: readStoredXeroUpdate(invoice.metadata),
+    inFlight: xeroUpdateInFlight(invoice.metadata),
+  };
+}
+
+async function readXeroPanel(invoice: LoadedInvoice, row: ClientInvoiceEditorData["row"], contactId: string | null, canManage: boolean): Promise<EditorXeroPanel> {
   const panel: EditorXeroPanel = {
     state: row.xeroState,
     xeroInvoiceId: row.xeroInvoiceId,
@@ -85,6 +97,7 @@ async function readXeroPanel(invoice: LoadedInvoice, row: ClientInvoiceEditorDat
     disbursementAccountCode: null,
     hasDisbursementLines: invoice.lines.some((line) => isShoppingDisbursement(line.category)),
     settingsError: null,
+    update: xeroUpdatePanel(invoice, canManage),
   };
   try {
     const settings = await getPhase3IntegrationsSettings();
@@ -163,7 +176,7 @@ export async function loadClientInvoiceEditor(
     readSendPanel(invoice),
     invoice.status === "DRAFT" ? loadDraftPanel(invoice, { timezone, editable: invoiceEditLock(invoice, options.canManage).editable }) : null,
   ]);
-  const xero = await readXeroPanel(invoice, row, client?.xeroContactId ?? null);
+  const xero = await readXeroPanel(invoice, row, client?.xeroContactId ?? null, options.canManage);
 
   return {
     row,
@@ -181,6 +194,7 @@ export async function loadClientInvoiceEditor(
     lines: invoice.lines.map((line) => toEditorLine(line, timezone, startedWork)),
     clientProperties: properties.map((property) => ({ id: property.id, name: property.name, suburb: property.suburb ?? null })),
     editLock: invoiceEditLock(invoice, options.canManage),
+    orderLock: options.canManage ? invoiceOrderLock(invoice) : { reorderable: false, reason: "Your access to invoices is view only." },
     canManage: options.canManage,
     checks,
     send,
