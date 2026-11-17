@@ -19,6 +19,14 @@ export interface JobTimingBadges {
   early?: string;
   /** Do not start before HH:MM — guests are still in the property. */
   late?: string;
+  /**
+   * The early check-in rule is switched on but its stored time cannot be read.
+   * Kept as a flag rather than dropped: a rule nobody can see is a rule
+   * nobody follows, and inventing a time would be worse.
+   */
+  earlyInvalid?: true;
+  /** The late checkout rule is switched on but its stored time cannot be read. */
+  lateInvalid?: true;
 }
 
 /** Resolve the badge times for one job, or null when neither rule is on. */
@@ -28,8 +36,17 @@ export function resolveTimingBadges(
   const meta = parseJobInternalNotes(internalNotes);
   const early = resolveRuleTime(meta.earlyCheckin);
   const late = resolveRuleTime(meta.lateCheckout);
-  if (!early && !late) return null;
-  return { ...(early ? { early } : {}), ...(late ? { late } : {}) };
+  // An enabled rule whose time did not survive parsing (a custom time that is
+  // not HH:MM) resolves to nothing; say so instead of hiding the rule.
+  const earlyInvalid = meta.earlyCheckin.enabled && !early;
+  const lateInvalid = meta.lateCheckout.enabled && !late;
+  if (!early && !late && !earlyInvalid && !lateInvalid) return null;
+  return {
+    ...(early ? { early } : {}),
+    ...(late ? { late } : {}),
+    ...(earlyInvalid ? { earlyInvalid: true as const } : {}),
+    ...(lateInvalid ? { lateInvalid: true as const } : {}),
+  };
 }
 
 /**

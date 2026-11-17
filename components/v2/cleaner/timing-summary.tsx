@@ -4,13 +4,14 @@ import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export function CleanerTimingSummary({ showPlanned = true, showConstraints = true, ...input }: TimingInput & { showPlanned?: boolean; showConstraints?: boolean }) {
   const timing = summarizeTiming(input);
-  if (!timing.plannedStart && !timing.plannedFinish && !timing.earliestAccess && !timing.arrival && !timing.warnings.length) return null;
+  if (!timing.plannedStart && !timing.plannedFinish && !timing.earliestAccess && !timing.invalidLate && !timing.arrival && !timing.warnings.length) return null;
   return <div className="w-full space-y-1.5 text-xs [overflow-wrap:anywhere]">
     {showPlanned && (timing.plannedStart || timing.plannedFinish) ? <div className="flex flex-wrap gap-x-3 gap-y-1 text-[hsl(var(--e-muted-foreground))]">
       <span>Planned start: {timing.plannedStart ?? "Not set"}</span><span>Planned finish: {timing.plannedFinish ?? "Not set"}</span>
     </div> : null}
     {showConstraints ? <div className="flex flex-wrap gap-2 empty:hidden">
       {timing.earliestAccess ? <EBadge tone="danger" soft>Late checkout: Start after {timing.earliestAccess}</EBadge> : null}
+      {!timing.earliestAccess && timing.invalidLate ? <EBadge tone="danger" soft>Late checkout: Start time not confirmed</EBadge> : null}
       {timing.arrival ? <EBadge tone="warning" soft>{timing.arrival.early ? "Early check-in" : "Same-day check-in"}: {timing.guestDeadline ? `Ready by ${timing.guestDeadline}` : "Arrival time not confirmed"}</EBadge> : null}
     </div> : null}
     {timing.warnings.length ? <div role="note" className={`rounded-[var(--e-radius)] px-2 py-1.5 ${toneNoticeClass("problem")}`}>

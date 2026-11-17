@@ -22,6 +22,8 @@ import type { CalendarLane } from "@/lib/calendar/lanes";
 import { CHIP_CATEGORY_LABEL, chipCategory, formatHours, type ChipCategory } from "@/lib/calendar/presentation";
 import { longDayLabel } from "@/lib/calendar/range";
 import type { CalendarJob, CalendarResponse } from "@/lib/calendar/types";
+import { TimingTags } from "@/components/v2/ui/timing-tags";
+import { timingRuleTagsFor } from "@/lib/jobs/timing-tags";
 import { chipDescription, chipMenuItems, cleanerSummary, type ChipActions } from "./calendar-job-chip";
 import { LaundryCell, RosterNote } from "./calendar-lane-parts";
 import type { GridDisplay } from "./calendar-week-grid";
@@ -78,6 +80,7 @@ function PhoneJobRow({ job, source, actions, display, showCleaner }: JobCardProp
         {display.showArrivals && job.guestArrival ? (
           <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">Guest in {job.guestArrival.time ?? "(time not set)"}</p>
         ) : null}
+        <TimingTags className="mt-1" tags={timingRuleTagsFor(job.timingBadges)} />
         {pending ? (
           <p role="status" className="mt-1 flex items-center gap-1 text-[0.8125rem]"><Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" /> Move pending…</p>
         ) : null}

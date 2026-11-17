@@ -18,6 +18,9 @@ import { JobStatusIcon } from "@/components/shared/job-status-icon";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
+import { TimingTags } from "@/components/v2/ui/timing-tags";
+import type { JobTimingBadges } from "@/lib/jobs/timing-badges";
+import { timingTagsFor, type TimingTag } from "@/lib/jobs/timing-tags";
 import type { JobListRow } from "./jobs-query";
 
 const TZ = "Australia/Sydney";
@@ -90,17 +93,34 @@ export function canQuickAssign(job: Pick<JobListRow, "status" | "cleanSkipStatus
   return job.status === "UNASSIGNED" && String(job.cleanSkipStatus ?? "") !== "SKIPPED";
 }
 
+/** The row's server-computed `timingBadges` (from /api/jobs) in the shared badge shape. */
+export function rowTimingBadges(job: Pick<JobListRow, "timingBadges">): JobTimingBadges | null {
+  const badges = job.timingBadges;
+  if (!badges) return null;
+  return {
+    ...(typeof badges.early === "string" ? { early: badges.early } : {}),
+    ...(typeof badges.late === "string" ? { late: badges.late } : {}),
+    ...(badges.earlyInvalid === true ? { earlyInvalid: true as const } : {}),
+    ...(badges.lateInvalid === true ? { lateInvalid: true as const } : {}),
+  };
+}
+
+/** Guest-timing tags for a list row: the rules plus the row's own same-day check-in. */
+export function rowTimingTags(job: Pick<JobListRow, "timingBadges" | "sameDayCheckin" | "sameDayCheckinTime">): TimingTag[] {
+  return timingTagsFor({
+    timingBadges: rowTimingBadges(job),
+    sameDayCheckin: job.sameDayCheckin === true,
+    sameDayCheckinTime: job.sameDayCheckinTime ?? null,
+  });
+}
+
 export function FlagPills({ job }: { job: JobListRow }) {
   const hasPayRequest = Array.isArray(job.payAdjustments) && job.payAdjustments.length > 0;
   const hasDamage = Array.isArray(job.issueTickets) && job.issueTickets.length > 0;
   const skip = String(job.cleanSkipStatus ?? "");
-  // Server-computed timing-rule chips from /api/jobs (`timingBadges`).
-  const earlyTime = typeof job.timingBadges?.early === "string" ? job.timingBadges.early : "";
-  const lateTime = typeof job.timingBadges?.late === "string" ? job.timingBadges.late : "";
   return (
     <>
-      {earlyTime ? <EBadge tone="warning" soft>{`EARLY ${earlyTime}`}</EBadge> : null}
-      {lateTime ? <EBadge tone="info" soft>{`LATE ${lateTime}`}</EBadge> : null}
+      <TimingTags tags={rowTimingTags(job)} />
       {job.isRework ? <EBadge tone="aubergine" soft>Rework</EBadge> : null}
       {hasPayRequest ? <EBadge tone="info" soft>Pay request</EBadge> : null}
       {hasDamage ? <EBadge tone="danger" soft>Damage</EBadge> : null}

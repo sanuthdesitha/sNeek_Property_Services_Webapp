@@ -9,6 +9,9 @@ import { getAppSettings } from "@/lib/settings";
 import { formatServiceDate } from "@/lib/time/service-date";
 import { chargeForJob, loadChargeInputs } from "@/lib/jobs/list-row-extras";
 import { buildBriefingProof } from "@/lib/jobs/job-page/briefing";
+import { buildTimingAckSummary, type TimingAckSummary } from "@/lib/jobs/job-page/timing-ack";
+import { resolveTimingBadges } from "@/lib/jobs/timing-badges";
+import { timingTagsFor } from "@/lib/jobs/timing-tags";
 import { jobPageViewHref, resolveJobPageTarget, type JobPageView } from "@/lib/jobs/job-page/deep-link";
 import { loadJobPageJob, loadJobPageRelated, loadUserNames } from "@/lib/jobs/job-page/load";
 import type { JobRateCharge } from "@/lib/jobs/job-page/money";
@@ -94,7 +97,26 @@ export default async function AdminJobDetailPage({
     executionStatus: String(task.executionStatus ?? "OPEN"),
   }));
   const ackUserIds = Object.keys(model.meta.startBriefingAcks ?? {});
-  const briefing = buildBriefingProof({ meta: model.meta, tasks: briefingTasks, names: await loadUserNames(ackUserIds), timeZone });
+  const ackNames = await loadUserNames(ackUserIds);
+  const briefing = buildBriefingProof({ meta: model.meta, tasks: briefingTasks, names: ackNames, timeZone });
+  const timingTags = timingTagsFor({
+    timingBadges: resolveTimingBadges(job.internalNotes),
+    sameDayCheckin: job.sameDayCheckin,
+    sameDayCheckinTime: job.sameDayCheckinTime,
+  });
+  let timingAck: TimingAckSummary;
+  try {
+    timingAck = buildTimingAckSummary({
+      meta: model.meta,
+      tasks: briefingTasks,
+      cleaners: buildPanelAssignments(job).map((row) => ({ userId: row.userId, name: row.name })),
+      names: ackNames,
+      timeZone,
+    });
+  } catch {
+    // Say it could not be read; never let a failure read as acknowledged.
+    timingAck = { kind: "error" };
+  }
 
   const data: JobPageData = {
     job,
@@ -111,6 +133,8 @@ export default async function AdminJobDetailPage({
     manageJob: buildManageJob(job),
     panelAssignments: buildPanelAssignments(job),
     briefing,
+    timingTags,
+    timingAck,
     pendingTaskCount,
     pendingContinuationCount,
   };

@@ -2,6 +2,7 @@
  * Command page section payloads. Client-safe (no server imports).
  */
 import type { EPillTone } from "@/components/v2/ui/pill";
+import type { JobTimingBadges } from "@/lib/jobs/timing-badges";
 
 export type CommandSectionKey = "tiles" | "queue" | "cleaners" | "money" | "glance";
 
@@ -27,6 +28,8 @@ export type StripSegment = {
   lengthAssumed: boolean;
   state: StripState;
   label: string;
+  /** Late checkout / early check-in on this job, from the server; null when neither is on. */
+  timingBadges: JobTimingBadges | null;
 };
 
 export type StripRow = { key: string; name: string; unassigned: boolean; segments: StripSegment[] };
@@ -46,7 +49,15 @@ export type MoneyPayload = { rows: MoneyRow[]; unavailable: string[] };
 
 export type GlanceStatus = { status: string; label: string; count: number; href: string };
 
-export type GlanceUpcoming = { id: string; propertyName: string; when: string; jobType: string; statusLabel: string };
+export type GlanceUpcoming = {
+  id: string;
+  propertyName: string;
+  when: string;
+  jobType: string;
+  statusLabel: string;
+  /** Late checkout / early check-in on this job, from the server; null when neither is on. */
+  timingBadges: JobTimingBadges | null;
+};
 
 export type GlanceFeedback = { id: string; jobId: string; clientName: string; rating: number | null; comment: string | null };
 

@@ -14,6 +14,7 @@ import { JobStatusIcon } from "@/components/shared/job-status-icon";
 import Link from "next/link";
 import { Navigation, Phone, Info, Check, Copy, Pause, Play, ChevronLeft } from "lucide-react";
 import { summarizeTiming } from "@/lib/jobs/timing-summary";
+import { timingBadgesFromRules } from "@/components/v2/cleaner/job-stages/timing-banner";
 import { guestCountdownLabel, jobDateKey } from "@/lib/cleaner/job-screen-view";
 import { EBadge } from "@/components/v2/ui/primitives";
 import { cn } from "@/lib/utils";
@@ -146,7 +147,7 @@ function useGuestCountdown(api: WorkspaceApi): string | null {
   const timing = summarizeTiming({
     startTime: api.job?.startTime,
     dueTime: api.job?.dueTime,
-    timingBadges: { early: api.timingRules?.earlyCheckin?.time, late: api.timingRules?.lateCheckout?.time },
+    timingBadges: timingBadgesFromRules(api.timingRules),
     sameDayCheckin: api.job?.sameDayCheckin === true,
     sameDayCheckinTime: api.job?.sameDayCheckinTime ?? null,
   });

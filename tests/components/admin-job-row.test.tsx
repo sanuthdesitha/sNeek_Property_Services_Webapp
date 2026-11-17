@@ -26,8 +26,23 @@ describe("admin jobs table row", () => {
     const propertyCell = screen.getByRole("button", { name: "Preview QA Harbour Apartment" }).closest("td");
     const statusCell = screen.getByText("Paused").closest("td");
     expect(propertyCell).not.toBe(statusCell);
-    expect(screen.getByText("EARLY 13:00")).toBeVisible();
-    expect(screen.getByText("LATE 10:30")).toBeVisible();
+    // Worded guest-timing tags, never the old terse "EARLY 13:00" / "LATE 10:30" chips.
+    expect(screen.getByText("Early check-in · ready by 13:00")).toBeVisible();
+    expect(screen.getByText("Late checkout · start after 10:30")).toBeVisible();
+    expect(screen.queryByText("EARLY 13:00")).toBeNull();
+    expect(screen.queryByText("LATE 10:30")).toBeNull();
+  });
+
+  it("states an unreadable stored time in words instead of dropping the rule", () => {
+    table([{ ...paused, timingBadges: { lateInvalid: true, earlyInvalid: true } } as unknown as typeof paused]);
+    expect(screen.getByText("Late checkout · time could not be read")).toBeVisible();
+    expect(screen.getByText("Early check-in · time could not be read")).toBeVisible();
+  });
+
+  it("shows the same worded tags on a board card", () => {
+    render(<EBoardCard job={paused as never} selected={false} onToggleSelect={vi.fn()} onOpen={vi.fn()} onQuickAssign={vi.fn()} menuItems={[]} />);
+    expect(screen.getByText("Late checkout · start after 10:30")).toBeVisible();
+    expect(screen.getByText("Early check-in · ready by 13:00")).toBeVisible();
   });
 
   it("offers one visible action per row: Assign only when nobody is on the job", () => {

@@ -91,6 +91,18 @@ describe("Jobs peek panel", () => {
     expect(callsTo("/pay-summary")[1].url).toContain("/jobs/b/");
   });
 
+  it("shows the job's guest-timing tags from the server summary, and never carries them to another job", async () => {
+    const view = render(<JobPeekPanel {...props} jobId="a" />);
+    await act(async () => callsTo("/peek")[0].resolve(summary("a", "Job A", { timingBadges: { late: "11:00", early: "13:00" } })));
+    const panel = screen.getByRole("complementary", { name: "Job preview" });
+    expect(within(panel).getByText("Late checkout · start after 11:00")).toBeVisible();
+    expect(within(panel).getByText("Early check-in · ready by 13:00")).toBeVisible();
+    view.rerender(<JobPeekPanel {...props} jobId="b" />);
+    await act(async () => callsTo("/peek")[1].resolve(summary("b", "Job B", { timingBadges: null })));
+    expect(screen.getByRole("heading", { name: "Job B" })).toBeVisible();
+    expect(screen.queryByText("Late checkout · start after 11:00")).toBeNull();
+  });
+
   it("states a failed section and retries it", async () => {
     render(<JobPeekPanel {...props} jobId="a" />);
     await act(async () => callsTo("/peek")[0].resolve({ error: "nope" }, 503));

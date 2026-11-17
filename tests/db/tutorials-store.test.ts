@@ -21,6 +21,13 @@ import {
   updateTourPreference,
 } from "@/lib/tutorials/store";
 
+import { effectiveVersion } from "@/lib/tutorials/engine";
+import { findTour } from "@/lib/tutorials/registry";
+
+// The current version of the cleaner Today tour, read from the registry so a
+// tour update does not break these storage tests.
+const CLEANER_TODAY_VERSION = effectiveVersion(findTour("cleaner.today")!);
+
 const url = process.env.SNEEK_TEST_DATABASE_URL;
 let db: PrismaClient;
 const run = randomUUID().slice(0, 8);
@@ -44,8 +51,8 @@ describe.skipIf(!url)("tutorial storage (database)", () => {
   });
 
   it("records one person's progress without touching another's", async () => {
-    await recordTourProgress(db, jane, { tourKey: "cleaner.today", version: 1000, status: "IN_PROGRESS", seenSteps: ["clock"], missingSteps: [], currentStep: 0 });
-    await recordTourProgress(db, jane, { tourKey: "cleaner.today", version: 1000, status: "IN_PROGRESS", seenSteps: ["nextJob"], missingSteps: ["offer"], currentStep: 2 });
+    await recordTourProgress(db, jane, { tourKey: "cleaner.today", version: CLEANER_TODAY_VERSION, status: "IN_PROGRESS", seenSteps: ["clock"], missingSteps: [], currentStep: 0 });
+    await recordTourProgress(db, jane, { tourKey: "cleaner.today", version: CLEANER_TODAY_VERSION, status: "IN_PROGRESS", seenSteps: ["nextJob"], missingSteps: ["offer"], currentStep: 2 });
     const state = await readTourClientState(db, { userId: jane, role: "CLEANER", impersonating: false, legacyWelcomeSeen: false });
     expect(state.progress["cleaner.today"]).toMatchObject({ status: "IN_PROGRESS", currentStep: 2, seenSteps: ["clock", "nextJob"], missingSteps: ["offer"] });
     const other = await readTourClientState(db, { userId: maria, role: "CLEANER", impersonating: false, legacyWelcomeSeen: false });
@@ -53,21 +60,21 @@ describe.skipIf(!url)("tutorial storage (database)", () => {
   });
 
   it("never downgrades a finished version when a replay is stopped part-way", async () => {
-    await recordTourProgress(db, jane, { tourKey: "cleaner.today", version: 1000, status: "DONE", seenSteps: ["pay", "help"], missingSteps: [], currentStep: 4 });
-    const after = await recordTourProgress(db, jane, { tourKey: "cleaner.today", version: 1000, status: "IN_PROGRESS", seenSteps: ["clock"], missingSteps: [], currentStep: 0 });
+    await recordTourProgress(db, jane, { tourKey: "cleaner.today", version: CLEANER_TODAY_VERSION, status: "DONE", seenSteps: ["pay", "help"], missingSteps: [], currentStep: 4 });
+    const after = await recordTourProgress(db, jane, { tourKey: "cleaner.today", version: CLEANER_TODAY_VERSION, status: "IN_PROGRESS", seenSteps: ["clock"], missingSteps: [], currentStep: 0 });
     expect(after.status).toBe("DONE");
     expect(after.completedAt).not.toBeNull();
   });
 
   it("refuses unknown tours and drops unknown step ids", async () => {
-    await expect(recordTourProgress(db, jane, { tourKey: "nope", version: 1000, status: "DONE", seenSteps: [], missingSteps: [], currentStep: 0 })).rejects.toThrow("Unknown tour.");
-    const row = await recordTourProgress(db, maria, { tourKey: "cleaner.today", version: 1000, status: "IN_PROGRESS", seenSteps: ["clock", "made-up"], missingSteps: [], currentStep: 0 });
+    await expect(recordTourProgress(db, jane, { tourKey: "nope", version: CLEANER_TODAY_VERSION, status: "DONE", seenSteps: [], missingSteps: [], currentStep: 0 })).rejects.toThrow("Unknown tour.");
+    const row = await recordTourProgress(db, maria, { tourKey: "cleaner.today", version: CLEANER_TODAY_VERSION, status: "IN_PROGRESS", seenSteps: ["clock", "made-up"], missingSteps: [], currentStep: 0 });
     expect(row.seenSteps).toEqual(["clock"]);
   });
 
   it("caps a claimed version at the current effective version", async () => {
     const row = await recordTourProgress(db, maria, { tourKey: "cleaner.today", version: 999_999, status: "DONE", seenSteps: [], missingSteps: [], currentStep: 0 });
-    expect(row.version).toBe(1000);
+    expect(row.version).toBe(CLEANER_TODAY_VERSION);
   });
 
   it("stores Show tours and Don't show again per person", async () => {

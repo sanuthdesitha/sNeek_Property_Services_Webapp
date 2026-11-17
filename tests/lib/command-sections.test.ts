@@ -130,6 +130,16 @@ describe("today at a glance", () => {
     expect(waiting).toMatchObject({ count: 1, href: "/v2/admin/jobs?statusChip=WAITING_CONTINUATION_APPROVAL&dateFrom=2026-11-11&dateTo=2026-11-11" });
     expect(glance).toMatchObject({ laundryDueToday: 2, cleanersTomorrow: 4, completedToday: 2 });
   });
+  it("attaches each upcoming job's guest-timing rules on the server (no notes reach the page)", async () => {
+    m.jobFind.mockImplementation(async (args: { select: Record<string, unknown> }) => args.select.id ? [
+      { id: "u1", jobType: "AIRBNB_TURNOVER", status: "ASSIGNED", startTime: "11:30", scheduledDate: new Date("2026-11-12T00:00:00Z"), property: { name: "Harbour Loft" },
+        internalNotes: serializeJobInternalNotes({ lateCheckout: { enabled: true, preset: "11:00" }, earlyCheckin: { enabled: true, preset: "custom", time: "9am" } }) },
+      { id: "u2", jobType: "AIRBNB_TURNOVER", status: "ASSIGNED", startTime: null, scheduledDate: new Date("2026-11-12T00:00:00Z"), property: { name: "Bondi" }, internalNotes: null },
+    ] : []);
+    const glance = await loadCommandGlance(NOW, TZ);
+    expect(glance.upcoming?.map((row) => row.timingBadges)).toEqual([{ late: "11:00", earlyInvalid: true }, null]);
+    expect(JSON.stringify(glance.upcoming)).not.toContain("internalNotes");
+  });
   it("reports an unreadable figure as null, not zero", async () => {
     m.laundryCount.mockRejectedValue(new Error("db"));
     m.metrics.mockRejectedValue(new Error("db"));

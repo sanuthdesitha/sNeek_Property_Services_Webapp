@@ -10,6 +10,7 @@ import { getAppSettings } from "@/lib/settings";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { getJobTimingHighlights, parseJobInternalNotes, resolveRuleTime } from "@/lib/jobs/meta";
+import { loadOwnTimingAck } from "@/lib/jobs/own-timing-ack";
 import { buildCleanerDepartingGuest, buildCleanerGuestSummary, cleanerPreparationContext } from "@/lib/jobs/guest-summary";
 import {
   guestSummaryFromReservation,
@@ -131,9 +132,16 @@ export async function GET(
     // early-check-in / late-checkout chips (only enabled rules, resolved time).
     const earlyCheckinTime = resolveRuleTime(jobMeta.earlyCheckin);
     const lateCheckoutTime = resolveRuleTime(jobMeta.lateCheckout);
+    // A rule that is switched on but whose stored time cannot be read is named
+    // in `unreadable`, so the cleaner is told to confirm it rather than shown nothing.
+    const unreadableTimingRules = [
+      ...(jobMeta.earlyCheckin.enabled && !earlyCheckinTime ? ["earlyCheckin" as const] : []),
+      ...(jobMeta.lateCheckout.enabled && !lateCheckoutTime ? ["lateCheckout" as const] : []),
+    ];
     const timingRules = {
       ...(earlyCheckinTime ? { earlyCheckin: { time: earlyCheckinTime } } : {}),
       ...(lateCheckoutTime ? { lateCheckout: { time: lateCheckoutTime } } : {}),
+      ...(unreadableTimingRules.length > 0 ? { unreadable: unreadableTimingRules } : {}),
     };
 
     // Where the cleaner collects keys (from the quote's service context), surfaced
@@ -543,6 +551,11 @@ export async function GET(
       scheduledDate: job.scheduledDate,
       jobStatus: job.status,
     });
+    // The cleaner's own timing confirmation, so their job screen can ask again
+    // after the office changes the time (lib/jobs/own-timing-ack.ts).
+    const timingAck = cleanerViewer
+      ? await loadOwnTimingAck({ jobId: job.id, meta: jobMeta, userId: session.user.id })
+      : null;
     return NextResponse.json({
       job: cleanerViewer
         ? accessWindow === "OPEN"
@@ -573,6 +586,8 @@ export async function GET(
       timingHighlights: jobTimingHighlights,
       /** Structured early-check-in / late-checkout rules for distinct chips. */
       timingRules,
+      /** This cleaner's confirmation of those rules (cleaner only; null otherwise). */
+      timingAck,
       /** Pre-submit acknowledgement items (R7); empty = no dialog, no gate. */
       finalCheckup: { items: finalCheckupItems },
       keyPickupLocation,

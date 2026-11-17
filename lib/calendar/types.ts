@@ -5,6 +5,7 @@
  * instead of rendering an empty calendar.
  */
 import { z } from "zod";
+import { jobTimingBadgesSchema } from "@/lib/jobs/peek-types";
 
 export const calendarCleanerRefSchema = z.object({
   id: z.string(),
@@ -39,6 +40,8 @@ export const calendarJobSchema = z.object({
   late: z.boolean(),
   /** A guest checks in on the job's day; time is null when the feed gave none. */
   guestArrival: z.object({ time: z.string().nullable() }).nullable(),
+  /** Late checkout / early check-in rules (`resolveTimingBadges`), or null when neither is on. */
+  timingBadges: jobTimingBadgesSchema.nullish(),
   /** Why the calendar will not move this job, or null when it may be moved. */
   moveBlock: z.string().nullable(),
   /** Passed back to the reschedule service as its stale-write guard. */

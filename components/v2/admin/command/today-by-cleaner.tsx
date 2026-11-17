@@ -10,6 +10,8 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { StripSegment, StripState, TodayByCleanerPayload } from "@/lib/dashboard/command-types";
 import { stripStateLabel } from "@/lib/dashboard/today-by-cleaner";
+import { timingRuleTagsFor } from "@/lib/jobs/timing-tags";
+import { TimingTags } from "@/components/v2/ui/timing-tags";
 import { SectionBody } from "./section-state";
 import { useCommandSection } from "./use-command-section";
 
@@ -55,6 +57,39 @@ function Segment({ segment, start, span }: { segment: StripSegment; start: numbe
   );
 }
 
+/** Today's jobs that carry a late checkout or early check-in, once each, in time order. */
+export function guestTimingToday(data: TodayByCleanerPayload): StripSegment[] {
+  // A job with two cleaners appears in both rows; list it once.
+  const byJob = new Map<string, StripSegment>();
+  for (const segment of data.rows.flatMap((row) => row.segments)) {
+    if (byJob.has(segment.jobId)) continue;
+    if (timingRuleTagsFor(segment.timingBadges).length === 0) continue;
+    byJob.set(segment.jobId, segment);
+  }
+  return Array.from(byJob.values()).sort((a, b) => a.startMinute - b.startMinute);
+}
+
+/** The guest-timing rules on today's jobs, as rows: the strip itself only draws bars. */
+function GuestTimingToday({ data }: { data: TodayByCleanerPayload }) {
+  const segments = guestTimingToday(data);
+  if (segments.length === 0) return null;
+  return (
+    <section aria-label="Guest timing today" className="space-y-1.5">
+      <h3 className="text-[0.75rem] font-[600] text-[hsl(var(--e-text-secondary))]">Guest timing today</h3>
+      <ul className="space-y-1.5">
+        {segments.map((segment) => (
+          <li key={segment.jobId} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[0.8125rem]">
+            <Link href={`/v2/admin/jobs/${segment.jobId}`} className="min-w-0 [overflow-wrap:anywhere] hover:underline">
+              <span className="e-tnum">{clock(segment.startMinute)}</span> {segment.label.split(" · ")[0]}
+            </Link>
+            <TimingTags size="sm" tags={timingRuleTagsFor(segment.timingBadges)} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function StripTable({ data }: { data: TodayByCleanerPayload }) {
   return (
     <details className="text-[0.8125rem]">
@@ -62,7 +97,7 @@ function StripTable({ data }: { data: TodayByCleanerPayload }) {
       <div className="mt-2 max-h-64 overflow-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
         <table className="w-full text-left text-[0.75rem]">
           <caption className="sr-only">Today&apos;s jobs by cleaner</caption>
-          <thead><tr className="bg-[hsl(var(--e-surface-raised))]"><th className="px-2 py-1.5">Cleaner</th><th className="px-2 py-1.5">Time</th><th className="px-2 py-1.5">Job</th><th className="px-2 py-1.5">State</th></tr></thead>
+          <thead><tr className="bg-[hsl(var(--e-surface-raised))]"><th className="px-2 py-1.5">Cleaner</th><th className="px-2 py-1.5">Time</th><th className="px-2 py-1.5">Job</th><th className="px-2 py-1.5">State</th><th className="px-2 py-1.5">Guest timing</th></tr></thead>
           <tbody>
             {data.rows.flatMap((row) => row.segments.map((segment) => (
               <tr key={`${row.key}:${segment.jobId}`} className="border-t border-[hsl(var(--e-border))]">
@@ -70,6 +105,11 @@ function StripTable({ data }: { data: TodayByCleanerPayload }) {
                 <td className="e-tnum px-2 py-1.5">{clock(segment.startMinute)}{segment.lengthAssumed ? "" : `–${clock(segment.endMinute)}`}</td>
                 <td className="px-2 py-1.5"><Link href={`/v2/admin/jobs/${segment.jobId}`} className="hover:underline">{segment.label.split(" · ")[0]}</Link></td>
                 <td className="px-2 py-1.5">{stripStateLabel(segment.state)}</td>
+                <td className="px-2 py-1.5">
+                  {timingRuleTagsFor(segment.timingBadges).length > 0
+                    ? <TimingTags size="sm" tags={timingRuleTagsFor(segment.timingBadges)} />
+                    : <span className="text-[hsl(var(--e-text-faint))]">None</span>}
+                </td>
               </tr>
             )))}
           </tbody>
@@ -112,6 +152,7 @@ export function TodayByCleaner({ initial, timeZone }: { initial: TodayByCleanerP
                 ))}
               </ul>
               {data.withoutStartTime > 0 ? <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{data.withoutStartTime} job{data.withoutStartTime === 1 ? " has" : "s have"} no start time and {data.withoutStartTime === 1 ? "is" : "are"} not drawn.</p> : null}
+              <GuestTimingToday data={data} />
               <StripTable data={data} />
             </div>
           );

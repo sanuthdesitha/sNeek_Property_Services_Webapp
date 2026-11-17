@@ -3,6 +3,7 @@
  * ops board rows (real scheduled start times and live states). Pure.
  */
 import type { LiveJobRow, LiveJobState } from "@/lib/ops/live-board-types";
+import { timingRuleTagsFor, timingTagsSentence } from "@/lib/jobs/timing-tags";
 import type { StripRow, StripSegment, StripState, TodayByCleanerPayload } from "./command-types";
 
 /** Default axis (hours, organisation timezone); widened to fit the day's jobs. */
@@ -52,13 +53,16 @@ function segmentFor(row: LiveJobRow): StripSegment | null {
     assumed = true;
   }
   const state = stripState(row.state, row.cleaners.length > 0);
+  const timingBadges = row.timingBadges ?? null;
+  const timing = timingTagsSentence(timingRuleTagsFor(timingBadges));
   return {
     jobId: row.jobId,
     startMinute: start,
     endMinute: Math.min(end, 24 * 60),
     lengthAssumed: assumed,
     state,
-    label: `${row.propertyName} · ${row.startTime}${assumed ? "" : `–${String(Math.floor(end / 60) % 24).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}`} · ${STATE_TEXT[state]}`,
+    label: `${row.propertyName} · ${row.startTime}${assumed ? "" : `–${String(Math.floor(end / 60) % 24).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}`} · ${STATE_TEXT[state]}${timing ? ` · ${timing}` : ""}`,
+    timingBadges,
   };
 }
 

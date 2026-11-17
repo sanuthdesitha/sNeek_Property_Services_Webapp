@@ -17,6 +17,8 @@ import { jobsOnDay } from "@/lib/calendar/lanes";
 import { CHIP_CATEGORY_LABEL, chipCategory, type ChipCategory } from "@/lib/calendar/presentation";
 import { longDayLabel } from "@/lib/calendar/range";
 import type { CalendarJob, CalendarResponse } from "@/lib/calendar/types";
+import { TimingTags } from "@/components/v2/ui/timing-tags";
+import { timingRuleTagsFor } from "@/lib/jobs/timing-tags";
 import { STATUS_LABELS } from "@/lib/jobs/status-labels";
 import { cleanerSummary, type ChipActions } from "./calendar-job-chip";
 import type { GridDisplay } from "./calendar-week-grid";
@@ -44,6 +46,7 @@ function AgendaRow({ job, actions, pending }: { job: CalendarJob; actions: ChipA
           </span>
         </span>
       </button>
+      <TimingTags className="basis-full pl-[4.25rem] max-sm:pl-0" tags={timingRuleTagsFor(job.timingBadges)} />
       <span className="flex shrink-0 items-center gap-1.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
         <User2 aria-hidden className="h-3 w-3 text-[hsl(var(--e-text-faint))]" />
         {unassigned ? <span className="text-[hsl(var(--e-danger))]">No cleaner</span> : cleanerSummary(job)}

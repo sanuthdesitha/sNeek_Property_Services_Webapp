@@ -12,12 +12,28 @@
 import * as React from "react";
 import { AlarmClock, LogIn, CalendarClock } from "lucide-react";
 import { summarizeTiming } from "@/lib/jobs/timing-summary";
+import type { JobTimingBadges } from "@/lib/jobs/timing-badges";
 import { CleanerTimingSummary } from "@/components/v2/cleaner/timing-summary";
 import { toneNoticeClass } from "@/components/v2/ui/tone-band";
+
+export type JobTimingRuleKey = "earlyCheckin" | "lateCheckout";
 
 export interface JobTimingRulesPayload {
   earlyCheckin?: { time: string } | null;
   lateCheckout?: { time: string } | null;
+  /** Rules that are switched on but whose stored time cannot be read. */
+  unreadable?: JobTimingRuleKey[];
+}
+
+/** The payload's rules in the shared badge shape, keeping unreadable rules visible. */
+export function timingBadgesFromRules(rules: JobTimingRulesPayload | null | undefined): JobTimingBadges {
+  const unreadable = Array.isArray(rules?.unreadable) ? rules.unreadable : [];
+  return {
+    late: rules?.lateCheckout?.time,
+    early: rules?.earlyCheckin?.time,
+    ...(unreadable.includes("earlyCheckin") ? { earlyInvalid: true as const } : {}),
+    ...(unreadable.includes("lateCheckout") ? { lateInvalid: true as const } : {}),
+  };
 }
 
 /**
@@ -52,7 +68,7 @@ export function TimingRuleBanners({
   startTime?: string | null;
   dueTime?: string | null;
 }) {
-  const timingInput = { startTime, dueTime, timingBadges: { late: rules?.lateCheckout?.time, early: rules?.earlyCheckin?.time }, sameDayCheckin: sameDayCheckin?.active, sameDayCheckinTime: sameDayCheckin?.time };
+  const timingInput = { startTime, dueTime, timingBadges: timingBadgesFromRules(rules), sameDayCheckin: sameDayCheckin?.active, sameDayCheckinTime: sameDayCheckin?.time };
   const timing = summarizeTiming(timingInput);
   const late = timing.earliestAccess;
   // Same-day and early check-in are the SAME event described twice. They
@@ -93,6 +109,17 @@ export function TimingRuleBanners({
           </p>
           <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
             Guests are checking out late. Do not enter or start before {late}.
+          </p>
+        </div>
+      ) : null}
+      {!late && timing.invalidLate ? (
+        <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("problem")} ${pad}`}>
+          <p className="flex items-center gap-1.5 text-[0.8125rem] font-[600]">
+            <LogIn className="h-4 w-4 shrink-0 text-[hsl(var(--e-danger))]" />
+            Late checkout — start time not confirmed
+          </p>
+          <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+            Guests may still be inside. Confirm the start time with the office before you enter.
           </p>
         </div>
       ) : null}

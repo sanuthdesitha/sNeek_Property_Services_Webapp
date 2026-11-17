@@ -15,7 +15,10 @@ export function summarizeTiming(input: TimingInput) {
   const plannedStart = validTimingTime(input.startTime);
   const plannedFinish = validTimingTime(input.dueTime);
   const earliestAccess = validTimingTime(input.timingBadges?.late);
-  const invalidEarly = Boolean(input.timingBadges?.early) && !validTimingTime(input.timingBadges?.early);
+  // A rule that is on but whose time cannot be read is reported, never dropped.
+  const invalidLate = input.timingBadges?.lateInvalid === true || (Boolean(input.timingBadges?.late) && !earliestAccess);
+  const invalidEarly = input.timingBadges?.earlyInvalid === true
+    || (Boolean(input.timingBadges?.early) && !validTimingTime(input.timingBadges?.early));
   // An invalid explicit override cannot safely fall back to the standard arrival.
   const arrival = invalidEarly ? { time: null, sameDay: true, early: true } : resolveArrivalNotice({
     earlyCheckinTime: validTimingTime(input.timingBadges?.early),
@@ -29,6 +32,6 @@ export function summarizeTiming(input: TimingInput) {
   if (plannedFinish && guestDeadline && plannedFinish > guestDeadline) warnings.push("Planned finish is after the guest deadline.");
   const supplied = [input.startTime, input.dueTime, input.timingBadges?.late, input.timingBadges?.early,
     ...(input.sameDayCheckin ? [input.sameDayCheckinTime] : [])];
-  if (supplied.some(value => value && !validTimingTime(value))) warnings.push("Some timing information is invalid.");
-  return { plannedStart, plannedFinish, earliestAccess, guestDeadline, arrival, warnings };
+  if (invalidLate || invalidEarly || supplied.some(value => value && !validTimingTime(value))) warnings.push("Some timing information is invalid.");
+  return { plannedStart, plannedFinish, earliestAccess, invalidLate, guestDeadline, arrival, warnings };
 }

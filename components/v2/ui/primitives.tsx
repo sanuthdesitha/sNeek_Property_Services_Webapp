@@ -151,16 +151,29 @@ export function EBadge({
   className?: string;
   children: React.ReactNode;
 }) {
+  // Soft: a tinted fill with a hairline ring and the label in the tone's own
+  // colour (mixed toward the foreground so it stays readable in both themes).
+  // Plain: a quiet outlined chip. Both carry the dot with a soft halo.
+  const toneColor = TONE_DOT[tone];
+  const softStyle: React.CSSProperties = {
+    backgroundColor: `color-mix(in srgb, ${toneColor} 11%, hsl(var(--e-surface)))`,
+    boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${toneColor} 26%, transparent)`,
+    color: `color-mix(in srgb, ${toneColor} 48%, hsl(var(--e-foreground)))`,
+  };
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-[var(--e-radius-pill)] px-2.5 py-0.5 text-[0.6875rem] font-[550] tracking-[0.02em]",
-        soft ? "text-[hsl(var(--e-foreground))]" : "border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-text-secondary))]",
+        "inline-flex items-center gap-1.5 rounded-[var(--e-radius-pill)] px-2 py-[3px] text-[0.75rem] font-[600] leading-[1.15rem] tracking-[0.005em]",
+        soft ? "" : "border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-text-secondary))]",
         className
       )}
-      style={soft ? { backgroundColor: `color-mix(in srgb, ${TONE_DOT[tone]} 14%, transparent)` } : undefined}
+      style={soft ? softStyle : undefined}
     >
-      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: TONE_DOT[tone] }} />
+      <span
+        aria-hidden
+        className="h-1.5 w-1.5 shrink-0 rounded-full"
+        style={{ backgroundColor: toneColor, boxShadow: `0 0 0 3px color-mix(in srgb, ${toneColor} 20%, transparent)` }}
+      />
       {children}
     </span>
   );

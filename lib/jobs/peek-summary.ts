@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { buildGuestSummary, telHref } from "./guest-summary";
 import { parseJobInternalNotes } from "./meta";
+import { resolveTimingBadges } from "./timing-badges";
 import { withListExtras, type JobListCharge } from "./list-row-extras";
 import type { JobPeekSummary } from "./peek-types";
 
@@ -18,6 +19,7 @@ export async function loadJobPeekSummary(jobId: string): Promise<JobPeekSummary 
     select: {
       id: true, jobNumber: true, status: true, jobType: true, scheduledDate: true, startTime: true, endTime: true,
       dueTime: true, cleanSkipStatus: true, propertyId: true, fixedPrice: true, internalNotes: true, sameDayCheckin: true,
+      sameDayCheckinTime: true,
       property: { select: { id: true, name: true, suburb: true, client: { select: { id: true, name: true } } } },
       reservation: { select: { guestName: true, guestPhone: true, checkoutAtLocal: true, endDate: true } },
       laundryTask: { select: { status: true, pickupDate: true, dropoffDate: true, noPickupRequired: true, pickedUpAt: true, droppedAt: true } },
@@ -83,5 +85,8 @@ export async function loadJobPeekSummary(jobId: string): Promise<JobPeekSummary 
       responseStatus: String(row.responseStatus),
     })),
     qa: qa ? { status: String(qa.status), inspector: qa.assignedTo?.name ?? qa.assignedTo?.email ?? null } : null,
+    timingBadges: resolveTimingBadges(job.internalNotes),
+    sameDayCheckin: job.sameDayCheckin,
+    sameDayCheckinTime: job.sameDayCheckinTime ?? null,
   };
 }

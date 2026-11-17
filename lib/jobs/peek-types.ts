@@ -18,6 +18,14 @@ export const jobGuestInSchema = z.object({
 });
 export type JobGuestInView = z.infer<typeof jobGuestInSchema>;
 
+/** The job's guest-timing rules as `resolveTimingBadges` derives them on the server. */
+export const jobTimingBadgesSchema = z.object({
+  early: z.string().optional(),
+  late: z.string().optional(),
+  earlyInvalid: z.literal(true).optional(),
+  lateInvalid: z.literal(true).optional(),
+});
+
 export const jobPeekSummarySchema = z.object({
   id: z.string(),
   jobNumber: z.string().nullable(),
@@ -53,6 +61,10 @@ export const jobPeekSummarySchema = z.object({
   charge: jobListChargeSchema,
   assignments: z.array(z.object({ userId: z.string(), name: z.string(), isPrimary: z.boolean(), responseStatus: z.string() })),
   qa: z.object({ status: z.string(), inspector: z.string().nullable() }).nullable(),
+  /** Late checkout / early check-in, derived server-side; null when neither rule is on. */
+  timingBadges: jobTimingBadgesSchema.nullish(),
+  sameDayCheckin: z.boolean().optional(),
+  sameDayCheckinTime: z.string().nullish(),
 });
 export type JobPeekSummary = z.infer<typeof jobPeekSummarySchema>;
 

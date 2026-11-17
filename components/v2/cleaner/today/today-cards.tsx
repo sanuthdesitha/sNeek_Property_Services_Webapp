@@ -136,6 +136,16 @@ export function OfferCard({ job, dayLabel }: { job: TodayJobView; dayLabel: stri
       </EToneBand>
       <div className="space-y-1.5 px-3 pb-2.5 pt-2">
         <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{facts}</p>
+        {/* Guest timing BEFORE Accept: a late checkout or early check-in can
+            make the job impossible to fit, so it is part of the offer. */}
+        <CleanerTimingSummary
+          showPlanned={false}
+          startTime={job.startTime}
+          dueTime={job.dueTime}
+          timingBadges={job.timingBadges}
+          sameDayCheckin={job.sameDayCheckin}
+          sameDayCheckinTime={job.sameDayCheckinTime}
+        />
         <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Access details appear once you accept.</p>
         <div className="pt-1">
           <JobOfferActions jobId={job.id} size="md" />

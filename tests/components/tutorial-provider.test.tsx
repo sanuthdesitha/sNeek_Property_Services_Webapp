@@ -70,36 +70,38 @@ describe("tutorial provider", () => {
     const card = await screen.findByRole("dialog", { name: "Tour available" }, { timeout: 3000 });
     expect(within(card).getByText("This page has a tour")).toBeInTheDocument();
     fireEvent.click(within(card).getByRole("button", { name: "Take the tour" }));
-    expect(await screen.findByRole("dialog", { name: "Tour step 1 of 5" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Tour step 1 of 6" })).toBeInTheDocument();
   });
 
   it("runs the page tour for a new person, skips and records a missing control, and keyboard keys move", async () => {
     const writes: Writes = [];
     serve(state({ legacyWelcomeSeen: false }), writes);
     render(<TutorialProvider portal="admin"><JobsPage /></TutorialProvider>);
-    const first = await screen.findByRole("dialog", { name: "Tour step 1 of 5" }, { timeout: 3000 });
+    const first = await screen.findByRole("dialog", { name: "Tour step 1 of 6" }, { timeout: 3000 });
     expect(document.activeElement?.tagName).toBe("H2");
     expect(document.querySelector('[data-tour="admin.jobs.filters"]')?.getAttribute("aria-describedby")).toBeTruthy();
     fireEvent.keyDown(first, { key: "ArrowRight" });
-    expect(await screen.findByRole("dialog", { name: "Tour step 2 of 5" })).toBeInTheDocument();
-    fireEvent.click(within(screen.getByRole("dialog", { name: "Tour step 2 of 5" })).getByRole("button", { name: "Next" }));
-    fireEvent.click(within(await screen.findByRole("dialog", { name: "Tour step 3 of 5" })).getByRole("button", { name: "Next" }));
-    // Step 4 (bulk select) has no control on this page: skipped after the wait, never an error.
-    expect(await screen.findByRole("dialog", { name: "Tour step 5 of 5" }, { timeout: 4000 })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Tour step 2 of 6" })).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Tour step 2 of 6" })).getByRole("button", { name: "Next" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Tour step 3 of 6" })).getByRole("button", { name: "Next" }));
+    // Step 4 (guest timing tags) points at the same table as step 3.
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Tour step 4 of 6" })).getByRole("button", { name: "Next" }));
+    // Step 5 (bulk select) has no control on this page: skipped after the wait, never an error.
+    expect(await screen.findByRole("dialog", { name: "Tour step 6 of 6" }, { timeout: 4000 })).toBeInTheDocument();
     await waitFor(() => expect(writes.some((entry) => entry.body.missingSteps?.includes("bulk"))).toBe(true));
-    fireEvent.click(within(screen.getByRole("dialog", { name: "Tour step 5 of 5" })).getByRole("button", { name: "Done" }));
-    // Jobs tour version 2 since 2026-11-16 ("Everyday dialogs and sheets"): recorded as 2000.
-    await waitFor(() => expect(writes.at(-1)?.body).toMatchObject({ tourKey: "admin.jobs", status: "DONE", version: 2000 }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Tour step 6 of 6" })).getByRole("button", { name: "Done" }));
+    // Jobs tour version 3 since 2026-11-17 ("Guest timing tags and confirmation"): recorded as 3000.
+    await waitFor(() => expect(writes.at(-1)?.body).toMatchObject({ tourKey: "admin.jobs", status: "DONE", version: 3000 }));
   }, 15000);
 
   it("Escape pauses: the header offers Continue, and Continue resumes the same step", async () => {
     serve(state({ legacyWelcomeSeen: false }), []);
     render(<TutorialProvider portal="admin"><JobsPage /></TutorialProvider>);
-    await screen.findByRole("dialog", { name: "Tour step 1 of 5" }, { timeout: 3000 });
+    await screen.findByRole("dialog", { name: "Tour step 1 of 6" }, { timeout: 3000 });
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: /Tour step/ })).toBeNull());
-    fireEvent.click(screen.getAllByRole("button", { name: /Continue tour 1 of 5/ })[0]);
-    expect(await screen.findByRole("dialog", { name: "Tour step 1 of 5" })).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: /Continue tour 1 of 6/ })[0]);
+    expect(await screen.findByRole("dialog", { name: "Tour step 1 of 6" })).toBeInTheDocument();
   });
 
   it("defers over an open dialog and starts when it closes; one tour at a time", async () => {
@@ -117,7 +119,7 @@ describe("tutorial provider", () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1200)); });
     expect(screen.queryByRole("dialog", { name: /Tour step/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Close it" }));
-    expect(await screen.findByRole("dialog", { name: "Tour step 1 of 5" }, { timeout: 4000 })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Tour step 1 of 6" }, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.getAllByRole("dialog", { name: /Tour step|Tour available/ })).toHaveLength(1);
   }, 10000);
 
@@ -140,7 +142,7 @@ describe("tutorial provider", () => {
     window.matchMedia = ((query: string) => ({ matches: true, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() })) as unknown as typeof window.matchMedia;
     serve(state({ legacyWelcomeSeen: false }), []);
     render(<TutorialProvider portal="admin"><JobsPage /></TutorialProvider>);
-    await screen.findByRole("dialog", { name: "Tour step 1 of 5" }, { timeout: 3000 });
+    await screen.findByRole("dialog", { name: "Tour step 1 of 6" }, { timeout: 3000 });
     const overlay = document.querySelector("[data-tour-ui]");
     expect(overlay?.getAttribute("data-reduced-motion")).toBe("true");
     expect(overlay?.getAttribute("data-phone")).toBe("true");
