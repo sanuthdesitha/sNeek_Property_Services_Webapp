@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PART_ATTEMPTS, PART_CEILING_MS, uploadMultipart } from "@/lib/uploads/multipart-client";
+import {
+  CONCURRENCY_THREE_BYTES_PER_SECOND, CONCURRENCY_TWO_BYTES_PER_SECOND, OFFLINE_WAIT_MS, PART_ATTEMPTS, PART_BACKOFF_MS,
+  PART_CEILING_MS, PART_STALL_MS, chooseConcurrency, uploadMultipart,
+} from "@/lib/uploads/multipart-client";
+import { FakeXhr } from "../helpers/fake-xhr";
 
 // These cases drive the fetch fallback; XHR transfers are covered in
 // the "XHR part transfers" block below with a scripted XMLHttpRequest.
@@ -347,4 +351,349 @@ it("stops immediately on a permanent proxy denial and keeps durable recovery met
   await expect(uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {})).rejects.toThrow("Part 1 upload failed (401)");
   expect(fetcher).toHaveBeenCalledTimes(3);
   expect(fetcher).not.toHaveBeenCalledWith("/api/uploads/abort-multipart", expect.anything());
+});
+
+describe("XHR part transfers", () => {
+  const KEY = "jobs/user/clip.mp4";
+  const MB5 = 5 * 1024 * 1024;
+  let online = true;
+
+  beforeEach(() => {
+    FakeXhr.reset();
+    vi.stubGlobal("XMLHttpRequest", FakeXhr);
+    online = true;
+    vi.spyOn(navigator, "onLine", "get").mockImplementation(() => online);
+    vi.useFakeTimers();
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  function control(extra: (url: string, options?: RequestInit) => Response | undefined = () => undefined) {
+    const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
+      const custom = extra(url, options);
+      if (custom) return custom;
+      if (url.endsWith("presign-multipart")) {
+        const count = JSON.parse(options!.body as string).partsCount as number;
+        return Response.json({ uploadId: "upload", key: KEY, partUrls: Array.from({ length: count }, (_, index) => `https://storage.test/${index + 1}`) });
+      }
+      if (url.endsWith("complete-multipart")) return Response.json({ key: KEY, url: "https://cdn.test/clip.mp4" });
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    return fetcher;
+  }
+  const directUrls = () => FakeXhr.instances.filter(xhr => xhr.url.startsWith("https://storage.test/")).map(xhr => xhr.url);
+  const proxied = () => FakeXhr.instances.filter(xhr => xhr.url.startsWith("/api/uploads/part?"));
+
+  it("completes a slow but moving part that takes far longer than two minutes", async () => {
+    control();
+    FakeXhr.onSend = xhr => {
+      let sent = 0;
+      const tick = () => {
+        sent += 100;
+        xhr.progress(sent);
+        if (sent >= 1_000) xhr.respond(200, { etag: "receipt" });
+        else setTimeout(tick, 30_000);
+      };
+      setTimeout(tick, 30_000);
+    };
+    const result = uploadMultipart(new Blob([new Uint8Array(1_000)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {});
+    await vi.advanceTimersByTimeAsync(301_000);
+    await expect(result).resolves.toEqual({ key: KEY, url: "https://cdn.test/clip.mp4" });
+    expect(FakeXhr.instances).toHaveLength(1);
+    expect(FakeXhr.instances[0].aborted).toBe(false);
+  });
+
+  it("retries a stalled part on the same direct route instead of switching to the proxy", async () => {
+    control();
+    const advice = vi.fn();
+    FakeXhr.onSend = xhr => {
+      if (FakeXhr.instances.length === 1) { xhr.progress(200); return; } // then silence
+      xhr.progress(1_000);
+      xhr.respond(200, { etag: "receipt" });
+    };
+    const result = uploadMultipart(new Blob([new Uint8Array(1_000)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {}, undefined, { onConnectionAdvice: advice });
+    await vi.advanceTimersByTimeAsync(PART_STALL_MS - 1);
+    expect(FakeXhr.instances).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(PART_BACKOFF_MS[0] + 2);
+    await expect(result).resolves.toHaveProperty("key", KEY);
+    expect(FakeXhr.instances[0].aborted).toBe(true);
+    expect(directUrls()).toEqual(["https://storage.test/1", "https://storage.test/1"]);
+    expect(proxied()).toHaveLength(0);
+    expect(advice).toHaveBeenCalledWith("slow");
+  });
+
+  it("still streams through the application when the bucket refuses the browser immediately", async () => {
+    control();
+    FakeXhr.onSend = xhr => {
+      if (xhr.url.startsWith("https://storage.test/")) xhr.fail();
+      else xhr.respond(200, {}, JSON.stringify({ etag: "receipt" }));
+    };
+    const result = uploadMultipart(new Blob([new Uint8Array(1_000)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {});
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toHaveProperty("key", KEY);
+    expect(proxied()).toHaveLength(1);
+    expect(proxied()[0].requestHeaders["x-upload-size"]).toBe("1000");
+  });
+
+  it("retries a drop after bytes moved on the same route", async () => {
+    control();
+    FakeXhr.onSend = xhr => {
+      if (FakeXhr.instances.length === 1) { xhr.progress(400); xhr.fail(); return; }
+      xhr.respond(200, { etag: "receipt" });
+    };
+    const result = uploadMultipart(new Blob([new Uint8Array(1_000)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {});
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toHaveProperty("key", KEY);
+    expect(directUrls()).toHaveLength(2);
+    expect(proxied()).toHaveLength(0);
+  });
+
+  it("retries storage's idle-socket rejection rather than treating it as permanent", async () => {
+    control();
+    FakeXhr.onSend = xhr => {
+      if (FakeXhr.instances.length === 1) xhr.respond(400, {}, "<Error><Code>RequestTimeout</Code></Error>");
+      else xhr.respond(200, { etag: "receipt" });
+    };
+    const result = uploadMultipart(new Blob([new Uint8Array(1_000)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {});
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toHaveProperty("key", KEY);
+    expect(directUrls()).toHaveLength(2);
+  });
+
+  it("refreshes expired part URLs through recovery for a long upload and keeps the bucket route", async () => {
+    const fetcher = control(url => {
+      if (url.endsWith("resume-multipart")) return Response.json({ key: KEY, uploadId: "upload", partUrls: ["https://storage.test/1?fresh", "https://storage.test/2?fresh"], uploadedParts: [] });
+    });
+    FakeXhr.onSend = xhr => {
+      if (xhr.url === "https://storage.test/1") {
+        // A slow first part: still moving, done after six minutes.
+        let elapsed = 0;
+        const tick = () => {
+          elapsed += 30_000;
+          xhr.progress(Math.min(MB5, Math.round(MB5 * elapsed / 360_000)));
+          if (elapsed >= 360_000) xhr.respond(200, { etag: "first" }); else setTimeout(tick, 30_000);
+        };
+        setTimeout(tick, 30_000);
+      } else if (xhr.url === "https://storage.test/2") xhr.respond(403);
+      else if (xhr.url === "https://storage.test/2?fresh") xhr.respond(200, { etag: "second" });
+      else xhr.respond(500);
+    };
+    const result = uploadMultipart(new Blob([new Uint8Array(MB5 + 10)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {});
+    await vi.advanceTimersByTimeAsync(400_000);
+    await expect(result).resolves.toHaveProperty("key", KEY);
+    const resumeCall = fetcher.mock.calls.find(([url]) => url.endsWith("resume-multipart"));
+    expect(JSON.parse(resumeCall![1]!.body as string)).toMatchObject({ key: KEY, uploadId: "upload", size: MB5 + 10, partSize: MB5 });
+    expect(proxied()).toHaveLength(0);
+    expect(fetcher.mock.calls.filter(([url]) => url.endsWith("presign-multipart"))).toHaveLength(1);
+    const completion = fetcher.mock.calls.find(([url]) => url.endsWith("complete-multipart"));
+    expect(JSON.parse(completion![1]!.body as string).parts).toEqual([{ PartNumber: 1, ETag: "first" }, { PartNumber: 2, ETag: "second" }]);
+  });
+
+  it("uses the proxy for a 403 when the refreshed allocation is not the same live upload", async () => {
+    control(url => {
+      if (url.endsWith("resume-multipart")) return Response.json({ key: KEY, uploadId: "different", partUrls: ["https://storage.test/x"], uploadedParts: [] });
+    });
+    FakeXhr.onSend = xhr => {
+      if (xhr.url.startsWith("/api/uploads/part?")) xhr.respond(200, {}, JSON.stringify({ etag: "receipt" }));
+      else xhr.respond(403);
+    };
+    const result = uploadMultipart(new Blob([new Uint8Array(1_000)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {});
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toHaveProperty("key", KEY);
+    expect(proxied()).toHaveLength(1);
+    expect(proxied()[0].url).toContain("uploadId=upload");
+  });
+
+  it("waits for the connection to return while offline instead of spending attempts", async () => {
+    control();
+    const advice = vi.fn();
+    online = false;
+    FakeXhr.onSend = xhr => xhr.respond(200, { etag: "receipt" });
+    const result = uploadMultipart(new Blob([new Uint8Array(1_000)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {}, undefined, { onConnectionAdvice: advice });
+    await vi.advanceTimersByTimeAsync(4 * 60_000);
+    expect(FakeXhr.instances).toHaveLength(0);
+    expect(advice).toHaveBeenCalledWith("offline");
+    online = true;
+    window.dispatchEvent(new Event("online"));
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toHaveProperty("key", KEY);
+    expect(FakeXhr.instances).toHaveLength(1);
+  });
+
+  it("does not count a failure that happened while offline as an attempt", async () => {
+    control();
+    FakeXhr.onSend = xhr => {
+      if (FakeXhr.instances.length <= PART_ATTEMPTS) {
+        online = false;
+        xhr.progress(10);
+        xhr.fail();
+        setTimeout(() => { online = true; window.dispatchEvent(new Event("online")); }, 10_000);
+        return;
+      }
+      xhr.respond(200, { etag: "receipt" });
+    };
+    const result = uploadMultipart(new Blob([new Uint8Array(1_000)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {});
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toHaveProperty("key", KEY);
+    expect(FakeXhr.instances).toHaveLength(PART_ATTEMPTS + 1);
+  });
+
+  it("gives up with a clear message after the bounded offline wait and keeps durable recovery", async () => {
+    const fetcher = control();
+    const failure = vi.fn();
+    online = false;
+    const result = uploadMultipart(new Blob([new Uint8Array(1_000)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {}, undefined, { onFailureStats: failure });
+    const assertion = expect(result).rejects.toThrow(/offline/);
+    await vi.advanceTimersByTimeAsync(OFFLINE_WAIT_MS + 1);
+    await assertion;
+    expect(failure).toHaveBeenCalledWith(expect.objectContaining({ failureMode: "offline", partsCompleted: 0 }));
+    expect(fetcher).not.toHaveBeenCalledWith("/api/uploads/abort-multipart", expect.anything());
+  });
+
+  it("reports monotonic byte progress across a retry without double counting, ending at the total", async () => {
+    control();
+    FakeXhr.onSend = xhr => {
+      if (FakeXhr.instances.length === 1) { xhr.progress(300); xhr.progress(600); xhr.fail(); return; }
+      xhr.progress(200); xhr.progress(800); xhr.progress(1_000);
+      xhr.respond(200, { etag: "receipt" });
+    };
+    const progress = vi.fn();
+    const result = uploadMultipart(new Blob([new Uint8Array(1_000)]), "clip.mp4", "video/mp4", progress, undefined, "jobs", async () => {});
+    await vi.runAllTimersAsync();
+    await result;
+    const bytes = progress.mock.calls.map(([p]) => p.bytesUploaded);
+    expect(bytes).toEqual([0, 300, 600, 600, 800, 1_000, 1_000]);
+    for (let index = 1; index < bytes.length; index++) expect(bytes[index]).toBeGreaterThanOrEqual(bytes[index - 1]);
+    expect(progress).toHaveBeenLastCalledWith({ bytesUploaded: 1_000, totalBytes: 1_000, partsCompleted: 1, partsTotal: 1 });
+  });
+
+  it("sends one part at a time after a slow first part", async () => {
+    control();
+    FakeXhr.onSend = xhr => {
+      // About 87 KB/s, moving throughout: below the two-part threshold.
+      setTimeout(() => xhr.progress(xhr.body!.size / 2), 30_000);
+      setTimeout(() => { xhr.progress(xhr.body!.size); xhr.respond(200, { etag: `e${FakeXhr.instances.length}` }); }, 60_000);
+    };
+    const result = uploadMultipart(new Blob([new Uint8Array(MB5 * 4)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {});
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    await expect(result).resolves.toHaveProperty("key", KEY);
+    expect(FakeXhr.instances).toHaveLength(4);
+    expect(FakeXhr.maxOpen).toBe(1);
+  });
+
+  it("sends three parts at once after a fast first part", async () => {
+    control();
+    FakeXhr.onSend = xhr => {
+      setTimeout(() => { xhr.progress(xhr.body!.size); xhr.respond(200, { etag: `e${FakeXhr.instances.length}` }); }, 1_000);
+    };
+    const result = uploadMultipart(new Blob([new Uint8Array(MB5 * 4)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {});
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(result).resolves.toHaveProperty("key", KEY);
+    expect(FakeXhr.instances).toHaveLength(4);
+    expect(FakeXhr.maxOpen).toBe(3);
+  });
+
+  it("chooses concurrency from measured speed at the stated thresholds", () => {
+    expect(chooseConcurrency(null)).toBe(1);
+    expect(chooseConcurrency(CONCURRENCY_TWO_BYTES_PER_SECOND - 1)).toBe(1);
+    expect(chooseConcurrency(CONCURRENCY_TWO_BYTES_PER_SECOND)).toBe(2);
+    expect(chooseConcurrency(CONCURRENCY_THREE_BYTES_PER_SECOND)).toBe(3);
+  });
+
+  it("drops to one part at a time after any stall", async () => {
+    control();
+    FakeXhr.onSend = xhr => {
+      // The probe stalls once, then every part is fast.
+      if (FakeXhr.instances.length === 1) return;
+      setTimeout(() => { xhr.progress(xhr.body!.size); xhr.respond(200, { etag: `e${FakeXhr.instances.length}` }); }, 500);
+    };
+    const result = uploadMultipart(new Blob([new Uint8Array(MB5 * 4)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {});
+    await vi.advanceTimersByTimeAsync(PART_STALL_MS + 20_000);
+    await expect(result).resolves.toHaveProperty("key", KEY);
+    expect(FakeXhr.maxOpen).toBe(1);
+  });
+
+  it("cancelling mid-part aborts the request, uses no fallback and keeps the durable allocation", async () => {
+    const fetcher = control();
+    const controller = new AbortController();
+    const failure = vi.fn();
+    FakeXhr.onSend = xhr => { xhr.progress(400); };
+    const result = uploadMultipart(new Blob([new Uint8Array(1_000)]), "clip.mp4", "video/mp4", undefined, controller.signal, "jobs", async () => {}, undefined, { onFailureStats: failure });
+    await vi.advanceTimersByTimeAsync(1_000);
+    controller.abort(new Error("cleaner cancelled"));
+    await expect(result).rejects.toThrow("cleaner cancelled");
+    await vi.runAllTimersAsync();
+    expect(FakeXhr.instances).toHaveLength(1);
+    expect(FakeXhr.instances[0].aborted).toBe(true);
+    expect(proxied()).toHaveLength(0);
+    expect(fetcher).not.toHaveBeenCalledWith("/api/uploads/abort-multipart", expect.anything());
+    expect(fetcher).not.toHaveBeenCalledWith("/api/uploads/complete-multipart", expect.anything());
+    expect(failure).not.toHaveBeenCalled();
+  });
+
+  it("resumes without re-sending confirmed parts or allocating again", async () => {
+    const fetcher = control(url => {
+      if (url.endsWith("resume-multipart")) return Response.json({ key: KEY, uploadId: "upload", partUrls: ["https://storage.test/1", "https://storage.test/2"], uploadedParts: [{ PartNumber: 1, ETag: "first", Size: MB5 }] });
+    });
+    FakeXhr.onSend = xhr => xhr.respond(200, { etag: "second" });
+    const progress = vi.fn();
+    const result = uploadMultipart(new Blob([new Uint8Array(MB5 + 3)]), "clip.mp4", "video/mp4", progress, undefined, "jobs", async () => {}, { key: KEY, uploadId: "upload" });
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toHaveProperty("key", KEY);
+    expect(directUrls()).toEqual(["https://storage.test/2"]);
+    expect(fetcher).not.toHaveBeenCalledWith(expect.stringContaining("presign-multipart"), expect.anything());
+    expect(progress.mock.calls[0][0]).toEqual({ bytesUploaded: MB5, totalBytes: MB5 + 3, partsCompleted: 1, partsTotal: 2 });
+  });
+
+  it("hands failure diagnostics to the caller without URLs or keys", async () => {
+    control();
+    const failure = vi.fn();
+    FakeXhr.onSend = xhr => { xhr.progress(100); }; // every attempt stalls
+    const result = uploadMultipart(new Blob([new Uint8Array(1_000)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {}, undefined, { onFailureStats: failure });
+    const assertion = expect(result).rejects.toThrow(/stalled/);
+    await vi.advanceTimersByTimeAsync(PART_ATTEMPTS * PART_STALL_MS + 20_000);
+    await assertion;
+    expect(failure).toHaveBeenCalledOnce();
+    const stats = failure.mock.calls[0][0];
+    expect(stats).toEqual({
+      bytesPerSecond: expect.any(Number), partsCompleted: 0, partsTotal: 1, route: "direct",
+      concurrency: 1, stalls: PART_ATTEMPTS, failureMode: "stalled", lastStatus: null,
+    });
+    expect(JSON.stringify(stats)).not.toMatch(/storage\.test|jobs\/user|upload"/);
+    expect(directUrls()).toHaveLength(PART_ATTEMPTS);
+  });
+
+  it("reports a refusal with its status", async () => {
+    control();
+    const failure = vi.fn();
+    FakeXhr.onSend = xhr => xhr.respond(400, {}, "<Error><Code>InvalidArgument</Code></Error>");
+    const result = uploadMultipart(new Blob([new Uint8Array(1_000)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {}, undefined, { onFailureStats: failure });
+    const assertion = expect(result).rejects.toThrow("Part 1 upload failed (400)");
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(failure).toHaveBeenCalledWith(expect.objectContaining({ failureMode: "refused", lastStatus: 400, route: "direct" }));
+    expect(FakeXhr.instances).toHaveLength(1);
+  });
+
+  it("tells the person when the measured speed is very low", async () => {
+    control();
+    const advice = vi.fn();
+    FakeXhr.onSend = xhr => {
+      // 20 KB/s, still moving.
+      let sent = 0;
+      const tick = () => {
+        sent = Math.min(xhr.body!.size, sent + 20 * 1024);
+        xhr.progress(sent);
+        if (sent >= xhr.body!.size) xhr.respond(200, { etag: "receipt" }); else setTimeout(tick, 1_000);
+      };
+      setTimeout(tick, 1_000);
+    };
+    const result = uploadMultipart(new Blob([new Uint8Array(MB5)]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {}, undefined, { onConnectionAdvice: advice });
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(advice).toHaveBeenCalledWith("slow");
+    expect(advice).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(300_000);
+    await expect(result).resolves.toHaveProperty("key", KEY);
+    expect(advice).toHaveBeenCalledOnce();
+  });
 });
