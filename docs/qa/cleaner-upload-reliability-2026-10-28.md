@@ -39,3 +39,35 @@ Deploy a reviewed root webapp build and restart its application process through 
 Self-review found no unresolved blocking finding in the focused change. No route, server permission, receipt payload, storage configuration or database schema is broadened. Request deadlines retain original/prepared bytes, allocated keys and receipts; invalid or uncertain acknowledgements fail explicitly. Cleanup can no longer abort a pre-existing resumed allocation. Cancellation and read/parse failures are covered without weakening the coverage threshold. The four reproduced baseline draft-lifecycle failures remain outside this fix.
 
 The fix is committed locally on `fix/cleaner-upload-reliability-20261028`. Draft PR publication is blocked: automatic approval review rejected the first connected GitHub `create_blob` upload (`lib/uploads/request.ts` to `sanuthdesitha/sNeek_Property_Services_Webapp`), saying the user had not explicitly authorized external publication of source code. The action was denied, not pending or uncertain; no blob upload, remote branch mutation or PR creation succeeded. No alternate route or retry was attempted. CLI authentication also reports an invalid token, while the connected app reports push/admin permission. Explicit user publication authorization is required before retrying. See the delivery response for the final local commit SHA and patch. No merge or deployment is authorized; deployment approval remains pending.
+
+## 2026-11-17 follow-up: large videos fail on some phones only
+
+Owner report: "Cleaner still having issues uploading large video files that keeps failing on their end but works for some cleaners. I've checked the same video." Same file, different outcome, so the failure depends on the device or network, not the file. No production logs, failure rows or affected device were available; **the cause below is inferred from the code and is not confirmed on the affected cleaner's phone.**
+
+**Confirmed in code (before this change).**
+1. `lib/uploads/multipart-client.ts` sent 5 MB parts three at a time, each through `uploadRequest(..., 120_000)` (a fixed total deadline in `lib/uploads/request.ts`). Each part needed about 42 KB/s; three sharing the uplink needed about 1 Mbps upload. Below that every part timed out however healthy the connection was. The same video on Wi-Fi or a faster phone succeeded.
+2. Any thrown direct PUT (including that timeout) set `useProxy = true` for the rest of the upload, resending through `/api/uploads/part` (slower, again with 120 s).
+3. Three attempts with 0.5 s and 1 s backoff.
+4. fetch has no upload progress; progress moved only when a whole 5 MB part landed, so a slow link looked frozen for minutes.
+5. Signed part URLs expire after 3600 s; the only recovery for a 403 was the proxy.
+
+**Other device-dependent points found.**
+- Compression (`lib/uploads/compress-video.ts`) depends on WebCodecs AVC encoding and OPFS `createWritable`. Where either is missing (notably some iPhone/Safari versions) and the clip is over 25 MB, or the codec is unsupported, the original is uploaded; it can be several times larger (4K HEVC), multiplying the time at risk. Now visible in the failure log as `encoding`.
+- Storage closes a socket idle for about 20 s with HTTP 400 `RequestTimeout`; the client treated every 400 as permanent. Now retried.
+- A hidden or locked phone can freeze the tab; the new stall timer re-arms while hidden (the ceiling still applies). Uploads still pause while the screen is locked; that cannot be fixed in a web page.
+- When IndexedDB is unavailable the original is held only in memory ("Keep this page open"); closing or reloading the tab loses it. Unchanged.
+- Server limit, not changed: Node's default `requestTimeout` of 300 s (Next does not override it; the app runs `next start` in a container) bounds one proxied 5 MB part, so the proxy needs about 17 KB/s. Any reverse proxy in front of the app may add its own body timeout; not inspected. The proxy is now used only for immediate refusals, missing ETags and unrefreshable 403s.
+- The capture did not log failures at all (only the classic dropzone did), so there were no rows to look at.
+
+**Changed.** `lib/uploads/part-transport.ts` (new): one part over XMLHttpRequest with upload progress; fails on 60 s without bytes moving (twice that waiting for the answer after the last byte), 15-minute ceiling per attempt; fetch fallback bounded by the ceiling. `multipart-client.ts`: first outstanding part alone, then 3 / 2 / 1 parts at ≥256 KB/s / ≥96 KB/s / slower, 1 after any stall; 5 attempts with 1/2/4/8 s backoff; offline waits up to 5 minutes for `online` without spending attempts; stall/timeout retried on the same route; proxy only for an immediate zero-byte network refusal while online, a missing ETag, or a 403 that cannot be fixed by refreshing URLs (refresh through `resume-multipart` after 5 minutes, only if it returns the same key and upload id); live byte progress, never backwards, failed attempts not double counted; connection advice and failure diagnostics callbacks. `media-capture.tsx`: "Your connection is slow. Keep this page open; the video is still uploading." (below 48 KB/s or after a stall) and an offline line in the existing capture advice; final video failures logged to the existing log-failure endpoint with scalar context. Both upload-failure lists show a summary line. No schema, route or permission change.
+
+**What the office should look at after deploy** (Admin › System health › Uploads, or `/admin/system/uploads`), for the affected cleaner:
+- `S3_TIMEOUT` with a low kbps (for example under 400) and several stalls: the phone's connection; ask the cleaner to upload on Wi-Fi or stay on the page; check `network` (2g/3g/4g).
+- `NETWORK_ERROR` / offline: the phone lost its connection for more than 5 minutes.
+- `PART_REJECTED` with HTTP 403 via app server: signed URLs or permissions; with 400/401 the session or storage refused.
+- `PRESIGN_REJECTED`: allocation, completion or resume failed (session, folder, content type).
+- `encoding: original unsupported` or `original not smaller`: that phone could not shrink the video; a shorter clip helps.
+- Parts done close to total with a stall: retry from the saved upload resumes without resending parts.
+- No row at all while the cleaner reports a failure: the bundle may not be updated on that phone (PWA cache), or the failure happened before the upload (device storage).
+
+**Verification.** See the review record entry of the same date for test counts and what was inspected in the browser. Real storage transfers on an actual slow phone were not exercised.
