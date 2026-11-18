@@ -91,6 +91,10 @@ export type MaintenanceListRow = {
   costDecidedAt: string | null;
   pricePending: boolean;
   attention: MaintenanceAttention | null;
+  /** PropertyMaintenanceItem.clientHandling (client-handled maintenance, 2026-11-18). */
+  clientHandling: string;
+  /** "With the client", "Client declined", "Client could not do it", or null. */
+  clientHandlingPill: string | null;
 };
 
 export type MaintenanceStatusCounts = Record<MaintenanceStatusTab, number>;

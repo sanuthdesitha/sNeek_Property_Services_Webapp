@@ -26,6 +26,8 @@ import { parseAssignTarget } from "@/lib/maintenance/assignment-routing";
 import { parseInstructions } from "@/lib/maintenance/instructions";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/security/encryption";
+import { stripForClient } from "@/lib/maintenance/client-payload";
+import { isWithClient } from "@/lib/maintenance/client-handling-rules";
 
 /** Decrypt the stored access codes so on-site staff see the real values. */
 function decryptAccess<T extends { property?: any }>(item: T): T {
@@ -145,7 +147,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         accessInfo: null,
       };
     }
-    return NextResponse.json({ item: result });
+    // Nor our cost, our workers' instructions or the office's hand-over records.
+    return NextResponse.json({ item: access.clientVisibleOnly ? stripForClient(result) : result });
   } catch (err: any) {
     return NextResponse.json({ error: err.message ?? "Could not load item." }, { status: errStatus(err.message) });
   }
@@ -196,6 +199,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
     if ((wantsStatus || wantsAssign || wantsCostDecision) && !canManage && !canClientAct) {
       return NextResponse.json({ error: "You can't update this maintenance item." }, { status: 403 });
+    }
+    // An item handed to the client is answered through its own flow (accept,
+    // tradesperson, done), so the record of who did what stays complete.
+    if (!canManage && isWithClient(item.clientHandling) && (wantsStatus || wantsAssign)) {
+      return NextResponse.json(
+        { error: "This item is yours to arrange. Use \"For you to arrange\" on the Maintenance page." },
+        { status: 409 }
+      );
     }
 
     if (body.attachJobId !== undefined && !canManage) {
@@ -295,7 +306,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     const updated = await getMaintenanceItem(params.id);
     const photos = updated ? await resolvePhotoUrls(updated.photoKeys) : [];
-    return NextResponse.json({ item: updated ? { ...updated, photos } : null });
+    if (!updated) return NextResponse.json({ item: null });
+    if (canManage) return NextResponse.json({ item: { ...updated, photos } });
+    // The owning client gets the same safe shape as their GET: no access
+    // details, no cost to us, no worker instructions, no office records.
+    const property = { ...updated.property, accessCode: null, alarmCode: null, keyLocation: null, accessNotes: null, accessInfo: null };
+    return NextResponse.json({ item: stripForClient({ ...updated, property, photos }) });
   } catch (err: any) {
     return NextResponse.json({ error: err.message ?? "Could not update item." }, { status: errStatus(err.message) });
   }

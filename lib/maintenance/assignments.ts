@@ -10,6 +10,7 @@
  */
 import { MaintenanceAssigneeRole, MaintenanceStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
+import { assertNotWithClient } from "@/lib/maintenance/client-handling-guard";
 import {
   MAINTENANCE_ASSIGNEE_ROLES,
   diffAssignees,
@@ -134,6 +135,12 @@ export async function setItemAssignees(input: {
 
   const now = new Date();
   await db.$transaction(async (tx) => {
+    if (diff.added.length > 0) {
+      // Same lock as the visit-worker assign and the client hand-over, so a
+      // person cannot be added while the item is being handed to the client.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`maintenance-assign:${itemId}`}))`;
+      await assertNotWithClient(tx, itemId);
+    }
     if (diff.removed.length > 0) {
       await tx.maintenanceItemAssignment.updateMany({
         where: { itemId, role, removedAt: null, userId: { in: diff.removed } },

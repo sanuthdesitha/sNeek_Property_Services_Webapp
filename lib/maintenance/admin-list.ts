@@ -41,6 +41,7 @@ import {
   type MaintenanceStatusCounts,
   type MaintenanceTiles,
 } from "@/lib/maintenance/admin-list-types";
+import { CLIENT_HANDLING_ACTIVE, clientHandlingPill } from "@/lib/maintenance/client-handling-rules";
 
 type QuerySource = URLSearchParams | Record<string, string | string[] | undefined>;
 type Where = Prisma.PropertyMaintenanceItemWhereInput;
@@ -76,6 +77,7 @@ function assignedFilter(source: QuerySource): string {
   const value = readQueryValue(source, "assigned");
   if (value === undefined || value === "any") return "any";
   if (value === "none") return "none";
+  if (value === "client") return "client";
   const match = /^(worker|user):([a-zA-Z0-9_-]{1,128})$/.exec(value);
   if (!match) throw new ListQueryError(`Unknown assigned filter "${value}".`, "filter");
   return value;
@@ -130,10 +132,17 @@ export function calendarRanges(now: Date, timeZone: string): CalendarRanges {
 
 const OPEN_WHERE: Where = { status: { in: [...ADMIN_OPEN_STATUSES] } };
 
-/** Nobody on the item: no visit worker and nobody active in the roster. */
+/** Items with the client to arrange (client-handled maintenance, 2026-11-18). */
+export const WITH_CLIENT_WHERE: Where = { clientHandling: { in: [...CLIENT_HANDLING_ACTIVE] } };
+
+/**
+ * Nobody on the item: no visit worker, nobody active in the roster, and not
+ * with the client to arrange (an item the client is arranging is attended).
+ */
 export const NOBODY_ASSIGNED_WHERE: Where = {
   assignedWorkerId: null,
   roleAssignments: { none: { removedAt: null } },
+  clientHandling: { notIn: [...CLIENT_HANDLING_ACTIVE] },
 };
 
 function statusWhere(status: MaintenanceListFilters["status"]): Where {
@@ -143,6 +152,7 @@ function statusWhere(status: MaintenanceListFilters["status"]): Where {
 function assignedWhere(assigned: string): Where | null {
   if (assigned === "any") return null;
   if (assigned === "none") return NOBODY_ASSIGNED_WHERE;
+  if (assigned === "client") return WITH_CLIENT_WHERE;
   const [kind, id] = assigned.split(":");
   if (kind === "worker") return { assignedWorkerId: id };
   return { roleAssignments: { some: { userId: id, removedAt: null } } };
@@ -239,6 +249,7 @@ const ROW_SELECT = {
   quotedCost: true,
   costApprovalStatus: true,
   costDecidedAt: true,
+  clientHandling: true,
   property: { select: { id: true, name: true, suburb: true } },
   job: { select: { id: true, jobNumber: true } },
   reportedBy: { select: { name: true, email: true } },
@@ -263,7 +274,7 @@ async function toRow(raw: RawRow, now: Date, withPhoto: boolean): Promise<Mainte
     name: row.user?.name ?? row.user?.email ?? "Unnamed",
   }));
   const pricePending = raw.roleAssignments.some((row) => row.payChangeStatus === "PENDING");
-  const presence = { assignedWorkerId: raw.assignedWorkerId, activeRosterCount: raw.roleAssignments.length };
+  const presence = { assignedWorkerId: raw.assignedWorkerId, activeRosterCount: raw.roleAssignments.length, clientHandling: raw.clientHandling };
   const photo = withPhoto && keys.length > 0 ? (await resolvePhotoUrls([keys[0]]))[0]?.url ?? null : null;
   return {
     id: raw.id,
@@ -293,6 +304,8 @@ async function toRow(raw: RawRow, now: Date, withPhoto: boolean): Promise<Mainte
     costDecidedAt: raw.costDecidedAt ? raw.costDecidedAt.toISOString() : null,
     pricePending,
     attention: maintenanceAttention({ ...presence, status: raw.status, priority: raw.priority, costApprovalStatus: raw.costApprovalStatus, pricePending, createdAt: raw.createdAt }, now),
+    clientHandling: raw.clientHandling,
+    clientHandlingPill: clientHandlingPill(raw.clientHandling),
   };
 }
 

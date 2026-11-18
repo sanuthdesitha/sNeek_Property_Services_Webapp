@@ -9,6 +9,7 @@
  * PURE: no database, no I/O. Safe for server pages, routes and client code.
  */
 import type { MaintenancePriority, MaintenanceStatus } from "@prisma/client";
+import { isWithClient } from "@/lib/maintenance/client-handling-rules";
 
 /** Items with nobody on them for longer than this appear in Command. */
 export const NOBODY_ASSIGNED_ATTENTION_DAYS = 2;
@@ -24,14 +25,19 @@ export function isOpenMaintenanceStatus(status: string): boolean {
 
 /**
  * Nobody is on an item when it has no visit worker AND no active person in the
- * role roster (maintenance login, cleaner or QA inspector).
+ * role roster (maintenance login, cleaner or QA inspector) AND it is not with
+ * the client to arrange (client-handled maintenance, 2026-11-18): an item the
+ * client is arranging is not unattended.
  */
 export type AssignmentPresence = {
   assignedWorkerId: string | null;
   activeRosterCount: number;
+  /** PropertyMaintenanceItem.clientHandling; absent reads as NONE. */
+  clientHandling?: string | null;
 };
 
 export function isNobodyAssigned(item: AssignmentPresence): boolean {
+  if (isWithClient(item.clientHandling)) return false;
   return !item.assignedWorkerId && item.activeRosterCount === 0;
 }
 
@@ -72,13 +78,18 @@ export type AttentionInput = AssignmentPresence & {
  *     (honey, "Client declined price");
  *  4. a worker asked for a different price (honey, "Price request");
  *  5. nobody on it for more than two days (honey, "Nobody assigned, N days").
- * Resolved and dismissed items never need anyone.
+ * Resolved and dismissed items never need anyone. An item with the client to
+ * arrange needs nobody in the office (it shows "With the client" instead); one
+ * the client declined or could not get done is back with the office (honey).
  */
 export function maintenanceAttention(item: AttentionInput, now: Date): MaintenanceAttention | null {
   if (!isOpenMaintenanceStatus(String(item.status))) return null;
+  if (isWithClient(item.clientHandling)) return null;
   const nobody = isNobodyAssigned(item);
   if (item.priority === "URGENT" && nobody) return { tone: "problem", reason: "Nobody assigned" };
   if (item.priority === "URGENT" && item.status === "OPEN") return { tone: "problem", reason: "Urgent" };
+  if (nobody && item.clientHandling === "DECLINED") return { tone: "attention", reason: "Client declined to arrange it" };
+  if (nobody && item.clientHandling === "NOT_DONE") return { tone: "attention", reason: "Client could not get it done" };
   if (item.costApprovalStatus === "DECLINED") return { tone: "attention", reason: "Client declined price" };
   if (item.pricePending) return { tone: "attention", reason: "Price request" };
   if (nobody && item.createdAt.getTime() < nobodyAssignedCutoff(now).getTime()) {

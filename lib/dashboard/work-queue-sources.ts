@@ -5,6 +5,7 @@
  */
 import { unprocessedNewFlag } from "@/lib/lost-found/holding";
 import { ADMIN_OPEN_STATUSES, NOBODY_ASSIGNED_ATTENTION_DAYS, daysWaiting, nobodyAssignedCutoff } from "@/lib/maintenance/attention";
+import { CLIENT_HANDLING_ACTIVE } from "@/lib/maintenance/client-handling-rules";
 import { PRIORITY_LABELS } from "@/lib/maintenance/labels";
 import { JobStatus } from "@prisma/client";
 import { formatInTimeZone } from "date-fns-tz";
@@ -280,6 +281,8 @@ export async function unassignedMaintenanceItems(ctx: QueueContext): Promise<Wor
     status: { in: [...ADMIN_OPEN_STATUSES] },
     assignedWorkerId: null,
     roleAssignments: { none: { removedAt: null } },
+    // An item with the client to arrange is attended (client-handled maintenance).
+    clientHandling: { notIn: [...CLIENT_HANDLING_ACTIVE] },
     createdAt: { lt: nobodyAssignedCutoff(ctx.now) },
   };
   const [total, rows] = await Promise.all([
