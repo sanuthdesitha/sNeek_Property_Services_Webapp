@@ -53,6 +53,8 @@ import { dayTime, money, priceState, priorityTone } from "./maintenance-format";
 import { readMaintenanceItem, targetFromDetail, type MaintenanceDetailItem } from "./maintenance-types";
 import { STATUS_ACTION_LABEL, useMaintenanceActions } from "./use-maintenance-actions";
 import { safeBackHref } from "./maintenance-view";
+import { ClientHandlingCard } from "./client-handling-card";
+import { isWithClient } from "@/lib/maintenance/client-handling-rules";
 
 type LoadState = { item: MaintenanceDetailItem | null; error: string | null; loading: boolean };
 
@@ -129,7 +131,8 @@ export function EstateMaintenanceDetail({ itemId, timeZone = "Australia/Sydney",
   const terminal = item.status === "RESOLVED" || item.status === "DISMISSED";
   const worker = item.assignedWorker;
   const activeRoster = (roster.rows ?? []).filter((row) => !row.removedAt);
-  const someoneAssigned = Boolean(worker) || activeRoster.length > 0;
+  const withClient = isWithClient(item.clientHandling);
+  const someoneAssigned = Boolean(worker) || activeRoster.length > 0 || withClient;
   const acknowledgedAt = item.events.find((event) => event.fromStatus === "OPEN" && event.toStatus !== "OPEN")?.createdAt ?? null;
   const stages = maintenanceRecordStages(
     {
@@ -143,6 +146,7 @@ export function EstateMaintenanceDetail({ itemId, timeZone = "Australia/Sydney",
         if (key === "assigned" && worker) return `${worker.name}${when ? `, ${when}` : ""}`;
         return when;
       }
+      if (key === "assigned" && withClient) return "With the client";
       if (fact === true) return "Not timed";
       return key === "visit" ? "Not booked" : "Not yet";
     },
@@ -214,7 +218,7 @@ export function EstateMaintenanceDetail({ itemId, timeZone = "Australia/Sydney",
 
         <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
           <Fact label="Reported by" value={item.reportedBy?.name ?? item.reportedBy?.email ?? "Not recorded"} sub={<>{SOURCE_LABELS[item.source]}{item.job ? <> · from clean <Link className="underline" href={`/v2/admin/jobs/${item.job.id}`}>{item.job.jobNumber ?? "job"}</Link></> : null}</>} />
-          <Fact label="Assigned" value={worker?.name ?? (activeRoster[0]?.user?.name ?? "Nobody yet")} sub={worker ? [worker.company, worker.userId ? "has login" : "no login"].filter(Boolean).join(" · ") : activeRoster.length > 0 ? "roster only, no visit worker" : "no visit worker"} />
+          <Fact label="Assigned" value={withClient ? "The client" : worker?.name ?? (activeRoster[0]?.user?.name ?? "Nobody yet")} sub={withClient ? "arranging their own tradesperson" : worker ? [worker.company, worker.userId ? "has login" : "no login"].filter(Boolean).join(" · ") : activeRoster.length > 0 ? "roster only, no visit worker" : "no visit worker"} />
           <Fact label="Visit" value={dayTime(item.scheduledFor, timeZone) ?? "Not booked"} sub={worker ? (item.shareAccess ? "access shared" : "access not shared") : undefined} />
           <Fact label="Our estimate" value={money(item.estimatedCost) ?? "Not estimated"} sub="internal" />
           <Fact
@@ -259,6 +263,7 @@ export function EstateMaintenanceDetail({ itemId, timeZone = "Australia/Sydney",
             openSignal={whoSignal}
             timeZone={timeZone}
           />
+          <ClientHandlingCard key={item.id} itemId={item.id} timeZone={timeZone} revision={revision} onChanged={() => setRevision((value) => value + 1)} />
           <VisitAccessCard item={item} timeZone={timeZone} isAdmin={isAdmin} onReassign={() => actions.openAssign([target])} onChangeVisit={() => actions.openVisit(item)} onChanged={() => setRevision((value) => value + 1)} />
           {phone ? (
             <FoldSection id="m-instructions" title="Instructions" summary={`${parseInstructions(item.assignmentInstructions).length} saved · everyone assigned sees these`}>
