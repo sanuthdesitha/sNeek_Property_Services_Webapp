@@ -137,7 +137,9 @@ export function PayRequestPanel({ row, busy, decide, reload }: QueuePanelProps) 
     }
     if (aboveRequest && !overrideReason.trim()) return toast({ title: "Say why the cleaner is paid more than they requested.", variant: "destructive" });
     if (billClient && (!Number.isFinite(clientValue) || clientValue <= 0)) return toast({ title: "Enter the amount the client is charged, more than $0.00.", variant: "destructive" });
-    const clientBody = billClient ? { billToClient: true, clientAmount: clientValue } : { billToClient: false };
+    // Sent only when it says something: billing on (with its amount), or the
+    // office switching OFF a default that would otherwise bill the client.
+    const clientBody = billClient ? { billToClient: true, clientAmount: clientValue } : billDefault ? { billToClient: false } : {};
     void decide({ url: `/api/admin/pay-adjustments/${record.id}`, body: { status: "APPROVED", approvedAmount: value, ...noteBody, ...overrideBody, ...clientBody }, successMsg: billClient ? "Approved and added to the client's billing" : "Pay request approved" });
   }
 
