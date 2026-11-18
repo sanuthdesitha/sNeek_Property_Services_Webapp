@@ -871,7 +871,7 @@ export function buildClientInvoiceHtml(
     return `
         <tr>
           <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;">
-            <div style="font-weight:600;">${escapeHtml(line.description)}</div>
+            <div style="font-weight:600;white-space:pre-line;">${escapeHtml(line.description)}</div>
             ${meta ? `<div style="font-size:12px;color:#6b7280;">${meta}</div>` : ""}
             ${line.note ? `<div style="font-size:12px;color:#374151;margin-top:4px;">${escapeHtml(line.note)}</div>` : ""}
           </td>
