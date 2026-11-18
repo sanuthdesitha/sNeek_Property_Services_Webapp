@@ -124,6 +124,31 @@ describe.skipIf(!url)("sending safeguards (database)", () => {
     expect(await m.client.auditLog.count({ where: { userId: admin.id, action: "NOTIFICATION_SAFEGUARD_RESUMED", entityId: incidents[0].id } })).toBe(1);
   });
 
+  it("treats one combined reminder as one message that still answers to every job it lists (2026-11-17)", async () => {
+    const cleaner = cleaners[4];
+    const jobA = `Job:combined-a-${run}`;
+    const jobB = `Job:combined-b-${run}`;
+    const combined = (html: string) => ({
+      to: cleaner.email, subject: "Reminder: 2 unfinished jobs", html,
+      safeguard: { typeKey: "job.reminder.manual", entityKey: `JobReminderBatch:${run}`, relatedEntityKeys: [jobA, jobB], recipientUserId: cleaner.id },
+    });
+    // A pause on one listed job stops the whole email.
+    const pause = await m.client.outboundSafeguardIncident.create({ data: { kind: "MANUAL", scopeKind: "SUBJECT", scopeKey: jobB, label: "fixture pause" } });
+    expect(await sendEmailDetailed(combined("<p>two jobs</p>"))).toMatchObject({ ok: false, suppressed: { reason: "PAUSED_SUBJECT" } });
+    await m.client.outboundSafeguardIncident.update({ where: { id: pause.id }, data: { status: "RESOLVED", resolvedAt: new Date() } });
+    // Once resumed it goes as ONE message under the batch subject.
+    expect(await sendEmailDetailed(combined("<p>two jobs again</p>"))).toMatchObject({ ok: true });
+    expect(m.send).toHaveBeenCalledTimes(1);
+    const allowed = await m.client.outboundMessageEvent.findMany({ where: { recipientKey: cleaner.email, decision: "ALLOWED" } });
+    expect(allowed).toHaveLength(1);
+    expect(allowed[0]).toMatchObject({ typeKey: "job.reminder.manual", entityKey: `JobReminderBatch:${run}` });
+    // A single-job reminder is stored under its job; a later combined email listing that job is then the same subject.
+    const single = await sendEmailDetailed({ to: cleaner.email, subject: "Reminder: unfinished job", html: "<p>one job</p>", safeguard: { typeKey: "job.reminder.manual", entityKey: jobA, relatedEntityKeys: [], recipientUserId: cleaner.id } });
+    expect(single).toMatchObject({ ok: true });
+    const again = await sendEmailDetailed({ ...combined("<p>two jobs, third try</p>"), safeguard: { ...combined("").safeguard, entityKey: `JobReminderBatch:${run}-2` } });
+    expect(again).toMatchObject({ ok: false, suppressed: { reason: "SAME_SUBJECT" } });
+  });
+
   it("pauses and resumes a notification type, audited", async () => {
     const { incident } = await pauseNotificationType(admin.id, "job.cleaner_invoice", "Checking a loop");
     const payload = { to: cleaners[3].email, subject: "Invoice notice", html: "<p>Invoice</p>", safeguard: { typeKey: "job.cleaner_invoice" } };
