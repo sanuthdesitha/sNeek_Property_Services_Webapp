@@ -235,6 +235,7 @@ describe("createPayRun — stamps every stream it pays", () => {
         id: { in: ["a1"] },
         includedInPayrollRunId: null,
         includedInCleanerInvoiceId: null,
+        paidOutsideAt: null,
       },
       data: { includedInPayrollRunId: run.id },
     });
@@ -399,7 +400,7 @@ describe("createPayRun — payee selection", () => {
     expect(run.lines).toHaveLength(1);
     expect(run.lines[0]).toMatchObject({ cleanerId: "c9", jobsCount: 0, adjustmentsCount: 1, amount: 45 });
     expect(adjUpdateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["a9"] }, includedInPayrollRunId: null, includedInCleanerInvoiceId: null },
+      where: { id: { in: ["a9"] }, includedInPayrollRunId: null, includedInCleanerInvoiceId: null, paidOutsideAt: null },
       data: { includedInPayrollRunId: run.id },
     });
   });

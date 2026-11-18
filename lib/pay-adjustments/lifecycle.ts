@@ -178,7 +178,7 @@ export interface MarkPaidFacts extends PayRequestMarkers {
 /** Null when the request may be marked paid outside the system. */
 export function markPaidRefusal(row: MarkPaidFacts, labels: SettlementLabels = {}): string | null {
   if (row.status !== "APPROVED") return "Only an approved request can be marked paid. Approve it first.";
-  const amount = Number(row.approvedAmount);
+  const amount = row.approvedAmount == null ? Number.NaN : Number(row.approvedAmount);
   if (!Number.isFinite(amount)) return "This request has no approved amount, so there is nothing to mark paid.";
   if (amount <= 0) return "A deduction is recovered through pay, not paid out, so it cannot be marked paid.";
   const settlement = payRequestSettlement(row);

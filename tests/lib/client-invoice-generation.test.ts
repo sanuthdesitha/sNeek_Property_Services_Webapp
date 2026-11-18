@@ -17,6 +17,8 @@ const { dbMock } = vi.hoisted(() => ({
     // this too. Without it here the whole function dies on an undefined model
     // before it ever reaches the assertion.
     maintenanceItemAssignment: { findMany: vi.fn() },
+    // Client-billed pay requests (2026-11-18) are a fourth source; none here.
+    cleanerPayAdjustment: { findMany: vi.fn(async () => []) },
     $transaction: vi.fn(),
   },
 }));

@@ -107,8 +107,12 @@ describe("getPayrollSummary — adjustment payees", { timeout: 30000 }, () => {
     // therefore never paid by any run.
     expect(where.reviewedAt.gte).toBeUndefined();
     expect(where.reviewedAt.lte).toBeInstanceOf(Date);
-    // Double-pay is prevented by the settlement stamp, not by the date window.
-    expect(where.includedInPayrollRunId).toBeNull();
+    // Double-pay is prevented by the settlement stamps, not by the date window.
+    expect(where.AND).toEqual([
+      { includedInPayrollRunId: null },
+      { includedInCleanerInvoiceId: null },
+      { paidOutsideAt: null },
+    ]);
   });
 
   it("the read-only period view keeps its bounded window (historical reports stay stable)", async () => {
@@ -118,6 +122,9 @@ describe("getPayrollSummary — adjustment payees", { timeout: 30000 }, () => {
     expect(where.reviewedAt.gte).toBeInstanceOf(Date);
     expect(where.reviewedAt.lte).toBeInstanceOf(Date);
     expect(where.includedInPayrollRunId).toBeUndefined();
+    expect(where.AND).toBeUndefined();
+    // Paid outside the system is never payroll money, in the report either.
+    expect(where.paidOutsideAt).toBeNull();
   });
 
   it("passes each job version through payroll money snapshots for later atomic claims",async()=>{

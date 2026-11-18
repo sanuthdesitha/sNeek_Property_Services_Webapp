@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({ charges: vi.fn(), runs: vi.fn(), create: vi.fn(), claim: vi.fn(), settlement: vi.fn(), legacyClaim: vi.fn(), raw: vi.fn(), transaction: vi.fn(), mapping: vi.fn() }));
-vi.mock("@/lib/db", () => ({ db: { client: { findUnique: async () => ({ id: "client", name: "Client", email: "client@example.com" }) }, propertyClientRate: { findMany: async () => [] }, clientInvoiceLine: { findMany: async () => [] }, priceBook: { findMany: async () => [] }, job: { findMany: async () => [] }, shoppingRun: { findMany: m.runs }, shoppingClientCharge: { findMany: m.charges }, maintenanceItemAssignment: { findMany: async () => [] }, $transaction: m.transaction } }));
+vi.mock("@/lib/db", () => ({ db: { client: { findUnique: async () => ({ id: "client", name: "Client", email: "client@example.com" }) }, propertyClientRate: { findMany: async () => [] }, clientInvoiceLine: { findMany: async () => [] }, priceBook: { findMany: async () => [] }, job: { findMany: async () => [] }, shoppingRun: { findMany: m.runs }, shoppingClientCharge: { findMany: m.charges }, maintenanceItemAssignment: { findMany: async () => [] }, cleanerPayAdjustment: { findMany: async () => [] }, $transaction: m.transaction } }));
 vi.mock("@/lib/reports/pdf", () => ({ renderPdfFromHtml: vi.fn() }));
 vi.mock("@/lib/s3", () => ({ publicUrl: (key: string) => key }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ pricing: { gstEnabled: true } }) }));

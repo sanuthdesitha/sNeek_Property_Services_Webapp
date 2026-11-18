@@ -138,7 +138,7 @@ export function historyEntry(row: PayRequestAuditRow, audience: PayRequestHistor
       const parts = [text(after.paidOutsideDate) ? `on ${text(after.paidOutsideDate)}` : null, text(after.paidOutsideMethod) ? `by ${String(after.paidOutsideMethod).toLowerCase().replace(/_/g, " ")}` : null]
         .filter(Boolean)
         .join(" ");
-      const details = [text(after.paidOutsideReference) ? `Reference: ${text(after.paidOutsideReference)}` : null, text(after.paidOutsideNote) ? `Note: ${text(after.paidOutsideNote)}` : null].filter(
+      const details = [text(after.paidOutsideReference) ? `Reference: ${text(after.paidOutsideReference)}` : null, audience === "internal" && text(after.paidOutsideNote) ? `Note: ${text(after.paidOutsideNote)}` : null].filter(
         (line): line is string => Boolean(line),
       );
       return entry(row, audience, `Marked paid outside the system${parts ? ` ${parts}` : ""}`, details);

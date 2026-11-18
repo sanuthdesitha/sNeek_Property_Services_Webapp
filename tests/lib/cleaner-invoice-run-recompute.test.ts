@@ -136,9 +136,10 @@ describe("getCleanerInvoiceData — includePaidRunId covers all three streams", 
     // …replaced by "null OR mine".
     expect(where.AND).toEqual([
       { OR: [{ includedInPayrollRunId: null }, { includedInPayrollRunId: "run-1" }] },
+      // The other rail's stamp is still an absolute bar, and so is paid outside.
+      { includedInCleanerInvoiceId: null },
+      { paidOutsideAt: null },
     ]);
-    // The other rail's stamp is still an absolute bar.
-    expect(where.includedInCleanerInvoiceId).toBeNull();
   });
 
   it("un-excludes the run's own INSPECTIONS", async () => {
@@ -155,8 +156,11 @@ describe("getCleanerInvoiceData — includePaidRunId covers all three streams", 
 
   it("without includePaidRunId both streams keep the strict null filter", async () => {
     await build({ excludePaidJobs: true });
-    expect(adjFindMany.mock.calls[0][0].where.includedInPayrollRunId).toBeNull();
-    expect(adjFindMany.mock.calls[0][0].where.AND).toBeUndefined();
+    expect(adjFindMany.mock.calls[0][0].where.AND).toEqual([
+      { includedInPayrollRunId: null },
+      { includedInCleanerInvoiceId: null },
+      { paidOutsideAt: null },
+    ]);
     expect(qaFindMany.mock.calls[0][0].where.includedInPayrollRunId).toBeNull();
   });
 
