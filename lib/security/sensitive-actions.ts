@@ -34,6 +34,11 @@ export const SENSITIVE_ACTIONS = {
   // confirmation): connecting, disconnecting and replacing the Meta app
   // secret are administrator actions with their own PIN.
   "social.connect": "Connect or disconnect social accounts",
+  // Owner default 2026-11-18 (pay requests, pending owner confirmation):
+  // recording that a pay request was paid outside the system, and undoing
+  // it, are administrator actions with the person's own PIN — the same tier
+  // as sending a pay run's payouts.
+  "pay_requests.mark_paid": "Mark a pay request paid outside the system, or undo it",
 } as const;
 export type SensitiveAction = keyof typeof SENSITIVE_ACTIONS;
 export type SensitiveGrants = Partial<Record<SensitiveAction, boolean>>;

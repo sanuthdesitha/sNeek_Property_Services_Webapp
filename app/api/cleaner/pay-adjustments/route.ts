@@ -28,6 +28,8 @@ import { getJobReference } from "@/lib/jobs/job-number";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { publicUrl } from "@/lib/s3";
 import { roundCents } from "@/lib/finance/job-money";
+import { payRequestSettlement, settlementSentence } from "@/lib/pay-adjustments/lifecycle";
+import { PAY_REQUEST_HISTORY_ACTIONS, payRequestHistory, type PayRequestHistoryEntry } from "@/lib/pay-adjustments/history";
 
 const createSchema = z
   .object({
@@ -96,11 +98,24 @@ function toCleanerAdjustmentDto(row: {
   source: string | null;
   includedInPayrollRunId: string | null;
   includedInCleanerInvoiceId: string | null;
+  paidOutsideAt?: Date | null;
+  paidOutsideDate?: Date | null;
+  paidOutsideMethod?: string | null;
+  category?: string | null;
+  taxable?: boolean | null;
   createdAt: Date;
   updatedAt: Date;
   job?: unknown;
   property?: unknown;
-}) {
+}, history: PayRequestHistoryEntry[] = []) {
+  const settlement = payRequestSettlement({
+    status: row.status,
+    includedInPayrollRunId: row.includedInPayrollRunId,
+    includedInCleanerInvoiceId: row.includedInCleanerInvoiceId,
+    paidOutsideAt: row.paidOutsideAt ?? null,
+    paidOutsideDate: row.paidOutsideDate ?? null,
+    paidOutsideMethod: row.paidOutsideMethod ?? null,
+  });
   return {
     id: row.id,
     jobId: row.jobId,
@@ -123,8 +138,24 @@ function toCleanerAdjustmentDto(row: {
     // Provenance is the cleaner's own bonus/deduction reason (STREAK_5,
     // QA_RECTIFICATION_PAY, …). `sourceKey` is an internal dedupe key.
     source: row.source,
-    /** Paid out on either settlement rail — the ids stay internal. */
-    settled: Boolean(row.includedInPayrollRunId || row.includedInCleanerInvoiceId),
+    /** Paid out on any settlement rail — the ids stay internal. */
+    settled: settlement !== null,
+    /** Where it was paid, in words, without run or invoice ids. */
+    settlementText:
+      settlement === null
+        ? null
+        : settlement.kind === "PAYROLL"
+          ? "Paid in a pay run."
+          : settlement.kind === "CLEANER_INVOICE"
+            ? "Included on one of your invoices."
+            : settlementSentence({ ...settlement, reference: null }),
+    category: row.category ?? "SERVICE",
+    taxable: row.taxable !== false,
+    /**
+     * What happened to this request and why, cleaner audience: never the
+     * office's private note, never whether or for how much the client is billed.
+     */
+    history,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     job: row.job ?? null,
@@ -189,7 +220,21 @@ export async function GET(req: NextRequest) {
       orderBy: { requestedAt: "desc" },
     });
 
-    return NextResponse.json(rows.map(toCleanerAdjustmentDto));
+    // History for every listed request in one query, cleaner audience only.
+    const audits = rows.length
+      ? await db.auditLog.findMany({
+          where: { entity: "CleanerPayAdjustment", entityId: { in: rows.map((row) => row.id) }, action: { in: [...PAY_REQUEST_HISTORY_ACTIONS] } },
+          select: { entityId: true, action: true, createdAt: true, before: true, after: true },
+          orderBy: { createdAt: "asc" },
+        })
+      : [];
+    const auditsById = new Map<string, typeof audits>();
+    for (const audit of audits) {
+      const list = auditsById.get(audit.entityId) ?? [];
+      list.push(audit);
+      auditsById.set(audit.entityId, list);
+    }
+    return NextResponse.json(rows.map((row) => toCleanerAdjustmentDto(row, payRequestHistory(auditsById.get(row.id) ?? [], "self"))));
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

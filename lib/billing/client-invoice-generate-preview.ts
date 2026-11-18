@@ -21,6 +21,7 @@ import { holidayRateSnapshotKey } from "@/lib/finance/holiday-rates";
 import { calculateShoppingAwareInvoiceTotals } from "./shopping-client-charges";
 import {
   billedJobLinesWhere,
+  applyPayRequestCharges,
   buildGeneratorJobLines,
   combineGeneratorLines,
   loadGeneratorExtraLines,
@@ -87,9 +88,12 @@ async function holidayRatedJobIds(jobIds: string[]): Promise<Set<string>> {
 export async function previewClientInvoiceGeneration(input: ClientInvoiceGeneratorInput): Promise<GeneratePreview> {
   const selection = await loadGeneratorJobs(input);
   const { client, settings, eligibleJobs, unInvoicedJobs, invoicedJobIds, chargeByJob } = selection;
-  const lines = buildGeneratorJobLines(input, selection);
   const extras = await loadGeneratorExtraLines(input, client);
-  const allLines = combineGeneratorLines(lines, extras);
+  // The same fold the generator applies, so a job's preview amount already
+  // includes its client-billed extras.
+  const payRequestPlan = applyPayRequestCharges(buildGeneratorJobLines(input, selection), extras, invoicedJobIds);
+  const lines = payRequestPlan.jobLines;
+  const allLines = [...combineGeneratorLines(lines, extras), ...payRequestPlan.ownLines];
   const gstEnabled = input.gstEnabled ?? settings.pricing.gstEnabled;
 
   const lineByJob = new Map(lines.map((line) => [line.jobId, line]));
@@ -101,6 +105,7 @@ export async function previewClientInvoiceGeneration(input: ClientInvoiceGenerat
     ...extras.shoppingLines.map((line) => ({ key: `shopping:${line.settlementId}`, kind: "SHOPPING" as const, description: line.description, amount: line.lineTotal })),
     ...extras.chargeLines.map((line, index) => ({ key: `charge:${line.shoppingClientChargeId}:${index}`, kind: "SHOPPING_CHARGE" as const, description: line.description, amount: line.lineTotal })),
     ...extras.maintenanceLines.map((line) => ({ key: `repair:${line.assignmentId}`, kind: "REPAIR" as const, description: line.description, amount: line.lineTotal })),
+    ...payRequestPlan.ownLines.map((line) => ({ key: `extra:${line.adjustmentId}`, kind: "EXTRA" as const, description: line.description, amount: line.lineTotal })),
   ];
 
   return {

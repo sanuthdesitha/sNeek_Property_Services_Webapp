@@ -21,6 +21,8 @@ import { effectivePaymentTermsDays, paymentTermsDaysFrom } from "./invoice-due";
 import { LIVE_INVOICE_WHERE } from "@/lib/invoicing/invoiced-job-rule";
 import { buildJobInvoiceLine, type JobInvoiceLine } from "./invoice-job-lines";
 import { invoiceTotalsMismatch } from "./invoice-totals-check";
+import { loadPendingPayRequestCharges, releasePayRequestClientCharges, writePayRequestCharges } from "./pay-request-client-billing";
+import { planPayRequestCharges } from "./pay-request-client-plan";
 
 /**
  * Jobs eligible to be billed on a client invoice: any job that has actually
@@ -499,7 +501,27 @@ export async function loadGeneratorExtraLines(input: ClientInvoiceGeneratorInput
     periodEnd: input.periodEnd ?? null,
   });
 
-  return { shoppingLines, chargeLines, billedCharges, maintenanceLines };
+  // APPROVED PAY REQUESTS THE OFFICE BILLED TO THE CLIENT (2026-11-18). Where
+  // each one lands — folded into its job's line, its own line, or waiting for
+  // the job's own invoice — is decided by `applyPayRequestCharges`.
+  const payRequestCharges = await loadPendingPayRequestCharges({
+    clientId: client.id,
+    propertyId: input.propertyId ?? null,
+    periodEnd: input.periodEnd ?? null,
+  });
+
+  return { shoppingLines, chargeLines, billedCharges, maintenanceLines, payRequestCharges };
+}
+
+/**
+ * Fold the client-billed pay requests into this draft's job lines (one line,
+ * combined total, the details in the description), make own lines for those
+ * whose job is already on another live invoice or that have no job, and leave
+ * the rest for their job's own invoice. The generator and its preview both
+ * call this, so the preview shows exactly what the draft will hold.
+ */
+export function applyPayRequestCharges(lines: JobInvoiceLine[], extras: GeneratorExtraLines, invoicedJobIds: ReadonlySet<string>) {
+  return planPayRequestCharges({ jobLines: lines, charges: extras.payRequestCharges, invoicedJobIds });
 }
 
 export type GeneratorExtraLines = Awaited<ReturnType<typeof loadGeneratorExtraLines>>;
@@ -561,12 +583,16 @@ export async function generateClientInvoice(input: ClientInvoiceGeneratorInput &
       }))
     : [];
 
-  const lines = buildGeneratorJobLines(input, selection);
   const extras = await loadGeneratorExtraLines(input, client);
+  const payRequestPlan = applyPayRequestCharges(buildGeneratorJobLines(input, selection), extras, selection.invoicedJobIds);
+  const lines = payRequestPlan.jobLines;
   const { shoppingLines, billedCharges, maintenanceLines } = extras;
   const allLines = combineGeneratorLines(lines, extras);
+  // Own lines are written after the invoice so each can be stamped with its id;
+  // they count in the totals from the start.
+  const payRequestOwnLines = payRequestPlan.ownLines;
 
-  if (allLines.length === 0) {
+  if (allLines.length === 0 && payRequestOwnLines.length === 0) {
     // WORDING IS LOAD-BEARING. lib/finance/auto-invoice.ts matches this string
     // with /No billable completed jobs/i to tell "nothing to bill this period"
     // apart from a real failure, and advance the cadence checkpoint quietly.
@@ -578,7 +604,7 @@ export async function generateClientInvoice(input: ClientInvoiceGeneratorInput &
   }
 
   const gstFlag = input.gstEnabled ?? settings.pricing.gstEnabled;
-  const { subtotal, gstAmount, totalAmount } = calculateShoppingAwareInvoiceTotals(allLines, gstFlag);
+  const { subtotal, gstAmount, totalAmount } = calculateShoppingAwareInvoiceTotals([...allLines, ...payRequestOwnLines], gstFlag);
 
   const invoiceNumber = await nextInvoiceNumber();
   // Atomic: create the invoice (with its lines) AND mark the consumed shopping
@@ -622,6 +648,7 @@ export async function generateClientInvoice(input: ClientInvoiceGeneratorInput &
         } } : {}),
         shoppingRunCount: new Set([...shoppingLines.map(line => line.shoppingRunId), ...billedCharges.map(charge => charge.shoppingRunId)]).size,
         maintenanceCount: maintenanceLines.length,
+        payRequestCount: payRequestPlan.folds.length + payRequestOwnLines.length,
         generationSummary: { includedJobCount: lines.length, alreadyInvoicedJobCount },
         ...(notBilled.length > 0 ? { notBilled } : {}),
       },
@@ -675,6 +702,11 @@ export async function generateClientInvoice(input: ClientInvoiceGeneratorInput &
       if (maintenanceClaim.count !== maintenanceLines.length) throw new Error("Maintenance billing changed while generating. Refresh before retrying.");
     }
 
+    // Same transaction again: the extras folded into job lines are stamped
+    // against those lines, and each own line is written and stamped, so no
+    // extra can reach a second invoice.
+    await writePayRequestCharges(tx, { invoiceId: created.id, folds: payRequestPlan.folds, ownLines: payRequestOwnLines });
+
     return created;
   });
 
@@ -716,6 +748,9 @@ export async function releaseInvoiceConsumables(
     }),
   ]);
   await tx.shoppingClientCharge.updateMany({ where: { invoiceId }, data: { invoiceId: null, billedAt: null, revision: { increment: 1 } } });
+  // Client-billed pay requests: the void invoice keeps its lines as issued;
+  // the extras themselves become billable again on the next invoice.
+  await releasePayRequestClientCharges(tx, invoiceId);
   return {
     shoppingSettlements: shopping.count,
     maintenanceAssignments: maintenance.count,

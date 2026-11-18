@@ -104,6 +104,9 @@ export const CAPABILITIES = [
   // practice; they exist so the PIN check names its action.
   { key: "payroll.process", area: null, label: "Send pay run payouts", tier: "grant", sensitiveAction: "payroll.process", canText: "Send a pay run's payouts (asked for their own PIN)", cannotText: "Send pay run payouts", enforcedAt: "POST /api/admin/payroll/runs/[id]/process (requireRole ADMIN + verifySensitiveAction payroll.process)", note: "Administrators only: the route refuses everyone else, so a grant alone does not open it." },
   { key: "payroll.run_status", area: null, label: "Change a pay run's status by hand", tier: "grant", sensitiveAction: "payroll.run_status", canText: "Change a pay run's status by hand, with a reason (asked for their own PIN)", cannotText: "Change a pay run's status by hand", enforcedAt: "PATCH /api/admin/payroll/runs/[id] { status } (ADMIN only + reason + verifySensitiveAction payroll.run_status)", note: "Administrators only: the route refuses everyone else, so a grant alone does not open it." },
+  // Owner default 2026-11-18 (pending owner confirmation): like payout
+  // processing, marking a pay request paid outside the system is ADMIN-only.
+  { key: "pay_requests.mark_paid", area: null, label: "Mark pay requests paid outside the system", tier: "grant", sensitiveAction: "pay_requests.mark_paid", canText: "Mark an approved pay request paid outside the system, or undo it with a reason (asked for their own PIN)", cannotText: "Mark pay requests paid", enforcedAt: "POST/DELETE /api/admin/pay-adjustments/[id]/mark-paid (requireRole ADMIN + verifySensitiveAction pay_requests.mark_paid)", note: "Administrators only: the route refuses everyone else, so a grant alone does not open it." },
   { key: "ai.cloud_photos", area: null, label: "Allow AI to send photos off this server", tier: "grant", canText: "Allow an AI feature to send photos to a cloud provider (asked for their own PIN)", cannotText: "Allow AI features to send photos off this server", enforcedAt: "PUT /api/admin/ai/settings (requireAiAdmin + verifySensitiveAction ai.cloud_photos when a save turns photo sending on)", note: "Settings, AI is administrator only, so a grant alone does not open it." },
   // Owner default 2026-11-17 (pending owner confirmation): only administrators connect social accounts.
   { key: "social.connect", area: null, label: "Connect social accounts", tier: "grant", canText: "Connect, disconnect or change the Meta app for the business's social accounts (asked for their own PIN)", cannotText: "Connect social accounts", enforcedAt: "/api/admin/marketing/social/accounts/* (requireRole ADMIN + verifySensitiveAction social.connect)", note: "The routes are administrator only, so a grant alone does not open them." },
@@ -149,6 +152,7 @@ export const SENSITIVE_ACTION_CAPABILITY: Readonly<Record<SensitiveAction, Capab
   "payroll.process": "payroll.process",
   "payroll.run_status": "payroll.run_status",
   "social.connect": "social.connect",
+  "pay_requests.mark_paid": "pay_requests.mark_paid",
 };
 
 /**

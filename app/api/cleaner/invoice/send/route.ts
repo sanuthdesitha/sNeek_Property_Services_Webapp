@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cleanerJobLineText } from "@/lib/pay-adjustments/invoice-text";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
@@ -108,8 +109,10 @@ export async function POST(req: NextRequest) {
     // back to one label for the whole bill, and under multi-role one bill can
     // carry cleans AND inspections. A guessed label lands in the accounts.
     const billLines = [
-      ...data.rows.map((r) => ({ kind: "CLEANING" as const, description: `${r.date} · ${r.property} · ${r.jobName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
-      ...data.extraLineRows.map((r) => ({ kind: "CLEANING" as const, description: `Extra · ${r.date} · ${r.description}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      // One bill line per job: the combined total, with the base pay and each
+      // folded extra listed in the description (owner request 2026-11-18).
+      ...data.rows.map((r) => ({ kind: "CLEANING" as const, description: cleanerJobLineText({ date: r.date, property: r.property, jobName: r.jobName, baseAmount: r.baseAmount, extras: r.extraDetails ?? [] }), quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.extraLineRows.map((r) => ({ kind: "CLEANING" as const, description: `Extra · ${r.date} · ${r.description}${r.relatedJob ? ` · ${r.relatedJob}` : ""}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
       ...data.qaInspectionRows.map((r) => ({ kind: "INSPECTION" as const, description: `QA inspection · ${r.date} · ${r.property}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
       ...data.transportAllowanceRows.map((r) => ({ kind: "INSPECTION" as const, description: r.description, quantity: 1, unitAmount: r.amount })),
       ...data.expenseRows.map((r) => ({ kind: "CLEANING" as const, description: `Shopping reimbursement · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),

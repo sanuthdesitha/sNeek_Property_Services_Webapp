@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { ADJUSTMENT_CLAIM_GUARD } from "@/lib/finance/pay-adjustments";
 import { assertHolidayRateSnapshots } from "@/lib/finance/holiday-rates";
 import { issueInvoiceNumber } from "@/lib/billing/invoice-sequence";
 import { markCleanerShoppingRunsInvoiced, stampShoppingSettlementsForCleanerInvoice } from "@/lib/inventory/shopping-runs";
@@ -37,7 +38,7 @@ export async function claimCleanerInvoice(input: { cleanerId: string; requestId?
     const adjustmentIds = Array.from(new Set(data.includedAdjustmentIds));
     for (const id of adjustmentIds) {
       const claim = await tx.cleanerPayAdjustment.updateMany({
-        where: { id, cleanerId, status: "APPROVED", includedInPayrollRunId: null, includedInCleanerInvoiceId: null,
+        where: { id, cleanerId, status: "APPROVED", ...ADJUSTMENT_CLAIM_GUARD,
           ...(data.claimVersions ? { updatedAt: new Date(data.claimVersions.adjustments[id] ?? "invalid") } : {}) },
         data: { includedInCleanerInvoiceId: created.id, includedInCleanerInvoiceAt: new Date() },
       });

@@ -22,6 +22,8 @@ import { computeClientCharge } from "@/lib/finance/job-money";
 import { assertHolidayRateSnapshots } from "@/lib/finance/holiday-rates";
 import { NOT_INVOICED_JOB_WHERE } from "@/lib/invoicing/invoiced-job-rule";
 import { calculateShoppingAwareInvoiceTotals } from "./shopping-client-charges";
+import { loadPendingPayRequestCharges, writePayRequestCharges } from "./pay-request-client-billing";
+import { planPayRequestCharges } from "./pay-request-client-plan";
 import { buildJobInvoiceLine } from "./invoice-job-lines";
 import { invoiceContentLock } from "./client-invoice-guards";
 import { staleInvoiceRefusal } from "./client-invoice-stale-guard";
@@ -155,11 +157,21 @@ export async function addJobsToInvoice(input: {
       await assertHolidayRateSnapshots(tx, jobIds, Object.fromEntries(jobs.map((job) => [job.id, job.updatedAt])));
 
       let order = invoice.lines.reduce((max, line) => Math.max(max, line.sortOrder), 0);
-      const created = jobs.flatMap((job) => {
+      const built = jobs.flatMap((job) => {
         const line = buildJobInvoiceLine(job, charges.get(job.id), job.invoiceNote?.trim() || null);
-        return line ? [{ ...line, invoiceId: invoice.id, sortOrder: (order += 1) }] : [];
+        return line ? [line] : [];
       });
+      // The client-billed extras of these jobs fold into their lines exactly as
+      // the generator would have folded them (2026-11-18).
+      const payRequestPlan = planPayRequestCharges({
+        jobLines: built,
+        charges: await loadPendingPayRequestCharges({ clientId: invoice.clientId, jobIds }, tx),
+        invoicedJobIds: new Set<string>(),
+        includeOwnLines: false,
+      });
+      const created = payRequestPlan.jobLines.map((line) => ({ ...line, invoiceId: invoice.id, sortOrder: (order += 1) }));
       await tx.clientInvoiceLine.createMany({ data: created });
+      await writePayRequestCharges(tx, { invoiceId: invoice.id, folds: payRequestPlan.folds, ownLines: [] });
       const lines = await tx.clientInvoiceLine.findMany({ where: { invoiceId: invoice.id } });
       const totals = calculateShoppingAwareInvoiceTotals(lines, invoice.gstEnabled ?? true, { kind: invoice.kind });
       const updated = await tx.clientInvoice.update({

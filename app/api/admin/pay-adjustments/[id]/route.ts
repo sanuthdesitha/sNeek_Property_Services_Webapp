@@ -23,6 +23,22 @@ import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import { isAdministrator } from "@/lib/rbac/access-evaluator";
 import { BONUS_SOURCES, RECTIFICATION_SOURCES } from "@/lib/admin/approvals/sources";
 import { decideCleanerPayAmount, type CleanerPayAmountDecision } from "@/lib/payroll/cleaner-pay-amount";
+import { PAY_ADJUSTMENT_CATEGORY_VALUES, isTaxableCategory } from "@/lib/finance/pay-categories";
+import { loadPayRequestDetails } from "@/lib/pay-adjustments/details";
+import {
+  clientBillingLock,
+  clientConsentState,
+  defaultBillToClient,
+  isReductionAfterApproval,
+  jobLinkRefusal,
+  payRequestEditLock,
+} from "@/lib/pay-adjustments/lifecycle";
+import {
+  clientLineFacts,
+  latestApprovalByPayRequest,
+  reconcilePayRequestClientBilling,
+  type ClientBillingOutcome,
+} from "@/lib/billing/pay-request-client-billing";
 
 const updateSchema = z.object({
   // Status changes now include reversing back to PENDING (admins can undo a
@@ -47,7 +63,36 @@ const updateSchema = z.object({
    */
   overrideAboveRequest: z.boolean().optional(),
   overrideReason: z.string().trim().max(2000).optional(),
+  /** Work vs money-back; `taxable` is derived from it, never accepted. */
+  category: z.enum(PAY_ADJUSTMENT_CATEGORY_VALUES).optional(),
+  /** Client billing (2026-11-18): whether, and for how much, the client pays. */
+  billToClient: z.boolean().optional(),
+  clientAmount: z.number().positive().nullable().optional(),
+  clientDescription: z.string().trim().max(500).nullable().optional(),
+  /**
+   * Why the cleaner is getting less than was approved. Required when an
+   * approved amount goes down (or an approved request is declined/reopened);
+   * the cleaner reads it in the request's history.
+   */
+  changeReason: z.string().trim().max(2000).optional(),
 });
+
+/**
+ * Everything about one request for the office: what was asked, the job, the
+ * decision, where it was settled, the client billing state and the history —
+ * with every lock already in words (lib/pay-adjustments/details.ts).
+ */
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const details = await loadPayRequestDetails(params.id);
+    if (!details) return NextResponse.json({ error: "Request not found." }, { status: 404 });
+    return NextResponse.json(details);
+  } catch (err: any) {
+    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
+    return NextResponse.json({ error: err.message }, { status });
+  }
+}
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -97,7 +142,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       body.requestedAmount !== undefined ||
       body.requestedHours !== undefined ||
       body.requestedRate !== undefined ||
-      body.jobId !== undefined;
+      body.jobId !== undefined ||
+      body.category !== undefined;
+    // Client-side fields are office business: audited, never announced to the
+    // cleaner (the client amount must not reach them).
+    const isClientEdit =
+      body.billToClient !== undefined || body.clientAmount !== undefined || body.clientDescription !== undefined;
 
     if (
       !isStatusChange &&
@@ -114,26 +164,56 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
 
     // SETTLED MONEY IS IMMUTABLE. Once an approved adjustment has been paid by a
-    // payroll run or billed on a cleaner invoice, reversing it or editing its
-    // amount would silently desynchronise the books from what was actually paid
-    // out — the settlement stamp is what stops it being paid twice, so it can no
-    // longer be "un-decided". Raise a new, opposite adjustment instead.
+    // payroll run, billed on a cleaner invoice or marked paid outside the
+    // system, reversing it or editing its money would desynchronise the books
+    // from what was actually paid — raise a new, opposite adjustment instead.
+    // One rule (lib/pay-adjustments/lifecycle.ts) says so, in words.
     const alreadySettledBy =
-      existing.includedInPayrollRunId ?? existing.includedInCleanerInvoiceId ?? null;
-    if (
-      alreadySettledBy &&
-      (Boolean(body.status) || body.approvedAmount !== undefined || body.requestedAmount !== undefined ||
-        body.type !== undefined || body.requestedHours !== undefined || body.requestedRate !== undefined ||
-        body.jobId !== undefined || body.propertyId !== undefined)
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "This adjustment has already been settled (paid by a payroll run or billed on a cleaner invoice) and can no longer be re-decided. Raise a new adjustment to correct it.",
-          settledBy: alreadySettledBy,
-        },
-        { status: 409 }
-      );
+      existing.includedInPayrollRunId ?? existing.includedInCleanerInvoiceId ?? (existing.paidOutsideAt ? "paid-outside" : null);
+    const touchesPay =
+      Boolean(body.status) || body.approvedAmount !== undefined || body.requestedAmount !== undefined ||
+      body.type !== undefined || body.requestedHours !== undefined || body.requestedRate !== undefined ||
+      body.jobId !== undefined || body.propertyId !== undefined || body.category !== undefined;
+    if (touchesPay) {
+      const cleanerInvoice = existing.includedInCleanerInvoiceId
+        ? await db.cleanerInvoiceSubmission.findUnique({ where: { id: existing.includedInCleanerInvoiceId }, select: { invoiceNumber: true, status: true } })
+        : null;
+      const lock = payRequestEditLock(existing, {
+        cleanerInvoiceNumber: cleanerInvoice?.invoiceNumber ?? null,
+        cleanerInvoiceStatus: cleanerInvoice?.status ?? null,
+      });
+      if (!lock.editable) {
+        return NextResponse.json({ error: lock.reason, settledBy: alreadySettledBy }, { status: 409 });
+      }
+    }
+
+    // THE CLIENT SIDE. Once the extra is on a client invoice that is no longer
+    // a draft, nothing that would change what the client was billed may move:
+    // the bill-to-client choice, the client amount or wording, the approval,
+    // or the job it is billed under.
+    const touchesClient =
+      body.billToClient !== undefined || body.clientAmount !== undefined || body.clientDescription !== undefined ||
+      (Boolean(body.status) && body.status !== existing.status) || body.jobId !== undefined;
+    if (touchesClient && existing.clientInvoiceLineId) {
+      const clientLock = clientBillingLock(await clientLineFacts(existing.clientInvoiceLineId));
+      if (!clientLock.editable) return NextResponse.json({ error: clientLock.reason }, { status: 409 });
+    }
+
+    // LINKING TO A JOB is validated here, on the server: the payee must be on
+    // the job, and a request tied to a property may only move to a job at that
+    // property.
+    let linkedJob: { id: string; propertyId: string } | null = null;
+    if (body.jobId) {
+      const job = await db.job.findUnique({
+        where: { id: body.jobId },
+        select: { id: true, propertyId: true, status: true, assignments: { select: { userId: true, removedAt: true } } },
+      });
+      const refusal = jobLinkRefusal({
+        request: { ...existing, propertyId: body.propertyId !== undefined ? body.propertyId : existing.propertyId },
+        job: job ? { ...job, status: String(job.status) } : null,
+      });
+      if (refusal) return NextResponse.json({ error: refusal }, { status: job ? 409 : 404 });
+      linkedJob = { id: job!.id, propertyId: job!.propertyId };
     }
 
     // Which Approval Center tab this row lives in. Mirrors the RECTIFICATION_SOURCES
@@ -226,6 +306,23 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         ? approvedAmountRaw
         : roundCents(Number(approvedAmountRaw));
 
+    // A CLEANER IS NEVER SILENTLY UNDERPAID. Taking money away from an approved
+    // request — a lower amount, a decline or a reopen — needs a reason the
+    // cleaner reads in their request's history.
+    const nextStatus = isReverseToPending ? PayAdjustmentStatus.PENDING : body.status ?? existing.status;
+    const reduction = isReductionAfterApproval({
+      previousStatus: existing.status,
+      previousApprovedAmount: existing.approvedAmount,
+      nextStatus,
+      nextApprovedAmount: approvedAmount,
+    });
+    if (reduction && !body.changeReason?.trim()) {
+      return NextResponse.json(
+        { error: "Say why the cleaner gets less than was approved. They will see this reason.", code: "REDUCTION_REASON_REQUIRED" },
+        { status: 400 }
+      );
+    }
+
     if (body.status === PayAdjustmentStatus.APPROVED) {
       // Self-approval guard: the payee of their OWN QA rectification pay cannot
       // approve it — a different ADMIN/OPS reviewer must. (Rectification pay is
@@ -261,17 +358,48 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       }
     }
 
-    // Validate a re-linked job exists before writing it.
-    if (body.jobId) {
-      const job = await db.job.findUnique({ where: { id: body.jobId }, select: { id: true } });
-      if (!job) {
-        return NextResponse.json({ error: "Linked job not found." }, { status: 404 });
-      }
+    // CLIENT BILLING. On approval the office's choice wins; when the request
+    // did not say (quick or bulk approve), the organisation default applies —
+    // ON for a job-linked SERVICE request whose property has a client. The
+    // client amount is its own stored figure: the office's, else what the
+    // client agreed to when asked, else the approved amount.
+    const settings = await getAppSettings();
+    const latestApproval = latestApprovalByPayRequest(await listClientApprovals()).get(existing.id) ?? null;
+    const consent = clientConsentState(latestApproval);
+    const resultingJobId = body.jobId !== undefined ? body.jobId : existing.jobId;
+    const resultingCategory = body.category ?? existing.category;
+    const approving = isStatusChange && body.status === PayAdjustmentStatus.APPROVED;
+    let billToClient: boolean | undefined = body.billToClient;
+    if (billToClient === undefined && approving && approvalQueue === "payAdjustments" && !existing.clientBillingDecidedAt) {
+      const propertyHasClient = Boolean(
+        resultingJobId
+          ? (await db.job.findUnique({ where: { id: resultingJobId }, select: { property: { select: { clientId: true } } } }))?.property?.clientId
+          : null
+      );
+      billToClient = defaultBillToClient({
+        settingOn: settings.invoicing.payRequestsBillClientByDefault,
+        jobId: resultingJobId,
+        category: resultingCategory,
+        propertyHasClient,
+      });
     }
+    let clientAmount: number | null | undefined = body.clientAmount === undefined ? undefined : body.clientAmount;
+    if (billToClient && clientAmount === undefined && existing.clientAmount == null) {
+      clientAmount =
+        consent === "APPROVED" && latestApproval && Number.isFinite(Number(latestApproval.amount)) && Number(latestApproval.amount) > 0
+          ? roundCents(Number(latestApproval.amount))
+          : approvedAmount != null && Number(approvedAmount) > 0
+            ? roundCents(Number(approvedAmount))
+            : null;
+    }
+    if (clientAmount != null) clientAmount = roundCents(Number(clientAmount));
+    const clientDecision = billToClient !== undefined || clientAmount !== undefined || body.clientDescription !== undefined;
 
-    const updated = await db.cleanerPayAdjustment.update({
+    const billing: { outcome: ClientBillingOutcome | null } = { outcome: null };
+    const updated = await db.$transaction(async (tx) => {
+    const row = await tx.cleanerPayAdjustment.update({
       where: { id: params.id, updatedAt: existing.updatedAt,
-        ...(!alreadySettledBy ? { includedInPayrollRunId: null, includedInCleanerInvoiceId: null } : {}) },
+        ...(!alreadySettledBy ? { includedInPayrollRunId: null, includedInCleanerInvoiceId: null, paidOutsideAt: null } : {}) },
       data: {
         ...(isReverseToPending
           ? {
@@ -291,7 +419,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           ? { decisionMessage: body.decisionMessage.trim() || null }
           : {}),
         ...(body.propertyId !== undefined ? { propertyId: body.propertyId } : {}),
-        ...(body.jobId !== undefined ? { jobId: body.jobId } : {}),
+        // Linking takes the job's property and scope; unlinking keeps the
+        // property so the request still says where the work was.
+        ...(body.jobId !== undefined
+          ? linkedJob
+            ? { jobId: linkedJob.id, propertyId: linkedJob.propertyId, scope: "JOB" as const, jobLinkedAt: new Date(), jobLinkedById: session.user.id }
+            : { jobId: null, scope: (body.propertyId ?? existing.propertyId) ? ("PROPERTY" as const) : ("STANDALONE" as const), jobLinkedAt: null, jobLinkedById: null }
+          : {}),
+        ...(body.category !== undefined ? { category: body.category, taxable: isTaxableCategory(body.category) } : {}),
+        ...(billToClient !== undefined ? { billToClient } : {}),
+        ...(clientAmount !== undefined ? { clientAmount } : {}),
+        ...(body.clientDescription !== undefined ? { clientDescription: body.clientDescription?.trim() || null } : {}),
+        ...(clientDecision ? { clientBillingDecidedAt: new Date(), clientBillingDecidedById: session.user.id } : {}),
         ...(body.title !== undefined ? { title: body.title } : {}),
         // Full field edit of the underlying request both cleaner + client read.
         ...(body.type !== undefined ? { type: body.type } : {}),
@@ -318,6 +457,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         },
       },
     });
+    // The client side follows what is now stored: folded into the job's DRAFT
+    // line, taken off it, or left waiting — never an issued invoice.
+    if (row.billToClient || existing.billToClient || existing.clientInvoiceLineId) {
+      billing.outcome = await reconcilePayRequestClientBilling(tx, row.id, consent);
+    }
+    return row;
+    });
 
     // A cross-cleaner REWORK_DEDUCTION lands PENDING when the owner setting
     // `reworkDeductionsRequireApproval` is on, and lib/qa/rework-jobs.ts
@@ -342,7 +488,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       // The DECISION MESSAGE, not `adminNote`. This notification goes to the
       // cleaner, and `adminNote` is the reviewing admin's private record of the
       // decision — it was being read out to the person it was written about.
-      const note = updated.decisionMessage ? ` ${updated.decisionMessage}` : "";
+      // A reduction's reason is what the cleaner most needs to read.
+      const cleanerReason = reduction && body.changeReason?.trim() ? body.changeReason.trim() : updated.decisionMessage;
+      const note = cleanerReason ? ` ${cleanerReason}` : "";
       const newAmount = Number(updated.approvedAmount ?? 0).toFixed(2);
 
       const wording = await loadNotificationWording("job.cleaner_requests_decided");
@@ -381,7 +529,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         },
       });
 
-      const settings = await getAppSettings();
       // Addressed to `updated.cleaner.email`, so this must be the cleaner-facing
       // message. `adminNote` is private and was being emailed verbatim to the
       // person it was written about.
@@ -390,7 +537,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         emailTitle: emailSubject,
         recipientName: updated.cleaner.name ?? updated.cleaner.email,
         intro: emailIntro,
-        decisionParagraph: wording.line("decision-paragraph", "EMAIL", { message: updated.decisionMessage }, Boolean(updated.decisionMessage)),
+        decisionParagraph: wording.line("decision-paragraph", "EMAIL", { message: cleanerReason }, Boolean(cleanerReason)),
       });
       await sendEmailDetailed({
         kind: "pay_adjustment",
@@ -479,7 +626,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       });
     }
 
-    if (isStatusChange || isAmountEdit || isFieldEdit) {
+    if (isStatusChange || isAmountEdit || isFieldEdit || isClientEdit) {
       void recordApprovalDecision({
         queue: approvalQueue,
         decision: isReverseToPending
@@ -519,6 +666,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       ? "REVIEW_PAY_ADJUSTMENT"
       : isAmountEdit
       ? "EDIT_PAY_ADJUSTMENT_AMOUNT"
+      : body.jobId !== undefined
+      ? body.jobId
+        ? "PAY_ADJUSTMENT_JOB_LINKED"
+        : "PAY_ADJUSTMENT_JOB_UNLINKED"
+      : isClientEdit && !isFieldEdit
+      ? "PAY_ADJUSTMENT_CLIENT_BILLING_CHANGED"
       : "EDIT_PAY_ADJUSTMENT";
 
     await db.auditLog.create({
@@ -539,6 +692,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           propertyId: existing.propertyId,
           title: existing.title,
           adminNote: existing.adminNote,
+          decisionMessage: existing.decisionMessage,
+          category: existing.category,
+          billToClient: existing.billToClient,
+          clientAmount: existing.clientAmount,
+          clientDescription: existing.clientDescription,
         } as any,
         after: {
           status: updated.status,
@@ -551,6 +709,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           propertyId: updated.propertyId,
           title: updated.title,
           adminNote: updated.adminNote,
+          decisionMessage: updated.decisionMessage,
+          category: updated.category,
+          billToClient: updated.billToClient,
+          clientAmount: updated.clientAmount,
+          clientDescription: updated.clientDescription,
+          // Read back in the request's history; the reason is cleaner-facing.
+          ...(body.changeReason?.trim() ? { changeReason: body.changeReason.trim() } : {}),
+          ...(reduction ? { reduction: true } : {}),
+          ...(billing.outcome ? { clientBilling: billing.outcome } : {}),
           ...(aboveRequestOverride ? { aboveRequestOverride } : {}),
         } as any,
       },
@@ -577,7 +744,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       });
     }
 
-    return NextResponse.json(updated);
+    return NextResponse.json({ ...updated, clientBilling: billing.outcome });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

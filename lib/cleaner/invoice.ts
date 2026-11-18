@@ -6,8 +6,16 @@ import { computeCleanerPay } from "@/lib/finance/job-money";
 import {
   adjustmentSignedAmount,
   partitionAdjustmentsForInvoice,
+  adjustmentUnsettledWhere,
 } from "@/lib/finance/pay-adjustments";
 import { deriveAdjustmentOrigin } from "@/lib/finance/job-pay-summary";
+import {
+  cleanerExtraDetail,
+  cleanerExtraText,
+  invoiceMoney,
+  relatedJobText,
+  type CleanerExtraDetail,
+} from "@/lib/pay-adjustments/invoice-text";
 import { qaAssignmentPayeeWhere } from "@/lib/qa/ownership";
 import {
   computeQaAssignmentPay,
@@ -173,6 +181,13 @@ export interface CleanerInvoiceData {
     transportAllowance: number;
     amount: number;
     extraRequestNote?: string;
+    /**
+     * Each approved SERVICE extra folded into this line (2026-11-18): what it
+     * was, how it was worked out and the payee's note. `amount` above is the
+     * combined total; `baseAmount` + these amounts + transport equal it to the
+     * cent. Absent on snapshots written before this existed.
+     */
+    extraDetails?: CleanerExtraDetail[];
     comment?: string;
   }>;
   expenseRows: Array<{
@@ -218,6 +233,8 @@ export interface CleanerInvoiceData {
     category: string;
     /** False for money the payee spent and is getting back (not income). */
     taxable: boolean;
+    /** "for Bondi Apartment, 12/11/2026 (job J-1042)" when linked to a job. */
+    relatedJob?: string | null;
   }>;
   extraLineTotal: number;
   /**
@@ -430,30 +447,13 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     where: {
       cleanerId: options.userId,
       status: PayAdjustmentStatus.APPROVED,
-      // Payroll-run stamp. Normally "must be null"; when a pay run is recomputing
-      // ITSELF (includePaidRunId) its own rows stay selectable, exactly as
-      // includeInvoiceId does for the invoice stamp. Expressed via AND so it can
-      // coexist with the invoice-stamp OR below.
-      ...(options.includePaidRunId
-        ? {
-            AND: [
-              {
-                OR: [
-                  { includedInPayrollRunId: null },
-                  { includedInPayrollRunId: options.includePaidRunId },
-                ],
-              },
-            ],
-          }
-        : { includedInPayrollRunId: null }),
-      ...(options.includeInvoiceId
-        ? {
-            OR: [
-              { includedInCleanerInvoiceId: null },
-              { includedInCleanerInvoiceId: options.includeInvoiceId },
-            ],
-          }
-        : { includedInCleanerInvoiceId: null }),
+      // THE settlement predicate (lib/finance/pay-adjustments.ts): neither
+      // stamp set — except by this very run/invoice recomputing itself — and
+      // never paid outside the system.
+      ...adjustmentUnsettledWhere({
+        includePayrollRunId: options.includePaidRunId ?? null,
+        includeInvoiceId: options.includeInvoiceId ?? null,
+      }),
     },
     select: {
       id: true,
@@ -465,9 +465,16 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
       requestedAmount: true,
       includedInPayrollRunId: true,
       includedInCleanerInvoiceId: true,
+      paidOutsideAt: true,
       cleanerNote: true,
       requestedAt: true,
       reviewedAt: true,
+      // What the extra was, for the folded job line's description and for a
+      // money-back line that has to say which job it relates to.
+      type: true,
+      requestedHours: true,
+      requestedRate: true,
+      job: { select: { scheduledDate: true, jobNumber: true, property: { select: { name: true } } } },
       // Provenance, so the invoice line can say WHERE the money came from
       // ("Automatic — rework deduction" vs "Manual") — pay-transparency wave.
       source: true,
@@ -690,8 +697,14 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
 
   const extrasByJob = adjustmentSplit.perJobTotals;
   const extraNotesByJob = new Map<string, string[]>();
+  // The details printed under each job line. Built from the SAME rows the
+  // partition folded (so the parts always add up to perJobTotals).
+  const extraDetailsByJob = new Map<string, CleanerExtraDetail[]>();
   for (const row of approvedAdjustments) {
     if (!row.jobId) continue;
+    const details = extraDetailsByJob.get(row.jobId) ?? [];
+    details.push(cleanerExtraDetail(row, adjustmentSignedAmount(row)));
+    extraDetailsByJob.set(row.jobId, details);
     const note = row.cleanerNote?.trim();
     if (note) {
       const existing = extraNotesByJob.get(row.jobId) ?? [];
@@ -826,6 +839,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
         transportAllowance: pay.transportAllowance,
         amount: pay.total,
         extraRequestNote: (extraNotesByJob.get(job.id) ?? []).join(" | "),
+        extraDetails: extraDetailsByJob.get(job.id) ?? [],
         comment,
       };
     })
@@ -912,6 +926,15 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
       // Rows predating the split have taxable = true by column default, which
       // is the honest answer for them: they were all recorded as work.
       taxable: adj.taxable !== false,
+      // A parking fee or receipt stays in its own section but names the job it
+      // relates to, so accounts can see what it was for.
+      relatedJob: adj.job
+        ? relatedJobText({
+            propertyName: adj.job.property?.name ?? null,
+            date: new Date(adj.job.scheduledDate).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" }),
+            jobNumber: adj.job.jobNumber ?? null,
+          })
+        : null,
     };
   });
   const extraLineTotal = extraLineRows.reduce((sum, row) => sum + row.amount, 0);
@@ -1077,6 +1100,8 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData, issuedNumber?:
         <tr>
           <td class="cell">${row.date}</td>
           <td class="cell">${escapeHtml(row.description)}${
+            row.relatedJob ? `<div style="color:#444;font-size:10px;margin-top:2px;">${escapeHtml(row.relatedJob)}</div>` : ""
+          }${
             row.originLabel
               ? `<div style="color:#666;font-size:10px;margin-top:2px;">${escapeHtml(row.originLabel)}${
                   row.reason ? ` — ${escapeHtml(row.reason)}` : ""
@@ -1180,7 +1205,10 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData, issuedNumber?:
     .map(
       (row) => {
         const comments: string[] = [];
-        if (row.extraRequestNote?.trim()) {
+        const extraDetails = row.extraDetails ?? [];
+        // A snapshot written before the details existed still has the joined
+        // note; once details are present they carry each note themselves.
+        if (extraDetails.length === 0 && row.extraRequestNote?.trim()) {
           comments.push(`<div><strong>Extra request:</strong> ${escapeHtml(row.extraRequestNote)}</div>`);
         }
         if (row.comment?.trim()) {
@@ -1191,7 +1219,15 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData, issuedNumber?:
         <tr${row.isHoursOverridden ? ` class="changed-row"` : ""}>
           <td class="cell">${row.date}</td>
           <td class="cell">${escapeHtml(row.property)}</td>
-          <td class="cell">${escapeHtml(row.jobType)}</td>
+          <td class="cell">${escapeHtml(row.jobType)}${
+            // ONE line per job: the combined total in the Total column, and
+            // under the description the base pay then each extra's details.
+            extraDetails.length > 0
+              ? `<div style="color:#444;font-size:10px;margin-top:2px;">Base pay ${escapeHtml(invoiceMoney(row.baseAmount))}</div>${extraDetails
+                  .map((detail) => `<div style="color:#444;font-size:10px;">${escapeHtml(cleanerExtraText(detail, showHours))}</div>`)
+                  .join("")}`
+              : ""
+          }</td>
           <td class="cell right">${row.split}</td>
           <td class="cell right">${
             // A fixed payout does not derive from a rate or from hours, so

@@ -502,6 +502,14 @@ export interface InvoicingSettings {
   paymentNote: string;
   abn: string;
   companyAddress: string;
+  /**
+   * Owner default pending confirmation (2026-11-18): an approved pay request
+   * linked to a job, of category SERVICE, is billed to the job's client by
+   * default (the approval dialog states it and the office can switch it off
+   * per request). Never applies to parking, reimbursements or unlinked
+   * requests, and never to requests approved before this setting existed.
+   */
+  payRequestsBillClientByDefault: boolean;
 }
 
 function sanitizePublicWidgets(
@@ -930,6 +938,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     paymentNote: "Please include the invoice number as payment reference.",
     abn: "",
     companyAddress: "",
+    payRequestsBillClientByDefault: true,
   },
   publicWidgets: DEFAULT_PUBLIC_WIDGETS,
   pricingVariables: DEFAULT_PRICING_VARIABLES,
@@ -1880,6 +1889,10 @@ function sanitizeSettings(input: unknown): AppSettings {
       paymentNote: typeof (parsed as any).invoicing?.paymentNote === "string" ? (parsed as any).invoicing.paymentNote : DEFAULT_SETTINGS.invoicing.paymentNote,
       abn: typeof (parsed as any).invoicing?.abn === "string" ? (parsed as any).invoicing.abn : DEFAULT_SETTINGS.invoicing.abn,
       companyAddress: typeof (parsed as any).invoicing?.companyAddress === "string" ? (parsed as any).invoicing.companyAddress : DEFAULT_SETTINGS.invoicing.companyAddress,
+      payRequestsBillClientByDefault:
+        typeof (parsed as any).invoicing?.payRequestsBillClientByDefault === "boolean"
+          ? (parsed as any).invoicing.payRequestsBillClientByDefault
+          : DEFAULT_SETTINGS.invoicing.payRequestsBillClientByDefault,
     },
     publicWidgets: sanitizePublicWidgets(
       (parsed as any).publicWidgets,

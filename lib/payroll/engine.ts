@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { ADJUSTMENT_CLAIM_GUARD } from "@/lib/finance/pay-adjustments";
 import { assertHolidayRateSnapshots } from "@/lib/finance/holiday-rates";
 import { PayrollRunStatus, PayoutStatus, PayoutMethod, Role, PayAdjustmentStatus } from "@prisma/client";
 import { getPayrollSummary } from "@/lib/finance/payroll";
@@ -215,7 +216,7 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
     if (includedAdjustmentIds.length > 0) {
       // Same idempotency guard for approved pay adjustments.
       const adjustmentClaim = await tx.cleanerPayAdjustment.updateMany({
-        where: { id: { in: includedAdjustmentIds }, OR: payableCleaners.flatMap(cleaner => cleaner.adjustments.map(row => ({ id: row.id, updatedAt: row.updatedAt }))), includedInPayrollRunId: null, includedInCleanerInvoiceId: null, status: "APPROVED" },
+        where: { id: { in: includedAdjustmentIds }, OR: payableCleaners.flatMap(cleaner => cleaner.adjustments.map(row => ({ id: row.id, updatedAt: row.updatedAt }))), ...ADJUSTMENT_CLAIM_GUARD, status: "APPROVED" },
         data: { includedInPayrollRunId: createdRun.id },
       });
       if (adjustmentClaim.count !== includedAdjustmentIds.length) throw new Error("Extra pay was already claimed. Refresh payroll.");

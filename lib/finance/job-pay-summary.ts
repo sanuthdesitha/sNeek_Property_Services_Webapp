@@ -111,8 +111,9 @@ export function deriveAdjustmentOrigin(
 /* ── Settlement + editability ──────────────────────────────────────────── */
 
 export interface AdjustmentSettlement {
-  rail: "PAYROLL" | "INVOICE";
-  /** The payroll-run / cleaner-invoice id that settled the row. */
+  /** PAID_OUTSIDE (2026-11-18): the office paid it outside the system. */
+  rail: "PAYROLL" | "INVOICE" | "PAID_OUTSIDE";
+  /** The payroll-run / cleaner-invoice id that settled the row ("" when paid outside). */
   id: string;
   /** When it was settled, when known (ISO). */
   at: string | null;
@@ -122,6 +123,7 @@ export interface AdjustmentSettlementRow {
   includedInPayrollRunId?: string | null;
   includedInCleanerInvoiceId?: string | null;
   includedInCleanerInvoiceAt?: Date | string | null;
+  paidOutsideAt?: Date | string | null;
 }
 
 /** Which rail (if any) has already paid this row. Payroll checked first —
@@ -135,6 +137,9 @@ export function adjustmentSettlement(row: AdjustmentSettlementRow): AdjustmentSe
       ? new Date(row.includedInCleanerInvoiceAt).toISOString()
       : null;
     return { rail: "INVOICE", id: row.includedInCleanerInvoiceId, at };
+  }
+  if (row.paidOutsideAt) {
+    return { rail: "PAID_OUTSIDE", id: "", at: new Date(row.paidOutsideAt).toISOString() };
   }
   return null;
 }

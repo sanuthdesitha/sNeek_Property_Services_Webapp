@@ -28,6 +28,8 @@
  * `Job.payrollRunId` / `includePaidRunId` pattern.
  */
 
+import type { Prisma } from "@prisma/client";
+
 /** Mirrors PayAdjustmentStatus without importing @prisma/client into a pure module. */
 export type PayAdjustmentStatusLike = "PENDING" | "APPROVED" | "REJECTED" | string;
 
@@ -41,6 +43,16 @@ export interface PayAdjustmentMoneyRow {
   requestedAmount?: number | null;
   includedInPayrollRunId?: string | null;
   includedInCleanerInvoiceId?: string | null;
+  /**
+   * THIRD settlement marker (2026-11-18): paid outside the system. A row that
+   * carries it is spent on both rails, exactly like either stamp above.
+   */
+  paidOutsideAt?: Date | string | null;
+  /**
+   * SERVICE | PARKING | REIMBURSEMENT. Only SERVICE folds into a job's line —
+   * money the payee is getting back is not income and keeps its own section.
+   */
+  category?: string | null;
 }
 
 /** Round to whole cents (kept local so this module stays dependency-free). */
@@ -93,7 +105,48 @@ export function isAdjustmentAvailableForInvoice(
   const invoiceStamp = row.includedInCleanerInvoiceId ?? null;
   if (invoiceStamp && invoiceStamp !== (options.includeInvoiceId ?? null)) return false;
 
+  // Paid outside the system: spent for every rail, with no recompute escape —
+  // no run or invoice ever paid it, so none may claim it as its own.
+  if (row.paidOutsideAt) return false;
+
   return true;
+}
+
+/**
+ * THE settlement predicate as a database filter — the query mirror of
+ * `isAdjustmentAvailableForInvoice`, so every selector and every guarded claim
+ * reads the same three markers. A rail recomputing ITSELF passes its own id so
+ * the rows it already stamped stay visible to it; `paidOutsideAt` has no such
+ * escape. Returned as an AND list so it composes with any other OR a caller
+ * needs (a bare spread of two ORs would silently overwrite one of them).
+ */
+export function adjustmentUnsettledWhere(
+  options: AdjustmentAvailabilityOptions = {}
+): { AND: Prisma.CleanerPayAdjustmentWhereInput[] } {
+  const payroll: Prisma.CleanerPayAdjustmentWhereInput = options.includePayrollRunId
+    ? { OR: [{ includedInPayrollRunId: null }, { includedInPayrollRunId: options.includePayrollRunId }] }
+    : { includedInPayrollRunId: null };
+  const invoice: Prisma.CleanerPayAdjustmentWhereInput = options.includeInvoiceId
+    ? { OR: [{ includedInCleanerInvoiceId: null }, { includedInCleanerInvoiceId: options.includeInvoiceId }] }
+    : { includedInCleanerInvoiceId: null };
+  return { AND: [payroll, invoice, { paidOutsideAt: null }] };
+}
+
+/**
+ * The guard every claim (`updateMany`) writes against: no marker of any kind.
+ * The loser of a race between a payroll run, a cleaner invoice and "mark paid"
+ * updates 0 rows, so the money is settled exactly once.
+ */
+export const ADJUSTMENT_CLAIM_GUARD = {
+  includedInPayrollRunId: null,
+  includedInCleanerInvoiceId: null,
+  paidOutsideAt: null,
+} as const;
+
+/** Only work (SERVICE) folds into a job's line; money-back stays separate. */
+export function adjustmentFoldsIntoJobLine(row: Pick<PayAdjustmentMoneyRow, "category">): boolean {
+  const category = (row.category ?? "SERVICE").toUpperCase();
+  return category === "SERVICE";
 }
 
 export interface AdjustmentPartitionOptions extends AdjustmentAvailabilityOptions {
@@ -111,6 +164,8 @@ export interface AdjustmentPartition<T extends PayAdjustmentMoneyRow> {
    * linked to a job that is not on this invoice (the QA-inspector credit case:
    * the QA is paid for a job they were never *assigned* to, so the job never
    * appears on their invoice and the credit used to vanish entirely).
+   * Also every PARKING / REIMBURSEMENT row, job-linked or not: money the payee
+   * is getting back is not income and is never folded into a services line.
    * These become their own invoice lines.
    */
   carryOverRows: T[];
@@ -146,7 +201,7 @@ export function partitionAdjustmentsForInvoice<T extends PayAdjustmentMoneyRow>(
     }
     const amount = adjustmentSignedAmount(row);
     const jobId = row.jobId ?? null;
-    if (jobId && jobIds.has(jobId)) {
+    if (jobId && jobIds.has(jobId) && adjustmentFoldsIntoJobLine(row)) {
       perJobTotals.set(jobId, cents((perJobTotals.get(jobId) ?? 0) + amount));
       perJobRows.push(row);
     } else {

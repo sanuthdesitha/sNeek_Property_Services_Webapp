@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { ADJUSTMENT_CLAIM_GUARD } from "@/lib/finance/pay-adjustments";
 import { JobStatus, PayAdjustmentStatus, Prisma, QaAssignmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getCleanerInvoiceData } from "@/lib/cleaner/invoice";
@@ -399,6 +400,7 @@ async function findPayeeIds(start: Date, end: Date, runId?: string): Promise<str
       where: {
         status: PayAdjustmentStatus.APPROVED,
         includedInCleanerInvoiceId: null,
+        paidOutsideAt: null,
         AND: [ownRunClause],
       },
       select: { cleanerId: true },
@@ -579,8 +581,7 @@ export async function createPayRun(input: {
       await tx.cleanerPayAdjustment.updateMany({
         where: {
           id: { in: adjustmentIds },
-          includedInPayrollRunId: null,
-          includedInCleanerInvoiceId: null,
+          ...ADJUSTMENT_CLAIM_GUARD,
         },
         data: { includedInPayrollRunId: id },
       });
@@ -727,8 +728,7 @@ export async function refreshPayRun(id: string, userId: string) {
       await tx.cleanerPayAdjustment.updateMany({
         where: {
           id: { in: adjustmentIds },
-          includedInPayrollRunId: null,
-          includedInCleanerInvoiceId: null,
+          ...ADJUSTMENT_CLAIM_GUARD,
         },
         data: { includedInPayrollRunId: existing.id },
       });

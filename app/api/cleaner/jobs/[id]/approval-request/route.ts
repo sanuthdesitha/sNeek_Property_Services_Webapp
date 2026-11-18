@@ -25,6 +25,7 @@ export async function POST(
       select: {
         id: true,
         status: true,
+        propertyId: true,
         assignments: {
           select: { userId: true, removedAt: true },
         },
@@ -62,7 +63,13 @@ export async function POST(
     const cleanerNote = [body.title, body.description].filter(Boolean).join("\n\n").trim();
     const created = await db.cleanerPayAdjustment.create({
       data: {
+        // Linked to the job it was raised from, and to that job's property, so
+        // the request folds into the job's pay line and can follow the job onto
+        // the client's invoice (2026-11-18: the property link was missing here).
         jobId: job.id,
+        propertyId: job.propertyId,
+        scope: "JOB",
+        title: body.title,
         cleanerId: session.user.id,
         type: PayAdjustmentType.FIXED,
         requestedAmount,
