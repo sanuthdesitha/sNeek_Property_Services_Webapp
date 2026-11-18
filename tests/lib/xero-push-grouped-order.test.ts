@@ -214,9 +214,9 @@ describe("no path to Xero bypasses the one push function", () => {
   }
   const files = ["app", "lib", "components", "workers", "scripts"].flatMap((dir) => sources(join(ROOT, dir)));
 
-  it("only the push calls the Xero client's client-invoice writers", () => {
+  it("only the push and the update call the Xero client's client-invoice writers", () => {
     const callers = files.filter((file) => /pushClientInvoiceToXero\(|pushClientCreditNoteToXero\(|updateClientDocumentInXero\(/.test(readFileSync(join(ROOT, file), "utf8")));
-    expect(callers.sort()).toEqual(["lib/billing/client-invoice-xero.ts", "lib/xero/client.ts"]);
+    expect(callers.sort()).toEqual(["lib/billing/client-invoice-xero-update.ts", "lib/billing/client-invoice-xero.ts", "lib/xero/client.ts"]);
   });
 
   it("the v1 screen and the v2 list call the shared per-invoice push route", () => {

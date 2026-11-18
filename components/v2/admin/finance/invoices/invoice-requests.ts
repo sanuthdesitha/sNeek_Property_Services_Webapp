@@ -100,6 +100,27 @@ export function putSavedItems<TBody>(payload: { items: unknown[]; expectedUpdate
   return send<TBody>("/api/admin/invoices/saved-items", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
 }
 
+/** The two totals the person saw when Xero's figures differed; the server re-checks them. */
+export type XeroUpdateConfirmation = { localTotal: number; xeroTotal: number };
+
+export type XeroUpdateBody = {
+  ok?: boolean;
+  message?: string;
+  change?: string;
+  repeated?: boolean;
+  code?: string;
+  localTotal?: number;
+  xeroTotal?: number;
+};
+
+/** "Update in Xero": the same request key for every retry of one confirmation. */
+export function xeroUpdateRequest(id: string, requestKey: string, confirmTotals: XeroUpdateConfirmation | null) {
+  return send<XeroUpdateBody>(
+    `/api/admin/invoices/${encodeURIComponent(id)}/xero-update`,
+    json("POST", { requestKey, confirmTotals }),
+  );
+}
+
 export function pushInvoiceToXeroRequest(id: string) {
   return send<{ alreadyPushed?: boolean }>(`/api/admin/invoices/${id}/xero-push`, { method: "POST" });
 }

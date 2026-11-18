@@ -7,6 +7,7 @@
 import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import type { StartedWorkReview } from "@/lib/billing/started-work-reconciliation";
+import { xeroUpdateAvailability } from "@/lib/billing/client-invoice-xero-update-rules";
 import type {
   ClientInvoiceListRow,
   ClientInvoiceStatusValue,
@@ -153,6 +154,7 @@ export type InvoiceActionKey =
   | "receipt"
   | "xero-push"
   | "xero-retry"
+  | "xero-update"
   | "void"
   | "reverse"
   | "reconcile"
@@ -171,6 +173,7 @@ export const ACTION_LABEL: Record<InvoiceActionKey, string> = {
   receipt: "Payment record",
   "xero-push": "Push to Xero",
   "xero-retry": "Retry Xero",
+  "xero-update": "Update in Xero",
   void: "Void",
   reverse: "Reverse to draft",
   reconcile: "Reconcile / void",
@@ -213,6 +216,10 @@ export function availableInvoiceActions(inv: ActionFacts): InvoiceActionKey[] {
   // A credit note goes to Xero once issued (approved or sent), as the server requires.
   const pushable = creditNote ? inv.status === "APPROVED" || inv.status === "SENT" : inv.status !== "VOID";
   if (pushable) actions.push(inv.xeroState === "PENDING" ? "xero-retry" : "xero-push");
+  // Re-send the current lines, in the PDF's order, to the same Xero document
+  // (2026-11-18). Only once it is in Xero and nothing is paid here; Xero's own
+  // status is checked when the action runs.
+  if (xeroUpdateAvailability(inv).available) actions.push("xero-update");
   if (!creditNote && !inv.fullyCredited && CREDITABLE_STATUSES.includes(inv.status)) actions.push("credit-note");
   if (!inXero(inv) && (inv.status === "SENT" || inv.status === "APPROVED")) actions.push("void");
   // Reverse is for an approved invoice nobody outside the office has seen; once
@@ -295,6 +302,7 @@ export const ACTS_ON_SAVED_INVOICE: ReadonlySet<InvoiceActionKey> = new Set<Invo
   "mark-paid",
   "xero-push",
   "xero-retry",
+  "xero-update",
   "void",
   "reverse",
   "reconcile",

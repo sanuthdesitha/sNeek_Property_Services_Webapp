@@ -60,8 +60,8 @@
     "fingerprint": "fe1a59b91f67e297"
   },
   "admin.finance.send": {
-    "version": 2,
-    "fingerprint": "987c648b0831b129"
+    "version": 3,
+    "fingerprint": "b4d8ebbee81f1680"
   },
   "admin.approvals": {
     "version": 1,

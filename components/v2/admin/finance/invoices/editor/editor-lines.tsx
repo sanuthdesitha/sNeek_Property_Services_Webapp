@@ -32,6 +32,8 @@ export type EditorLinesProps = {
   drafts: LineDrafts;
   invalid: Record<string, string>;
   editable: boolean;
+  /** The line order may change even though content may not (order only on an invoice in Xero). */
+  reorderable?: boolean;
   frozen: boolean;
   /** Text inputs: usable during a background autosave. */
   inputsFrozen: boolean;
@@ -75,7 +77,8 @@ export function EditorLines(props: EditorLinesProps) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   const total = sections.reduce((count, section) => count + section.lines.length, 0);
-  const sortable = editable && total > 1;
+  // Order may change with content, or on its own (an invoice in Xero, 2026-11-18).
+  const sortable = (editable || Boolean(props.reorderable)) && total > 1;
 
   function toggle(key: string) {
     setClosed((previous) => {
