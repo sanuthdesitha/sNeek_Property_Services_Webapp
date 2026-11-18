@@ -25,12 +25,14 @@ import { logger } from "@/lib/logger";
 import { assertStartedWorkReviewed, readStartedWorkReview } from "@/lib/billing/started-work-reconciliation";
 import { actionResult, type InvoiceActionResult, type InvoiceActor } from "./invoice-action-result";
 import {
+  ORDER_ONLY_LINES_REFUSAL,
   PAYMENT_EVIDENCE_REFUSAL,
   XERO_ISSUED_REFUSAL,
   XERO_RESERVATION_REFUSAL,
   emptyInvoiceRefusal,
   hasPaymentEvidence,
   invoiceContentLock,
+  invoiceOrderLock,
   isShoppingLockedLine,
   isXeroExportPending,
 } from "./client-invoice-guards";
@@ -47,6 +49,7 @@ import {
   contentEditRequested,
   creditLimitFor,
   kindRuleRefusal,
+  orderOnlyEditRequested,
   securitySchema,
   verifyInvoiceSecurity,
 } from "./client-invoice-patch-rules";
@@ -54,6 +57,7 @@ import { draftFieldsSchema, draftFieldsRequested, draftFieldsUpdate } from "./cl
 import { leavesDraft, approvalRuleRefusal } from "./client-invoice-approval-rules";
 import { staleInvoiceRefusal } from "./client-invoice-stale-guard";
 import { caseChargeRefusal } from "./client-invoice-case-charge-rules";
+import { XERO_UPDATE_IN_FLIGHT_REFUSAL, xeroUpdateInFlight } from "./client-invoice-xero-update-rules";
 
 const lineUpdateSchema = z.object({
   id: z.string().cuid(),
@@ -275,7 +279,22 @@ async function patchLockedInvoice(
       if (editsContent && readStartedWorkReview(existing.metadata)) throw new Error("Save and review draft edits before performing a financial action.");
       await assertStartedWorkReviewed(existing, db, body.status === "APPROVED" && !body.recordPayment);
     }
-    if (existing.xeroInvoiceId && (editsContent || body.reverse || body.status === "VOID" || body.forceStatus)) {
+    // Order only on an invoice already in Xero (2026-11-18): allowed while it
+    // is otherwise a draft or approved, so "Update in Xero" can carry the new
+    // order to the same Xero document. Never an amount; never while an update
+    // is with Xero; and the order must name every line exactly once.
+    const orderOnlyInXero = Boolean(existing.xeroInvoiceId) && orderOnlyEditRequested(body);
+    if (orderOnlyInXero) {
+      const orderLock = invoiceOrderLock(existing);
+      if (!orderLock.reorderable) return actionResult({ error: orderLock.reason }, 409);
+      if (xeroUpdateInFlight(existing.metadata)) return actionResult({ error: XERO_UPDATE_IN_FLIGHT_REFUSAL }, 409);
+      const wanted = body.reorderLineIds ?? [];
+      const ids = new Set(existing.lines.map((line) => line.id));
+      if (wanted.length !== ids.size || new Set(wanted).size !== wanted.length || wanted.some((id) => !ids.has(id))) {
+        return actionResult({ error: ORDER_ONLY_LINES_REFUSAL }, 409);
+      }
+    }
+    if (existing.xeroInvoiceId && !orderOnlyInXero && (editsContent || body.reverse || body.status === "VOID" || body.forceStatus)) {
       return actionResult({ error: XERO_ISSUED_REFUSAL }, 409);
     }
     if (hasPaymentEvidence(existing) && (editsContent || body.reverse || body.forceStatus || body.status === "VOID")) {
@@ -283,7 +302,7 @@ async function patchLockedInvoice(
     }
     // The shared content lock (also the editor's read-only reason): once SENT,
     // PART_PAID, PAID or VOID, content changes go through a credit note.
-    if (editsContent) {
+    if (editsContent && !orderOnlyInXero) {
       const lock = invoiceContentLock(existing);
       if (!lock.editable) return actionResult({ error: lock.reason }, 409);
     }

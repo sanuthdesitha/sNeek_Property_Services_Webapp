@@ -57,6 +57,7 @@ export const TOUR_TARGETS = {
   "admin.finance.invoice.preview": { page: "/v2/admin/finance/invoices/practice", label: "Send card (who gets it)", portal: "admin" },
   "admin.finance.invoice.send": { page: "/v2/admin/finance/invoices/practice", label: "Send button", portal: "admin" },
   "admin.finance.invoice.status": { page: "/v2/admin/finance/invoices/practice", label: "Stage bar", portal: "admin" },
+  "admin.finance.invoice.xero": { page: "/v2/admin/finance/invoices/practice", label: "Xero card (push, refresh, Update in Xero)", portal: "admin" },
 
   // Admin · Approvals (/v2/admin/approvals)
   "admin.approvals.queues": { page: "/v2/admin/approvals", label: "Queue list", portal: "admin" },

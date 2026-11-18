@@ -490,6 +490,73 @@ export async function pushClientCreditNoteToXero(input: {
   return { xeroCreditNoteId: notes[0].CreditNoteID, contactId: contactId! };
 }
 
+/** What Xero answered to "Update in Xero": the document it changed, its status and total. */
+export type XeroDocumentUpdate = { id: string; status: string | null; total: number | null };
+
+function xeroUpdateLineItem(line: { description: string; quantity: number; unitAmount: number; accountCode?: string; taxType?: string; itemCode?: string }, gstOn: boolean): Record<string, unknown> {
+  const item: Record<string, unknown> = {
+    Description: line.description,
+    Quantity: line.quantity,
+    UnitAmount: line.unitAmount,
+    AccountCode: line.accountCode || "200",
+  };
+  if (line.taxType && line.taxType.trim()) item.TaxType = line.taxType.trim();
+  else if (!gstOn) item.TaxType = "NONE";
+  if (line.itemCode && line.itemCode.trim()) item.ItemCode = line.itemCode.trim();
+  return item;
+}
+
+/**
+ * Replace the lines of an EXISTING Xero invoice (ACCREC) or credit note
+ * (ACCRECCREDIT) — "Update in Xero". POST to the document's own id, which
+ * Xero treats as an update of that document (PUT is what creates one, and
+ * this never PUTs). Lines are sent without LineItemIDs, so Xero replaces the
+ * document's lines with these, in this order. Status, contact, number, date
+ * and reference are not sent, so they stay as they are in Xero. Throws with
+ * Xero's own words on a refusal; throws if Xero answers with any other
+ * document, so a caller never records success for a different id.
+ */
+export async function updateClientDocumentInXero(input: {
+  kind: "ACCREC" | "ACCRECCREDIT";
+  xeroId: string;
+  idempotencyKey: string;
+  lineItems: Array<{ description: string; quantity: number; unitAmount: number; accountCode?: string; taxType?: string; itemCode?: string }>;
+  gstEnabled?: boolean;
+}): Promise<XeroDocumentUpdate> {
+  await requireXeroToken();
+  const gstOn = input.gstEnabled !== false;
+  const creditNote = input.kind === "ACCRECCREDIT";
+  const document = {
+    [creditNote ? "CreditNoteID" : "InvoiceID"]: input.xeroId,
+    LineAmountTypes: gstOn ? "Exclusive" : "NoTax",
+    LineItems: input.lineItems.map((line) => xeroUpdateLineItem(line, gstOn)),
+  };
+  const path = creditNote
+    ? `/api.xro/2.0/CreditNotes/${encodeURIComponent(input.xeroId)}`
+    : `/api.xro/2.0/Invoices/${encodeURIComponent(input.xeroId)}`;
+  const body = creditNote ? { CreditNotes: [document] } : { Invoices: [document] };
+  const result = await xeroRequest<Record<string, unknown>>("POST", path, body, input.idempotencyKey);
+  const list = (creditNote ? result?.CreditNotes : result?.Invoices) as Array<Record<string, unknown>> | undefined;
+  const answered = list?.[0];
+  const answeredId = typeof answered?.[creditNote ? "CreditNoteID" : "InvoiceID"] === "string" ? String(answered[creditNote ? "CreditNoteID" : "InvoiceID"]) : null;
+  if (!answeredId || answeredId.toLowerCase() !== input.xeroId.toLowerCase()) {
+    throw new Error("Xero did not confirm the update of this document. Nothing is recorded as updated; check the invoice in Xero.");
+  }
+  return {
+    id: answeredId,
+    status: typeof answered?.Status === "string" ? answered.Status.toUpperCase() : null,
+    total: typeof answered?.Total === "number" && Number.isFinite(answered.Total) ? answered.Total : null,
+  };
+}
+
+/** Read one ACCREC invoice by its Xero id (with its lines), for "Update in Xero". */
+export async function readXeroInvoice(id: string, options: XeroReadOptions = {}): Promise<XeroDocumentRead> {
+  const outcome = await xeroGet(`/api.xro/2.0/Invoices/${encodeURIComponent(id)}`, options);
+  if (!outcome.ok) return { ok: false, failure: outcome.failure };
+  const list = outcome.body && typeof outcome.body === "object" ? (outcome.body as { Invoices?: unknown }).Invoices : undefined;
+  return matchXeroDocuments([id], list, "ACCREC").get(id)!;
+}
+
 /**
  * Push a cleaner bill to Xero as an ACCPAY bill.
  */

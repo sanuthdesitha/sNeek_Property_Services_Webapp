@@ -32,9 +32,10 @@ import { POST as SINGLE } from "@/app/api/admin/jobs/[id]/remind/route";
 
 const cleaner = (id: string, email: string | null = `${id}@test`) => ({ userId: id, user: { id, name: id === "c1" ? "Ana" : "Ben", email, role: "CLEANER" } });
 const jobs: Record<string, unknown> = {
-  paused: { id: "paused", jobNumber: "J-1", status: "PAUSED", scheduledDate: new Date("2026-11-12T00:00:00Z"), startTime: "10:00", property: { name: "Bondi", address: "" }, assignments: [cleaner("c1")] },
-  emailGap: { id: "emailGap", jobNumber: "J-2", status: "IN_PROGRESS", scheduledDate: new Date("2026-11-12T00:00:00Z"), startTime: null, property: { name: "Manly", address: "" }, assignments: [cleaner("c1"), cleaner("c2", null)] },
+  paused: { id: "paused", jobNumber: "J-1", status: "PAUSED", jobType: "AIRBNB_TURNOVER", scheduledDate: new Date("2026-11-12T00:00:00Z"), startTime: "10:00", property: { name: "Bondi", address: "" }, assignments: [cleaner("c1")] },
+  emailGap: { id: "emailGap", jobNumber: "J-2", status: "IN_PROGRESS", jobType: "DEEP_CLEAN", scheduledDate: new Date("2026-11-12T00:00:00Z"), startTime: null, property: { name: "Manly", address: "" }, assignments: [cleaner("c1"), cleaner("c2", null)] },
   assigned: { id: "assigned", jobNumber: "J-3", status: "ASSIGNED", scheduledDate: new Date("2026-11-12T00:00:00Z"), startTime: null, property: { name: "Coogee", address: "" }, assignments: [cleaner("c1")] },
+  pausedLater: { id: "pausedLater", jobNumber: "J-5", status: "PAUSED", jobType: "AIRBNB_TURNOVER", scheduledDate: new Date("2026-11-13T00:00:00Z"), startTime: "09:00", property: { name: "Bronte <Cottage>", address: "" }, assignments: [cleaner("c1")] },
   nobody: { id: "nobody", jobNumber: "J-4", status: "SUBMITTED", scheduledDate: new Date("2026-11-12T00:00:00Z"), startTime: null, property: { name: "Paddington", address: "" }, assignments: [] },
 };
 const post = (body: unknown) => BULK(new NextRequest("http://localhost/api/admin/jobs/bulk-remind", { method: "POST", body: JSON.stringify(body) }));
@@ -106,6 +107,59 @@ describe("POST /api/admin/jobs/bulk-remind", () => {
   it("admits administrators and operations managers only", async () => {
     await post({ jobIds: ["paused"], method: "PUSH" });
     expect(m.session).toHaveBeenCalledWith([Role.ADMIN, Role.OPS_MANAGER]);
+  });
+});
+
+describe("bulk email reminder: one email per cleaner (2026-11-17)", () => {
+  it("emails a cleaner on several selected jobs once, listing them all, and keeps a row and audit per job", async () => {
+    const body = await (await post({ jobIds: ["pausedLater", "paused", "emailGap", "assigned"], method: "EMAIL", note: "Please <finish> today" })).json();
+
+    // Ana (c1) is on three remindable jobs: ONE email. Ben (c2) has no email address.
+    expect(m.email).toHaveBeenCalledTimes(1);
+    const payload = m.email.mock.calls[0][0];
+    expect(payload).toMatchObject({ kind: "job_reminder", to: "c1@test", subject: "Reminder: 3 unfinished jobs" });
+    expect(payload.safeguard).toMatchObject({
+      typeKey: "job.reminder.manual",
+      entityKey: expect.stringMatching(/^JobReminderBatch:/),
+      // Date, then start time (a job with no start time sorts at 09:00, the reminders' default).
+      relatedEntityKeys: ["Job:emailGap", "Job:paused", "Job:pausedLater"],
+    });
+    const html: string = payload.html;
+    expect(html.indexOf("Manly")).toBeLessThan(html.indexOf("Bondi"));
+    expect(html.indexOf("Bondi")).toBeLessThan(html.indexOf("Bronte &lt;Cottage&gt;"));
+    expect(html).toContain("Please &lt;finish&gt; today");
+    expect(html).not.toContain("<finish>");
+
+    expect(body.rows.map((row: { jobId: string; outcome: string }) => [row.jobId, row.outcome])).toEqual([
+      ["pausedLater", "requested"], ["paused", "requested"], ["emailGap", "partial"], ["assigned", "skipped"],
+    ]);
+    expect(body.rows[1].message).toBe("Email accepted by the provider for Ana; delivery is not confirmed. One email listed all selected jobs for Ana.");
+    expect(body.rows[2]).toMatchObject({ requested: ["Ana"], failed: ["Ben"] });
+    expect(m.audit).toHaveBeenCalledTimes(3);
+    for (const call of m.audit.mock.calls) {
+      expect(call[0].data.after.combinedEmails).toEqual({ c1: ["pausedLater", "paused", "emailGap"] });
+    }
+  });
+
+  it("marks every listed job not reminded when that one email failed", async () => {
+    m.email.mockResolvedValue({ ok: false, error: "RESEND_API_KEY is not configured" });
+    const body = await (await post({ jobIds: ["paused", "pausedLater"], method: "EMAIL" })).json();
+    expect(m.email).toHaveBeenCalledTimes(1);
+    expect(body.rows.map((row: { outcome: string }) => row.outcome)).toEqual(["failed", "failed"]);
+  });
+
+  it("keeps one email per job when no cleaner is on two selected jobs", async () => {
+    const body = await (await post({ jobIds: ["paused"], method: "EMAIL" })).json();
+    expect(m.email).toHaveBeenCalledTimes(1);
+    expect(m.email.mock.calls[0][0].safeguard).toMatchObject({ entityKey: "Job:paused" });
+    expect(m.email.mock.calls[0][0].safeguard).not.toHaveProperty("relatedEntityKeys");
+    expect(body.rows[0].message).toBe("Email accepted by the provider for Ana; delivery is not confirmed.");
+  });
+
+  it("leaves push reminders one per job", async () => {
+    await post({ jobIds: ["paused", "pausedLater"], method: "PUSH" });
+    expect(m.push).toHaveBeenCalledTimes(2);
+    expect(m.email).not.toHaveBeenCalled();
   });
 });
 

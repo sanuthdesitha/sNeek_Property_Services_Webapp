@@ -144,6 +144,7 @@ export function InvoiceList() {
         case "reconcile":
         case "delete":
         case "credit-note":
+        case "xero-update":
           setDialog({ kind: key, invoice });
           return;
         default:

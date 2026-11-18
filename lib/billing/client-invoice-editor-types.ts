@@ -4,7 +4,8 @@
  * guards the API enforces; nothing here is a client-side guess.
  */
 import type { ClientInvoiceListRow } from "./client-invoice-list-types";
-import type { InvoiceEditLock } from "./client-invoice-guards";
+import type { InvoiceEditLock, InvoiceOrderLock } from "./client-invoice-guards";
+import type { StoredXeroUpdate } from "./client-invoice-xero-update-rules";
 import type { StartedWorkReview } from "./started-work-reconciliation";
 
 export type EditorLineProperty = { id: string | null; name: string; suburb: string | null };
@@ -98,6 +99,17 @@ export type EditorXeroPanel = {
   disbursementAccountCode: string | null;
   hasDisbursementLines: boolean;
   settingsError: string | null;
+  /** "Update in Xero" (2026-11-18): whether it is offered, and the last attempt stored on the invoice. */
+  update?: EditorXeroUpdate;
+};
+
+export type EditorXeroUpdate = {
+  available: boolean;
+  /** Why it is not offered, in words; null when offered. */
+  reason: string | null;
+  last: StoredXeroUpdate | null;
+  /** True while an earlier update is still with Xero. */
+  inFlight: boolean;
 };
 
 export type EditorSendPanel = {
@@ -147,6 +159,8 @@ export type ClientInvoiceEditorData = {
   lines: EditorLine[];
   clientProperties: Array<{ id: string; name: string; suburb: string | null }>;
   editLock: InvoiceEditLock;
+  /** Whether the line order may change: with content, or order only on an invoice in Xero (2026-11-18). */
+  orderLock?: InvoiceOrderLock;
   canManage: boolean;
   /** The viewer holds `invoices.void_credit` (sensitive since 2026-11-13); the server re-checks on use. */
   canVoidCredit?: boolean;

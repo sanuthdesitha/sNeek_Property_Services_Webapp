@@ -30,6 +30,9 @@ const DICTIONARY: Record<string, Entry> = {
   startTime: { label: "Start time", sample: "10:00" },
   status: { label: "Job status", sample: "paused" },
   timingFlags: { label: "Timing notes", sample: "Guests arrive 14:00" },
+  // Combined reminders (several jobs in one email, 2026-11-17)
+  jobCount: { label: "Number of jobs", sample: "3" },
+  dayList: { label: "Days of the jobs", sample: "Thu 13 Nov, Fri 14 Nov" },
   timingSuffix: { label: "Timing notes sentence (empty when none)", sample: " Guests arrive 14:00." },
   timingDash: { label: "Timing notes after a dash (empty when none)", sample: " — Guests arrive 14:00" },
   timingRow: { label: "Timing notes table row (empty when none)", sample: "<tr><td style=\"padding:2px 10px 2px 0;color:#666;\">Notes</td><td>Guests arrive 14:00</td></tr>", format: "html" },

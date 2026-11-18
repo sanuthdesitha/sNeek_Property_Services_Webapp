@@ -140,6 +140,28 @@ export function invoiceContentLock(invoice: InvoiceEditFacts): InvoiceContentLoc
 }
 
 /**
+ * Whether the line ORDER may change (2026-11-18). Wherever content may change,
+ * so may the order. In addition, an invoice that is in Xero but otherwise
+ * still a draft or approved (no payment, not sent, not void) may be
+ * re-ordered — order only, never an amount — so "Update in Xero" can carry
+ * the new order to the same Xero document. A sent, part-paid, paid or void
+ * invoice keeps its order: the client already holds that document.
+ */
+export type InvoiceOrderLock =
+  | { reorderable: true; orderOnly: boolean }
+  | { reorderable: false; reason: string };
+
+export function invoiceOrderLock(invoice: InvoiceEditFacts): InvoiceOrderLock {
+  const content = invoiceContentLock(invoice);
+  if (content.editable) return { reorderable: true, orderOnly: false };
+  if (content.kind === "xero-issued" && EDITABLE_INVOICE_STATUSES.has(invoice.status)) return { reorderable: true, orderOnly: true };
+  return { reorderable: false, reason: content.reason };
+}
+
+/** The refusal when an order-only change does not list every line of the invoice exactly once. */
+export const ORDER_ONLY_LINES_REFUSAL = "The new order must list every line of this invoice exactly once. Reload the invoice and try again.";
+
+/**
  * Whether the editor offers in-place editing, and if not, why: the content
  * lock above, then the operations-manager feature level ("view-only":
  * middleware refuses their PATCH).

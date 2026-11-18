@@ -84,6 +84,20 @@ export function describeInvoiceAudit(action: string, after: unknown): string {
       if (outcome === "already-pushed") return "Xero push requested: already in Xero";
       return `Xero push failed${field(after, "error") ? `: ${field(after, "error")}` : ""}`;
     }
+    case "CLIENT_INVOICE_XERO_UPDATE": {
+      const change = field(after, "change");
+      const status = field(after, "xeroStatusBefore");
+      const changeWords: Record<string, string> = {
+        none: "no change in order",
+        "order-only": "line order",
+        descriptions: "line order and descriptions",
+        amounts: "lines replaced; Xero's figures differed and this was confirmed",
+        unknown: "lines replaced; Xero did not return its lines to compare",
+      };
+      const detail = [change ? changeWords[change] ?? change : null, status ? `Xero status ${status.toLowerCase()}` : null].filter(Boolean).join(", ");
+      if (field(after, "outcome") === "updated") return `Updated in Xero${detail ? ` (${detail})` : ""}`;
+      return `Update in Xero failed${field(after, "error") ? `: ${field(after, "error")}` : ""}. Nothing was changed here`;
+    }
     case "CLIENT_INVOICE_XERO_SYNC": {
       const state = field(after, "state");
       const reason = field(after, "reason");

@@ -36,7 +36,12 @@ vi.mock("@/lib/db", () => {
 vi.mock("@/lib/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/laundry/sync-draft", () => ({ replacePendingLaundrySyncDraftForProperty: vi.fn(), notifyLaundryTeamsForApprovedSyncDraft: vi.fn() }));
 vi.mock("@/lib/accounts/availability", () => ({ listCleanerAvailabilities: async () => [] }));
-vi.mock("@/lib/notifications/dispatch-once", () => ({ dispatchNotificationOnce: async (_identity: unknown, send: () => Promise<void>) => { await send(); return true; } }));
+vi.mock("@/lib/notifications/dispatch-once", () => ({
+  dispatchNotificationOnce: async (_identity: unknown, send: () => Promise<void>) => { await send(); return true; },
+  // The day-of reminder claims each cleaner/job receipt first (combined email, 2026-11-17).
+  claimNotificationDispatch: async (identity: object) => ({ key: "receipt", receipt: { ...identity, status: "PROCESSING", startedAt: "" } }),
+  finishNotificationDispatch: async () => undefined,
+}));
 vi.mock("@/lib/notifications/delivery", () => ({ deliverNotificationToRecipients: (...args: unknown[]) => m.send(...args) }));
 
 import { DEFAULT_SETTINGS } from "@/lib/settings";

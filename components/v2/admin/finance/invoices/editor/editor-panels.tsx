@@ -11,7 +11,8 @@ import { tourTarget } from "@/lib/tutorials/targets";
 import { formatInTimeZone } from "date-fns-tz";
 import { EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
-import type { ClientInvoiceEditorData, HistoryEntry } from "@/lib/billing/client-invoice-editor-types";
+import type { ClientInvoiceEditorData, EditorXeroUpdate, HistoryEntry } from "@/lib/billing/client-invoice-editor-types";
+import { XERO_LINE_CHANGE_LABEL } from "@/lib/billing/client-invoice-xero-update-rules";
 import { xeroDisplay } from "@/lib/billing/client-invoice-xero-display";
 
 const LABEL = "block text-[0.6875rem] font-[600] text-[hsl(var(--e-text-secondary))]";
@@ -158,17 +159,76 @@ function xeroStateText(data: ClientInvoiceEditorData): React.ReactNode {
 
 export type XeroRefreshState = { status: "idle" } | { status: "running" } | { status: "done"; message: string; ok: boolean };
 
+/** The last "Update in Xero" stored on the invoice, in words (organisation timezone). */
+function xeroUpdateLastText(update: EditorXeroUpdate, timezone: string): { text: string; failed: boolean } | null {
+  if (update.inFlight) return { text: "An update is with Xero now.", failed: false };
+  const last = update.last;
+  if (!last) return null;
+  if (last.state === "FAILED") {
+    const before = last.lastSuccessAt ? ` Last successful update ${when(last.lastSuccessAt, timezone)}.` : "";
+    return { text: `Last update failed ${when(last.at, timezone)}: ${last.reason ?? "no reason was recorded"}. Nothing was changed here.${before}`, failed: true };
+  }
+  if (last.state === "DONE" && last.lastSuccessAt) {
+    const change = last.change ? ` (${XERO_LINE_CHANGE_LABEL[last.change]})` : "";
+    return { text: `Last updated in Xero ${when(last.lastSuccessAt, timezone)}${change}.`, failed: false };
+  }
+  return null;
+}
+
+function XeroUpdateControl({
+  data,
+  disabled,
+  disabledReason,
+  onUpdate,
+}: {
+  data: ClientInvoiceEditorData;
+  disabled: boolean;
+  disabledReason: string | null;
+  onUpdate: () => void;
+}) {
+  const update = data.xero.update;
+  if (!update || !data.xero.xeroInvoiceId) return null;
+  const last = xeroUpdateLastText(update, data.timezone);
+  const name = data.row.kind === "CREDIT_NOTE" ? "credit note" : "invoice";
+  const blocked = disabled || update.inFlight || Boolean(disabledReason);
+  return (
+    <div className="space-y-1.5 border-t border-[hsl(var(--e-border))] pt-2.5">
+      {update.available ? (
+        <>
+          <EButton type="button" size="sm" variant="outline" disabled={blocked} title={disabledReason ?? undefined} onClick={onUpdate}>
+            Update in Xero
+          </EButton>
+          <p className={MUTED}>
+            Re-sends these lines to the same Xero {name}, grouped by property like the PDF. It never creates a second {name} and never changes an amount here.
+            {disabledReason ? ` ${disabledReason}` : ""}
+          </p>
+        </>
+      ) : (
+        <p className={MUTED}>Update in Xero is not available: {update.reason}</p>
+      )}
+      {last ? (
+        <p className={last.failed ? "text-[0.75rem] text-[hsl(var(--e-danger))]" : MUTED}>{last.text}</p>
+      ) : null}
+    </div>
+  );
+}
+
 export function XeroCard({
   data,
   onRefresh,
   refresh,
   disabled,
+  onUpdate,
+  updateDisabledReason = null,
 }: {
   data: ClientInvoiceEditorData;
   /** "Refresh from Xero" for this invoice; omitted when it cannot be checked. */
   onRefresh?: () => void;
   refresh?: XeroRefreshState;
   disabled?: boolean;
+  /** "Update in Xero" (2026-11-18); omitted where the action is not offered (practice). */
+  onUpdate?: () => void;
+  updateDisabledReason?: string | null;
 }) {
   const { xero } = data;
   const checkable = Boolean(xero.xeroInvoiceId) && data.row.status !== "VOID" && !(data.row.kind === "INVOICE" && data.row.status === "PAID");
@@ -226,6 +286,7 @@ export function XeroCard({
           {refresh.message}
         </p>
       ) : null}
+      {onUpdate ? <XeroUpdateControl data={data} disabled={Boolean(disabled)} disabledReason={updateDisabledReason} onUpdate={onUpdate} /> : null}
     </ECard>
   );
 }

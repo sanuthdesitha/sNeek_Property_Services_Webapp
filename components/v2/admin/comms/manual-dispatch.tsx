@@ -22,6 +22,8 @@ type RecipientResult = {
   channel: "email" | "sms";
   status: "sent" | "failed" | "skipped";
   error?: string;
+  /** Present when this job went out in one combined email with the cleaner's other jobs. */
+  combinedEmail?: { id: string; jobCount: number; jobNumbers: string[] };
 };
 
 type ScheduledSettings = {
@@ -222,6 +224,11 @@ export function CommsManualDispatch({ onToast }: { onToast: ToastFn }) {
                           <span className="text-[hsl(var(--e-muted-foreground))]">
                             {" "}· {r.jobNumber} · {r.propertyName}
                           </span>
+                          {r.combinedEmail ? (
+                            <span className="block text-[hsl(var(--e-muted-foreground))]">
+                              One email with {r.combinedEmail.jobCount} jobs: {r.combinedEmail.jobNumbers.join(", ")}
+                            </span>
+                          ) : null}
                           {r.error ? <span className="block text-[hsl(var(--e-danger))]">{r.error}</span> : null}
                         </div>
                         <div className="flex items-center gap-2">

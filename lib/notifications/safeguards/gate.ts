@@ -33,6 +33,14 @@ export type SafeguardMeta = {
   eventKey?: string | null;
   /** The subject entity as "<Type>:<id>", e.g. "Job:<id>", "LaundryTask:<id>". */
   entityKey?: string | null;
+  /**
+   * Further subjects one message covers (a combined reminder listing several
+   * jobs: "Job:<id>" each). A pause on any of them stops the message, and a
+   * message of the same type about any of them sent recently counts as the
+   * same subject, exactly as if it had been sent per subject. Never loosens
+   * a check: the caps and the duplicate check stay per message and person.
+   */
+  relatedEntityKeys?: readonly string[] | null;
   recipientUserId?: string | null;
   messageClass?: "SECURITY" | null;
   /** Internal: a message held over quiet hours being sent once. */
@@ -131,10 +139,23 @@ type Prepared = {
   recipientKey: string;
   typeKey: string;
   entityKey: string | null;
+  /** The message's own subject first, then any further subjects it covers. */
+  subjectKeys: string[];
   subject: string | null;
   hash: string;
   messageClass: MessageClass;
 };
+
+const MAX_RELATED_SUBJECTS = 50;
+
+function subjectKeysFor(entityKey: string | null, related: readonly string[] | null | undefined): string[] {
+  const keys = new Set<string>(entityKey ? [entityKey] : []);
+  for (const raw of (related ?? []).slice(0, MAX_RELATED_SUBJECTS)) {
+    const key = String(raw ?? "").trim().slice(0, 160);
+    if (key) keys.add(key);
+  }
+  return Array.from(keys);
+}
 
 function prepare(request: OutboundRequest): Prepared {
   const meta = request.meta ?? {};
@@ -142,11 +163,13 @@ function prepare(request: OutboundRequest): Prepared {
     typeKey: meta.typeKey, eventKey: meta.eventKey, emailKind: request.hints?.emailKind,
     subject: request.subject, category: request.hints?.category, transport: request.transport,
   });
+  const entityKey = meta.entityKey?.trim().slice(0, 160) || null;
   return {
     transport: request.transport,
     recipientKey: normalizeRecipientKey(request.transport, request.recipient),
     typeKey,
-    entityKey: meta.entityKey?.trim().slice(0, 160) || null,
+    entityKey,
+    subjectKeys: subjectKeysFor(entityKey, meta.relatedEntityKeys),
     subject: request.subject?.trim().slice(0, 160) || null,
     hash: contentHash(request.subject, request.content),
     messageClass: messageClassFor(typeKey, meta.messageClass ?? null),
@@ -170,13 +193,16 @@ async function decideUnderLock(
     const sameRecipient = { transport: { in: transports }, recipientKey: prepared.recipientKey };
     // Without a subject entity or a subject line there is nothing to compare
     // (an SMS has no subject): only the duplicate check and ceilings apply.
-    const subjectMatch: Prisma.OutboundMessageEventWhereInput | null = prepared.entityKey
-      ? { entityKey: prepared.entityKey }
-      : prepared.subject ? { subject: prepared.subject } : null;
+    // A message covering several subjects (relatedEntityKeys) matches any of them.
+    const subjectMatch: Prisma.OutboundMessageEventWhereInput | null = prepared.subjectKeys.length > 1
+      ? { entityKey: { in: prepared.subjectKeys } }
+      : prepared.subjectKeys.length === 1
+        ? { entityKey: prepared.subjectKeys[0] }
+        : prepared.subject ? { subject: prepared.subject } : null;
     const pauseScopes: Prisma.OutboundSafeguardIncidentWhereInput[] = [
       { scopeKind: "TYPE", scopeKey: prepared.typeKey },
       { scopeKind: "RECIPIENT", scopeKey: prepared.recipientKey },
-      ...(prepared.entityKey ? [{ scopeKind: "SUBJECT", scopeKey: prepared.entityKey }] : []),
+      ...prepared.subjectKeys.map((key) => ({ scopeKind: "SUBJECT", scopeKey: key })),
     ];
     const pauses = await tx.outboundSafeguardIncident.findMany({ where: { status: "ACTIVE", pausesSending: true, OR: pauseScopes }, select: { scopeKind: true } });
     const duplicate = await tx.outboundMessageEvent.count({ where: { recipientKey: prepared.recipientKey, contentHash: prepared.hash, transport: { in: transports }, decision: { in: ["ALLOWED", "HELD"] }, createdAt: { gte: minutesAgo(now, limits.duplicateWindowMinutes) } } });

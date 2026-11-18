@@ -6,7 +6,6 @@
  * the provider idempotency key. Since Wave D a failure after the reservation is
  * recorded as FAILED (reason and time) instead of being left PENDING.
  */
-import { isShoppingDisbursement, shoppingXeroMapping } from "@/lib/finance/shopping-accounting";
 import { ClientInvoiceStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { assertStartedWorkReviewed } from "@/lib/billing/started-work-reconciliation";
@@ -17,6 +16,26 @@ import { recordInvoiceAudit } from "./client-invoice-audit";
 import { xeroCreditNoteLineItem, xeroInvoiceReference } from "./client-invoice-xero-mapping";
 import { getPhase3IntegrationsSettings } from "@/lib/phase3/integrations";
 import { actionResult, type InvoiceActionResult } from "./invoice-action-result";
+import { buildXeroLineItems } from "./client-invoice-xero-lines";
+
+/**
+ * The lines a push (and "Update in Xero") reads: the job's service type and
+ * number, and the property of the job or of a hand-added line, which the
+ * PDF's grouping rule needs.
+ */
+export const XERO_PUSH_LINES_INCLUDE = {
+  include: {
+    job: {
+      select: {
+        jobType: true,
+        jobNumber: true,
+        property: { select: { name: true, suburb: true } },
+      },
+    },
+    property: { select: { name: true, suburb: true } },
+  },
+  orderBy: [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }],
+};
 
 function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -48,17 +67,7 @@ async function pushOnce(invoiceId: string): Promise<InvoiceActionResult> {
         where: { id: invoiceId },
         include: {
           client: true,
-          lines: {
-            include: {
-              job: {
-                select: {
-                  jobType: true,
-                  jobNumber: true,
-                },
-              },
-            },
-            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-          },
+          lines: XERO_PUSH_LINES_INCLUDE,
           creditsInvoice: { select: { invoiceNumber: true } },
         },
       }),
@@ -97,14 +106,6 @@ async function pushOnce(invoiceId: string): Promise<InvoiceActionResult> {
       return actionResult({ error: "Approve or send this credit note before pushing it to Xero." }, 409);
     }
 
-    const defaultItemCode = integrations.xero.defaultItemCode?.trim() || "";
-    const itemCodeByService = integrations.xero.itemCodeByService ?? {};
-    // Per line: prefer the item code mapped to that job's service type, else the
-    // default item code, else none.
-    const itemCodeFor = (line: (typeof invoice.lines)[number]) => {
-      const svc = line.job?.jobType ? itemCodeByService[line.job.jobType]?.trim() : "";
-      return svc || defaultItemCode || undefined;
-    };
     // Only send an explicit tax type when configured (e.g. AU "OUTPUT2"); leaving
     // it undefined lets Xero apply the sales account's own default tax rate,
     // which avoids region-specific "invalid TaxType" 400s.
@@ -116,22 +117,11 @@ async function pushOnce(invoiceId: string): Promise<InvoiceActionResult> {
       creditsInvoiceNumber: invoice.creditsInvoice?.invoiceNumber ?? null,
     });
 
-    // The stored line.description already reads "Property - Service - date"; just
-    // append the job number (and any per-job note) — no duplicate property/date.
-    const buildDescription = (line: (typeof invoice.lines)[number]) => {
-      let desc = line.description;
-      if (line.job?.jobNumber) desc += ` · Job ${line.job.jobNumber}`;
-      if (line.note) desc += ` — ${line.note}`;
-      return desc;
-    };
-
-    const lineItems = invoice.lines.map((line) => ({
-        description: buildDescription(line),
-        quantity: line.quantity,
-        unitAmount: line.unitPrice,
-        ...shoppingXeroMapping(line.category, integrations.xero, taxType),
-        itemCode: isShoppingDisbursement(line.category) ? undefined : itemCodeFor(line),
-      }));
+    // In the PDF's order (grouped by property when the invoice spans more
+    // than one), whichever screen or job started the push. The stored
+    // sortOrder is not changed. Descriptions, amounts, tax, account and item
+    // codes are mapped as before (client-invoice-xero-lines.ts).
+    const lineItems = buildXeroLineItems(invoice.lines, integrations.xero, taxType);
     // Reserve a durable export intent under the same row lock as invoice edits.
     // A failure after this point is recorded as FAILED with the provider's
     // sanitised reason (client-invoice-xero-failure.ts); the reservation still

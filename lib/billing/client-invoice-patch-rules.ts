@@ -64,6 +64,19 @@ export function contentEditRequested(body: ContentEditBody): boolean {
   );
 }
 
+/** Body fields an order-only change may carry besides the order itself. */
+const ORDER_ONLY_COMPANIONS: ReadonlySet<string> = new Set(["reorderLineIds", "expectedUpdatedAt", "security"]);
+
+/**
+ * True when the body changes the line order and nothing else (2026-11-18): no
+ * amount, line, field, status or payment. Only such a body may reorder an
+ * invoice that is already in Xero.
+ */
+export function orderOnlyEditRequested(body: ContentEditBody & Record<string, unknown>): boolean {
+  if (!body.reorderLineIds?.length) return false;
+  return Object.entries(body).every(([key, value]) => value === undefined || ORDER_ONLY_COMPANIONS.has(key));
+}
+
 type RuleLine = { id: string; category: string };
 type RuleInvoice = { kind: string; lines: RuleLine[] };
 

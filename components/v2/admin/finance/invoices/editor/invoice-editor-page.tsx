@@ -71,6 +71,11 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
 
   const row = data.row;
   const editable = data.editLock.editable;
+  // The line order may change wherever content may, and (2026-11-18) order
+  // only on an invoice already in Xero that is still a draft or approved.
+  const orderLock = data.orderLock ?? (editable ? { reorderable: true as const, orderOnly: false } : null);
+  const canReorder = Boolean(orderLock?.reorderable);
+  const orderOnly = Boolean(orderLock && orderLock.reorderable && orderLock.orderOnly);
   // Buttons, menus and structural fields wait for any save; typed text stays
   // usable during a background autosave (what is typed then stays a draft).
   const frozen = saving || actionBusy;
@@ -141,7 +146,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
    */
   function onGrouped(next: boolean) {
     setGrouped(next);
-    if (!next || !editable) return;
+    if (!next || !canReorder) return;
     const order = propertyGroupedOrder(data.lines);
     if (order) void reorder(order);
   }
@@ -170,7 +175,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
       });
       return;
     }
-    if (key === "mark-sent" || key === "record-payment" || key === "mark-paid" || key === "receipt" || key === "void" || key === "reverse" || key === "reconcile" || key === "delete" || key === "credit-note") {
+    if (key === "mark-sent" || key === "record-payment" || key === "mark-paid" || key === "receipt" || key === "void" || key === "reverse" || key === "reconcile" || key === "delete" || key === "credit-note" || key === "xero-update") {
       setDialog({ kind: key, invoice: row });
     }
   }
@@ -257,6 +262,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
       {!data.editLock.editable ? (
         <p className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
           <strong className="font-[600] text-[hsl(var(--e-foreground))]">Read only.</strong> {data.editLock.reason}
+          {orderOnly ? " You can still change the line order (Group by property, or drag within a property), then use Update in Xero under Xero. Amounts stay as they are." : null}
         </p>
       ) : null}
       {data.startedWorkUnreadable ? (
@@ -333,6 +339,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
                 drafts={drafts}
                 invalid={editor.invalid}
                 editable={editable}
+                reorderable={canReorder}
                 frozen={frozen}
                 onReorder={(ids) => void reorder(ids)}
                 onRemove={setRemoving}
@@ -346,6 +353,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
                   drafts={drafts}
                   invalid={editor.invalid}
                   editable={editable}
+                  reorderable={canReorder}
                   frozen={frozen}
                   inputsFrozen={inputsFrozen}
                   suggestions={draftEditable ? suggestions : null}
@@ -401,8 +409,15 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
               onSend={() => void runAction(actions.includes("resend") ? "resend" : "send")}
             />
           </div>
-          <div id="invoice-xero" className="scroll-mt-32">
-            <XeroCard data={data} onRefresh={() => void refreshFromXero()} refresh={xeroRefresh} disabled={frozen} />
+          <div {...tourTarget("admin.finance.invoice.xero")} id="invoice-xero" className="scroll-mt-32">
+            <XeroCard
+              data={data}
+              onRefresh={() => void refreshFromXero()}
+              refresh={xeroRefresh}
+              disabled={frozen}
+              onUpdate={() => void runAction("xero-update")}
+              updateDisabledReason={unsaved ? UNSAVED_ACTION_HINT : null}
+            />
           </div>
           <div id="invoice-history" className="scroll-mt-32">
             <HistoryCard data={data} />

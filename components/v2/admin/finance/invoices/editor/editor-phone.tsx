@@ -80,6 +80,8 @@ export type EditorLineCardsProps = {
   drafts: LineDrafts;
   invalid: Record<string, string>;
   editable: boolean;
+  /** The line order may change even though content may not (order only on an invoice in Xero). */
+  reorderable?: boolean;
   frozen: boolean;
   onReorder: (lineIds: string[]) => void;
   onRemove: (line: EditorLine) => void;
@@ -155,7 +157,8 @@ function LineCard({ line, section, props, sortable }: { line: EditorLine; sectio
 export function EditorLineCards(props: EditorLineCardsProps) {
   const { sections, editable } = props;
   const total = sections.reduce((count, section) => count + section.lines.length, 0);
-  const sortable = editable && total > 1;
+  // Order may change with content, or on its own (an invoice in Xero, 2026-11-18).
+  const sortable = (editable || Boolean(props.reorderable)) && total > 1;
   const [open, setOpen] = useState<Record<string, boolean>>({});
 
   if (total === 0) {

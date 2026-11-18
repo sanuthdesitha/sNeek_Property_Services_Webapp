@@ -58,10 +58,30 @@ export type DeliveryInput = {
    * pausing a type). Without it the type is worked out from the subject.
    */
   typeKey?: string;
+  /**
+   * Which transports this call may use (default: all three). A combined
+   * reminder email is sent with `{ email: true }` only, so it never also
+   * creates an inbox row, a device push or an SMS. Preferences and audience
+   * controls still decide whether each allowed transport goes out.
+   */
+  channels?: { web?: boolean; email?: boolean; sms?: boolean };
+  /**
+   * The safeguard subject when it is not one job (a combined email): its own
+   * key plus the jobs it covers (lib/notifications/safeguards/gate.ts).
+   */
+  safeguardSubject?: { entityKey: string; relatedEntityKeys: readonly string[] };
 };
 
 /** Safeguard metadata for one recipient: type, subject entity (the job) and account. */
 function safeguardFor(input: DeliveryInput, recipient: Recipient): SafeguardMeta {
+  if (input.safeguardSubject) {
+    return {
+      typeKey: input.typeKey ?? null,
+      entityKey: input.safeguardSubject.entityKey,
+      relatedEntityKeys: input.safeguardSubject.relatedEntityKeys,
+      recipientUserId: recipient.id,
+    };
+  }
   return {
     typeKey: input.typeKey ?? null,
     entityKey: input.jobId ? `Job:${input.jobId}` : null,
@@ -230,6 +250,12 @@ async function sendSmsNotification(
   });
 }
 
+/** Transports this call may use: all three unless the caller names some. */
+function wantedChannels(input: DeliveryInput): { web: boolean; email: boolean; sms: boolean } {
+  if (!input.channels) return { web: true, email: true, sms: true };
+  return { web: input.channels.web === true, email: input.channels.email === true, sms: input.channels.sms === true };
+}
+
 export async function deliverNotificationToRecipients(input: DeliveryInput) {
   if (input.durable) {
     const { queueDelivery } = await import("./queue-delivery");
@@ -243,13 +269,15 @@ export async function deliverNotificationToRecipients(input: DeliveryInput) {
   // Web push maps to the "push" channel.
   const controls = (await getAppSettings()).notificationAudienceControls;
 
+  const wanted = wantedChannels(input);
+
   for (const recipient of recipients) {
     const perms = await getChannelPermissions(recipient, input.category);
     const audience = audienceForRole(recipient.role ?? null);
 
-    const allowWeb = perms.allowWeb && isChannelAllowed(controls, audience, "push");
-    const allowEmail = perms.allowEmail && isChannelAllowed(controls, audience, "email");
-    const allowSms = perms.allowSms && isChannelAllowed(controls, audience, "sms");
+    const allowWeb = wanted.web && perms.allowWeb && isChannelAllowed(controls, audience, "push");
+    const allowEmail = wanted.email && perms.allowEmail && isChannelAllowed(controls, audience, "email");
+    const allowSms = wanted.sms && perms.allowSms && isChannelAllowed(controls, audience, "sms");
 
     if (allowWeb) {
       await createWebNotification(input, recipient);

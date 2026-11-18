@@ -15,6 +15,7 @@ import { GenerateInvoiceDialog } from "./generate-invoice-dialog";
 import { MarkSentInvoiceDialog } from "./mark-sent-dialog";
 import { BatchDraftsDialog } from "./batch-drafts-dialog";
 import { BlankInvoiceDialog, IssueCreditNoteDialog, NewCreditNoteDialog } from "./create-dialogs";
+import { XeroUpdateDialog } from "./xero-update-dialog";
 
 export type InvoiceDialog =
   | null
@@ -25,7 +26,7 @@ export type InvoiceDialog =
   | { kind: "credit-note"; invoice: InvoiceRow }
   | { kind: "send"; invoice: InvoiceRow; resend: boolean; to?: string; options?: SendRequestOptions }
   | {
-      kind: "mark-sent" | "record-payment" | "mark-paid" | "receipt" | "void" | "reverse" | "reconcile" | "delete";
+      kind: "mark-sent" | "record-payment" | "mark-paid" | "receipt" | "void" | "reverse" | "reconcile" | "delete" | "xero-update";
       invoice: InvoiceRow;
     };
 
@@ -73,6 +74,8 @@ export function InvoiceDialogs({
       return <ReconcileInvoiceDialog key={key} {...props} />;
     case "delete":
       return <DeleteInvoiceDialog key={key} {...props} />;
+    case "xero-update":
+      return <XeroUpdateDialog key={key} target={dialog.invoice} onClose={onClose} onDone={onDone} />;
     default:
       return null;
   }

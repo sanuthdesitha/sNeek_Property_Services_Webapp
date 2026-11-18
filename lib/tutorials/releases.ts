@@ -24,6 +24,17 @@ export type ReleaseNote = {
 
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    release: "2026.11.18-xero-update",
+    date: "2026-11-18",
+    author: "Xero grouping and Update in Xero",
+    items: [
+      { change: "The invoice Xero card gains Update in Xero for an invoice or credit note already in Xero: it re-sends the lines, grouped by property like the PDF, to the same Xero document.", covered: { tourKey: "admin.finance.send", version: 3, stepIds: ["xeroUpdate"] } },
+      { change: "The invoice list's row menu offers Update in Xero on rows already in Xero with no payment recorded.", covered: { tourKey: "admin.finance.send", version: 3, stepIds: ["xeroUpdate"] } },
+      { change: "An invoice in Xero that is still a draft or approved can have its line order changed (Group by property, or drag within a property); amounts stay locked.", covered: { tourKey: "admin.finance.send", version: 3, stepIds: ["xeroUpdate"] } },
+      { change: "Every push to Xero now sends lines in the PDF's property grouping, whichever screen started it.", noVisibleChange: "Changes what Xero receives, not this screen." },
+    ],
+  },
+  {
     release: "2026.11.17-guest-timing",
     date: "2026-11-17",
     author: "Guest timing tags and confirmation",

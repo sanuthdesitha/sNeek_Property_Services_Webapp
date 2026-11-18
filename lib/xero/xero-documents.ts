@@ -20,6 +20,13 @@ export type XeroPayment = {
 
 export type XeroDocumentKind = "ACCREC" | "ACCRECCREDIT";
 
+/** One line as Xero holds it (description, quantity, unit amount), for "Update in Xero" to compare. */
+export type XeroLineSnapshot = {
+  description: string;
+  quantity: number;
+  unitAmount: number;
+};
+
 /** The parts of a Xero invoice or credit note the status pull relies on. */
 export type XeroDocument = {
   id: string;
@@ -35,6 +42,11 @@ export type XeroDocument = {
   /** Xero settled part of it with an overpayment or prepayment allocation. */
   hasOverOrPrepayments: boolean;
   updatedAt: string | null;
+  /**
+   * The document's lines in Xero's order, when Xero returned them and every
+   * one could be read; null when absent or unreadable (never guessed).
+   */
+  lineItems?: XeroLineSnapshot[] | null;
 };
 
 export type XeroReadFailureKind = "not-connected" | "rate-limited" | "http" | "network" | "unparseable" | "missing";
@@ -89,6 +101,20 @@ function parsePayment(raw: unknown): XeroPayment | null {
   return { paymentId, amount, date, status: text(raw.Status), reference: text(raw.Reference) };
 }
 
+/** Every line, or null when Xero sent none or any line lacks a readable quantity or unit amount. */
+function parseLineItems(raw: unknown): XeroLineSnapshot[] | null {
+  if (!Array.isArray(raw)) return null;
+  const lines: XeroLineSnapshot[] = [];
+  for (const entry of raw) {
+    if (!isObject(entry)) return null;
+    const quantity = finiteNumber(entry.Quantity);
+    const unitAmount = finiteNumber(entry.UnitAmount);
+    if (quantity === null || unitAmount === null) return null;
+    lines.push({ description: typeof entry.Description === "string" ? entry.Description : "", quantity, unitAmount });
+  }
+  return lines;
+}
+
 function nonEmptyArray(value: unknown): boolean {
   return Array.isArray(value) && value.length > 0;
 }
@@ -138,6 +164,7 @@ export function parseXeroDocument(raw: unknown, kind: XeroDocumentKind): XeroDoc
       payments,
       hasOverOrPrepayments: nonEmptyArray(raw.Overpayments) || nonEmptyArray(raw.Prepayments),
       updatedAt: updatedAt ? updatedAt.toISOString() : null,
+      lineItems: parseLineItems(raw.LineItems),
     },
   };
 }
