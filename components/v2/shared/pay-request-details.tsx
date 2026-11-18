@@ -27,6 +27,7 @@ import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import { EvidenceThumbs } from "@/components/v2/shared/evidence-thumbs";
 import { OwnPinFields, useOwnPinPrompt } from "@/components/v2/shared/own-pin-fields";
+import { sensitiveVerificationText } from "@/lib/security/pin-rules";
 
 /* ── The detail payload (GET /api/admin/pay-adjustments/:id) ─────────────── */
 
@@ -554,7 +555,8 @@ function MarkPaidForm({ data, open, onSaved }: { data: PayRequestDetailsData; op
       const result = await send(`/api/admin/pay-adjustments/${data.id}/mark-paid`, undoing ? "DELETE" : "POST", body);
       if (!result.ok) {
         if (result.status === 423) pin.noteRefusal();
-        setError(result.error);
+        // A refused credential comes back as a code; say it in words.
+        setError(result.status === 423 || result.status === 403 ? sensitiveVerificationText(result.error) : result.error);
         return;
       }
       toast({ title: undoing ? "Payment record undone" : "Marked paid" });

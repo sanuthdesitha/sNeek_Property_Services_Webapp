@@ -52,7 +52,7 @@ describe("pay request history", () => {
     ]);
     expect(history[2].details).toContain("Reason: Only half the oven was done");
     const all = JSON.stringify(history);
-    expect(all).not.toMatch(/third this month|Client amount|\$120|\$90|Billed to the client|Private note/);
+    expect(all).not.toMatch(/third this month|Client amount|\$120|\$90|Billed to the client|Private note|R1/);
     expect(history.every((entry) => entry.actorName === null)).toBe(true);
     expect(all).toContain("Message: Thanks");
   });
