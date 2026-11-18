@@ -152,6 +152,7 @@ describe("linking a request to a job (server rule)", () => {
     expect(jobLinkRefusal({ request, job: { ...job, propertyId: "p2" } })).toMatch(/different property/);
     expect(jobLinkRefusal({ request: { ...request, propertyId: null }, job: { ...job, propertyId: "p2" } })).toBeNull();
     expect(jobLinkRefusal({ request, job: { ...job, status: "CANCELLED" } })).toMatch(/cancelled/);
+    expect(jobLinkRefusal({ request, job: { ...job, status: "OFFERED" } })).toMatch(/not been accepted/);
     expect(jobLinkRefusal({ request: { ...request, includedInPayrollRunId: "run" }, job })).toMatch(/Read only/);
   });
 });

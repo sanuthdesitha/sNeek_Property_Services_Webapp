@@ -50,7 +50,9 @@ const updateSchema = z.object({
   /** The explanation the CLEANER reads. Goes out with the decision. */
   decisionMessage: z.string().trim().max(4000).optional(),
   propertyId: z.string().cuid().optional().nullable(),
-  jobId: z.string().cuid().optional().nullable(),
+  // Checked against the database (and the link rule) below, so a bad id gets
+  // a sentence rather than a validation dump.
+  jobId: z.string().trim().min(1).max(64).optional().nullable(),
   title: z.string().trim().min(1).max(160).optional(),
   // Full edit of the underlying request the cleaner/client both read.
   type: z.nativeEnum(PayAdjustmentType).optional(),

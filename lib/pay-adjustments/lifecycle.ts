@@ -218,6 +218,10 @@ export function jobLinkRefusal(input: {
   if (!lock.editable) return lock.reason;
   if (!input.job) return "That job was not found.";
   if (input.job.status === "CANCELLED") return "That job was cancelled. Link the request to the job the work was done on.";
+  // The same rule a cleaner meets when raising a request from a job.
+  if (input.job.status === "UNASSIGNED" || input.job.status === "OFFERED") {
+    return "That job has not been accepted by its cleaner yet. A request can only be linked to a job its cleaner worked.";
+  }
   const assigned = input.job.assignments.some((row) => row.userId === input.request.cleanerId && !row.removedAt);
   if (!assigned) return "This cleaner is not assigned to that job. A request can only be linked to a job its cleaner worked.";
   if (input.request.propertyId && input.request.propertyId !== input.job.propertyId) {

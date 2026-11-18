@@ -27,7 +27,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     const jobs = await db.job.findMany({
       where: {
         assignments: { some: { userId: request.cleanerId, removedAt: null } },
-        status: { not: JobStatus.CANCELLED },
+        status: { notIn: [JobStatus.CANCELLED, JobStatus.UNASSIGNED, JobStatus.OFFERED] },
         ...(request.propertyId ? { propertyId: request.propertyId } : {}),
         scheduledDate: { gte: new Date(centre - windowMs), lte: new Date(centre + windowMs) },
       },
