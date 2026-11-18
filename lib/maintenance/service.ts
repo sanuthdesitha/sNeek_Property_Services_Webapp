@@ -8,6 +8,8 @@ import {
 } from "@prisma/client";
 import { db } from "@/lib/db";
 import { syncCaseFromMaintenance } from "@/lib/cases/damage-maintenance-sync";
+import { assertNotWithClient } from "@/lib/maintenance/client-handling-guard";
+import { isWithClient } from "@/lib/maintenance/client-handling-rules";
 
 // ─── Constant lists (re-used by API validation + UI) ──────────────────────────
 
@@ -324,8 +326,12 @@ export async function updateMaintenanceItem(input: UpdateMaintenanceItemInput): 
   return db.$transaction(async (tx) => {
     const existing = await tx.propertyMaintenanceItem.findUniqueOrThrow({
       where: { id: input.id },
-      select: { status: true },
+      select: { status: true, clientHandling: true },
     });
+    // Hiding an item the client is arranging would strand their work.
+    if (fields.clientVisible === false && isWithClient(existing.clientHandling)) {
+      throw new Error("This item is with the client to arrange. Take it back from the client before hiding it.");
+    }
 
     await tx.propertyMaintenanceItem.update({ where: { id: input.id }, data });
 
@@ -364,6 +370,9 @@ export async function setMaintenanceQuote(input: {
       where: { id: input.itemId },
       select: { status: true },
     });
+    // A client arranging their own tradesperson pays them directly; our price
+    // flow does not apply while the item is with them.
+    await assertNotWithClient(tx, input.itemId);
     await tx.propertyMaintenanceItem.update({
       where: { id: input.itemId },
       data: {

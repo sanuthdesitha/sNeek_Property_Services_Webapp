@@ -26,8 +26,10 @@ import { PRIORITY_LABELS, SOURCE_LABELS } from "@/lib/maintenance/labels";
 function CardFacts({ row, timeZone }: { row: MaintenanceListRow; timeZone: string }) {
   const visit = visitParts(row.scheduledFor, timeZone);
   const cost = costSummary(row);
-  const who = row.nobodyAssigned
-    ? `${SOURCE_LABELS[row.source]}, ${ageLabel(row.createdAt) ?? "date not recorded"}`
+  const who = row.clientHandlingPill === "With the client"
+    ? "With the client, their own tradesperson"
+    : row.nobodyAssigned
+    ? `${SOURCE_LABELS[row.source]}, ${ageLabel(row.createdAt) ?? "date not recorded"}${row.clientHandlingPill ? ` · ${row.clientHandlingPill}` : ""}`
     : row.assignedWorker
       ? [row.assignedWorker.name, row.assignedWorker.company].filter(Boolean).join(", ")
       : row.roster.map((person) => person.name).join(", ");

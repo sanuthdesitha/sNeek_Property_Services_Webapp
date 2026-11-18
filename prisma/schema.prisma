@@ -589,6 +589,47 @@ model PropertyMaintenanceItem {
   issuesNote          String?             @db.Text
   finishPhotoKeys     Json?
 
+  // ── Client-handled maintenance (2026-11-18) ──
+  /// The office can hand an item to the client to arrange with their own
+  /// tradesperson. NONE = ours as before. HANDED_OVER / ACCEPTED = with the
+  /// client (not unattended, not ours to fix). DECLINED / NOT_DONE /
+  /// TAKEN_BACK = back with the office, the client's record kept. DONE = the
+  /// client marked it done (the item is resolved). See
+  /// lib/maintenance/client-handling.ts. Actor ids are plain ids, not
+  /// relations: they keep provenance without six more User relations, and a
+  /// removed account still reads as "a removed account" rather than nothing.
+  clientHandling            MaintenanceClientHandling @default(NONE)
+  /// Bumped by every hand-over write so a stale screen cannot overwrite a
+  /// newer answer (409 with the reason instead).
+  clientHandlingVersion     Int                       @default(0)
+  clientHandedOverAt        DateTime?
+  clientHandedOverById      String?
+  clientHandoverNote        String?                   @db.Text
+  /// Per-transport outcome of the hand-over message (queued is not delivered).
+  clientHandoverNotice      Json?
+  clientRespondedAt         DateTime?
+  clientRespondedById       String?
+  clientDeclineReason       String?                   @db.Text
+  /// The client's own tradesperson: a contact record, never a user or one of
+  /// our MaintenanceWorkers, never messaged. Validated by
+  /// lib/maintenance/client-tradesperson.ts. No cost field.
+  clientTradesperson        Json?
+  clientTradespersonAt      DateTime?
+  clientTradespersonById    String?
+  clientOutcomeAt           DateTime?
+  clientOutcomeById         String?
+  clientOutcomeNote         String?                   @db.Text
+  clientOutcomePhotoKeys    Json?
+  /// Manual reminders only (no scheduled reminder exists).
+  clientReminderCount       Int                       @default(0)
+  clientLastReminderAt      DateTime?
+  clientLastReminderById    String?
+  clientLastReminderKey     String?
+  clientLastReminderOutcome Json?
+  clientTakenBackAt         DateTime?
+  clientTakenBackById       String?
+  clientTakenBackReason     String?                   @db.Text
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -609,6 +650,7 @@ model PropertyMaintenanceItem {
   @@index([reportedByUserId])
   @@index([assignedWorkerId, status])
   @@index([caseId])
+  @@index([clientHandling, status])
 }
 
 /// A maintenance/repair person. May be ad-hoc (no portal login) or permanent
@@ -794,6 +836,17 @@ enum MaintenanceStatus {
   ORDERED
   RESOLVED
   DISMISSED
+}
+
+/// Who is arranging a maintenance item (client-handled maintenance, 2026-11-18).
+enum MaintenanceClientHandling {
+  NONE
+  HANDED_OVER
+  ACCEPTED
+  DECLINED
+  DONE
+  NOT_DONE
+  TAKEN_BACK
 }
 
 model UserInvitation {

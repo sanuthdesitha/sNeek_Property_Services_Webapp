@@ -93,6 +93,8 @@ export type MaintenanceDetailItem = {
   createdAt: string;
   /** Raw Json; normalised by parseInstructions where it is used. */
   assignmentInstructions?: unknown;
+  /** Client-handled maintenance state (NONE when ours). */
+  clientHandling?: string;
 };
 
 /** Everything an action needs to know about the item it acts on. */

@@ -15,6 +15,7 @@ import {
   Prisma,
 } from "@prisma/client";
 import { db } from "@/lib/db";
+import { assertNotWithClient } from "@/lib/maintenance/client-handling-guard";
 import { logger } from "@/lib/logger";
 import {
   buildJobTaskDraftFromMaintenance,
@@ -123,6 +124,8 @@ export async function assignMaintenanceItem(input: {
       select: { status: true, assignedWorkerId: true, scheduledFor: true, shareAccess: true, contactPersonUserId: true },
     });
     if (!item) throw new Error("Maintenance item not found.");
+    // Client-handled maintenance: the client is arranging it; ours stay off.
+    await assertNotWithClient(tx, input.itemId);
     const unchanged = item.assignedWorkerId === input.workerId
       && (input.scheduledFor === undefined || (input.scheduledFor?.getTime() ?? null) === (item.scheduledFor?.getTime() ?? null))
       && (input.shareAccess === undefined || input.shareAccess === item.shareAccess)

@@ -97,6 +97,30 @@ export const REASON_CHOICES = {
     { id: "not-a-fit", label: "Not a fit for our services" },
     OTHER,
   ],
+  // Client-handled maintenance (2026-11-18): kept on the item's history.
+  /** The office takes an item back from the client. */
+  maintenanceTakeBack: [
+    { id: "too-slow", label: "No progress from the client" },
+    { id: "urgent", label: "It became urgent" },
+    { id: "client-asked", label: "The client asked us to do it" },
+    { id: "handed-by-mistake", label: "Handed over by mistake" },
+    OTHER,
+  ],
+  /** The client hands the item back to the office. */
+  maintenanceClientDecline: [
+    { id: "no-tradesperson", label: "I do not have a tradesperson for this" },
+    { id: "prefer-you", label: "I would prefer your team to do it" },
+    { id: "not-needed", label: "I do not think it needs doing" },
+    OTHER,
+  ],
+  /** The client's tradesperson could not get it done. */
+  maintenanceClientNotDone: [
+    { id: "no-access", label: "They could not get in" },
+    { id: "needs-parts", label: "It needs parts or another visit" },
+    { id: "bigger-job", label: "It is a bigger job than expected" },
+    { id: "no-show", label: "They did not turn up" },
+    OTHER,
+  ],
 } as const satisfies Record<string, readonly ReasonChoice[]>;
 
 export type ReasonListKey = keyof typeof REASON_CHOICES;

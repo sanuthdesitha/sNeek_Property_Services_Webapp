@@ -28,6 +28,7 @@ import { airbnbPropertyIdsForClient, filterAirbnbPropertyIds } from "@/lib/maint
 import { notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
 import { db } from "@/lib/db";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { stripForClient } from "@/lib/maintenance/client-payload";
 
 function errStatus(message: string) {
   return message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400;
@@ -188,10 +189,11 @@ export async function GET(req: NextRequest) {
 
     // Attach resolved photo preview URLs for rendering.
     const itemsWithPhotos = await Promise.all(
-      items.map(async (item) => ({
-        ...item,
-        photos: await resolvePhotoUrls(item.photoKeys),
-      })),
+      items.map(async (item) => {
+        const withPhotos = { ...item, photos: await resolvePhotoUrls(item.photoKeys) };
+        // A client never receives our cost, worker instructions or the office's hand-over records.
+        return clientVisibleOnly ? stripForClient(withPhotos) : withPhotos;
+      }),
     );
 
     const summary = withSummary

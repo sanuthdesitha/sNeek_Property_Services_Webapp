@@ -45,7 +45,7 @@ export const DEFAULT_MAINTENANCE_VIEW: MaintenanceView = {
 export const MAINTENANCE_PAGE_SIZE = 25;
 
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
-const ASSIGNED_PATTERN = /^(?:any|none|(?:worker|user):[a-zA-Z0-9_-]{1,128})$/;
+const ASSIGNED_PATTERN = /^(?:any|none|client|(?:worker|user):[a-zA-Z0-9_-]{1,128})$/;
 
 function oneOf<T extends string>(value: string | null, allowed: readonly T[], fallback: T): T {
   return value && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;

@@ -58,7 +58,22 @@ function CostCell({ row }: { row: MaintenanceListRow }) {
 }
 
 function AssignedCell({ row }: { row: MaintenanceListRow }) {
-  if (row.nobodyAssigned) return <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Nobody yet</span>;
+  if (row.clientHandlingPill === "With the client") {
+    return (
+      <div className="flex min-w-0 flex-col gap-0.5 text-[0.75rem]">
+        <b className="text-[0.8125rem]">With the client</b>
+        <span className="text-[hsl(var(--e-text-secondary))]">their own tradesperson</span>
+      </div>
+    );
+  }
+  if (row.nobodyAssigned) {
+    return (
+      <span className="flex flex-col text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+        Nobody yet
+        {row.clientHandlingPill ? <span className="font-[600] text-[hsl(var(--e-warning))]">{row.clientHandlingPill}</span> : null}
+      </span>
+    );
+  }
   return (
     <div className="flex min-w-0 flex-col gap-0.5 text-[0.75rem]">
       <b className="text-[0.8125rem]">{row.assignedWorker ? row.assignedWorker.company || row.assignedWorker.name : "Office"}</b>

@@ -51,7 +51,10 @@ describe("admin list filters", () => {
     const ranges = calendarRanges(NOW, "Australia/Sydney");
     const where = buildMaintenanceListWhere(parseMaintenanceListFilters(new URLSearchParams("assigned=none&price=NOT_SENT")), ranges) as { AND: unknown[] };
     expect(where.AND).toContainEqual({ status: { in: ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS", "ORDERED"] } });
-    expect(where.AND).toContainEqual({ assignedWorkerId: null, roleAssignments: { none: { removedAt: null } } });
+    // Not "nobody" while the client is arranging it (client-handled maintenance, 2026-11-18).
+    expect(where.AND).toContainEqual({ assignedWorkerId: null, roleAssignments: { none: { removedAt: null } }, clientHandling: { notIn: ["HANDED_OVER", "ACCEPTED"] } });
+    const client = buildMaintenanceListWhere(parseMaintenanceListFilters(new URLSearchParams("assigned=client")), ranges) as { AND: unknown[] };
+    expect(client.AND).toContainEqual({ clientHandling: { in: ["HANDED_OVER", "ACCEPTED"] } });
     expect(where.AND).toContainEqual({ costApprovalStatus: null });
     const worker = buildMaintenanceListWhere(parseMaintenanceListFilters(new URLSearchParams("assigned=worker:w1&status=RESOLVED")), ranges) as { AND: unknown[] };
     expect(worker.AND).toContainEqual({ assignedWorkerId: "w1" });

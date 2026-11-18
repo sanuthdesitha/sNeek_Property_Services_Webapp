@@ -95,7 +95,7 @@ export function MaintenanceFilters({
 
   const propertyName = properties.find((property) => property.id === view.propertyId)?.name ?? (view.propertyId ? "Chosen property" : null);
   const assignedLabel =
-    view.assigned === "none" ? "Nobody" : view.assigned.startsWith("worker:") ? workers?.find((worker) => `worker:${worker.id}` === view.assigned)?.name ?? "Chosen worker" : view.assigned.startsWith("user:") ? "Chosen person" : null;
+    view.assigned === "none" ? "Nobody" : view.assigned === "client" ? "With the client" : view.assigned.startsWith("worker:") ? workers?.find((worker) => `worker:${worker.id}` === view.assigned)?.name ?? "Chosen worker" : view.assigned.startsWith("user:") ? "Chosen person" : null;
   const priorityLabel = view.priority.length > 0 ? view.priority.map((value) => PRIORITY_LABELS[value]).join(", ") : null;
   const sourceLabel = view.source.length > 0 ? view.source.map((value) => SOURCE_FILTER_LABELS[value]).join(", ") : null;
   const priceLabel = view.price === "any" ? null : PRICE_LABELS[view.price];
@@ -162,6 +162,7 @@ export function MaintenanceFilters({
         <ESelect aria-label="Assigned to" value={view.assigned} onChange={(event) => onChange({ assigned: event.target.value })} className={SELECT_CLASS}>
           <option value="any">Anyone or nobody</option>
           <option value="none">Nobody assigned</option>
+          <option value="client">With the client</option>
           {(workers ?? []).map((worker) => (
             <option key={worker.id} value={`worker:${worker.id}`}>{worker.name}</option>
           ))}

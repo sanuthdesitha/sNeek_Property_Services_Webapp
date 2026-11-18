@@ -82,6 +82,8 @@ interface MaintenanceListItem {
   outcome?: string | null;
   quotedCost?: number | null;
   costApprovalStatus?: string | null;
+  /** Client-handled maintenance state; HANDED_OVER / ACCEPTED are answered in "For you to arrange". */
+  clientHandling?: string;
   property?: { name: string };
   photos?: Array<{ key: string; url: string }>;
 }
@@ -768,9 +770,13 @@ export function MaintenanceBoard({ properties }: { properties: ClientProperty[] 
                   </div>
                 ) : null}
                 <CostApproval item={item} onSaved={load} />
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <ManageModal item={item} onSaved={load} />
-                </div>
+                {item.clientHandling === "HANDED_OVER" || item.clientHandling === "ACCEPTED" ? (
+                  <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-text-secondary))]">Yours to arrange: answer it under "For you to arrange" above.</p>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <ManageModal item={item} onSaved={load} />
+                  </div>
+                )}
                 {item.status === "IN_PROGRESS" ? (
                   <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Our maintenance team is handling this.</p>
                 ) : null}

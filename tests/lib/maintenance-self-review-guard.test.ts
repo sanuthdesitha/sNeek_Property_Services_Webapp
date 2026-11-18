@@ -19,6 +19,8 @@ const state = {
   existing: [] as Array<{ userId: string; role: string }>,
   /** Cleaners on the job the item came from. */
   jobCleaners: [] as string[],
+  /** PropertyMaintenanceItem.clientHandling. */
+  clientHandling: "NONE" as string,
 };
 
 vi.mock("@/lib/db", () => ({
@@ -56,6 +58,12 @@ vi.mock("@/lib/db", () => ({
     },
     $transaction: vi.fn(async (fn: any) =>
       fn({
+        // Adding people takes the item lock and checks the item is not with
+        // the client (client-handled maintenance, 2026-11-18).
+        $executeRaw: vi.fn(async () => 0),
+        propertyMaintenanceItem: {
+          findUnique: vi.fn(async () => ({ clientHandling: state.clientHandling })),
+        },
         maintenanceItemAssignment: {
           updateMany: vi.fn(async () => ({ count: 0 })),
           upsert: vi.fn(async () => ({})),
@@ -69,6 +77,7 @@ import { MaintenanceAssigneeRole } from "@prisma/client";
 import { setItemAssignees } from "@/lib/maintenance/assignments";
 
 beforeEach(() => {
+  state.clientHandling = "NONE";
   state.item = { id: "item-1", jobId: null };
   state.existing = [];
   state.jobCleaners = [];
@@ -175,5 +184,16 @@ describe("setItemAssignees — self-review failsafe", () => {
         userIds: [],
       })
     ).resolves.toBeTruthy();
+  });
+
+  it("refuses to add anyone while the client is arranging the item, but still lets people be removed", async () => {
+    state.clientHandling = "ACCEPTED";
+    await expect(
+      setItemAssignees({ itemId: "item-1", role: MaintenanceAssigneeRole.CLEANER, userIds: ["u9"] })
+    ).rejects.toThrow(/with the client to arrange/);
+    state.existing = [{ userId: "u9", role: MaintenanceAssigneeRole.CLEANER }];
+    await expect(
+      setItemAssignees({ itemId: "item-1", role: MaintenanceAssigneeRole.CLEANER, userIds: [] })
+    ).resolves.toMatchObject({ removed: ["u9"] });
   });
 });

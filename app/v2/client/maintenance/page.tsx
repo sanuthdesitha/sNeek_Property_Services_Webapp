@@ -4,6 +4,7 @@ import { getClientPortalContext } from "@/lib/client/portal";
 import { filterAirbnbPropertyIds } from "@/lib/maintenance/airbnb";
 import { EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
 import { MaintenanceBoard } from "@/components/v2/client/maintenance/maintenance-board";
+import { ClientHandledItems } from "@/components/v2/client/maintenance/handled-items";
 
 export const metadata = { title: "Maintenance · Estate client" };
 export const dynamic = "force-dynamic";
@@ -35,6 +36,8 @@ export default async function ClientMaintenancePage() {
         title="Maintenance"
         description="Track items that need fixing or replacing on your Airbnb properties — reported by you or our team, worked down to resolution."
       />
+      {/* Repairs the office asked this client to arrange (client-handled maintenance). */}
+      <ClientHandledItems timeZone={portalCtx.settings.timezone || "Australia/Sydney"} />
       {airbnbProperties.length === 0 ? (
         <EEmptyState
           eyebrow="Nothing here"

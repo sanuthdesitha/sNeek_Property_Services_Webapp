@@ -91,6 +91,7 @@ const DICTIONARY: Record<string, Entry> = {
   clientNoteParagraph: { label: "Client note paragraph (empty when none)", sample: "<p style=\"margin:0 0 8px 0;\"><strong>Client note:</strong> Before 10 am please</p>", format: "html" },
   quoteHtml: { label: "Quote document (generated)", sample: "<p>Quote…</p>", format: "html" },
   // Maintenance
+  itemTitle: { label: "Maintenance item", sample: "Leaking shower mixer" },
   detailRows: { label: "Detail rows (built table)", sample: "<tr><td>Property</td><td>Manly Loft</td></tr>", format: "html" },
   placeSuffix: { label: "Property (empty when none)", sample: " (Manly Loft)", format: "html" },
   nowPays: { label: "Now pays (empty when unknown)", sample: " — it now pays $180.00 fixed", format: "html" },
