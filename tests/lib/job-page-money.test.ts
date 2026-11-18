@@ -114,3 +114,24 @@ describe("key facts", () => {
     expect(formatMinutes(42)).toBe("42 m");
   });
 });
+
+describe("approved extra pay on the job rail (2026-11-18)", () => {
+  const base = {
+    rateCharge: { amount: 150, source: "FIXED_JOB" as const },
+    assignments: [{ userId: "c1", name: "Jane Cleaner", isPrimary: true, payRate: 40 }],
+    actualHours: null,
+    estimatedHours: 2,
+    cleanerPayouts: {},
+    transportAllowances: {},
+    liveInvoice: null,
+  };
+  it("adds the payee's approved extras to pay and margin", () => {
+    const money = summarizeJobMoney({ ...base, approvedExtrasByPayee: { c1: 60 } });
+    expect(money.pay).toEqual({ kind: "amount", amount: 140 });
+    expect(money.payLines[0].extras).toBe(60);
+    expect(money.margin).toEqual({ kind: "amount", amount: 10 });
+  });
+  it("says pay is unknown when the extras could not be read, never shows it without them", () => {
+    expect(summarizeJobMoney({ ...base, approvedExtrasByPayee: null }).pay.kind).toBe("unknown");
+  });
+});
