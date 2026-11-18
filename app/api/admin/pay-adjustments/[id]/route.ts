@@ -377,7 +377,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           : null
       );
       billToClient = defaultBillToClient({
-        settingOn: settings.invoicing.payRequestsBillClientByDefault,
+        settingOn: settings.invoicing?.payRequestsBillClientByDefault === true,
         jobId: resultingJobId,
         category: resultingCategory,
         propertyHasClient,
