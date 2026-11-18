@@ -150,12 +150,19 @@ export function clientExtraText(extra: ClientExtraSource, clientAmount: number):
   return `Extra: ${trimNote(label, 120)}${hoursPart} ${invoiceMoney(clientAmount)}`;
 }
 
-/** Marks where the extras block of a folded description begins. */
+/**
+ * Marks where the extras block of a folded description begins. ONE line, not
+ * line breaks: the invoice editor's description field is a single-line input,
+ * which would silently drop line breaks on the next save and leave the fold
+ * impossible to take back off precisely (found in the browser walk).
+ */
 export const BASE_SERVICE_PREFIX = "Base service ";
+const FOLD_MARKER = ` — ${BASE_SERVICE_PREFIX}`;
+const PART_SEPARATOR = "; ";
 
 /** The description a folded line started from (the text before the block). */
 export function baseClientDescription(description: string): string {
-  const marker = `\n${BASE_SERVICE_PREFIX}`;
+  const marker = FOLD_MARKER;
   const at = description.indexOf(marker);
   return at >= 0 ? description.slice(0, at) : description;
 }
@@ -194,11 +201,9 @@ export function composeFoldedClientLine(input: {
   if (input.extras.length === 0) {
     return { description: input.baseDescription, unitPrice: fromCents(baseCents), lineTotal: fromCents(baseCents) };
   }
-  const description = [
-    input.baseDescription,
-    `${BASE_SERVICE_PREFIX}${invoiceMoney(fromCents(baseCents))}`,
-    ...input.extras.map((part) => part.text),
-  ].join("\n");
+  const description =
+    `${input.baseDescription}${FOLD_MARKER}${invoiceMoney(fromCents(baseCents))}${PART_SEPARATOR}` +
+    input.extras.map((part) => part.text).join(PART_SEPARATOR);
   return { description, unitPrice: total, lineTotal: total };
 }
 

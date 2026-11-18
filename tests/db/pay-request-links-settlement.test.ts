@@ -203,7 +203,7 @@ describe.skipIf(!url)("pay request links, client billing and settlement, on Post
     expect(approved.body.clientBilling).toMatchObject({ state: "ON_DRAFT", mode: "FOLDED", invoiceNumber: invoice.invoiceNumber });
     let line = await m.client.clientInvoiceLine.findUniqueOrThrow({ where: { id: lineId } });
     expect(line.lineTotal).toBe(190);
-    expect(line.description).toBe("Harbour Flat - AIRBNB TURNOVER - 10 Nov 2026\nBase service $150.00\nExtra: Oven deep clean $40.00");
+    expect(line.description).toBe("Harbour Flat - AIRBNB TURNOVER - 10 Nov 2026 — Base service $150.00; Extra: Oven deep clean $40.00");
     // The cleaner's note never reaches the client's line.
     expect(line.description).not.toContain("grease");
     let totals = await m.client.clientInvoice.findUniqueOrThrow({ where: { id: invoice.id } });
@@ -216,7 +216,7 @@ describe.skipIf(!url)("pay request links, client billing and settlement, on Post
     expect((await patch(request.id, { clientAmount: 55.55, clientDescription: "Oven detail clean" })).status).toBe(200);
     line = await m.client.clientInvoiceLine.findUniqueOrThrow({ where: { id: lineId } });
     expect(line.lineTotal).toBe(205.55);
-    expect(line.description.split("\n")).toEqual(["Harbour Flat - AIRBNB TURNOVER - 10 Nov 2026", "Base service $150.00", "Extra: Oven detail clean $55.55"]);
+    expect(line.description).toBe("Harbour Flat - AIRBNB TURNOVER - 10 Nov 2026 — Base service $150.00; Extra: Oven detail clean $55.55");
     totals = await m.client.clientInvoice.findUniqueOrThrow({ where: { id: invoice.id } });
     expect([totals.subtotal, totals.gstAmount, totals.totalAmount]).toEqual([205.55, 20.56, 226.11]);
 
@@ -291,7 +291,7 @@ describe.skipIf(!url)("pay request links, client billing and settlement, on Post
     const lines = await m.client.clientInvoiceLine.findMany({ where: { invoiceId: invoice.id } });
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ jobId: ids().job, lineTotal: 190, unitPrice: 190 });
-    expect(lines[0].description).toContain("\nBase service $150.00\nExtra: Oven deep clean $40.00");
+    expect(lines[0].description).toContain(" — Base service $150.00; Extra: Oven deep clean $40.00");
     expect((await m.client.cleanerPayAdjustment.findUniqueOrThrow({ where: { id: request.id } })).clientInvoiceLineId).toBe(lines[0].id);
   });
 

@@ -48,9 +48,9 @@ describe("client invoice folding", () => {
     expect(toCents(line.lineTotal)).toBe(toCents(150) + toCents(45.5) + toCents(19.99));
     expect(line.lineTotal).toBe(215.49);
     expect(line.unitPrice).toBe(215.49);
-    expect(line.description).toBe(
-      ["Bondi Apt - AIRBNB TURNOVER - 10 Nov 2026", "Base service $150.00", "Extra: Oven deep clean (1.5 h) $45.50", "Extra: Linen $19.99"].join("\n"),
-    );
+    // One line of text: the invoice editor's description field is single-line.
+    expect(line.description).toBe("Bondi Apt - AIRBNB TURNOVER - 10 Nov 2026 — Base service $150.00; Extra: Oven deep clean (1.5 h) $45.50; Extra: Linen $19.99");
+    expect(line.description).not.toContain("\n");
   });
 
   it("never shows the cleaner's rate, pay or note to the client — only the client amount", () => {
@@ -119,7 +119,7 @@ describe("client invoice folding", () => {
     const folded = composeFoldedClientLine({ baseDescription: jobLine.description, baseAmount: 150, quantity: 1, extras: parts })!;
     const less = recomposeFoldedClientLine({ line: { ...folded, quantity: 1 }, currentExtras: parts, nextExtras: [parts[1]] })!;
     expect(less.lineTotal).toBe(169.99);
-    expect(less.description).toBe([jobLine.description, "Base service $150.00", "Extra: B $19.99"].join("\n"));
+    expect(less.description).toBe(`${jobLine.description} — Base service $150.00; Extra: B $19.99`);
     const none = recomposeFoldedClientLine({ line: { ...less, quantity: 1 }, currentExtras: [parts[1]], nextExtras: [] })!;
     expect(none).toEqual({ description: jobLine.description, unitPrice: 150, lineTotal: 150 });
     expect(baseClientDescription(folded.description)).toBe(jobLine.description);
@@ -136,7 +136,7 @@ describe("client invoice folding", () => {
       "OUTPUT",
     );
     expect(items).toHaveLength(1);
-    expect(items[0].description).toContain("Base service $150.00\nExtra: Oven deep clean (1.5 h) $45.50");
+    expect(items[0].description).toContain("Base service $150.00; Extra: Oven deep clean (1.5 h) $45.50");
     expect(items[0].quantity).toBe(1);
     expect(items[0].unitAmount).toBe(195.5);
   });
