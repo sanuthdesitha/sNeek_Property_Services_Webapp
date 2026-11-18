@@ -90,7 +90,7 @@ export function digestJobList(jobs: readonly ReminderDigestJob[]): { html: strin
   const sorted = sortDigestJobs(jobs);
   return {
     html: `<ol style="margin:0;padding-left:20px">${sorted.map(jobItemHtml).join("")}</ol>`,
-    text: sorted.map(jobItemText).join("\n"),
+    text: sorted.map(jobItemText).join("\n\n"),
   };
 }
 

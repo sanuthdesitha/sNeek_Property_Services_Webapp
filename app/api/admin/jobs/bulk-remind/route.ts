@@ -3,13 +3,15 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { resolveAppUrl } from "@/lib/app-url";
-import { bulkReminderRow, reminderInputSchema, sendJobReminder, type BulkReminderRow, type BulkRemindResponse } from "@/lib/jobs/job-reminder";
+import { reminderInputSchema, sendBulkJobReminders, type BulkReminderRow, type BulkRemindResponse } from "@/lib/jobs/job-reminder";
 
 /**
  * POST /api/admin/jobs/bulk-remind — remind the cleaners on several jobs in
  * one request. Each job goes through the same service as the single-job route
  * (same remindable states, transports and audit) and gets its own outcome:
  * requested / partial / failed / skipped (with the reason) / not found.
+ * By email, a cleaner on two or more of the selected jobs gets ONE email
+ * listing them all; each job's row still reports that email's outcome.
  * A requested push or an accepted email is not proof of delivery, and the
  * response says so per row.
  */
@@ -25,18 +27,7 @@ export async function POST(req: NextRequest) {
     const { jobIds, method, note, idempotencyKey } = parsed.data;
     const context = { actorId: session.user.id, cleanerJobsUrl: resolveAppUrl("/cleaner/jobs", req) };
 
-    const rows: BulkReminderRow[] = [];
-    // Sequential: each job already fans out to its cleaners; this keeps the
-    // provider load the same as the single-job route used one at a time.
-    for (const jobId of Array.from(new Set(jobIds))) {
-      try {
-        // A retried request with the same key queues nothing twice (per job).
-        const jobKey = idempotencyKey ? `${idempotencyKey}:${jobId}`.slice(0, 100) : undefined;
-        rows.push(bulkReminderRow(await sendJobReminder(jobId, { method, note, idempotencyKey: jobKey }, context), method));
-      } catch {
-        rows.push({ jobId, label: jobId, outcome: "failed", requested: [], failed: [], message: "The reminder could not be sent. Try this job again." });
-      }
-    }
+    const rows: BulkReminderRow[] = await sendBulkJobReminders(jobIds, { method, note, idempotencyKey }, context);
     const count = (outcome: BulkReminderRow["outcome"]) => rows.filter((row) => row.outcome === outcome).length;
     const body: BulkRemindResponse = {
       method,

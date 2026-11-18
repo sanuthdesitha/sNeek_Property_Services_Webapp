@@ -68,13 +68,22 @@ export type OfficeSendInput = {
   recipients: OfficeRecipient[];
   respectsPreferences: boolean;
   disabledTransports: NotificationTransport[];
+  /**
+   * Direct sends only: further subjects one message covers (a combined
+   * reminder lists several jobs: "Job:<id>" each), so a pause on any of them
+   * still stops it (lib/notifications/safeguards/gate.ts).
+   */
+  relatedEntityKeys?: readonly string[];
 };
 
 const displayName = (recipient: OfficeRecipient) => recipient.name ?? recipient.email ?? "Recipient";
 
 /** Type, subject entity and account for the sending safeguards (direct sends). */
 function officeSafeguard(input: OfficeSendInput, recipient: OfficeRecipient) {
-  return { typeKey: input.typeKey, eventKey: input.eventKey, entityKey: `${input.entity.type}:${input.entity.id}`, recipientUserId: recipient.id };
+  return {
+    typeKey: input.typeKey, eventKey: input.eventKey, entityKey: `${input.entity.type}:${input.entity.id}`, recipientUserId: recipient.id,
+    ...(input.relatedEntityKeys?.length ? { relatedEntityKeys: input.relatedEntityKeys } : {}),
+  };
 }
 
 type Planned = { recipient: OfficeRecipient; inboxIntentId?: string; inboxOnly?: boolean; directWebPush: boolean; directEmail: boolean; outcomes: RecipientOutcome[] };

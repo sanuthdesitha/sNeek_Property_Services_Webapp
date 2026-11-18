@@ -508,6 +508,8 @@ export function renderLayout(input: { options: RenderOptions; subject: string; p
 }
 
 function wrapText(line: string, width = 72): string[] {
+  // A value's own line breaks (a built list's text twin) stay line breaks.
+  if (line.includes("\n")) return line.split("\n").flatMap((part) => wrapText(part, width));
   if (line.length <= width || /^https?:\/\//.test(line)) return [line];
   const words = line.split(/\s+/);
   const out: string[] = [];

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { format } from "date-fns";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { resolveAppUrl } from "@/lib/app-url";
@@ -42,4 +43,15 @@ export function toDigestJob(job: DigestSourceJob, input: { timezone: string; def
     jobUrl: resolveAppUrl(`/cleaner/jobs/${encodeURIComponent(job.id)}`),
     sortAt: digestStartsAt(job, input.timezone, input.defaultTime).getTime(),
   };
+}
+
+/**
+ * The safeguard subject of a combined reminder email: one key for this
+ * recipient and this set of jobs (the same set gives the same key). The jobs
+ * themselves go to the gate as related subjects, so a pause on any of them
+ * still stops the email.
+ */
+export function combinedReminderEntityKey(recipient: string, jobIds: readonly string[]): string {
+  const digest = createHash("sha256").update(JSON.stringify([recipient.trim().toLowerCase(), [...jobIds].sort()])).digest("hex").slice(0, 24);
+  return `JobReminderBatch:${digest}`;
 }

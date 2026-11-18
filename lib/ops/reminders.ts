@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { format } from "date-fns";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
@@ -14,7 +13,7 @@ import { loadNotificationWording, type WordingRenderer } from "@/lib/notificatio
 import { reminderDigestTexts } from "@/lib/notifications/wording/reminder-digest";
 import { buildReminderDigestEmail, digestDayList, sortDigestJobs } from "@/lib/email-design/reminder-digest";
 import { resolveAppUrl } from "@/lib/app-url";
-import { toDigestJob } from "@/lib/ops/reminder-digest-jobs";
+import { combinedReminderEntityKey, toDigestJob } from "@/lib/ops/reminder-digest-jobs";
 
 export const SCHEDULED_REMINDER_TYPE_KEY = "job.reminder.scheduled";
 
@@ -146,12 +145,6 @@ type SendLongContext = {
   timezone: string;
   recipients: ReminderRecipientResult[];
 };
-
-/** The safeguard subject of a combined email: one key for the set of jobs (stable for the same set). */
-export function combinedReminderEntityKey(cleanerEmail: string, jobIds: readonly string[]): string {
-  const digest = createHash("sha256").update(JSON.stringify([cleanerEmail.trim().toLowerCase(), [...jobIds].sort()])).digest("hex").slice(0, 24);
-  return `JobReminderBatch:${digest}`;
-}
 
 /** Group claimed jobs by cleaner email (one email per cleaner); a cleaner without email is reported per job. */
 function groupJobsByCleaner(jobs: readonly LongReminderJob[], recipients: ReminderRecipientResult[]): CleanerEmailBatch[] {

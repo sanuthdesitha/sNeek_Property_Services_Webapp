@@ -5,7 +5,11 @@ import { JobStatus, Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
-import { outcomeTaken, sendOfficeNotification, type RecipientOutcome } from "@/lib/notifications/office-sends";
+import { outcomeTaken, sendOfficeNotification, type OfficeRecipient, type RecipientOutcome } from "@/lib/notifications/office-sends";
+import { reminderDigestTexts } from "@/lib/notifications/wording/reminder-digest";
+import { buildReminderDigestEmail, digestDayList, sortDigestJobs } from "@/lib/email-design/reminder-digest";
+import { combinedReminderEntityKey, toDigestJob } from "@/lib/ops/reminder-digest-jobs";
+import { getAppSettings } from "@/lib/settings";
 import { getNotificationTypeControls, typeRespectsPreferences } from "@/lib/notifications/type-controls";
 
 /**
@@ -44,7 +48,7 @@ export type ReminderInput = z.infer<typeof reminderInputSchema>;
 export type ReminderDeliveryState = "QUEUED" | "PROVIDER_ACCEPTED";
 
 export type JobReminderResult =
-  | { kind: "sent"; jobId: string; label: string; sent: string[]; failed: string[]; deliveryState: ReminderDeliveryState; outcomes: RecipientOutcome[] }
+  | { kind: "sent"; jobId: string; label: string; sent: string[]; failed: string[]; deliveryState: ReminderDeliveryState; outcomes: RecipientOutcome[]; combinedFor?: string[] }
   | { kind: "not_found"; jobId: string }
   | { kind: "not_remindable"; jobId: string; label: string; status: JobStatus; error: string }
   | { kind: "no_cleaners"; jobId: string; label: string; error: string };
@@ -59,6 +63,7 @@ const jobSelect = {
   id: true,
   jobNumber: true,
   status: true,
+  jobType: true,
   scheduledDate: true,
   startTime: true,
   property: { select: { name: true, address: true } },
@@ -84,23 +89,45 @@ function remindedBy(method: ReminderInput["method"], outcomes: RecipientOutcome[
   return outcomes.some((outcome) => outcome.userId === userId && outcome.transport === primary && outcomeTaken(outcome));
 }
 
-export async function sendJobReminder(jobId: string, input: ReminderInput, context: ReminderContext): Promise<JobReminderResult> {
+type ReminderJob = Prisma.JobGetPayload<{ select: typeof jobSelect }>;
+
+/** Loads a job and checks it can be reminded; the job when it can. */
+async function loadRemindableJob(jobId: string): Promise<{ job: ReminderJob; label: string } | { refused: JobReminderResult }> {
   const job = await db.job.findUnique({ where: { id: jobId }, select: jobSelect });
-  if (!job) return { kind: "not_found", jobId };
+  if (!job) return { refused: { kind: "not_found", jobId } };
   const label = jobLabel(job);
   if (!REMINDABLE_STATUSES.includes(job.status)) {
     return {
-      kind: "not_remindable",
-      jobId,
-      label,
-      status: job.status,
-      error: `Job is ${job.status.replace(/_/g, " ").toLowerCase()} — not in a remindable state.`,
+      refused: {
+        kind: "not_remindable",
+        jobId,
+        label,
+        status: job.status,
+        error: `Job is ${job.status.replace(/_/g, " ").toLowerCase()} — not in a remindable state.`,
+      },
     };
   }
   if (job.assignments.length === 0) {
-    return { kind: "no_cleaners", jobId, label, error: "No assigned cleaners to remind." };
+    return { refused: { kind: "no_cleaners", jobId, label, error: "No assigned cleaners to remind." } };
   }
+  return { job, label };
+}
 
+export async function sendJobReminder(jobId: string, input: ReminderInput, context: ReminderContext): Promise<JobReminderResult> {
+  const loaded = await loadRemindableJob(jobId);
+  if ("refused" in loaded) return loaded.refused;
+  return remindLoadedJob(loaded.job, loaded.label, input, context);
+}
+
+/**
+ * Cleaners of this job whose email went out in one combined email with their
+ * other selected jobs (bulk email reminder): they are not emailed again here,
+ * and that email's outcome counts for this job.
+ */
+type CombinedForJob = { userIds: ReadonlySet<string>; outcomes: RecipientOutcome[]; names: string[]; emailJobIds: Record<string, string[]> };
+
+async function remindLoadedJob(job: ReminderJob, label: string, input: ReminderInput, context: ReminderContext, combined?: CombinedForJob): Promise<JobReminderResult> {
+  const jobId = job.id;
   const propertyName = job.property?.name ?? "the property";
   const whenLabel = `${format(new Date(job.scheduledDate), "EEE d MMM yyyy")}${job.startTime ? ` ${job.startTime}` : ""}`;
   const wording = await loadNotificationWording(JOB_REMINDER_TYPE_KEY);
@@ -111,12 +138,13 @@ export async function sendJobReminder(jobId: string, input: ReminderInput, conte
   });
   const noteParagraph = wording.line("note-paragraph", "EMAIL", { note: input.note }, Boolean(input.note));
   const controls = await getNotificationTypeControls();
+  const ownRecipients = job.assignments.filter((assignment) => !combined?.userIds.has(assignment.userId));
 
   // The pipeline enqueue is one transaction: if it fails, nothing was queued
   // or sent for anyone, so every cleaner is reported as not reminded (and the
   // audit says why) instead of failing the whole request.
   let pipelineError: string | null = null;
-  const outcomes = await sendOfficeNotification({
+  const ownOutcomes = ownRecipients.length === 0 ? [] : await sendOfficeNotification({
     typeKey: JOB_REMINDER_TYPE_KEY,
     eventKey: JOB_REMINDER_TYPE_KEY,
     eventId: `job-reminder:${job.id}:${input.method}:${input.idempotencyKey ?? randomUUID()}`,
@@ -143,7 +171,7 @@ export async function sendJobReminder(jobId: string, input: ReminderInput, conte
       return { subject: email.subject, html: email.html };
     },
     transports: [input.method],
-    recipients: job.assignments.map((assignment) => ({
+    recipients: ownRecipients.map((assignment) => ({
       id: assignment.user.id,
       role: assignment.user.role,
       name: assignment.user.name,
@@ -155,6 +183,7 @@ export async function sendJobReminder(jobId: string, input: ReminderInput, conte
     pipelineError = "pipeline_unavailable";
     return [];
   });
+  const outcomes = [...ownOutcomes, ...(combined?.outcomes ?? [])];
 
   const sent: string[] = [];
   const failed: string[] = [];
@@ -181,13 +210,138 @@ export async function sendJobReminder(jobId: string, input: ReminderInput, conte
         deliveryConfirmed: false,
         // Which path each transport used (pipeline or direct) and its state.
         outcomes: outcomes.map((outcome) => ({ userId: outcome.userId, transport: outcome.transport, path: outcome.path, state: outcome.state, errorCode: outcome.errorCode ?? null })),
+        // Cleaners emailed once for several selected jobs: the jobs that one email covered.
+        ...(combined && combined.userIds.size > 0 ? { combinedEmails: combined.emailJobIds } : {}),
         note: input.note ?? null,
         error: pipelineError,
       } as Prisma.InputJsonValue,
     },
   });
 
-  return { kind: "sent", jobId, label, sent, failed, deliveryState, outcomes };
+  return { kind: "sent", jobId, label, sent, failed, deliveryState, outcomes, ...(combined?.names.length ? { combinedFor: combined.names } : {}) };
+}
+
+type CombinedCleaner = { recipient: OfficeRecipient; jobs: ReminderJob[] };
+
+/** Cleaners on two or more of the selected jobs, each with their jobs in selection order. */
+function cleanersOnSeveralJobs(jobs: readonly ReminderJob[]): CombinedCleaner[] {
+  const byCleaner = new Map<string, CombinedCleaner>();
+  for (const job of jobs) {
+    for (const assignment of job.assignments) {
+      const entry = byCleaner.get(assignment.userId) ?? {
+        recipient: { id: assignment.user.id, role: assignment.user.role, name: assignment.user.name, email: assignment.user.email },
+        jobs: [],
+      };
+      if (!entry.jobs.some((existing) => existing.id === job.id)) entry.jobs.push(job);
+      byCleaner.set(assignment.userId, entry);
+    }
+  }
+  return Array.from(byCleaner.values()).filter((entry) => entry.jobs.length > 1);
+}
+
+/** ONE email to a cleaner listing every selected job of theirs (bulk email reminder). */
+async function sendCombinedManualReminder(cleaner: CombinedCleaner, input: ReminderInput, context: ReminderContext): Promise<RecipientOutcome[]> {
+  const settings = await getAppSettings();
+  const timezone = settings.timezone || "Australia/Sydney";
+  const jobs = sortDigestJobs(cleaner.jobs.map((job) => toDigestJob(job, { timezone, defaultTime: "09:00" })));
+  const jobIds = jobs.map((job) => job.jobId);
+  const wording = await loadNotificationWording(JOB_REMINDER_TYPE_KEY);
+  const userName = cleaner.recipient.name ?? cleaner.recipient.email ?? "Cleaner";
+  const texts = reminderDigestTexts(wording, { userName, jobCount: jobs.length, dayList: digestDayList(jobs), note: input.note });
+  const email = buildReminderDigestEmail(settings, { kind: "manual", jobs, texts, actionUrl: context.cleanerJobsUrl });
+  const controls = await getNotificationTypeControls();
+  const batchKey = combinedReminderEntityKey(cleaner.recipient.id, jobIds);
+  return sendOfficeNotification({
+    typeKey: JOB_REMINDER_TYPE_KEY,
+    eventKey: JOB_REMINDER_TYPE_KEY,
+    eventId: `job-reminder-digest:${cleaner.recipient.id}:${input.method}:${input.idempotencyKey ?? randomUUID()}`,
+    entity: { type: "JobReminderBatch", id: batchKey.slice(batchKey.indexOf(":") + 1) },
+    actorId: context.actorId,
+    // The scope is re-checked on the first job; every job was loaded with its live assignments just now.
+    scopeType: "JOB_ASSIGNED_CLEANER",
+    scopeId: () => jobIds[0],
+    category: "jobs",
+    severity: "ACTION",
+    jobId: null,
+    subject: email.subject,
+    body: `${email.subject}: ${jobs.map((job) => `${job.jobReference} ${job.propertyName}`).join("; ")}`,
+    url: "/cleaner/jobs",
+    emailKind: "job_reminder",
+    email: () => ({ subject: email.subject, html: email.html }),
+    transports: ["EMAIL"],
+    recipients: [cleaner.recipient],
+    respectsPreferences: typeRespectsPreferences(controls, JOB_REMINDER_TYPE_KEY),
+    disabledTransports: controls.disabledTransports[JOB_REMINDER_TYPE_KEY] ?? [],
+    relatedEntityKeys: jobIds.map((jobId) => `Job:${jobId}`),
+  });
+}
+
+/**
+ * The bulk reminder. Push: one reminder per job, as before. Email: a cleaner
+ * on two or more of the selected jobs gets ONE email listing them all (owner,
+ * 2026-11-17); a cleaner on one selected job gets that job's usual email.
+ * Every job keeps its own row and audit, with the outcome of the email that
+ * covered it.
+ */
+export async function sendBulkJobReminders(jobIds: readonly string[], input: ReminderInput, context: ReminderContext): Promise<BulkReminderRow[]> {
+  const uniqueIds = Array.from(new Set(jobIds));
+  // A retried request with the same key queues nothing twice (per job, and per cleaner for a combined email).
+  const keyFor = (suffix: string) => (input.idempotencyKey ? `${input.idempotencyKey}:${suffix}`.slice(0, 100) : undefined);
+  const failedRow = (jobId: string): BulkReminderRow => ({ jobId, label: jobId, outcome: "failed", requested: [], failed: [], message: "The reminder could not be sent. Try this job again." });
+
+  if (input.method !== "EMAIL") {
+    const rows: BulkReminderRow[] = [];
+    // Sequential: each job already fans out to its cleaners.
+    for (const jobId of uniqueIds) {
+      try {
+        rows.push(bulkReminderRow(await sendJobReminder(jobId, { ...input, idempotencyKey: keyFor(jobId) }, context), input.method));
+      } catch {
+        rows.push(failedRow(jobId));
+      }
+    }
+    return rows;
+  }
+
+  const loaded = new Map<string, Awaited<ReturnType<typeof loadRemindableJob>> | null>();
+  for (const jobId of uniqueIds) {
+    loaded.set(jobId, await loadRemindableJob(jobId).catch(() => null));
+  }
+  const remindable = uniqueIds.flatMap((jobId) => {
+    const entry = loaded.get(jobId);
+    return entry && "job" in entry ? [entry.job] : [];
+  });
+
+  const combinedByJob = new Map<string, CombinedForJob>();
+  for (const cleaner of cleanersOnSeveralJobs(remindable)) {
+    const outcomes = await sendCombinedManualReminder(cleaner, { ...input, idempotencyKey: keyFor(`digest:${cleaner.recipient.id}`) }, context)
+      .catch((): RecipientOutcome[] => [{ userId: cleaner.recipient.id, name: cleaner.recipient.name ?? cleaner.recipient.email ?? "Cleaner", transport: "EMAIL", path: "pipeline", state: "failed", errorCode: "pipeline_unavailable" }]);
+    const coveredIds = cleaner.jobs.map((job) => job.id);
+    for (const job of cleaner.jobs) {
+      const entry = combinedByJob.get(job.id) ?? { userIds: new Set<string>(), outcomes: [], names: [], emailJobIds: {} };
+      (entry.userIds as Set<string>).add(cleaner.recipient.id);
+      entry.outcomes.push(...outcomes);
+      entry.names.push(cleaner.recipient.name ?? cleaner.recipient.email ?? "Cleaner");
+      entry.emailJobIds[cleaner.recipient.id] = coveredIds;
+      combinedByJob.set(job.id, entry);
+    }
+  }
+
+  const rows: BulkReminderRow[] = [];
+  for (const jobId of uniqueIds) {
+    const entry = loaded.get(jobId);
+    try {
+      if (!entry) throw new Error("load_failed");
+      if ("refused" in entry) {
+        rows.push(bulkReminderRow(entry.refused, input.method));
+        continue;
+      }
+      const result = await remindLoadedJob(entry.job, entry.label, { ...input, idempotencyKey: keyFor(jobId) }, context, combinedByJob.get(jobId));
+      rows.push(bulkReminderRow(result, input.method));
+    } catch {
+      rows.push(failedRow(jobId));
+    }
+  }
+  return rows;
 }
 
 /** Per-row outcome of the bulk reminder, worded so queued is never read as delivered. */
@@ -216,7 +370,8 @@ export function bulkReminderRow(result: JobReminderResult, method: ReminderInput
   const message = outcome === "failed"
     ? `Not sent to ${result.failed.join(", ")}.`
     : `${transport} for ${result.sent.join(", ")}; ${caveat}.${result.failed.length > 0 ? ` Not sent to ${result.failed.join(", ")}.` : ""}`;
-  return { jobId: result.jobId, label: result.label, outcome, requested: result.sent, failed: result.failed, message };
+  const combined = result.combinedFor?.length ? ` One email listed all selected jobs for ${result.combinedFor.join(", ")}.` : "";
+  return { jobId: result.jobId, label: result.label, outcome, requested: result.sent, failed: result.failed, message: `${message}${combined}` };
 }
 
 export type BulkRemindResponse = {
