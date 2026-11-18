@@ -111,11 +111,13 @@ function settledLabel(item: PayAdjustmentListItem): string | null {
   if (!item.settled) return null;
   return item.settled.rail === "PAYROLL"
     ? `Paid · pay run ${item.settled.id.slice(0, 6)}`
-    : "Paid · invoice";
+    : item.settled.rail === "PAID_OUTSIDE"
+      ? "Paid · outside the system"
+      : "Paid · invoice";
 }
 
 export const SETTLED_EXPLANATION =
-  "Settled money is immutable — it was paid by a payroll run or billed on an invoice. Raise a correcting adjustment instead.";
+  "Settled money is immutable — it was paid by a payroll run, billed on an invoice or marked paid outside the system. Raise a correcting adjustment instead.";
 
 /** Display-only body for one adjustment — reused by the Approval Center cards
  *  so what-changed / origin / settled read identically everywhere. */

@@ -593,7 +593,9 @@ export function EstatePayAdjustments() {
                         <EBadge tone="success" soft>
                           {settled.rail === "PAYROLL"
                             ? `Paid · pay run ${settled.id.slice(0, 6)}`
-                            : "Paid · invoice"}
+                            : settled.rail === "PAID_OUTSIDE"
+                              ? "Paid · outside the system"
+                              : "Paid · invoice"}
                         </EBadge>
                       ) : null}
                       {row.clientApproval?.status === "PENDING" ? (
@@ -673,7 +675,7 @@ export function EstatePayAdjustments() {
                         // Settled money is immutable — the PATCH route 409s. Say
                         // so instead of offering buttons the server will refuse.
                         <span
-                          title="Settled money is immutable — it was paid by a payroll run or billed on an invoice. Raise a correcting adjustment instead."
+                          title="Settled money is immutable — it was paid by a payroll run, billed on an invoice or marked paid outside the system. Raise a correcting adjustment instead."
                           className="cursor-help text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]"
                         >
                           Settled — raise a correcting adjustment
