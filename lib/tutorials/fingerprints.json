@@ -60,12 +60,12 @@
     "fingerprint": "fe1a59b91f67e297"
   },
   "admin.finance.send": {
-    "version": 3,
-    "fingerprint": "b4d8ebbee81f1680"
+    "version": 4,
+    "fingerprint": "2dc17bc7241bf829"
   },
   "admin.approvals": {
-    "version": 1,
-    "fingerprint": "6923fb3fa708cd91"
+    "version": 2,
+    "fingerprint": "f99ce56b4072963d"
   },
   "cleaner.today": {
     "version": 2,
@@ -76,8 +76,8 @@
     "fingerprint": "49e8d0877ae95081"
   },
   "cleaner.payRequests": {
-    "version": 1,
-    "fingerprint": "749678adf2b0d30f"
+    "version": 2,
+    "fingerprint": "ff036634dafc930a"
   },
   "client.approvals": {
     "version": 1,
