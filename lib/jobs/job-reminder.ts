@@ -32,6 +32,10 @@ import { getNotificationTypeControls, typeRespectsPreferences } from "@/lib/noti
  * for this type in the notifications area (the previous behaviour is the
  * default). `sent` keeps its name for compatibility; `deliveryState` and the
  * per-recipient `outcomes` say what really happened.
+ *
+ * Bulk by email (2026-11-17): a cleaner on two or more of the selected jobs
+ * gets ONE email listing them all (`sendBulkJobReminders`); each job still
+ * gets its own row and audit with that email's outcome.
  */
 export const REMINDABLE_STATUSES: JobStatus[] = [JobStatus.PAUSED, JobStatus.IN_PROGRESS, JobStatus.SUBMITTED];
 export const JOB_REMINDER_TYPE_KEY = "job.reminder.manual";
