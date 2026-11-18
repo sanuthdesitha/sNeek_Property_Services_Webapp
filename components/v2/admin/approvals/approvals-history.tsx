@@ -27,6 +27,11 @@ import { APPROVAL_QUEUES, isApprovalsQueueKey } from "@/lib/admin/approvals/queu
 import { money } from "@/lib/admin/approvals/rows";
 import { formatInstant } from "./panel/panel-kit";
 import { ChangeAmountDialog } from "./change-amount-dialog";
+import { EActionDialog } from "@/components/v2/ui/action-dialog";
+import { PayRequestDetails } from "@/components/v2/shared/pay-request-details";
+
+/** Queues whose rows are pay requests (CleanerPayAdjustment) with full details. */
+const PAY_QUEUES = new Set(["payAdjustments", "rectificationAdjustments", "bonusProposals"]);
 
 type Verb = "edit" | "undo" | "delete";
 
@@ -77,6 +82,9 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
   const [filters, setFilters] = React.useState<Filters>({ queue: "", deciderId: "", from: "", to: "", paidAboveRequest: false });
   const [search, setSearch] = useRestorableState("approvals-history:search", "");
   const [editRow, setEditRow] = React.useState<HistoryRow | null>(null);
+  // Full details of a decided pay request (owner request 2026-11-18): what it
+  // was for, the job, where it was settled, client billing and its history.
+  const [detailsRow, setDetailsRow] = React.useState<HistoryRow | null>(null);
   const [deleteRow, setDeleteRow] = React.useState<HistoryRow | null>(null);
   // Only an administrator may delete a decision record; the list read says so.
   const [canDeleteRecords, setCanDeleteRecords] = React.useState(false);
@@ -192,6 +200,7 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
           footnote={canDeleteRecords ? "Delete asks for your own PIN." : undefined}
           items={[
             ...(row.href ? [{ key: "open", label: "Open", href: row.href }] : []),
+            ...(PAY_QUEUES.has(row.queue) && row.decision !== "DELETED" ? [{ key: "details", label: "Full details", onSelect: () => setDetailsRow(row) }] : []),
             { key: "edit", label: "Change amount", disabled: !row.capabilities.canEdit, hint: row.capabilities.reasons.edit, onSelect: () => setEditRow(row), separated: Boolean(row.href) },
             { key: "undo", label: "Reverse decision", disabled: !row.capabilities.canUndo, hint: row.capabilities.reasons.undo, onSelect: () => void act(row, "undo") },
             ...(canDeleteRecords
@@ -271,6 +280,15 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
       {cursor ? (
         <EButton size="sm" variant="outline" disabled={loading} onClick={() => void load(cursor)}>Show older decisions</EButton>
       ) : null}
+      <EActionDialog
+        open={Boolean(detailsRow)}
+        title={detailsRow?.label ?? "Pay request"}
+        eyebrow={detailsRow ? [queueLabel(detailsRow.queue), detailsRow.subjectName].filter(Boolean).join(" · ") : undefined}
+        onClose={() => setDetailsRow(null)}
+        wide
+      >
+        {detailsRow ? <PayRequestDetails key={detailsRow.entityId} requestId={detailsRow.entityId} defaultOpen onChanged={() => load()} /> : null}
+      </EActionDialog>
       <ChangeAmountDialog row={editRow} busy={Boolean(acting)} onClose={() => setEditRow(null)} onSave={async (row, amount, note) => { if (await act(row, "edit", { amount, note })) setEditRow(null); }} />
       <EConfirmModal
         open={Boolean(deleteRow)}

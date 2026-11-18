@@ -29,7 +29,10 @@ export function primaryActionFor(row: ApprovalQueueRow): RowPrimary {
 
   if (row.queue === "payAdjustments") {
     const awaitingClient = row.record.clientApproval?.status === "PENDING";
-    if (!row.hasEvidence || awaitingClient || row.askedAmount == null || row.askedAmount <= 0) return { kind: "review", label: "Review" };
+    // Approving would also bill the client by default (2026-11-18): that is a
+    // consequence the office must see stated, so it goes through the panel.
+    const billsClient = row.record.clientBillingDefault === true;
+    if (!row.hasEvidence || awaitingClient || billsClient || row.askedAmount == null || row.askedAmount <= 0) return { kind: "review", label: "Review" };
     return {
       kind: "approve",
       label: "Approve",

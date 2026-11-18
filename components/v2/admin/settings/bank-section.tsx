@@ -8,6 +8,7 @@ import {
   ETextarea,
   ESaveStatus,
   ESectionHeading,
+  EToggle,
   useSaveStatus,
 } from "./estate-form";
 
@@ -28,6 +29,8 @@ export type BankSettings = {
   bankAccountName: string;
   companyAddress: string;
   paymentNote: string;
+  /** invoicing.payRequestsBillClientByDefault (2026-11-18). */
+  payRequestsBillClientByDefault: boolean;
 };
 
 export function BankSection({ initial, readOnly }: { initial: BankSettings; readOnly: boolean }) {
@@ -57,6 +60,7 @@ export function BankSection({ initial, readOnly }: { initial: BankSettings; read
             bankAccountName: form.bankAccountName,
             companyAddress: form.companyAddress,
             paymentNote: form.paymentNote,
+            payRequestsBillClientByDefault: form.payRequestsBillClientByDefault,
           },
         }),
       });
@@ -162,6 +166,18 @@ export function BankSection({ initial, readOnly }: { initial: BankSettings; read
             />
           </EField>
         </div>
+      </ECard>
+
+      {/* Pay requests on client invoices (owner default pending confirmation,
+          2026-11-18): decides only what the approval dialog starts from. */}
+      <ECard className="p-6">
+        <EToggle
+          checked={form.payRequestsBillClientByDefault}
+          onChange={(v) => set("payRequestsBillClientByDefault", v)}
+          disabled={readOnly}
+          label="Bill approved pay requests to the client by default"
+          description="For a pay request linked to a job and recorded as work, approving it adds the client amount to that job's line on the client's draft invoice. Parking, reimbursements and requests without a job are never billed by default. The approval dialog says what will be added, and can switch it off for one request."
+        />
       </ECard>
 
       <div className="flex items-center justify-end gap-3">

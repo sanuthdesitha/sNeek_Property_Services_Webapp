@@ -1,6 +1,8 @@
 import "server-only";
 import { PayAdjustmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { getAppSettings } from "@/lib/settings";
+import { defaultBillToClient } from "@/lib/pay-adjustments/lifecycle";
 import { getClientApprovalById, listClientApprovals } from "@/lib/commercial/client-approvals";
 import { cleanerRequestedAmount } from "@/lib/payroll/cleaner-pay-amount";
 import { roundCents } from "@/lib/finance/job-money";
@@ -66,7 +68,13 @@ export type BulkDecisionInput = {
 async function membershipRefusal(queue: ApprovalsQueueKey, decision: BulkDecision, ids: string[]): Promise<Map<string, string>> {
   const refusals = new Map<string, string>();
   if (queue === "payAdjustments" || queue === "rectificationAdjustments" || queue === "bonusProposals") {
-    const rows = await db.cleanerPayAdjustment.findMany({ where: { id: { in: ids } }, select: { id: true, status: true, source: true } });
+    const rows = await db.cleanerPayAdjustment.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, status: true, source: true, jobId: true, category: true, clientBillingDecidedAt: true, job: { select: { property: { select: { clientId: true } } } } },
+    });
+    // Approving a pay request that bills the client by default is reviewed on
+    // its own, where the panel states what the client will be charged.
+    const billDefaultOn = queue === "payAdjustments" && decision === "approve" ? (await getAppSettings()).invoicing?.payRequestsBillClientByDefault === true : false;
     const byId = new Map(rows.map((row) => [row.id, row]));
     for (const id of ids) {
       const row = byId.get(id);
@@ -83,6 +91,13 @@ async function membershipRefusal(queue: ApprovalsQueueKey, decision: BulkDecisio
             : !RECTIFICATION_SOURCES.includes(source) && !BONUS_SOURCES.includes(source);
       if (!inQueue) refusals.set(id, `This is not a ${APPROVAL_QUEUES[queue].noun}.`);
       else if (row.status !== PayAdjustmentStatus.PENDING) refusals.set(id, "Already decided.");
+      else if (
+        billDefaultOn &&
+        !row.clientBillingDecidedAt &&
+        defaultBillToClient({ settingOn: true, jobId: row.jobId, category: row.category, propertyHasClient: Boolean(row.job?.property?.clientId) })
+      ) {
+        refusals.set(id, "Approving this also adds it to the client's invoice. Review it on its own to confirm or change that.");
+      }
     }
   }
   if (queue === "clientApprovals") {

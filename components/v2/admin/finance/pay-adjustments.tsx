@@ -1,6 +1,7 @@
 "use client";
 
 import { useRestorableState } from "@/hooks/use-restorable-state";
+import { PayRequestDetails } from "@/components/v2/shared/pay-request-details";
 
 /**
  * ESTATE pay adjustments — v2-native rebuild of the v1 PayRequestsWorkspace core.
@@ -886,6 +887,10 @@ export function EstatePayAdjustments() {
                 </div>
               )}
             </div>
+
+            {/* Settlement, client billing, edit / link / mark paid and the
+                history of this request (2026-11-18). */}
+            <PayRequestDetails key={detailFor.id} requestId={detailFor.id} defaultOpen onChanged={() => void load()} />
 
             {/* Jump straight into a decision from the evidence view. */}
             {detailFor.status === "PENDING" && !adjustmentSettlement(detailFor as any) ? (

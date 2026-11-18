@@ -51,6 +51,8 @@ export type ApprovalRecord = {
   clientRequestedAmount?: number | null;
   cleanerRequestedAmount?: number | null;
   approvedAmount?: number | null;
+  /** Pay requests: whether approving bills the client by default (server rule). */
+  clientBillingDefault?: boolean;
   amount?: number | null;
   currency?: string | null;
   counterAmount?: number | null;

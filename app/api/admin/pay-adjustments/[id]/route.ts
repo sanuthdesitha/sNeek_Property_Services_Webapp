@@ -84,10 +84,17 @@ const updateSchema = z.object({
  */
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const details = await loadPayRequestDetails(params.id);
     if (!details) return NextResponse.json({ error: "Request not found." }, { status: 404 });
-    return NextResponse.json(details);
+    // Marking paid is ADMIN only and needs the person's own PIN, so it is not
+    // offered to an operations manager or while testing as someone else. The
+    // mark-paid route enforces the same; this only decides what is offered.
+    const canMarkPaid = String(session.user.role) === "ADMIN" && !session.impersonation;
+    return NextResponse.json({
+      ...details,
+      viewer: { canMarkPaid, markPaidUnavailable: canMarkPaid ? null : "Only an administrator, signed in as themselves, can record a payment made outside the system." },
+    });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
