@@ -270,7 +270,9 @@ describe("AI configuration page", () => {
     await screen.findByRole("heading", { name: "What AI does" });
     fireEvent.click(screen.getByRole("button", { name: "Test Notification wording" }));
     expect(await screen.findAllByText("Queued")).not.toHaveLength(0);
-    await waitFor(() => expect(screen.getAllByText(/Passed today/).length).toBeGreaterThan(2), { timeout: 5000 });
+    // The recorded tests are 60 and 90 minutes old: just after midnight in the
+    // organisation timezone they correctly read "yesterday".
+    await waitFor(() => expect(screen.getAllByText(/Passed (today|yesterday)/).length).toBeGreaterThan(2), { timeout: 5000 });
     expect(fetchMock.mock.calls.find((call) => String(call[0]).endsWith("/api/admin/ai/tests"))![1].body).toBe(JSON.stringify({ feature: "wording" }));
   });
 
@@ -278,7 +280,7 @@ describe("AI configuration page", () => {
     serve(configuredState());
     renderPage();
     await screen.findByRole("heading", { name: "What AI does" });
-    expect(screen.getAllByText(/Failed today/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Failed (today|yesterday)/).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Test Social post drafts" })).toBeEnabled();
     fireEvent.change(screen.getAllByLabelText("Requests per person per hour: Ask (assistant)")[0], { target: { value: "61" } });
     expect(screen.getByRole("button", { name: "Test Social post drafts" })).toBeDisabled();
