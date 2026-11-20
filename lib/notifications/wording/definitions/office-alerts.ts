@@ -105,3 +105,11 @@ export const SOCIAL_POST_RESULT_WORDING = editable("marketing.social_post_result
 export const XERO_RECONNECT_WORDING = editable("xero.reconnect_needed", [
   inbox("needed", "Reconnect needed", "Xero needs reconnecting: {{tenantName}}", "{{reason}} Invoices and bills cannot reach Xero until an administrator reconnects it in Settings, Xero. Failed pushes can then be retried.", { required: ["reason"], note: "Inbox notice to administrators, once per outage. The email that goes with it is the block design \"Xero needs reconnecting\" (Email designs)." }),
 ]);
+
+export const DEVICE_CHARGE_TASK_WORDING = editable("property.device_charge_task", [
+  inbox("task", "Charge task added", "Charge a device at {{propertyName}}", "{{taskTitle}} on your clean {{jobNumber}} ({{jobDay}}). It is high priority: do it with a photo, or mark it not done and say why.", { required: ["taskTitle", "propertyName"], note: "Inbox only, to the cleaners on the clean, once per task and clean." }),
+]);
+
+export const DEVICE_PROVIDER_FAILING_WORDING = editable("property.device_provider_failing", [
+  inbox("failing", "Connection not working", "{{providerName}} devices: connection not working", "{{reason}} Last good sync: {{lastSuccess}}. Battery readings from {{providerName}} are now out of date; enter them by hand on the property's Devices panel until it works again.", { required: ["providerName", "reason"], note: "Inbox only, to administrators, once per outage." }),
+]);

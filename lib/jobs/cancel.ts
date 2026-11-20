@@ -12,6 +12,9 @@ import "server-only";
  *    back); this also takes the job off every cleaner list and app, which all
  *    scope by an active assignment;
  *  - cancels QA inspections not yet started (OPEN / ASSIGNED);
+ *  - moves an open device charge task (2026-11-20) to the next available
+ *    clean at the property, or back to waiting when there is none, so it is
+ *    never silently lost; other tasks stay with the job;
  *  - keeps time logs, photos, forms, the laundry task and everything else as
  *    it is (a laundry task is reported back for the office to review);
  *  - notifies the released cleaners in their inbox (./cancel-notice);
@@ -28,6 +31,8 @@ import { db } from "@/lib/db";
 import { FINANCIAL_RECORD_LINE_WHERE } from "@/lib/invoicing/invoiced-job-rule";
 import { derivePreStartJobStatus } from "./assignment-workflow";
 import { cancelRefusal, restoreRefusal } from "./cancel-rules";
+import { notifyLandedTasks, rehomeChargeTasks } from "@/lib/property-devices/charge-service";
+import { getAppSettings } from "@/lib/settings";
 
 export class JobCancelError extends Error {
   constructor(message: string, readonly status: 400 | 403 | 404 | 409, readonly code?: string) {
@@ -88,7 +93,9 @@ async function financialRefusals(tx: Tx, jobId: string): Promise<string[]> {
 
 export async function cancelJob(jobId: string, input: { reason: string; expectedUpdatedAt?: string }, actor: CancelActor, now: Date = new Date()): Promise<CancelResult> {
   const reason = input.reason.trim();
-  return db.$transaction(async (tx) => {
+  let movedChargeTasks: Array<{ taskId: string; jobId: string }> = [];
+  const timeZone = (await getAppSettings()).timezone || "Australia/Sydney";
+  const result = await db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "Job" WHERE id = ${jobId} FOR UPDATE`;
     const job = await tx.job.findUnique({
       where: { id: jobId },
@@ -133,6 +140,7 @@ export async function cancelJob(jobId: string, input: { reason: string; expected
       },
     });
     const followUps: string[] = [];
+    movedChargeTasks = await rehomeChargeTasks(tx, { jobId, timeZone, now });
     const openTasks = await tx.jobTask.count({ where: { jobId, executionStatus: "OPEN" } });
     if (openTasks > 0) followUps.push(`${openTasks} open task${openTasks === 1 ? " is" : "s are"} on this job and stay${openTasks === 1 ? "s" : ""} with it. Move ${openTasks === 1 ? "it" : "them"} to another job if the work is still wanted.`);
     if (job.laundryTask) followUps.push(`This job has a laundry task (${String(job.laundryTask.status).toLowerCase().replace(/_/g, " ")}). Review it on the Laundry page; it was not changed.`);
@@ -148,6 +156,8 @@ export async function cancelJob(jobId: string, input: { reason: string; expected
       followUps,
     };
   });
+  await notifyLandedTasks(movedChargeTasks);
+  return result;
 }
 
 export type RestoreResult = {

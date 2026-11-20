@@ -34,6 +34,7 @@ import { assertVaMayAct } from "@/lib/va/permissions";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
 import { CLIENT_TASK_AUTO_APPROVE_LEAD_MINUTES } from "@/lib/scheduling-rules/constants";
 import { applyLostFoundReturnTaskDecision, LOST_FOUND_RETURN_TASK_KIND } from "@/lib/lost-found/return-task-hook";
+import { applyDeviceChargeTaskDecision, carriedDeviceChargeMetadata, isDeviceChargeTaskMetadata } from "@/lib/property-devices/charge-task-hook";
 
 type RequestLike =
   | { url?: string; headers?: Headers | { get?: (name: string) => string | null } }
@@ -775,6 +776,8 @@ export async function applyCleanerJobTaskUpdates(input: {
     note?: string;
     proofKeys?: string[];
     missingPhotoReason?: string;
+    /** Device charge tasks only: the battery percent the cleaner saw, if shown. */
+    observedBatteryPercent?: number | null;
   }>;
   baseUrl?: RequestLike;
 }, options: { transaction?: Prisma.TransactionClient; afterCommit?: Array<() => Promise<unknown>> } = {}) {
@@ -808,6 +811,11 @@ export async function applyCleanerJobTaskUpdates(input: {
     if (update.decision === "COMPLETED" && existing.requiresPhoto && !proofKeys.length && !missingPhotoReason) throw new Error("Photo proof or a truthful missing-photo reason is required.");
     const notApplicable = update.decision === "NOT_APPLICABLE";
     const metadata = existing.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata) ? existing.metadata as Record<string, unknown> : {};
+    // A device charge (2026-11-20) is never claimed without the cleaner's photo,
+    // and "could not do" always carries a reason.
+    const deviceCharge = isDeviceChargeTaskMetadata(metadata) ? metadata : null;
+    if (deviceCharge && update.decision === "COMPLETED" && !proofKeys.length) throw new Error("A photo of the device on charge or charged is required.");
+    if (deviceCharge && update.decision !== "COMPLETED" && !note) throw new Error("Say why the device could not be charged.");
     if (notApplicable && (metadata.allowNotApplicable !== true || !note || proofKeys.length === 0)) {
       throw new Error("Not applicable requires office permission, a reason and photo proof.");
     }
@@ -887,7 +895,7 @@ export async function applyCleanerJobTaskUpdates(input: {
           approvedByUserId: input.cleanerId,
           approvedAt: new Date(),
           parentTaskId: existing.id,
-          metadata: { allowNotApplicable: metadata.allowNotApplicable === true },
+          metadata: (carriedDeviceChargeMetadata(metadata) ?? { allowNotApplicable: metadata.allowNotApplicable === true }) as Prisma.InputJsonObject,
           events: {
             create: {
               actorUserId: input.cleanerId,
@@ -921,9 +929,74 @@ export async function applyCleanerJobTaskUpdates(input: {
       if (options.afterCommit) options.afterCommit.push(notify);
       else await notify();
     }
+
+    // Device charge (2026-11-20): after the carry-forward, so a "could not do"
+    // points the device at the task now waiting on the next clean.
+    if (deviceCharge) {
+      await applyDeviceChargeTaskDecision(database, deviceCharge, {
+        taskId: update.id,
+        jobId: input.jobId,
+        decision: update.decision,
+        cleanerId: input.cleanerId,
+        note,
+        proofKeys,
+        observedBatteryPercent: typeof update.observedBatteryPercent === "number" ? update.observedBatteryPercent : null,
+      });
+    }
   }
 
   return { carriedForwardCount };
+}
+
+/**
+ * A task the system raises for the office's instructions to the cleaner (the
+ * device charge task, 2026-11-20). On a job it is approved and visible at once;
+ * with no job it waits as a pending property task (source ADMIN,
+ * AUTO_APPROVED, jobId null), which the existing attach hooks
+ * (attachPendingAdminTasksToJob on assignment, iCal sync and the property's
+ * pending tasks) put on the next clean. Idempotent on `id`: a retry or a
+ * second concurrent caller gets the existing row back, never a second task.
+ */
+export async function createOfficeJobTask(database: Prisma.TransactionClient, input: {
+  id: string;
+  propertyId: string;
+  clientId: string | null;
+  jobId: string | null;
+  title: string;
+  description: string | null;
+  requiresPhoto: boolean;
+  requiresNote: boolean;
+  metadata: Record<string, unknown>;
+  actorUserId: string | null;
+  eventAction: string;
+  eventNote: string;
+}): Promise<{ id: string; created: boolean }> {
+  const existing = await database.jobTask.findUnique({ where: { id: input.id }, select: { id: true } });
+  if (existing) return { id: existing.id, created: false };
+  const onJob = Boolean(input.jobId);
+  const created = await database.jobTask.create({
+    data: {
+      id: input.id,
+      jobId: input.jobId,
+      propertyId: input.propertyId,
+      clientId: input.clientId,
+      source: "ADMIN",
+      approvalStatus: onJob ? "APPROVED" : "AUTO_APPROVED",
+      executionStatus: "OPEN",
+      visibleToCleaner: onJob,
+      title: input.title,
+      description: input.description,
+      requiresPhoto: input.requiresPhoto,
+      requiresNote: input.requiresNote,
+      metadata: input.metadata as Prisma.InputJsonObject,
+      requestedByUserId: input.actorUserId,
+      approvedByUserId: input.actorUserId,
+      approvedAt: new Date(),
+      events: { create: { actorUserId: input.actorUserId, action: input.eventAction, note: input.eventNote } },
+    },
+    select: { id: true },
+  });
+  return { id: created.id, created: true };
 }
 
 /**
