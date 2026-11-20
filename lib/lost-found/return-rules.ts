@@ -167,6 +167,8 @@ export function arrangementAttention(snapshot: ArrangementSnapshot): AttentionRe
 
 // ── Words the guest reads ────────────────────────────────────────────────────
 
+export const FEE_DISCLAIMER = "Recording a fee here does not charge the guest. It is the cost you tell them; no invoice or payment is created.";
+
 export const PREFERENCE_NOTICE =
   "This is a preference, not a booking. Nothing is confirmed until our office reviews it and writes to you.";
 

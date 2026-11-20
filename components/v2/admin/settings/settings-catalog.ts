@@ -245,7 +245,7 @@ export const SETTINGS_DESTINATIONS = [
   {
     key: "lost-found",
     label: "Lost and found",
-    description: "How long found items are held before they are flagged for a decision.",
+    description: "How long found items are held, and guest return requests: link, pickup days, fees, acknowledgement, client approval.",
     group: "operations",
     adminOnly: true,
   },

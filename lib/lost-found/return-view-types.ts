@@ -105,6 +105,11 @@ export type OfficeReturnPanel = {
   canDecide: { allowed: boolean; reason: string | null };
   canSendGuest: { allowed: boolean; reason: string | null };
   hasGuestPhoto: boolean;
+  /** The photo URL the guest's email shows (through the open link), or null. */
+  guestPhotoUrl: string | null;
+  draftContext: { officeName: string; officePhone: string | null; propertyLabel: string; link: string | null };
+  /** Each request's address as one line (for the decision message). */
+  addresses: Record<string, string | null>;
 };
 
 /** One item in the client's Lost and found list. */

@@ -30,7 +30,7 @@ import { GUEST_SMS_MAX_CHARS, guestSendOutcome } from "./message";
 import { LostFoundRuleError, statusChangeData } from "./mutations";
 import { parsePhotos } from "./service";
 import { lostFoundPhotoSrc } from "./photo-src";
-import { activeGuestLink, guestLinkToken } from "./guest-link";
+import { activeGuestLink, guestLinkToken, guestPhotoUrl } from "./guest-link";
 import { buildGuestItemEmail } from "./guest-email";
 import { readLostFoundSettings } from "./settings";
 import {
@@ -55,7 +55,7 @@ import type { GuestMessageRecord, OfficeReturnPanel, OfficeReturnRequestView } f
 
 type Tx = Prisma.TransactionClient;
 
-export const FEE_DISCLAIMER = "Recording a fee here does not charge the guest. It is the cost you tell them; no invoice or payment is created.";
+export { FEE_DISCLAIMER } from "./return-rules";
 
 // ── Input ────────────────────────────────────────────────────────────────────
 
@@ -465,9 +465,14 @@ async function officeRequestView(itemId: string, requestId: string): Promise<Off
   return (await officeRequestViews(itemId)).find((row) => row.id === requestId) ?? null;
 }
 
+async function linkPhotoUrl(linkId: string): Promise<string | null> {
+  const row = await db.lostFoundGuestLink.findUnique({ where: { id: linkId } });
+  return row ? guestPhotoUrl(guestLinkToken(row)) : null;
+}
+
 export type DraftContext = { officeName: string; officePhone: string | null; propertyLabel: string; link: string | null };
 
-export async function officeReturnPanel(itemId: string, permissions: { canDecide: GuestSendPermission; canSendGuest: GuestSendPermission }): Promise<OfficeReturnPanel & { draftContext: DraftContext; addresses: Record<string, string | null> }> {
+export async function officeReturnPanel(itemId: string, permissions: { canDecide: GuestSendPermission; canSendGuest: GuestSendPermission }): Promise<OfficeReturnPanel> {
   const item = await db.lostFoundItem.findUnique({ where: { id: itemId }, select: { id: true, propertyId: true, photos: true } });
   if (!item) throw new ReturnRequestError(404, "Item not found.", "NOT_FOUND");
   const [settings, app, requests, link] = await Promise.all([readLostFoundSettings(), getAppSettings(), officeRequestViews(itemId), activeGuestLink(itemId)]);
@@ -482,6 +487,7 @@ export async function officeReturnPanel(itemId: string, permissions: { canDecide
     canDecide: permissions.canDecide,
     canSendGuest: permissions.canSendGuest,
     hasGuestPhoto: parsePhotos(item.photos).length > 0,
+    guestPhotoUrl: link && parsePhotos(item.photos).length > 0 ? await linkPhotoUrl(link.id) : null,
     draftContext: {
       officeName: app.companyName || "sNeek Property Services",
       officePhone: app.companyPhone?.trim() || null,

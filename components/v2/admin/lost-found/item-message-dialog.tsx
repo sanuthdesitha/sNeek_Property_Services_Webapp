@@ -18,16 +18,35 @@ import * as React from "react";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EField, EInput, EModal, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 import type { HydratedLostFoundItem } from "@/lib/lost-found/service";
-import { CONTACT_CHANNELS, CONTACT_CHANNEL_LABEL, mailtoHref, smsHref, type ContactChannel, type MessageAudience, type MessageDraft } from "@/lib/lost-found/message";
+import { CONTACT_CHANNELS, CONTACT_CHANNEL_LABEL, GUEST_SMS_MAX_CHARS, mailtoHref, smsHref, type ContactChannel, type MessageAudience, type MessageDraft } from "@/lib/lost-found/message";
 import { ItemClientSend } from "./item-client-send";
 
 type Recipient = { name: string | null; email: string | null; phone: string | null };
-type Prepared = { draft: MessageDraft; recipient: Recipient; send: { available: boolean; reason: string } };
+/** Guest only (2026-11-20): the item's open link and the photo the email shows. */
+type GuestLinkInfo = { url: string | null; expiresAt: string | null; photoUrl: string | null; enabled: boolean };
+type Prepared = { draft: MessageDraft; recipient: Recipient; send: { available: boolean; reason: string }; guestLink: GuestLinkInfo | null };
 type SendResult = { outcome: { accepted: boolean; note: string }; item: HydratedLostFoundItem };
 const SEND_LIMIT = 1000;
 type Load = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; prepared: Prepared };
 
 export type MessageDrafts = Partial<Record<MessageAudience, MessageDraft>>;
+
+/** What the guest gets by email: the text, the item's photo and the button to their page. */
+function GuestPreview({ draft, link, note }: { draft: MessageDraft; link: GuestLinkInfo; note: string | null }) {
+  const linkMissing = Boolean(link.url) && !draft.body.includes(link.url!);
+  return (
+    <div className="space-y-2 rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-sunken))] p-3" aria-label="What the guest will get">
+      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">What the guest will get by email (a text gets the message only, link included):</p>
+      <p className="text-[0.8125rem] font-[600]">{draft.subject}</p>
+      <p className="whitespace-pre-wrap break-words text-[0.8125rem]">{draft.body}</p>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {link.photoUrl ? <img src={link.photoUrl} alt="The item's photo as the guest sees it" className="max-h-40 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]" /> : <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{link.url ? "This item has no photo, so the email has none." : "No guest link, so the email has no photo or button."}</p>}
+      {link.url ? <p className="text-[0.8125rem]">Button: <span className="font-[600]">View your item and request its return</span> → <span className="break-all">{link.url}</span></p> : null}
+      {linkMissing ? <p role="note" className="text-[0.75rem] text-[hsl(var(--e-warning))]">The link is no longer in the text. A text message would arrive without it; the email still has the button.</p> : null}
+      {note ? <p role="note" className="text-[0.75rem] text-[hsl(var(--e-warning))]">{note}</p> : null}
+    </div>
+  );
+}
 
 const NOTE_LIMIT = 4000;
 
@@ -61,6 +80,7 @@ export function ItemMessageDialog({
   const [copied, setCopied] = React.useState<"idle" | "done" | "failed">("idle");
   const [saving, setSaving] = React.useState(false);
   const [sendResult, setSendResult] = React.useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [linkNote, setLinkNote] = React.useState<string | null>(null);
   const sendKeys = React.useRef(new Map<string, string>());
 
   React.useEffect(() => {
@@ -68,7 +88,21 @@ export function ItemMessageDialog({
     const controller = new AbortController();
     setLoad({ status: "loading" });
     setCopied("idle");
-    fetch(`/api/admin/lost-found/${itemId}/message?audience=${audience}`, { cache: "no-store", signal: controller.signal })
+    setLinkNote(null);
+    // Guest: make sure the item has an open link first, so the draft carries it
+    // (the server refuses when links are switched off, the item is closed, or
+    // this person may not change the item; the draft then has no link).
+    const ensureLink = audience === "guest"
+      ? fetch(`/api/admin/lost-found/${itemId}/guest-link`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "ensure" }), signal: controller.signal })
+          .then(async (response) => {
+            if (response.ok || controller.signal.aborted) return;
+            const body = (await response.json().catch(() => null)) as { error?: string } | null;
+            setLinkNote(`No guest link in this message: ${body?.error ?? "it could not be made"}`);
+          })
+          .catch(() => undefined)
+      : Promise.resolve();
+    ensureLink
+      .then(() => fetch(`/api/admin/lost-found/${itemId}/message?audience=${audience}`, { cache: "no-store", signal: controller.signal }))
       .then(async (response) => {
         const body = (await response.json().catch(() => null)) as (Prepared & { error?: string }) | null;
         if (controller.signal.aborted) return;
@@ -138,6 +172,7 @@ export function ItemMessageDialog({
   }
 
   const tooLongToSend = Boolean(draft && draft.body.length > SEND_LIMIT);
+  const tooLongForText = Boolean(draft && draft.body.length > GUEST_SMS_MAX_CHARS);
   const mailto = prepared && draft ? mailtoHref(prepared.recipient.email, draft) : null;
   const sms = prepared && draft ? smsHref(prepared.recipient.phone, draft) : null;
 
@@ -155,6 +190,7 @@ export function ItemMessageDialog({
           <fieldset disabled={saving} className="space-y-3">
             <EField label="Subject"><EInput value={draft.subject} maxLength={300} onChange={(event) => onDraftChange(audience, { ...draft, subject: event.target.value })} /></EField>
             <EField label="Message"><ETextarea rows={10} value={draft.body} maxLength={3500} onChange={(event) => onDraftChange(audience, { ...draft, body: event.target.value })} /></EField>
+            {audience === "guest" && prepared.guestLink ? <GuestPreview draft={draft} link={prepared.guestLink} note={linkNote} /> : null}
             {prepared.send.available && audience === "client" ? (
               <ItemClientSend itemId={itemId} draft={draft} onSending={setSaving} onSent={onSent} />
             ) : null}
@@ -162,10 +198,10 @@ export function ItemMessageDialog({
               <div className="space-y-1">
                 <div className="flex flex-wrap gap-2">
                   <EButton type="button" size="sm" disabled={!prepared.recipient.email || tooLongToSend} onClick={() => void sendFromApp("EMAIL")}>Send by email</EButton>
-                  <EButton type="button" size="sm" variant="outline" disabled={!prepared.recipient.phone || tooLongToSend} onClick={() => void sendFromApp("SMS")}>Send by text</EButton>
+                  <EButton type="button" size="sm" variant="outline" disabled={!prepared.recipient.phone || tooLongToSend || tooLongForText} onClick={() => void sendFromApp("SMS")}>Send by text</EButton>
                 </div>
                 <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                  {tooLongToSend ? `Shorten the message to ${SEND_LIMIT} characters to send it from the app (now ${draft.body.length}).` : !prepared.recipient.email && !prepared.recipient.phone ? "No guest email or phone recorded; edit the guest first." : `Up to ${SEND_LIMIT} characters.`}
+                  {tooLongToSend ? `Shorten the message to ${SEND_LIMIT} characters to send it from the app (now ${draft.body.length}).` : !prepared.recipient.email && !prepared.recipient.phone ? "No guest email or phone recorded; edit the guest first." : `Up to ${SEND_LIMIT} characters by email, ${GUEST_SMS_MAX_CHARS} by text (longer texts are cut off, link included). Now ${draft.body.length}.`}
                 </p>
                 {sendResult ? <p role={sendResult.tone === "error" ? "alert" : "status"} className={sendResult.tone === "error" ? "text-[0.8125rem] text-[hsl(var(--e-danger))]" : "text-[0.8125rem] text-[hsl(var(--e-success))]"}>{sendResult.text}</p> : null}
               </div>
