@@ -126,7 +126,7 @@ async function raiseTask(tx: Tx, device: LockedDevice, percent: number, threshol
     clientId: device.property.clientId,
     jobId: job?.id ?? null,
     title: chargeTaskTitle({ providerLabel, kindLabel: KIND_LABEL[device.kind], deviceName: device.name, percent }),
-    description: `Battery is at ${percent}% (charge at ${threshold}% or below).${where} Put it on charge, or charge and re-mount it, and take a photo. If you cannot, choose Not done and say why; it goes back to the office and moves to the next clean.`,
+    description: `Battery is at ${percent}% (charge at ${threshold}% or below).${where} Put it on charge, or charge and re-mount it, and take a photo. If you cannot, choose Could not do and say why; the office is told and it moves to the next clean.`,
     requiresPhoto: true,
     requiresNote: false,
     metadata,
