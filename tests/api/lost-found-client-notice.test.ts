@@ -24,6 +24,11 @@ vi.mock("@/lib/notifications/type-controls", async () => {
   return { ...actual, getNotificationTypeControls: m.controls };
 });
 vi.mock("@/lib/lost-found/service", () => ({ hydrateItemWithEvents: async (item: unknown) => item, hydrateItems: async (items: Array<Record<string, unknown>>) => items.map((item) => ({ ...item, createdAt: "2026-11-10T01:00:00.000Z", propertyName: "Bondi Studio", propertyAddress: null, guestEmail: null })) }));
+// The guest message now carries the item's guest link (2026-11-20); no link is open here.
+vi.mock("@/lib/lost-found/guest-link", () => ({
+  guestLinkForDraft: async () => ({ url: null, expiresAt: null, photoUrl: null, enabled: true }),
+  openLinkToken: async () => ({ token: null, url: null }),
+}));
 vi.mock("@/lib/db", () => ({ db: {
   lostFoundItem: { findUnique: m.item, findUniqueOrThrow: m.itemOrThrow },
   property: { findUnique: m.property },

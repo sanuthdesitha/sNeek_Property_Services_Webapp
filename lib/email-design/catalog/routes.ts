@@ -2,7 +2,7 @@
  * Emails that were HTML written inside routes, as blocks. Version 1 keeps
  * each one's words. Plain module.
  */
-import { button, callout, design, doc, lineItems, note, paragraph, v } from "./build";
+import { button, callout, design, doc, lineItems, note, paragraph, photos, v } from "./build";
 import type { EmailDesignDefinition } from "../types";
 
 const CLIENT = v("clientName", "Client name", "Priya", { fallback: "" });
@@ -67,5 +67,22 @@ export const ROUTE_DESIGNS: readonly EmailDesignDefinition[] = [
     mustStay: ["Message"], source: "office sends and fallbacks that wrapped the text in one paragraph (HTML in code)", titleOptional: true,
     variables: [v("greeting", "Greeting", "", { fallback: "" }), v("messageText", "Message", "The new roster is up in the team hub.", { format: "multiline", keep: true, fallback: "" })],
     defaults: doc("{{companyName}}", "", [paragraph("{{greeting}}", { showIf: "greeting" }), paragraph("{{messageText}}")]),
+  }),
+
+  design({
+    key: "lostFoundGuestMessage", label: "Message to a guest about a found item", group: "office", typeKey: "guest.message", audience: "The guest of a stay where an item was found",
+    trigger: "The office sends a lost and found message to a guest (Message guest, or the return decision), and the guest acknowledgement.", security: false,
+    whyLine: "You got this because something was found after your stay.", preferences: "none",
+    mustStay: ["Message"], source: "lib/lost-found/guest-email.ts (2026-11-20)", titleOptional: true,
+    variables: [
+      v("messageText", "Message", "Our cleaner found this item after your stay: a black phone charger.", { format: "multiline", keep: true, fallback: "" }),
+      v("itemPhoto", "Photo of the item (from the guest's link)", "", { format: "photos" }),
+      v("itemUrl", "Link to the item's page", "https://app.sneek.example/lost-found/abc", { format: "url" }),
+    ],
+    defaults: doc("{{companyName}}", "", [
+      paragraph("{{messageText}}"),
+      photos("itemPhoto", "The item we found."),
+      button("View your item and request its return", "itemUrl"),
+    ]),
   }),
 ];

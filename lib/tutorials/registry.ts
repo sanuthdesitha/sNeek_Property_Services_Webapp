@@ -88,11 +88,12 @@ export const TOURS: readonly TourDefinition[] = [
     roles: ["CLIENT"],
     route: "/v2/client",
     title: "Welcome",
-    version: 1,
+    version: 2,
     steps: [
       { id: "welcome", target: null, since: 1, title: "Welcome to sNeek", body: "This is where you see your properties, every clean we do and anything waiting for your decision." },
       { id: "cleans", target: null, since: 1, title: "Cleans and reports", body: "Each clean has a report: the checklist, stamped photos and any issues we found." },
       { id: "approvals", target: null, since: 1, title: "Approvals", body: "Anything that costs you more waits for your yes. Nothing is charged without your yes." },
+      { id: "lostFound", target: null, since: 2, title: "Lost and found", body: "Items we find at your properties are listed under Lost and found, with each guest's return request. Our office confirms every return." },
       {
         id: "messages", target: null, since: 1, title: "Messages", body: "Questions or changes? Message us from Messages and we'll reply there. Help replays these tips.",
         actions: [{ kind: "navigate", label: "Go to Home", href: "/v2/client", primary: true }],

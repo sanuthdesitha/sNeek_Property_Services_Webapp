@@ -26,7 +26,7 @@ import { dispatchNotificationOnce } from "./dispatch-once";
  *   the delivery log with the provider's truthful state (accepted, never
  *   "delivered").
  */
-export type ExternalMessageKind = "guest.message" | "laundry.supplier_chase" | "onboarding.client_link" | "checklist.amenities_link";
+export type ExternalMessageKind = "guest.message" | "laundry.supplier_chase" | "onboarding.client_link" | "checklist.amenities_link" | "lostfound.return_ack";
 export type ExternalTransport = "EMAIL" | "SMS";
 export type ExternalMessageState = "provider_accepted" | "already_requested" | "skipped" | "failed";
 
@@ -78,6 +78,19 @@ export const EXTERNAL_MESSAGE_KINDS: Record<ExternalMessageKind, KindPolicy> = {
     logBody: (id) => `Onboarding client link for survey ${id}`,
     entityTooOften: "This onboarding's client has been sent too many links today.",
     senderTooMany: "Too many client links. Try again later.",
+  },
+  // The automatic "we received your request" to a guest (2026-11-20). The
+  // office wrote the template; the actor is the person who created the link.
+  "lostfound.return_ack": {
+    auditAction: "LOST_FOUND_RETURN_ACK_SENT",
+    auditEntity: "LostFoundItem",
+    recipientNoun: "guest",
+    entityDailyLimit: 4,
+    senderHourlyLimit: 60,
+    eventPrefix: "lostfound-return-ack",
+    logBody: (id) => `Return request acknowledgement for lost and found item ${id}`,
+    entityTooOften: "This item's guest has already had several acknowledgements today.",
+    senderTooMany: "Too many acknowledgements in the last hour. Try again later.",
   },
   "checklist.amenities_link": {
     auditAction: "AMENITIES_LINK_EMAILED",

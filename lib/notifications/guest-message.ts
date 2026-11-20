@@ -42,7 +42,12 @@ export const guestMessageSchema = z.object({
 export type GuestMessageResult = ExternalMessageResult;
 
 /** `actorRole`: the role that allowed the send (ADMIN, or OPS_MANAGER with the Lost & found pack), kept on the audit row. */
-export async function sendGuestMessage(actorId: string, input: unknown, now = new Date(), actorRole: OfficeActorRole | null = null): Promise<GuestMessageResult> {
+/**
+ * `email`: the rendered email (the lost and found guest email carries the
+ * item's photo and the guest's link, lib/lost-found/guest-email.ts); without
+ * it the body is sent as a plain message. Never taken from a request body.
+ */
+export async function sendGuestMessage(actorId: string, input: unknown, now = new Date(), actorRole: OfficeActorRole | null = null, email?: { subject: string; html: string }): Promise<GuestMessageResult> {
   const request = guestMessageSchema.parse(input);
   assertExternalAddress("guest.message", request.transport, request.to);
   const item = await db.lostFoundItem.findUnique({ where: { id: request.lostFoundItemId }, select: { id: true, itemName: true, jobId: true } });
@@ -56,6 +61,7 @@ export async function sendGuestMessage(actorId: string, input: unknown, now = ne
     to: request.to,
     subject: request.subject ?? `About your ${item.itemName}`,
     body: request.body,
+    ...(email && request.transport === "EMAIL" ? { email } : {}),
     idempotencyKey: request.idempotencyKey,
     audit: { actorRole },
     now,

@@ -39,9 +39,19 @@ export type MessageDraftInput = {
   officeName: string;
   officePhone: string | null;
   timeZone: string;
+  /** Guest: the item's public page (photo, return request). Null when no link is open. */
+  guestLinkUrl?: string | null;
+  /** Client: the client's Lost and found page in the portal. */
+  clientLinkUrl?: string | null;
 };
 
 export type MessageDraft = { subject: string; body: string };
+
+/**
+ * The SMS chokepoint cuts texts longer than this (lib/notifications/sms.ts),
+ * which would cut the guest's link off; a longer text is refused instead.
+ */
+export const GUEST_SMS_MAX_CHARS = 459;
 
 export type GuestSendState = "provider_accepted" | "already_requested" | "skipped" | "failed";
 
@@ -81,7 +91,9 @@ export function draftLostFoundMessage(input: MessageDraftInput): MessageDraft {
       body: [
         greeting,
         `This is ${input.officeName}. After your stay at ${place}, our cleaner found this item on ${found}: ${input.itemName}${where}.`,
-        "We are keeping it safe. Please reply to let us know whether you would like to collect it or have it sent to you, and we will arrange the details.",
+        input.guestLinkUrl
+          ? `We are keeping it safe. View your item and request its return here: ${input.guestLinkUrl}\nWhatever you choose there is a preference until we confirm it with you.`
+          : "We are keeping it safe. Please reply to let us know whether you would like to collect it or have it sent to you, and we will arrange the details.",
         contact,
         `Kind regards,\n${input.officeName}`,
       ].join("\n\n"),
@@ -96,9 +108,10 @@ export function draftLostFoundMessage(input: MessageDraftInput): MessageDraft {
       greeting,
       `Our cleaner found this item at ${place}${address} on ${found}: ${input.itemName}${where}.${guest}`,
       "We are holding it and will arrange its return with the guest. If the guest contacts you about it, please let us know.",
+      input.clientLinkUrl ? `See it, and any return request from the guest, in your portal: ${input.clientLinkUrl}` : null,
       contact,
       `Kind regards,\n${input.officeName}`,
-    ].join("\n\n"),
+    ].filter(Boolean).join("\n\n"),
   };
 }
 

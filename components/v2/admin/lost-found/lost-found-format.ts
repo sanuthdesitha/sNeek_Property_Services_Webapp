@@ -93,3 +93,15 @@ export function lostFoundStages(status: string, visited: Set<string>): EStage[] 
     return { ...base, state: visited.has(stageStatus[stage]) ? ("done" as const) : ("passed" as const) };
   });
 }
+
+/**
+ * The row's return-request badge (2026-11-20): a waiting request, an approved
+ * handover that needs a new arrangement, or an approved return. Null otherwise.
+ */
+export function returnRequestPill(badge: { status: string; attention: string | null } | null): StatusPill | null {
+  if (!badge) return null;
+  if (badge.status === "PENDING") return { label: "Return requested", tone: "gold" };
+  if (badge.status === "APPROVED" && badge.attention) return { label: "Needs new arrangement", tone: "warn" };
+  if (badge.status === "APPROVED") return { label: "Return approved", tone: "info" };
+  return null;
+}

@@ -11,6 +11,7 @@ export type AudienceGroup = (typeof AUDIENCE_GROUPS)[number];
 /** Types whose first audience would place them in the wrong group. */
 const EXPLICIT: Record<string, AudienceGroup> = {
   "guest.message": "Guests",
+  "lostfound.return_ack": "Guests",
   "laundry.supplier_chase": "Laundry",
   "laundry.team_request": "Laundry",
   "laundry.failed_pickup": "Laundry",

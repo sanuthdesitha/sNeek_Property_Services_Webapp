@@ -13,6 +13,7 @@ import { rankCleanerSuggestions, type SuggestionCandidate } from "@/lib/jobs/cle
 import { sydneyTodayKey } from "@/lib/time/sydney-range";
 import { cancelJob, releasedAssignmentsFor, restoreJob, type CancelActor, type CancelResult, type RestoreResult } from "./cancel";
 import { sendJobCancelledNotice, sendJobRestoredNotice, type CancelNoticeOutcome } from "./cancel-notice";
+import { reviewReturnArrangementsForJob } from "@/lib/lost-found/return-decisions";
 
 const DAY_FORMAT = new Intl.DateTimeFormat("en-AU", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 
@@ -24,6 +25,8 @@ export type CancelFlowResult = CancelResult & { notices: CancelNoticeOutcome[]; 
 
 export async function cancelJobAndNotify(jobId: string, input: { reason: string; expectedUpdatedAt?: string; notify?: boolean }, actor: CancelActor): Promise<CancelFlowResult> {
   const result = await cancelJob(jobId, input, actor);
+  // A lost and found handover booked on this clean needs a new arrangement (2026-11-20).
+  await reviewReturnArrangementsForJob(jobId);
   const recipients = result.released
     .filter((row) => row.isActive)
     .map((row) => ({ id: row.userId, role: row.role as Role, name: row.name, email: row.email }));

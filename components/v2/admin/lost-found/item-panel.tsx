@@ -24,6 +24,7 @@ import { ItemGuestCard } from "./item-guest-card";
 import { ItemDecisions } from "./item-decisions";
 import { ItemMessageDialog, type MessageDrafts } from "./item-message-dialog";
 import { ItemTimeline } from "./item-timeline";
+import { ItemReturnRequests } from "./item-return-requests";
 
 type Load = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; item: HydratedLostFoundItem };
 
@@ -72,6 +73,8 @@ export function ItemPanel({ itemId, timeZone, holdingDays, onClose, onChanged }:
   const [message, setMessage] = React.useState<MessageAudience | null>(null);
   const [drafts, setDrafts] = React.useState<MessageDrafts>({});
   const [actionError, setActionError] = React.useState<string | null>(null);
+  /** Bumped after a return decision so the item (status, timeline) is read again. */
+  const [refresh, setRefresh] = React.useState(0);
 
   React.useEffect(() => {
     const controller = new AbortController();
@@ -86,7 +89,7 @@ export function ItemPanel({ itemId, timeZone, holdingDays, onClose, onChanged }:
         if (!controller.signal.aborted) setLoad({ status: "error", message: error instanceof Error ? error.message : "Could not load this item." });
       });
     return () => controller.abort();
-  }, [itemId]);
+  }, [itemId, refresh]);
 
   const apply = React.useCallback(async (task: () => Promise<HydratedLostFoundItem>, success: string) => {
     setActionError(null);
@@ -105,6 +108,10 @@ export function ItemPanel({ itemId, timeZone, holdingDays, onClose, onChanged }:
   const post = React.useCallback((payload: Record<string, unknown>, success: string) => apply(() => send(`/api/lost-found/${itemId}/events`, "POST", payload), success), [apply, itemId]);
   const onSent = React.useCallback((sent: HydratedLostFoundItem) => {
     setLoad({ status: "ready", item: sent });
+    onChanged();
+  }, [onChanged]);
+  const onReturnChanged = React.useCallback(() => {
+    setRefresh((count) => count + 1);
     onChanged();
   }, [onChanged]);
   const onDraftChange = React.useCallback((audience: MessageAudience, draft: MessageDraft) => setDrafts((current) => ({ ...current, [audience]: draft })), []);
@@ -151,9 +158,10 @@ export function ItemPanel({ itemId, timeZone, holdingDays, onClose, onChanged }:
               <EButton size="sm" variant="outline" onClick={() => setMessage("client")}>Tell client</EButton>
               {item.status === "REPORTED" ? <EButton size="sm" variant="outline" onClick={() => void save({ status: "IN_STORAGE" }, "Moved to storage")}>Move to storage</EButton> : null}
             </div>
-            <p className={dt}>&ldquo;Message guest&rdquo; opens a ready message with the item and return options. Sending it (accepted by the provider) or recording that you sent it moves the item to Guest contacted.</p>
+            <p className={dt}>&ldquo;Message guest&rdquo; opens a ready message with the item, its photo and the guest&rsquo;s link to request a return. Sending it (accepted by the provider) or recording that you sent it moves the item to Guest contacted.</p>
           </section>
           {actionError ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{actionError}</p> : null}
+          <ItemReturnRequests key={`return:${item.id}`} itemId={item.id} itemName={item.itemName} timeZone={timeZone} onItemChanged={onReturnChanged} />
           <hr className="border-[hsl(var(--e-border))]" />
           <StorageFields key={`${item.id}:${item.storageLocation}:${item.estimatedValue}`} item={item} save={save} />
           <ItemDecisions key={item.id} item={item} timeZone={timeZone} save={save} post={post} />

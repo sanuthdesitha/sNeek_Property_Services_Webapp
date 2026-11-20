@@ -15,13 +15,38 @@ import { logger } from "@/lib/logger";
  * Shows one lost and found photo to whoever may open the item, with the same
  * rule as `GET /api/lost-found/[id]`: ADMIN and OPS_MANAGER, or the CLEANER
  * who reported it while the Lost & found module is on. The key must be one of
- * the item's own stored photos (never an arbitrary storage key). Answers with
+ * the item's own stored photos (never an arbitrary storage key), or, for the
+ * office, the handover photo on the item's return task. Answers with
  * a redirect to a 10-minute signed link, so it works whether the bucket is
  * public or private. When storage cannot sign, it falls back to the public
  * link only if a public base URL is configured; otherwise 503 with the reason,
  * so the screen can say the image could not be loaded.
  */
 const SIGNED_SECONDS = 600;
+
+/**
+ * The office may also open the handover photo a cleaner took on the item's
+ * return task (2026-11-20): a completion photo on a JobTask linked to one of
+ * this item's return requests. Nothing else.
+ */
+async function isHandoverEvidence(itemId: string, key: string, role: Role): Promise<boolean> {
+  if (role !== Role.ADMIN && role !== Role.OPS_MANAGER) return false;
+  try {
+    return await handoverAttachmentExists(itemId, key);
+  } catch (err) {
+    // Fails closed: an unreadable record never opens a key.
+    logger.warn({ err, itemId }, "Lost and found handover photo check failed");
+    return false;
+  }
+}
+
+async function handoverAttachmentExists(itemId: string, key: string): Promise<boolean> {
+  const requests = await db.lostFoundReturnRequest.findMany({ where: { itemId, jobTaskId: { not: null } }, select: { jobTaskId: true } });
+  const taskIds = requests.map((row) => row.jobTaskId).filter((id): id is string => Boolean(id));
+  if (taskIds.length === 0) return false;
+  const attachment = await db.jobTaskAttachment.findFirst({ where: { taskId: { in: taskIds }, s3Key: key, kind: "COMPLETION_PROOF" }, select: { id: true } });
+  return Boolean(attachment);
+}
 
 function failure(status: number, error: string, code: string) {
   return NextResponse.json({ error, code }, { status, headers: { "Cache-Control": "no-store" } });
@@ -43,7 +68,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         return failure(403, "You cannot open this item.", "FORBIDDEN");
       }
     }
-    if (!itemHasPhotoKey(parsePhotos(item.photos), key)) return failure(404, "This photo is not on the item.", "PHOTO_NOT_ON_ITEM");
+    if (!itemHasPhotoKey(parsePhotos(item.photos), key) && !(await isHandoverEvidence(item.id, key, role))) {
+      return failure(404, "This photo is not on the item.", "PHOTO_NOT_ON_ITEM");
+    }
 
     let target: string | null = null;
     try {

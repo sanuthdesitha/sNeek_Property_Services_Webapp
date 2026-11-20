@@ -27,12 +27,15 @@ import { exportQueryString, listQueryString, type LostFoundView } from "./lost-f
 import { useLostFoundView } from "./use-lost-found-view";
 import { LOST_FOUND_PAGE_SIZE, useLostFoundList } from "./use-lost-found-list";
 
-function summaryLine(summary: { open: number; pastHolding: number; unprocessedNew?: number } | undefined, holdingDays: number): string {
+function summaryLine(summary: { open: number; pastHolding: number; unprocessedNew?: number; returnRequested?: number } | undefined, holdingDays: number): string {
   if (!summary) return "Loading…";
   const base = `${summary.open} open ${summary.open === 1 ? "item" : "items"} · ${summary.pastHolding} waiting more than ${holdingDays} days`;
   // Wave F: items still at New after the named threshold, when there are any.
   const stale = summary.unprocessedNew ?? 0;
-  return stale > 0 ? `${base} · ${stale} still new after ${NEW_ITEM_FLAG_DAYS} days` : base;
+  const withStale = stale > 0 ? `${base} · ${stale} still new after ${NEW_ITEM_FLAG_DAYS} days` : base;
+  // 2026-11-20: guest return requests waiting for the office, when there are any.
+  const requested = summary.returnRequested ?? 0;
+  return requested > 0 ? `${withStale} · ${requested} return ${requested === 1 ? "request" : "requests"} waiting` : withStale;
 }
 
 export function LostFoundHub({ initialView, isAdmin, timeZone }: { initialView: LostFoundView; isAdmin: boolean; timeZone: string }) {
@@ -79,7 +82,7 @@ export function LostFoundHub({ initialView, isAdmin, timeZone }: { initialView: 
         </header>
 
         <LostFoundTabs active={view.tab} counts={data?.counts ?? null} onSelect={(tab) => update({ tab })} />
-        <LostFoundFilters view={view} onChange={update} properties={data?.properties ?? []} holdingDays={data?.holdingDays ?? null} unprocessedCount={data?.summary.unprocessedNew ?? null} />
+        <LostFoundFilters view={view} onChange={update} properties={data?.properties ?? []} holdingDays={data?.holdingDays ?? null} unprocessedCount={data?.summary.unprocessedNew ?? null} returnRequestedCount={data?.summary.returnRequested ?? null} />
 
         <div className="overflow-hidden rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
           <EDataTable<LostFoundListRow, LostFoundView["sort"]>

@@ -12,9 +12,10 @@ import { ONBOARDING_WORDING } from "./definitions/onboarding";
 import { CHECKLIST_WORDING } from "./definitions/checklists";
 import { PEOPLE_WORDING } from "./definitions/people";
 import { CLIENT_MAINTENANCE_WORDING } from "./definitions/client-maintenance";
+import { LOST_FOUND_RETURN_WORDING } from "./definitions/lost-found-returns";
 import type { TypeWordingDefinition, WordingPartDefinition, WordingTransport } from "./types";
 
-export const WORDING_DEFINITIONS: readonly TypeWordingDefinition[] = [...JOB_WORDING, ...OFFICE_WORDING, ...PEOPLE_WORDING, ...ACTION_WORDING, ...ONBOARDING_WORDING, ...CHECKLIST_WORDING, ...CLIENT_MAINTENANCE_WORDING];
+export const WORDING_DEFINITIONS: readonly TypeWordingDefinition[] = [...JOB_WORDING, ...OFFICE_WORDING, ...PEOPLE_WORDING, ...ACTION_WORDING, ...ONBOARDING_WORDING, ...CHECKLIST_WORDING, ...CLIENT_MAINTENANCE_WORDING, ...LOST_FOUND_RETURN_WORDING];
 
 const BY_TYPE = new Map(WORDING_DEFINITIONS.map((definition) => [definition.typeKey, definition]));
 

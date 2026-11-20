@@ -81,7 +81,7 @@ describe("every client destination keeps a home", () => {
     const labels = sections.map((section) => section.rows.map((row) => row.links.map((link) => link.label).join(" · ")));
     expect(labels).toEqual([
       ["Cleans list", "Calendar", "Reports", "Laundry"],
-      ["Properties", "Inventory", "Shopping · Stock counts", "Maintenance"],
+      ["Properties", "Inventory", "Shopping · Stock counts", "Maintenance · Lost and found"],
       ["Cases and disputes", "My quotes", "Referrals · Assistants", "Profile · Settings"],
     ]);
   });
