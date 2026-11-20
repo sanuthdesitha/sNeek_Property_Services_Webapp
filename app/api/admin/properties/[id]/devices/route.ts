@@ -6,6 +6,8 @@ import { db } from "@/lib/db";
 import { listPropertyDevices } from "@/lib/property-devices/views";
 import { DEVICE_ROUTE_HEADERS, deviceRouteError } from "@/lib/property-devices/route-errors";
 import { DEVICE_KINDS } from "@/lib/property-devices/types";
+import { getOpsAccess } from "@/lib/rbac/ops-access";
+import { canUseOpsPath } from "@/lib/rbac/ops-catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +18,12 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    return NextResponse.json(await listPropertyDevices(params.id), { headers: DEVICE_ROUTE_HEADERS });
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const isAdmin = session.user.role === Role.ADMIN;
+    // What this viewer may do, so the panel offers only what the server will accept.
+    const levels = isAdmin ? null : await getOpsAccess(session.user);
+    const canManage = isAdmin || (levels !== null && canUseOpsPath(levels, `/api/admin/properties/${params.id}/devices`, "POST"));
+    return NextResponse.json({ ...(await listPropertyDevices(params.id)), viewer: { isAdmin, canManage } }, { headers: DEVICE_ROUTE_HEADERS });
   } catch (error) {
     return deviceRouteError(error);
   }

@@ -14,7 +14,7 @@ import type { DeviceAttentionReason, DeviceAttentionRow, DeviceReadingView, Prop
 const DEVICE_SELECT = {
   id: true, propertyId: true, provider: true, externalDeviceId: true, name: true, kind: true, locationNote: true, batteryPowered: true,
   lastBatteryPercent: true, lastReadingAt: true, lastReadingSource: true, online: true, thresholdPercent: true, isActive: true,
-  chargeCondition: true, conditionOpenedAt: true, chargeTaskId: true, chargedAt: true, lastCouldNotChargeAt: true, lastCouldNotChargeNote: true,
+  chargeCondition: true, conditionOpenedAt: true, chargeTaskId: true, chargedAt: true, lastCouldNotChargeAt: true, lastCouldNotChargeNote: true, updatedAt: true,
   property: { select: { name: true, deviceBatteryThresholdPercent: true } },
 } as const;
 
@@ -57,6 +57,7 @@ function toView(row: DeviceRow, settings: PropertyDeviceSettings, now: Date, tas
     lastCouldNotChargeNote: row.lastCouldNotChargeNote,
     chargeTask: openTask ? { id: openTask.id, jobId: openTask.jobId, jobNumber: openTask.job?.jobNumber ?? null, jobDay: openTask.job ? openTask.job.scheduledDate.toISOString().slice(0, 10) : null } : null,
     noCleanScheduled: row.chargeCondition === "NEEDS_CHARGE" && (!openTask || !openTask.jobId),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 

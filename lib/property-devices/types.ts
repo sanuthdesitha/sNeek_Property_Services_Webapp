@@ -28,6 +28,9 @@ export type ChargeCondition = "NONE" | "NEEDS_CHARGE" | "CHARGED_AWAITING_CONFIR
 /** What the office list shows for a device's battery. */
 export type DeviceBatteryStatus = "OK" | "LOW" | "STALE" | "UNKNOWN" | "OFFLINE" | "WIRED" | "INACTIVE";
 
+/** Permanent wording on the Ring connection screen (owner agreement, 2026-11-20). */
+export const RING_UNOFFICIAL_WARNING = "Ring does not offer an official connection. This uses Ring's app interface, read-only, and may stop working without notice. When it stops, you will be told and can enter battery levels by hand.";
+
 export const PROVIDER_LABEL: Record<DeviceProvider, string> = {
   RING: "Ring",
   MINUT: "Minut",
@@ -131,6 +134,8 @@ export type PropertyDeviceView = {
   chargeTask: { id: string; jobId: string | null; jobNumber: string | null; jobDay: string | null } | null;
   /** True when a charge is needed and no upcoming clean exists to carry the task. */
   noCleanScheduled: boolean;
+  /** Guards an edit against a change made since it was read. */
+  updatedAt: string;
 };
 
 export type DeviceReadingView = {

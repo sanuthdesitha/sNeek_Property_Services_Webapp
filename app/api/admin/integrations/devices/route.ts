@@ -20,12 +20,13 @@ export async function GET() {
   try {
     await requireRole([Role.ADMIN]);
     const settings = await readPropertyDeviceSettings();
-    const [connections, locations, runs] = await Promise.all([
+    const [connections, locations, runs, properties] = await Promise.all([
       connectionViews(settings),
       listProviderLocations(),
       db.deviceSyncRun.findMany({ orderBy: { createdAt: "desc" }, take: 15, select: { id: true, provider: true, mode: true, status: true, summary: true, error: true, createdAt: true, completedAt: true } }),
+      db.property.findMany({ where: { isActive: true }, select: { id: true, name: true, suburb: true }, orderBy: { name: "asc" } }),
     ]);
-    return NextResponse.json({ settings, connections, locations, runs }, { headers: DEVICE_ROUTE_HEADERS });
+    return NextResponse.json({ settings, connections, locations, runs, properties }, { headers: DEVICE_ROUTE_HEADERS });
   } catch (error) {
     return deviceRouteError(error);
   }

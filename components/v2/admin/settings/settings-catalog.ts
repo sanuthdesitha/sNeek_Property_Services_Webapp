@@ -265,6 +265,15 @@ export const SETTINGS_DESTINATIONS = [
     adminOnly: true,
   },
   {
+    // Property devices (2026-11-20): Ring (custom, read-only) and Minut
+    // connections, location links, battery thresholds and sync runs.
+    key: "property-devices",
+    label: "Ring and Minut devices",
+    description: "Connect Ring and Minut read-only, link their locations to properties, and set the low-battery threshold that puts a charge task on the next clean.",
+    group: "operations",
+    adminOnly: true,
+  },
+  {
     key: "integrations",
     label: "Integrations",
     description: "API connections, credentials and service diagnostics.",
