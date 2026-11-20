@@ -21,6 +21,11 @@ const m = vi.hoisted(() => ({
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.requireRole }));
 // The live policy behind the shared capability evaluator (lib/rbac/can.ts): no per-person switches.
 vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops, getOpsPolicy: async () => ({ revision: 0, presets: [], assignments: {} }) }));
+// The guest message now carries the item's guest link (2026-11-20); no link is open here.
+vi.mock("@/lib/lost-found/guest-link", () => ({
+  guestLinkForDraft: async () => ({ url: null, expiresAt: null, photoUrl: null, enabled: true }),
+  openLinkToken: async () => ({ token: null, url: null }),
+}));
 vi.mock("@/lib/db", () => ({ db: m.db }));
 vi.mock("@/lib/s3", () => ({ publicUrl: (key: string) => `https://files.invalid/${key}` }));
 vi.mock("@/lib/uploads/ownership-server", () => ({ findForeignUploadKeys: m.foreign }));
@@ -141,7 +146,7 @@ describe("message guest / tell client", () => {
     m.ops.mockResolvedValue({ "lost-found": "manage" });
     m.sendGuest.mockResolvedValueOnce({ state: "provider_accepted", errorCode: null });
     expect((await sendGuestPost(json("https://app.invalid/x", payload), { params: { id: "i1" } })).status).toBe(200);
-    expect(m.sendGuest).toHaveBeenCalledWith("office", { lostFoundItemId: "i1", ...payload }, expect.any(Date), "OPS_MANAGER");
+    expect(m.sendGuest).toHaveBeenCalledWith("office", { lostFoundItemId: "i1", ...payload }, expect.any(Date), "OPS_MANAGER", expect.objectContaining({ subject: payload.subject }));
     expect(m.requireRole).toHaveBeenLastCalledWith(["ADMIN", "OPS_MANAGER"]);
     m.sendGuest.mockClear();
     m.ops.mockResolvedValue({ "lost-found": "off" });
@@ -156,7 +161,7 @@ describe("message guest / tell client", () => {
     m.requireRole.mockResolvedValue({ user: { id: "admin", role: "ADMIN" } });
     m.sendGuest.mockResolvedValueOnce({ state: "provider_accepted", errorCode: null });
     const accepted = await (await sendGuestPost(json("https://app.invalid/x", payload), { params: { id: "i1" } })).json();
-    expect(m.sendGuest).toHaveBeenCalledWith("admin", { lostFoundItemId: "i1", ...payload }, expect.any(Date), "ADMIN");
+    expect(m.sendGuest).toHaveBeenCalledWith("admin", { lostFoundItemId: "i1", ...payload }, expect.any(Date), "ADMIN", expect.objectContaining({ subject: payload.subject }));
     expect(accepted.outcome).toMatchObject({ accepted: true, note: expect.stringContaining("delivery is not confirmed") });
     expect(m.workflow).toHaveBeenCalledWith("i1", "admin", expect.objectContaining({ action: "GUEST_CONTACTED", channel: "EMAIL" }));
     expect(JSON.stringify(accepted)).not.toMatch(/delivered/i);

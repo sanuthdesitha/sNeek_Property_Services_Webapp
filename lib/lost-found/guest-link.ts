@@ -179,3 +179,24 @@ export function guestLinkRateLimited(token: string, ip: string): boolean {
 export function guestSubmitRateLimited(token: string): boolean {
   return !rateLimit(`lf-link:submit:${token.slice(0, 12)}`, { limit: 10, windowMs: 60 * 60_000 }).ok;
 }
+
+export type DraftGuestLink = { url: string | null; expiresAt: string | null; photoUrl: string | null; enabled: boolean };
+
+/** For the "Message guest" draft: the open link, the photo URL the email shows, and whether links are on. */
+export async function guestLinkForDraft(itemId: string, hasPhoto: boolean, now: Date = new Date()): Promise<DraftGuestLink> {
+  const [settings, link] = await Promise.all([
+    readLostFoundSettings(),
+    db.lostFoundGuestLink.findFirst({ where: { itemId, revokedAt: null, expiresAt: { gt: now } }, orderBy: { createdAt: "desc" } }),
+  ]);
+  if (!link) return { url: null, expiresAt: null, photoUrl: null, enabled: settings.publicReturnRequests };
+  const token = guestLinkToken(link);
+  return { url: guestLinkUrl(token), expiresAt: link.expiresAt.toISOString(), photoUrl: hasPhoto ? guestPhotoUrl(token) : null, enabled: settings.publicReturnRequests };
+}
+
+/** The open link's token and URL for an email, or nulls. */
+export async function openLinkToken(itemId: string, now: Date = new Date()): Promise<{ token: string | null; url: string | null }> {
+  const link = await db.lostFoundGuestLink.findFirst({ where: { itemId, revokedAt: null, expiresAt: { gt: now } }, orderBy: { createdAt: "desc" } });
+  if (!link) return { token: null, url: null };
+  const token = guestLinkToken(link);
+  return { token, url: guestLinkUrl(token) };
+}

@@ -31,6 +31,16 @@ const SIGNED_SECONDS = 600;
  */
 async function isHandoverEvidence(itemId: string, key: string, role: Role): Promise<boolean> {
   if (role !== Role.ADMIN && role !== Role.OPS_MANAGER) return false;
+  try {
+    return await handoverAttachmentExists(itemId, key);
+  } catch (err) {
+    // Fails closed: an unreadable record never opens a key.
+    logger.warn({ err, itemId }, "Lost and found handover photo check failed");
+    return false;
+  }
+}
+
+async function handoverAttachmentExists(itemId: string, key: string): Promise<boolean> {
   const requests = await db.lostFoundReturnRequest.findMany({ where: { itemId, jobTaskId: { not: null } }, select: { jobTaskId: true } });
   const taskIds = requests.map((row) => row.jobTaskId).filter((id): id is string => Boolean(id));
   if (taskIds.length === 0) return false;

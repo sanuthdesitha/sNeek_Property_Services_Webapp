@@ -8,10 +8,9 @@ import { CLIENT_SEND_NOTE, draftLostFoundMessage, GUEST_SEND_NOTE, type MessageA
 import { officeSendDecision } from "@/lib/notifications/office-send-permission";
 import { resolveClientNoticeTarget } from "@/lib/lost-found/client-notice";
 import { OfficeActionError } from "@/lib/notifications/office-actions";
-import { hydrateItems, parsePhotos } from "@/lib/lost-found/service";
+import { hydrateItems } from "@/lib/lost-found/service";
 import { resolveAppUrl } from "@/lib/app-url";
-import { activeGuestLink, guestPhotoUrl, guestLinkToken } from "@/lib/lost-found/guest-link";
-import { readLostFoundSettings } from "@/lib/lost-found/settings";
+import { guestLinkForDraft } from "@/lib/lost-found/guest-link";
 
 /**
  * GET ?audience=guest|client — a draft message for the office to edit, the
@@ -45,9 +44,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const property = item.propertyId ? await db.property.findUnique({ where: { id: item.propertyId }, select: { name: true, client: { select: { name: true, email: true, phone: true } } } }) : null;
     // Guest: the item's open link (the dialog creates one first when allowed);
     // the draft carries it and the preview shows the photo the guest will see.
-    const [lostFoundSettings, link] = await Promise.all([readLostFoundSettings(), audience === "guest" ? activeGuestLink(item.id) : Promise.resolve(null)]);
-    const linkRow = link ? await db.lostFoundGuestLink.findUnique({ where: { id: link.id } }) : null;
-    const photoUrl = linkRow && parsePhotos(item.photos).length > 0 ? guestPhotoUrl(guestLinkToken(linkRow)) : null;
+    const guestLink = audience === "guest" ? await guestLinkForDraft(item.id, Array.isArray(item.photos) && item.photos.length > 0) : null;
     const draft = draftLostFoundMessage({
       audience,
       itemName: row.itemName,
@@ -60,7 +57,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       officeName: settings.companyName,
       officePhone: settings.companyPhone || null,
       timeZone: settings.timezone || "Australia/Sydney",
-      guestLinkUrl: link?.url ?? null,
+      guestLinkUrl: guestLink?.url ?? null,
       clientLinkUrl: audience === "client" ? resolveAppUrl("/v2/client/lost-found") : null,
     });
     const recipient = audience === "guest"
@@ -72,9 +69,6 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       : audience === "guest"
         ? { available: true, reason: GUEST_SEND_NOTE }
         : await clientSendState(item.id);
-    const guestLink = audience === "guest"
-      ? { url: link?.url ?? null, expiresAt: link?.expiresAt ?? null, photoUrl, enabled: lostFoundSettings.publicReturnRequests }
-      : null;
     return NextResponse.json({ audience, draft, recipient, send, guestLink });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not prepare the message.";

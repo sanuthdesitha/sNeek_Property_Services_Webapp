@@ -5,8 +5,8 @@ import { db } from "@/lib/db";
 import { GuestMessageError, sendGuestMessage, type GuestMessageResult } from "@/lib/notifications/guest-message";
 import { LostFoundRuleError, recordLostFoundWorkflow } from "@/lib/lost-found/mutations";
 import { GUEST_SMS_MAX_CHARS, guestSendOutcome } from "@/lib/lost-found/message";
-import { hydrateItemWithEvents, parsePhotos } from "@/lib/lost-found/service";
-import { activeGuestLink, guestLinkToken } from "@/lib/lost-found/guest-link";
+import { hydrateItemWithEvents } from "@/lib/lost-found/service";
+import { openLinkToken } from "@/lib/lost-found/guest-link";
 import { buildGuestItemEmail } from "@/lib/lost-found/guest-email";
 
 const bodySchema = z.object({
@@ -39,9 +39,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Email: the office's text with the item's photo and the guest's link (both through the token).
     let email: { subject: string; html: string } | undefined;
     if (body.transport === "EMAIL") {
-      const [item, link] = await Promise.all([db.lostFoundItem.findUnique({ where: { id: params.id }, select: { photos: true } }), activeGuestLink(params.id)]);
-      const linkRow = link ? await db.lostFoundGuestLink.findUnique({ where: { id: link.id } }) : null;
-      if (item) email = await buildGuestItemEmail({ subject: body.subject, body: body.body, token: linkRow ? guestLinkToken(linkRow) : null, linkUrl: link?.url ?? null, hasPhoto: parsePhotos(item.photos).length > 0 });
+      const [item, link] = await Promise.all([db.lostFoundItem.findUnique({ where: { id: params.id }, select: { photos: true } }), openLinkToken(params.id)]);
+      if (item) email = await buildGuestItemEmail({ subject: body.subject, body: body.body, token: link.token, linkUrl: link.url, hasPhoto: Array.isArray(item.photos) && item.photos.length > 0 });
     }
     const result: GuestMessageResult = await sendGuestMessage(actor.id, { lostFoundItemId: params.id, ...body }, new Date(), actor.role, email);
     const outcome = guestSendOutcome(body.transport, result);
