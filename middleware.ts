@@ -306,6 +306,8 @@ const normalMiddleware = withAuth(portalMiddleware, {
           pathname.startsWith("/amenities/") ||
           // Client onboarding link (2026-11-16): token-gated, no login; the API resolves the token.
           pathname.startsWith("/onboarding-link/") ||
+          // Lost and found guest link (2026-11-20): token-gated, no login; the API resolves the token.
+          pathname.startsWith("/lost-found/") ||
           pathname.startsWith("/accept-invite/") ||
           // Public report verification — anyone holding a report code may check it.
           pathname === "/verify" ||

@@ -42,7 +42,7 @@ export type AdminAttentionCounts = {
   qualityHub: number;
   /** Cases not yet triaged (CaseState OPEN or TRIAGE). */
   cases: number;
-  /** Lost & found items still only REPORTED. */
+  /** Lost & found items still only REPORTED, or with a guest return request waiting (2026-11-20). */
   lostFound: number;
   /** Laundry tasks FLAGGED (cleaner said not ready — needs a decision). */
   laundry: number;
@@ -159,7 +159,7 @@ export async function getAdminAttentionCounts(now = new Date(), options: AdminAt
     db.qaAssignment.count({ where: { status: "OPEN" } }),
     db.qaIssue.count({ where: { rectificationStatus: "PENDING" } }),
     db.issueTicket.count({ where: { state: { in: ["OPEN", "TRIAGE"] } } }),
-    db.lostFoundItem.count({ where: { status: "REPORTED" } }),
+    db.lostFoundItem.count({ where: { OR: [{ status: "REPORTED" }, { returnRequests: { some: { status: "PENDING" } } }] } }),
     getMoneyAttentionCounts(),
     db.quoteLead.count({ where: { status: "NEW" } }),
     options.includeUrgentStock ? countUrgentNeedsAwaitingAcknowledgement() : Promise.resolve(null),

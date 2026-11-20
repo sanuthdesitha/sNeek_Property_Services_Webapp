@@ -6,7 +6,7 @@ import type { EDataColumn } from "@/components/v2/ui/data-table";
 import { EPill } from "@/components/v2/ui/pill";
 import type { LostFoundListRow } from "@/lib/lost-found/list";
 import type { LostFoundSort } from "@/lib/lost-found/list-options";
-import { formatFoundDay, guestSourceInfo, statusPill } from "./lost-found-format";
+import { formatFoundDay, guestSourceInfo, returnRequestPill, statusPill } from "./lost-found-format";
 import { LostFoundThumb } from "./lost-found-photo";
 
 const muted = "text-[0.75rem] text-[hsl(var(--e-muted-foreground))]";
@@ -51,12 +51,16 @@ export function lostFoundColumns(timeZone: string, onOpen: (row: LostFoundListRo
       sortKey: "status",
       cell: (row) => {
         const pill = statusPill(row.status, row.holding, row.unprocessed);
+        const request = returnRequestPill(row.returnRequest);
         return (
-          <EPill tone={pill.tone}>
-            {pill.label}
-            {row.holding.past ? <span className="sr-only">, past the holding period</span> : null}
-            {row.unprocessed ? <span className="sr-only">, still new after {NEW_ITEM_FLAG_DAYS} days</span> : null}
-          </EPill>
+          <div className="flex flex-wrap items-center gap-1">
+            <EPill tone={pill.tone}>
+              {pill.label}
+              {row.holding.past ? <span className="sr-only">, past the holding period</span> : null}
+              {row.unprocessed ? <span className="sr-only">, still new after {NEW_ITEM_FLAG_DAYS} days</span> : null}
+            </EPill>
+            {request ? <EPill tone={request.tone}>{request.label}</EPill> : null}
+          </div>
         );
       },
     },

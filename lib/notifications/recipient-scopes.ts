@@ -75,11 +75,16 @@ const OPS_POLICY_SETTING_KEY = "ops_feature_permissions_v1";
  *   whose pack gives the maintenance feature at least "read" (re-read each
  *   time). Used for the client's progress on an item handed to them.
  *
+ * - LOST_ITEM_OFFICE (id = lost and found item id, 2026-11-20): the office
+ *   people who may see lost and found: an active ADMIN, or an active
+ *   OPS_MANAGER whose pack gives the lost-found feature at least "read"
+ *   (re-read each time). Used for guest return requests.
+ *
  * In every scope the role recorded in the envelope must still be the
  * recipient's role: a role change between queueing and dispatch skips the
  * delivery instead of disclosing to a different kind of account.
  */
-export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "LAUNDRY_TASK_SUPPLIER_TEAM", "STAFF_MEMBER", "JOB_CLIENT_CONTACT", "LOST_ITEM_PROPERTY_CLIENT", "URGENT_STOCK_PURCHASE_ASK", "URGENT_STOCK_OFFICE", "JOB_OFFICE", "AGENT_ACTION_APPROVER", "ACCOUNT_HOLDER", "MAINTENANCE_ITEM_CLIENT", "MAINTENANCE_OFFICE"] as const;
+export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "LAUNDRY_TASK_SUPPLIER_TEAM", "STAFF_MEMBER", "JOB_CLIENT_CONTACT", "LOST_ITEM_PROPERTY_CLIENT", "URGENT_STOCK_PURCHASE_ASK", "URGENT_STOCK_OFFICE", "JOB_OFFICE", "AGENT_ACTION_APPROVER", "ACCOUNT_HOLDER", "MAINTENANCE_ITEM_CLIENT", "MAINTENANCE_OFFICE", "LOST_ITEM_OFFICE"] as const;
 export type RecipientScopeType = (typeof RECIPIENT_SCOPE_TYPES)[number];
 
 export { STAFF_MESSAGE_ROLES };
@@ -131,7 +136,7 @@ export async function urgentStockOfficeRecipientAllowed(reader: ScopeReader, use
  * operations feature? ADMIN always; an operations manager by that feature of
  * their pack (read or manage). Fails closed when the policy cannot be read.
  */
-export async function officeFeatureRecipientAllowed(reader: ScopeReader, user: { id: string; role: Role }, feature: "inventory" | "jobs" | "maintenance"): Promise<boolean> {
+export async function officeFeatureRecipientAllowed(reader: ScopeReader, user: { id: string; role: Role }, feature: "inventory" | "jobs" | "maintenance" | "lost-found"): Promise<boolean> {
   if (user.role === "ADMIN") return true;
   if (user.role !== "OPS_MANAGER" || !reader.appSetting) return false;
   const account = await reader.user.findUnique({ where: { id: user.id }, select: { extraRoles: { select: { role: true } } } });
@@ -235,6 +240,12 @@ export async function authorizeEntityRecipient(reader: ScopeReader, recipient: R
       const item = await reader.propertyMaintenanceItem.findUnique({ where: { id: scope.id }, select: { id: true } });
       if (!item) return { ok: false, errorCode: "recipient_not_in_scope" };
       return (await officeFeatureRecipientAllowed(reader, user, "maintenance")) ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
+    }
+    case "LOST_ITEM_OFFICE": {
+      if (!reader.lostFoundItem) return { ok: false, errorCode: "recipient_not_in_scope" };
+      const item = await reader.lostFoundItem.findUnique({ where: { id: scope.id }, select: { id: true } });
+      if (!item) return { ok: false, errorCode: "recipient_not_in_scope" };
+      return (await officeFeatureRecipientAllowed(reader, user, "lost-found")) ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
     }
   }
 }

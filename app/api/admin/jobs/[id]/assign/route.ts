@@ -30,6 +30,7 @@ import { holdsRoleWhere } from "@/lib/auth/role-query";
 import { assignmentLeaveConflicts } from "@/lib/accounts/leave-conflicts";
 import { assignmentDocumentWarnings } from "@/lib/workforce/assignment-document-warnings";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { reviewReturnArrangementsForJob } from "@/lib/lost-found/return-decisions";
 
 export async function POST(
   req: NextRequest,
@@ -243,6 +244,9 @@ export async function POST(
         },
       });
     }
+
+    // A lost and found handover on this job now has different cleaners: the office is told (2026-11-20).
+    await reviewReturnArrangementsForJob(params.id);
 
     const currentAssignedIds = new Set(userIds);
     const removedIds = previousAssignedIds.filter((id) => !currentAssignedIds.has(id));

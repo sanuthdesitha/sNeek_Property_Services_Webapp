@@ -14,6 +14,18 @@ import { holdingCutoff, holdingState, unprocessedNewCutoff, unprocessedNewFlag, 
 import { hydrateItems, type LostFoundItemRow } from "./service";
 import { readLostFoundSettings } from "./settings";
 import { CLOSED_STATUSES, HOLDING_STATUSES, LOST_FOUND_STAGE_STATUSES, type LostFoundStage } from "./status";
+import { liveArrangements } from "./return-requests";
+import type { AttentionReason, ReturnStatus } from "./return-rules";
+
+/** The latest request (not a superseded one) of each item, with its live attention state. */
+export async function returnRequestBadges(itemIds: string[]): Promise<Map<string, ReturnRequestBadge>> {
+  if (itemIds.length === 0) return new Map();
+  const rows = await db.lostFoundReturnRequest.findMany({ where: { itemId: { in: itemIds }, status: { not: "SUPERSEDED" } }, orderBy: { createdAt: "desc" } });
+  const latest = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) if (!latest.has(row.itemId)) latest.set(row.itemId, row);
+  const live = await liveArrangements(Array.from(latest.values()));
+  return new Map(Array.from(latest.entries()).map(([itemId, row]) => [itemId, { status: row.status, attention: live.get(row.id)?.attention ?? null }]));
+}
 
 import { LOST_FOUND_SORTS, LOST_FOUND_TABS, VALUE_FILTERS, type LostFoundSort, type LostFoundTab, type ValueFilter } from "./list-options";
 
@@ -31,13 +43,18 @@ export type LostFoundFilters = {
   pastHolding: boolean;
   /** Wave F: only items still at New and found more than NEW_ITEM_FLAG_DAYS ago. */
   unprocessedNew?: boolean;
+  /** 2026-11-20: only items with a guest return request waiting for the office. */
+  returnRequested?: boolean;
 };
 
-export type LostFoundListRow = LostFoundItemRow & { holding: HoldingState; unprocessed: UnprocessedFlag };
+/** The item's current guest return request, for the row badge (2026-11-20). */
+export type ReturnRequestBadge = { status: ReturnStatus; attention: AttentionReason | null } | null;
+
+export type LostFoundListRow = LostFoundItemRow & { holding: HoldingState; unprocessed: UnprocessedFlag; returnRequest: ReturnRequestBadge };
 
 export type LostFoundListResponse = ListResponse<LostFoundListRow, LostFoundSort> & {
   counts: Record<LostFoundTab, number>;
-  summary: { open: number; pastHolding: number; unprocessedNew: number };
+  summary: { open: number; pastHolding: number; unprocessedNew: number; returnRequested: number };
   holdingDays: number;
   timeZone: string;
   properties: Array<{ id: string; name: string }>;
@@ -59,6 +76,7 @@ export function parseLostFoundFilters(params: URLSearchParams): LostFoundFilters
     value: pick(params.get("value"), VALUE_FILTERS, "any"),
     pastHolding: params.get("holding") === "past",
     unprocessedNew: params.get("flag") === "new-stale",
+    returnRequested: params.get("request") === "pending",
   };
 }
 
@@ -89,6 +107,9 @@ async function baseWhere(filters: LostFoundFilters, context: WhereContext): Prom
   }
   if (filters.unprocessedNew) {
     and.push({ status: "REPORTED", createdAt: { lt: unprocessedNewCutoff(context.now, context.timeZone) } });
+  }
+  if (filters.returnRequested) {
+    and.push({ returnRequests: { some: { status: "PENDING" } } });
   }
   if (filters.q) {
     const contains = { contains: filters.q, mode: "insensitive" as const };
@@ -191,6 +212,7 @@ export async function listLostFoundForOffice(filters: LostFoundFilters, query: L
     db.lostFoundItem.findMany({ where: { propertyId: { not: null } }, distinct: ["propertyId"], select: { propertyId: true } }),
     db.lostFoundItem.count({ where: { status: "REPORTED", createdAt: { lt: unprocessedNewCutoff(now, context.timeZone) } } }),
   ]);
+  const returnRequested = await db.lostFoundItem.count({ where: { returnRequests: { some: { status: "PENDING" } } } });
 
   const byStatus = new Map(grouped.map((row) => [row.status as string, row._count._all]));
   const countOf = (statuses: readonly string[]) => statuses.reduce((sum, status) => sum + (byStatus.get(status) ?? 0), 0);
@@ -201,16 +223,18 @@ export async function listLostFoundForOffice(filters: LostFoundFilters, query: L
   const ids = propertyIds.map((row) => row.propertyId).filter((id): id is string => Boolean(id));
   const properties = ids.length ? await db.property.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, suburb: true }, orderBy: { name: "asc" } }) : [];
 
+  const badges = await returnRequestBadges(items.map((item) => item.id));
   const rows = (await hydrateItems(items)).map((row) => ({
     ...row,
     holding: holdingState({ status: row.status, foundAt: new Date(row.createdAt), now, timeZone: context.timeZone, holdingDays: context.holdingDays }),
     unprocessed: unprocessedNewFlag({ status: row.status, foundAt: new Date(row.createdAt), now, timeZone: context.timeZone }),
+    returnRequest: badges.get(row.id) ?? null,
   }));
 
   return {
     ...listResponse(rows, total, query),
     counts,
-    summary: { open, pastHolding, unprocessedNew },
+    summary: { open, pastHolding, unprocessedNew, returnRequested },
     holdingDays: context.holdingDays,
     timeZone: context.timeZone,
     properties: properties.map((p) => ({ id: p.id, name: p.suburb ? `${p.name} (${p.suburb})` : p.name })),
@@ -223,10 +247,12 @@ export async function exportLostFoundRows(filters: LostFoundFilters, query: List
   const context: WhereContext = { timeZone: appSettings.timezone || "Australia/Sydney", holdingDays: settings.holdingDays, now };
   const base = await baseWhere(filters, context);
   const items = await findItemsInOrder({ AND: [...base, tabWhere(filters.tab, filters.closedAs)] }, query, false);
+  const badges = await returnRequestBadges(items.map((item) => item.id));
   const rows = (await hydrateItems(items)).map((row) => ({
     ...row,
     holding: holdingState({ status: row.status, foundAt: new Date(row.createdAt), now, timeZone: context.timeZone, holdingDays: context.holdingDays }),
     unprocessed: unprocessedNewFlag({ status: row.status, foundAt: new Date(row.createdAt), now, timeZone: context.timeZone }),
+    returnRequest: badges.get(row.id) ?? null,
   }));
   return { rows, timeZone: context.timeZone, holdingDays: context.holdingDays };
 }

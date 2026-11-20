@@ -33,6 +33,7 @@ import { applyReschedule } from "@/lib/phase4/analytics";
 import { assertVaMayAct } from "@/lib/va/permissions";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
 import { CLIENT_TASK_AUTO_APPROVE_LEAD_MINUTES } from "@/lib/scheduling-rules/constants";
+import { applyLostFoundReturnTaskDecision, LOST_FOUND_RETURN_TASK_KIND } from "@/lib/lost-found/return-task-hook";
 
 type RequestLike =
   | { url?: string; headers?: Headers | { get?: (name: string) => string | null } }
@@ -150,6 +151,8 @@ export async function syncAdminJobTasks(input: {
     allowNotApplicable?: boolean;
     requiresPhoto?: boolean;
     requiresNote?: boolean;
+    /** Extra metadata kept on a NEW task (e.g. the lost and found return it belongs to). */
+    metadata?: Record<string, unknown>;
   }>;
 }) {
   const database = input.database ?? db;
@@ -202,7 +205,7 @@ export async function syncAdminJobTasks(input: {
         visibleToCleaner: true,
         title,
         description: task.description?.trim() || null,
-        metadata: { allowNotApplicable: task.allowNotApplicable === true },
+        metadata: { ...(task.metadata ?? {}), allowNotApplicable: task.allowNotApplicable === true } as Prisma.InputJsonObject,
         requiresPhoto: task.requiresPhoto === true,
         requiresNote: task.requiresNote === true,
         requestedByUserId: input.actorUserId,
@@ -842,7 +845,20 @@ export async function applyCleanerJobTaskUpdates(input: {
       });
     }
 
-    if (update.decision === "NOT_COMPLETED" && metadata.kind !== "PROPERTY_CARE") {
+    // A lost and found handover is not carried to the next clean: its request
+    // goes back to the office for a new arrangement with the guest.
+    if (metadata.kind === LOST_FOUND_RETURN_TASK_KIND) {
+      await applyLostFoundReturnTaskDecision(database, {
+        taskId: update.id,
+        decision: update.decision,
+        cleanerId: input.cleanerId,
+        note,
+        proofKeys,
+        missingPhotoReason,
+      }, options.afterCommit);
+    }
+
+    if (update.decision === "NOT_COMPLETED" && metadata.kind !== "PROPERTY_CARE" && metadata.kind !== LOST_FOUND_RETURN_TASK_KIND) {
       const nextJob = await database.job.findFirst({
         where: {
           propertyId: input.propertyId,

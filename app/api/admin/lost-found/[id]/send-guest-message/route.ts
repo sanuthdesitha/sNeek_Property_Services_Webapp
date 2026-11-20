@@ -4,8 +4,10 @@ import { OfficeSendDenied, requireOfficeSend } from "@/lib/notifications/office-
 import { db } from "@/lib/db";
 import { GuestMessageError, sendGuestMessage, type GuestMessageResult } from "@/lib/notifications/guest-message";
 import { LostFoundRuleError, recordLostFoundWorkflow } from "@/lib/lost-found/mutations";
-import { guestSendOutcome } from "@/lib/lost-found/message";
-import { hydrateItemWithEvents } from "@/lib/lost-found/service";
+import { GUEST_SMS_MAX_CHARS, guestSendOutcome } from "@/lib/lost-found/message";
+import { hydrateItemWithEvents, parsePhotos } from "@/lib/lost-found/service";
+import { activeGuestLink, guestLinkToken } from "@/lib/lost-found/guest-link";
+import { buildGuestItemEmail } from "@/lib/lost-found/guest-email";
 
 const bodySchema = z.object({
   transport: z.enum(["EMAIL", "SMS"]),
@@ -31,7 +33,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const { actor } = await requireOfficeSend("guest_message");
     const body = bodySchema.parse(await req.json());
-    const result: GuestMessageResult = await sendGuestMessage(actor.id, { lostFoundItemId: params.id, ...body }, new Date(), actor.role);
+    if (body.transport === "SMS" && body.body.length > GUEST_SMS_MAX_CHARS) {
+      return NextResponse.json({ error: `A text can be up to ${GUEST_SMS_MAX_CHARS} characters; longer texts are cut off (and the link with them). Shorten it or send by email.` }, { status: 400 });
+    }
+    // Email: the office's text with the item's photo and the guest's link (both through the token).
+    let email: { subject: string; html: string } | undefined;
+    if (body.transport === "EMAIL") {
+      const [item, link] = await Promise.all([db.lostFoundItem.findUnique({ where: { id: params.id }, select: { photos: true } }), activeGuestLink(params.id)]);
+      const linkRow = link ? await db.lostFoundGuestLink.findUnique({ where: { id: link.id } }) : null;
+      if (item) email = await buildGuestItemEmail({ subject: body.subject, body: body.body, token: linkRow ? guestLinkToken(linkRow) : null, linkUrl: link?.url ?? null, hasPhoto: parsePhotos(item.photos).length > 0 });
+    }
+    const result: GuestMessageResult = await sendGuestMessage(actor.id, { lostFoundItemId: params.id, ...body }, new Date(), actor.role, email);
     const outcome = guestSendOutcome(body.transport, result);
     if (outcome.accepted) {
       try {

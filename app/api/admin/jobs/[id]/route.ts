@@ -32,6 +32,7 @@ import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { isRestartTransition, startArtifactResetFields } from "@/lib/jobs/job-reset";
 
 import { assertJobCanBeDeleted, JOB_DELETE_FINANCIAL_CONFLICT } from "@/lib/jobs/delete-financial-guard";
+import { reviewReturnArrangementsForJob } from "@/lib/lost-found/return-decisions";
 
 const CONTINUATION_KEY = "job_continuation_requests_v1";
 const FINISHED_JOB_STATUSES = new Set<JobStatus>([
@@ -448,6 +449,8 @@ export async function PATCH(
       }
       if (formatJobDate(current.scheduledDate) !== formatJobDate(refreshed.scheduledDate)) {
         changes.push(`Date: ${formatJobDate(current.scheduledDate)} -> ${formatJobDate(refreshed.scheduledDate)}`);
+        // A lost and found handover booked on this clean now falls on another day (2026-11-20).
+        await reviewReturnArrangementsForJob(refreshed.id);
       }
       if ((current.startTime ?? "") !== (refreshed.startTime ?? "")) {
         changes.push(`Start time: ${current.startTime ?? "-"} -> ${refreshed.startTime ?? "-"}`);

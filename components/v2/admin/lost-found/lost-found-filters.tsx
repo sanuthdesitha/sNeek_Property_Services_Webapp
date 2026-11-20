@@ -71,6 +71,7 @@ export function LostFoundFilters({
   properties,
   holdingDays,
   unprocessedCount = null,
+  returnRequestedCount = null,
 }: {
   view: LostFoundView;
   onChange: (patch: Partial<LostFoundView>) => void;
@@ -78,6 +79,8 @@ export function LostFoundFilters({
   holdingDays: number | null;
   /** Items still at New found more than NEW_ITEM_FLAG_DAYS ago (a real count), or null while unknown. */
   unprocessedCount?: number | null;
+  /** Items with a guest return request waiting for the office (a real count), or null while unknown. */
+  returnRequestedCount?: number | null;
 }) {
   const property = properties.find((option) => option.id === view.propertyId);
   const dateValue = view.from || view.to ? `${view.from || "…"} to ${view.to || "…"}` : null;
@@ -90,12 +93,13 @@ export function LostFoundFilters({
   if (view.value !== "any") active.push({ key: "value", label: `Value: ${VALUE_FILTER_LABEL[view.value]}`, onRemove: () => onChange({ value: "any" }) });
   if (view.holding) active.push({ key: "holding", label: holdingDays ? `Held over ${holdingDays} days` : "Past holding period", onRemove: () => onChange({ holding: false }) });
   if (view.staleNew) active.push({ key: "stale", label: `New over ${NEW_ITEM_FLAG_DAYS} days`, onRemove: () => onChange({ staleNew: false }) });
+  if (view.returnRequested) active.push({ key: "request", label: "Return requested", onRemove: () => onChange({ returnRequested: false }) });
   if (view.tab === "closed" && view.closedAs) active.push({ key: "closedAs", label: `Closed as: ${lostFoundStatusLabel(view.closedAs)}`, onRemove: () => onChange({ closedAs: "" }) });
   return (
     <EFilterBar
       label="Filter items"
       active={active}
-      onClear={() => onChange({ q: "", propertyId: "", from: "", to: "", value: "any", holding: false, staleNew: false, closedAs: "" })}
+      onClear={() => onChange({ q: "", propertyId: "", from: "", to: "", value: "any", holding: false, staleNew: false, returnRequested: false, closedAs: "" })}
       tools={(
         <>
           <span className="min-w-0 flex-1" />
@@ -140,6 +144,9 @@ export function LostFoundFilters({
       </button>
       <button type="button" aria-pressed={view.staleNew} onClick={() => onChange({ staleNew: !view.staleNew })} className={cn(E_CHIP_CLASS, view.staleNew && E_CHIP_ON_CLASS)}>
         New over {NEW_ITEM_FLAG_DAYS} days{typeof unprocessedCount === "number" ? ` ${unprocessedCount}` : ""}
+      </button>
+      <button type="button" aria-pressed={view.returnRequested} onClick={() => onChange({ returnRequested: !view.returnRequested })} className={cn(E_CHIP_CLASS, view.returnRequested && E_CHIP_ON_CLASS)}>
+        Return requested{typeof returnRequestedCount === "number" ? ` ${returnRequestedCount}` : ""}
       </button>
       {view.tab === "closed" ? (
         <ESelect aria-label="Closed as" value={view.closedAs} onChange={(event) => onChange({ closedAs: event.target.value })} className="h-8 w-auto">
