@@ -25,6 +25,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { propertyScopeWhere, auditClientPortalAction, type ClientPortalContext } from "@/lib/auth/client-portal";
 import { readLostFoundSettings } from "./settings";
+import { loadStayDetailsForItem } from "./stay-details-server";
 import { lostFoundStatusLabel } from "./status";
 import { parsePhotos } from "./service";
 import { activeGuestLink } from "./guest-link";
@@ -103,7 +104,7 @@ async function scopedRequest(portal: Portal, requestId: string) {
 export async function clientApprovalPreview(portal: Portal, requestId: string): Promise<{ subject: string; body: string }> {
   const { row, item, property } = await scopedRequest(portal, requestId);
   const link = await activeGuestLink(item.id);
-  return clientDecisionDraft({ itemName: item.itemName, row, officeName: portal.settings.companyName || "sNeek Property Services", officePhone: portal.settings.companyPhone?.trim() || null, propertyLabel: property.suburb ? `${property.name}, ${property.suburb}` : property.name, link: link?.url ?? null });
+  return clientDecisionDraft({ itemName: item.itemName, row, officeName: portal.settings.companyName || "sNeek Property Services", officePhone: portal.settings.companyPhone?.trim() || null, propertyLabel: property.suburb ? `${property.name}, ${property.suburb}` : property.name, stay: await loadStayDetailsForItem(item.id, portal.settings.timezone || "Australia/Sydney"), link: link?.url ?? null });
 }
 
 export type ClientReviewResult = { verdict: string; decision: DecisionResult | null };

@@ -31,6 +31,7 @@ import {
   type ReturnMethod,
 } from "@/lib/lost-found/return-rules";
 import type { GuestPageView, GuestRequestView } from "@/lib/lost-found/return-view-types";
+import { stayDetailRows } from "@/lib/lost-found/stay-details";
 
 const INPUT = cn(E_INPUT_CLASS, "h-11 text-base");
 const TEXTAREA = cn(E_INPUT_CLASS, "min-h-[88px] py-2 text-base");
@@ -253,6 +254,7 @@ export function GuestReturnPage({ token }: { token: string }) {
   const view = load.view;
   const request = view.request;
   const canRequest = view.itemState === "open";
+  const stayRows = stayDetailRows(view.item.stay);
   const showForm = canRequest && (editing || !request || request.status === "DECLINED" || request.status === "WITHDRAWN");
 
   return (
@@ -276,7 +278,13 @@ export function GuestReturnPage({ token }: { token: string }) {
             <dt className={MUTED}>Found</dt>
             <dd>{formatCalendarDate(view.item.foundDate)}</dd>
             {view.item.foundWhere ? (<><dt className={MUTED}>Where</dt><dd className="min-w-0 break-words">{view.item.foundWhere}</dd></>) : null}
-            {view.item.propertyLabel ? (<><dt className={MUTED}>Property</dt><dd className="min-w-0 break-words">{view.item.propertyLabel}</dd></>) : null}
+            {stayRows.length === 0 && view.item.propertyLabel ? (<><dt className={MUTED}>Property</dt><dd className="min-w-0 break-words">{view.item.propertyLabel}</dd></>) : null}
+            {stayRows.map((row) => (
+              <React.Fragment key={row.label}>
+                <dt className={MUTED}>{row.label}</dt>
+                <dd className="min-w-0 break-words">{row.value}</dd>
+              </React.Fragment>
+            ))}
             {view.item.heldUntil ? (<><dt className={MUTED}>We hold it until</dt><dd>{formatCalendarDate(view.item.heldUntil)}</dd></>) : null}
           </dl>
         </section>

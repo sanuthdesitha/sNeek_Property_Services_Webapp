@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { emailFromContact, phoneFromContact } from "@/lib/lost-found/guest";
+import { loadStayDetails } from "@/lib/lost-found/stay-details-server";
 import { CLIENT_SEND_NOTE, draftLostFoundMessage, GUEST_SEND_NOTE, type MessageAudience } from "@/lib/lost-found/message";
 import { officeSendDecision } from "@/lib/notifications/office-send-permission";
 import { resolveClientNoticeTarget } from "@/lib/lost-found/client-notice";
@@ -57,6 +58,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       officeName: settings.companyName,
       officePhone: settings.companyPhone || null,
       timeZone: settings.timezone || "Australia/Sydney",
+      stay: audience === "guest" ? await loadStayDetails(item, settings.timezone || "Australia/Sydney") : null,
       guestLinkUrl: guestLink?.url ?? null,
       clientLinkUrl: audience === "client" ? resolveAppUrl("/v2/client/lost-found") : null,
     });

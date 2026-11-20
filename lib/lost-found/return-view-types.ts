@@ -3,6 +3,7 @@
  * lost and found return requests (2026-11-20). Plain types, safe for client
  * bundles. Each view carries only what its reader may see.
  */
+import type { StayDetails } from "./stay-details";
 import type { AttentionReason, ReturnAddress, ReturnFeeState, ReturnMethod, ReturnStatus } from "./return-rules";
 
 /** An upcoming clean offered as a pickup time: date and broad window only. */
@@ -44,6 +45,8 @@ export type GuestPageView = {
     foundDate: string;
     foundWhere: string | null;
     propertyLabel: string | null;
+    /** Guest name, stay dates, property and address, so the guest can tell which stay this is. */
+    stay: StayDetails;
     photoUrls: string[];
     /** Calendar date the office holds it until; null when no holding period applies. */
     heldUntil: string | null;
@@ -107,7 +110,7 @@ export type OfficeReturnPanel = {
   hasGuestPhoto: boolean;
   /** The photo URL the guest's email shows (through the open link), or null. */
   guestPhotoUrl: string | null;
-  draftContext: { officeName: string; officePhone: string | null; propertyLabel: string; link: string | null };
+  draftContext: { officeName: string; officePhone: string | null; propertyLabel: string; stay: StayDetails; link: string | null };
   /** Each request's address as one line (for the decision message). */
   addresses: Record<string, string | null>;
 };

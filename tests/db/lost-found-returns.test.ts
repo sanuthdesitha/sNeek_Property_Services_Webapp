@@ -148,10 +148,11 @@ describe.skipIf(!url)("lost and found return requests (explicit local DB)", () =
       ],
     });
     await m.client.jobAssignment.createMany({ data: [{ jobId: id("job1"), userId: id("cleaner"), isPrimary: true }, { jobId: id("job2"), userId: id("cleaner2"), isPrimary: true }] });
+    await m.client.reservation.create({ data: { id: id("stay"), propertyId: id("pa"), uid: id("stay"), startDate: new Date("2026-11-09T04:00:00.000Z"), endDate: new Date("2026-11-11T23:00:00.000Z"), guestName: "Gina Guest" } });
     const photos = [{ key: "lost-found/u/phone.jpg", url: "https://files.example.test/lost-found/u/phone.jpg" }];
     await m.client.lostFoundItem.createMany({
       data: [
-        { id: id("item"), propertyId: id("pa"), jobId: id("job1"), reportedByUserId: id("cleaner"), itemName: "Black phone charger", description: "SECRET-DESCRIPTION cleaner note", foundLocation: "Bedside drawer", photos, status: "IN_STORAGE", guestName: "Gina Guest", guestContact: "0499 000 111", estimatedValue: 45, storageLocation: "SHELF-B2" },
+        { id: id("item"), propertyId: id("pa"), reservationId: id("stay"), jobId: id("job1"), reportedByUserId: id("cleaner"), itemName: "Black phone charger", description: "SECRET-DESCRIPTION cleaner note", foundLocation: "Bedside drawer", photos, status: "IN_STORAGE", guestName: "Gina Guest", guestContact: "0499 000 111", estimatedValue: 45, storageLocation: "SHELF-B2" },
         { id: id("other"), propertyId: id("pb"), itemName: "Blue hat", photos: [{ key: "lost-found/u/hat.jpg", url: "https://files.example.test/hat.jpg" }], status: "IN_STORAGE" },
         { id: id("item3"), propertyId: id("pa"), itemName: "Sunglasses", photos: [], status: "IN_STORAGE", storageLocation: "Office" },
       ],
@@ -166,6 +167,7 @@ describe.skipIf(!url)("lost and found return requests (explicit local DB)", () =
     await m.client.auditLog.deleteMany({ where: { OR: [{ jobId: { in: [id("job1"), id("job2")] } }, { userId: { in: [id("admin"), id("ua"), id("ub")] } }] } });
     await m.client.jobAssignment.deleteMany({ where: { jobId: { in: [id("job1"), id("job2")] } } });
     await m.client.job.deleteMany({ where: { id: { in: [id("job1"), id("job2")] } } });
+    await m.client.reservation.deleteMany({ where: { id: id("stay") } });
     await m.client.property.deleteMany({ where: { id: { in: [id("pa"), id("pb")] } } });
     await m.client.user.deleteMany({ where: { id: { in: ["admin", "cleaner", "cleaner2", "ua", "ub"].map(id) } } });
     await m.client.client.deleteMany({ where: { id: { in: [id("ca"), id("cb")] } } });
@@ -219,7 +221,11 @@ describe.skipIf(!url)("lost and found return requests (explicit local DB)", () =
     const { resolved } = await openLink(id("item"));
     const view = await guestPageView(resolved);
     const text = JSON.stringify(view);
-    for (const secret of ["SHELF-B2", "SECRET-DESCRIPTION", "Cleo", "0499 000 111", "1 Secret St", "4411", id("cleaner"), "45"]) expect(text).not.toContain(secret);
+    for (const secret of ["SHELF-B2", "SECRET-DESCRIPTION", "Cleo", "0499 000 111", "4411", id("cleaner"), "45"]) expect(text).not.toContain(secret);
+    // The guest is told which stay it is: their name, the stay dates (organisation calendar), the property and its address.
+    expect(view.item.stay).toEqual({ guestName: "Gina Guest", propertyName: `${tag} Bondi`, propertyAddress: "1 Secret St, Bondi, NSW", checkIn: "2026-11-09", checkOut: "2026-11-12" });
+    const noBooking = await guestPageView((await openLink(id("item3"))).resolved);
+    expect(noBooking.item.stay).toMatchObject({ guestName: null, checkIn: null, checkOut: null, propertyAddress: "1 Secret St, Bondi, NSW" });
     expect(view.item).toMatchObject({ name: "Black phone charger", foundWhere: "Bedside drawer", propertyLabel: `${tag} Bondi, Bondi` });
     expect(view.item.photoUrls[0]).toMatch(/^\/api\/public\/lost-found\/[A-Za-z0-9_-]{43}\/photo$/);
     expect(view.options.upcomingCleans.map((option) => option.jobId)).toEqual([id("job1"), id("job2")]);
@@ -244,6 +250,7 @@ describe.skipIf(!url)("lost and found return requests (explicit local DB)", () =
     expect(String(ack.body)).toContain("Hi Gina");
     expect(String(ack.body)).toContain("/lost-found/");
     expect(String(ack.body)).toContain("not confirmed yet");
+    expect(String(ack.body)).toContain(`Your stay\nGuest: Gina Guest\nStay: 9 November 2026 to 12 November 2026\nProperty: ${tag} Bondi, 1 Secret St, Bondi, NSW`);
     const ackEvent = await m.client.lostFoundEvent.findFirstOrThrow({ where: { itemId: id("item"), action: "RETURN_ACK_SENT" } });
     expect(ackEvent.note).toContain(String(ack.body));
     expect(m.officeSends.some((send) => send.typeKey === "lostfound.return_request" && send.scopeType === "LOST_ITEM_OFFICE")).toBe(true);

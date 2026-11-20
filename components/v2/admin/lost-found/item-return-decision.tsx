@@ -114,6 +114,7 @@ export function ItemReturnDecision({
     confirmedTime: fields.time || null,
     address: panel.addresses[request.id] ?? null,
     propertyLabel: panel.draftContext.propertyLabel,
+    stay: panel.draftContext.stay,
     feeLine,
     note: mode === "decline" ? declineReason || null : fields.note || null,
     link: panel.draftContext.link,
