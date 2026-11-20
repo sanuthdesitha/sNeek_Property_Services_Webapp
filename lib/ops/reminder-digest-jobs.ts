@@ -30,7 +30,7 @@ export function digestStartsAt(job: DigestSourceJob, timezone: string, defaultTi
 }
 
 /** One row of a combined reminder: the facts and timing lines the per-job reminder carries, plus the job's link. */
-export function toDigestJob(job: DigestSourceJob, input: { timezone: string; defaultTime: string; timeLabel?: string }): ReminderDigestJob {
+export function toDigestJob(job: DigestSourceJob, input: { timezone: string; defaultTime: string; timeLabel?: string; priorityLines?: string[] }): ReminderDigestJob {
   return {
     jobId: job.id,
     jobReference: getJobReference(job),
@@ -40,6 +40,7 @@ export function toDigestJob(job: DigestSourceJob, input: { timezone: string; def
     dayLabel: format(toZonedTime(job.scheduledDate, input.timezone), "EEE d MMM"),
     timeLabel: input.timeLabel ?? job.startTime ?? "Time TBD",
     timingLines: getJobTimingHighlights(parseJobInternalNotes(job.internalNotes ?? null)),
+    ...(input.priorityLines?.length ? { priorityLines: input.priorityLines } : {}),
     jobUrl: resolveAppUrl(`/cleaner/jobs/${encodeURIComponent(job.id)}`),
     sortAt: digestStartsAt(job, input.timezone, input.defaultTime).getTime(),
   };

@@ -20,13 +20,14 @@ import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 export type ReadFirstSource =
   | "TIMING"
   | "NOTICE"
+  | "PRIORITY"
   | "ADMIN"
   | "CLIENT"
   | "TASK"
   | "CARRY_FORWARD";
 
 /** Sources that must never be collapsed behind the fold. */
-const ALWAYS_VISIBLE_SOURCES: ReadFirstSource[] = ["TIMING", "NOTICE"];
+const ALWAYS_VISIBLE_SOURCES: ReadFirstSource[] = ["TIMING", "NOTICE", "PRIORITY"];
 
 export interface ReadFirstItem {
   source: ReadFirstSource;
@@ -38,11 +39,18 @@ export interface ReadFirstItem {
 const SOURCE_LABEL: Record<ReadFirstSource, string> = {
   TIMING: "Timing",
   NOTICE: "Notice",
+  PRIORITY: "High priority",
   ADMIN: "Admin note",
   CLIENT: "Client request",
   TASK: "Task",
   CARRY_FORWARD: "From last clean",
 };
+
+/** A task the office marked high priority (metadata.priority HIGH, e.g. a device charge). */
+export function isPriorityTask(task: unknown): boolean {
+  const metadata = (task as { metadata?: unknown } | null)?.metadata;
+  return Boolean(metadata) && typeof metadata === "object" && (metadata as { priority?: unknown }).priority === "HIGH";
+}
 
 function str(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -113,6 +121,17 @@ export function buildReadFirstItems(payload: {
     });
   }
 
+  // PRIORITY — tasks the office marked high priority (a device that needs
+  // charging, 2026-11-20). Never folded: submission is blocked until each is
+  // done with a photo or marked not done with a reason.
+  const allTasks = Array.isArray(payload.jobTasks) ? payload.jobTasks : [];
+  for (const task of allTasks) {
+    if (!isPriorityTask(task)) continue;
+    const title = str(task?.title);
+    if (!title) continue;
+    items.push({ source: "PRIORITY", title, body: str(task?.description) || null });
+  }
+
   // ADMIN — the free-form internal note.
   const adminNote = str(jobMeta.internalNoteText);
   if (adminNote) {
@@ -138,6 +157,7 @@ export function buildReadFirstItems(payload: {
   // TASK — approved cleaner job tasks, with any REQUEST_REFERENCE images.
   const jobTasks = Array.isArray(payload.jobTasks) ? payload.jobTasks : [];
   for (const task of jobTasks) {
+    if (isPriorityTask(task)) continue;
     const title = str(task?.title);
     if (!title) continue;
     const attachments = Array.isArray(task?.attachments) ? task.attachments : [];

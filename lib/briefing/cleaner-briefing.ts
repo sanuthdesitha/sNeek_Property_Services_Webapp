@@ -469,11 +469,17 @@ export async function assembleCleanerBriefing(input: {
               { source: "CARRY_FORWARD" },
             ],
           },
-          select: { title: true, source: true },
+          select: { title: true, source: true, metadata: true, executionStatus: true },
         });
+        // A device charge task (2026-11-20) leads the list, marked high priority.
+        const priority = tasks.filter((t) => t.executionStatus === "OPEN" && (t.metadata as { priority?: unknown } | null)?.priority === "HIGH");
+        for (const t of priority) {
+          const title = t.title?.trim();
+          if (title) items.unshift(`High priority: ${title}`);
+        }
         for (const t of tasks) {
           const title = t.title?.trim();
-          if (!title) continue;
+          if (!title || priority.includes(t)) continue;
           items.push(t.source === "CARRY_FORWARD" ? `Handover: ${title}` : title);
         }
       }

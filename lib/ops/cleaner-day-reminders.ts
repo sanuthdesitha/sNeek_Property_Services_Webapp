@@ -1,4 +1,5 @@
 import { claimNotificationDispatch, finishNotificationDispatch, type DispatchClaim } from "@/lib/notifications/dispatch-once";
+import { deviceChargeLinesForJobs } from "@/lib/property-devices/clean-notice";
 import { format } from "date-fns";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { Role } from "@prisma/client";
@@ -75,7 +76,7 @@ type CleanerDayBatch = { cleaner: DayReminderCleaner; items: DayReminderMessage[
 type ClaimedDayReminder = { item: DayReminderMessage; claim: DispatchClaim };
 type DayEmailContext = { wording: WordingRenderer; settings: AppSettings };
 
-function dayReminderMessage(job: DayReminderJob, wording: WordingRenderer, timezone: string): DayReminderMessage {
+function dayReminderMessage(job: DayReminderJob, wording: WordingRenderer, timezone: string, priorityLines?: string[]): DayReminderMessage {
   const jobRef = getJobReference(job);
   const timing = getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)).join(" | ");
   const whenLabel = job.startTime || job.dueTime || "today";
@@ -97,7 +98,7 @@ function dayReminderMessage(job: DayReminderJob, wording: WordingRenderer, timez
     inbox: { subject: title, body },
     email: { subject: email.subject, html: email.html },
     smsBody: wording.render("cleaner", "SMS", values).body,
-    digestJob: toDigestJob(job, { timezone, defaultTime: REMINDER_DEFAULT_JOB_TIME, timeLabel: whenLabel }),
+    digestJob: toDigestJob(job, { timezone, defaultTime: REMINDER_DEFAULT_JOB_TIME, timeLabel: whenLabel, priorityLines }),
   };
 }
 
@@ -209,13 +210,14 @@ export async function dispatchCleanerDayReminders(
 
   const wording = await loadNotificationWording(DAY_REMINDER_TYPE_KEY);
   const byCleaner = new Map<string, CleanerDayBatch>();
+  const chargeLines = await deviceChargeLinesForJobs(jobs.map((job) => job.id));
   for (const job of jobs) {
     const scheduledAt = resolveScheduledAt(job, timezone);
     const within2h = now.getTime() >= scheduledAt.getTime() - leadMs;
     const pastMorning = now.getTime() >= morningUnlock.getTime();
     if (!within2h && !pastMorning) continue; // too early — wait for 6AM or the 2h window
 
-    const message = dayReminderMessage(job, wording, timezone);
+    const message = dayReminderMessage(job, wording, timezone, chargeLines.get(job.id));
     for (const assignment of job.assignments) {
       const cleaner = assignment.user;
       const batch = byCleaner.get(cleaner.id) ?? { cleaner, items: [] };

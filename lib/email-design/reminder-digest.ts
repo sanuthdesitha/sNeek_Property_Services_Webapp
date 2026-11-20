@@ -26,6 +26,8 @@ export type ReminderDigestJob = {
   timeLabel: string;
   /** The job's timing lines (late checkout, early check-in, same-day check-in). */
   timingLines: string[];
+  /** High-priority task lines for this job, e.g. a device to charge (2026-11-20). */
+  priorityLines?: string[];
   /** Absolute link to the job in the cleaner portal. */
   jobUrl: string;
   /** Scheduled start in epoch milliseconds: the list is sorted by it (date, then start time). */
@@ -69,6 +71,7 @@ function jobItemHtml(job: ReminderDigestJob): string {
     `${escapeHtml(job.dayLabel)} · ${escapeHtml(job.timeLabel)}`,
     `${escapeHtml(job.jobTypeLabel)} · ${escapeHtml(job.jobReference)}`,
     ...job.timingLines.map((line) => `<span style="font-weight:600">${escapeHtml(line)}</span>`),
+    ...(job.priorityLines ?? []).map((line) => `<span style="font-weight:600">${escapeHtml(line)}</span>`),
   ].filter(Boolean);
   const href = safeLink(job.jobUrl);
   const link = href
@@ -80,7 +83,7 @@ function jobItemHtml(job: ReminderDigestJob): string {
 function jobItemText(job: ReminderDigestJob, index: number): string {
   const head = `${index + 1}. ${job.propertyName}${job.propertyAddress ? ` — ${job.propertyAddress}` : ""}`;
   const facts = `   ${job.dayLabel} · ${job.timeLabel} · ${job.jobTypeLabel} · ${job.jobReference}`;
-  const timing = job.timingLines.map((line) => `   ${line}`);
+  const timing = [...job.timingLines, ...(job.priorityLines ?? [])].map((line) => `   ${line}`);
   const link = safeLink(job.jobUrl) ? [`   Open job: ${job.jobUrl.trim()}`] : [];
   return [head, facts, ...timing, ...link].join("\n");
 }

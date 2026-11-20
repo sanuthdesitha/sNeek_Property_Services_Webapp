@@ -31,11 +31,14 @@ export interface JobTask {
   source: string;
   requiresPhoto?: boolean;
   requiresNote?: boolean;
-  metadata?: { allowNotApplicable?: boolean };
+  /** kind DEVICE_CHARGE with priority HIGH and strictPhoto: a device charge task (2026-11-20). */
+  metadata?: { allowNotApplicable?: boolean; kind?: string; priority?: string; strictPhoto?: boolean };
 }
 
 export interface TaskDraft {
   missingPhotoReason?: string;
+  /** Device charge tasks: the battery percent the cleaner saw, as typed (optional). */
+  observedBatteryPercent?: string;
   decision: "OPEN" | "COMPLETED" | "NOT_COMPLETED" | "NOT_APPLICABLE";
   note: string;
   proof: CapturedMedia[];

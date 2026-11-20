@@ -122,11 +122,6 @@ export async function listDeviceAttention(now: Date = new Date()): Promise<{ row
   return { rows: result, brokenProviders: Array.from(broken) };
 }
 
-/** The nav badge: devices with an open charge condition (the unambiguous queue on the attention list). */
-export async function countDevicesNeedingCharge(): Promise<number> {
-  return db.propertyDevice.count({ where: { isActive: true, batteryPowered: true, chargeCondition: "NEEDS_CHARGE" } });
-}
-
 function normalise(text: string): string[] {
   return text.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((word) => word.length > 2);
 }

@@ -321,6 +321,19 @@ async function main() {
     await boss.work("property-care", safeHandler("property-care", async () => { await dispatchPropertyCare(); }));
   }
 
+  // Property devices (2026-11-20): hourly, off the hour. Polls Ring and Minut
+  // when their interval (default 6 hours) has passed, evaluates every battery
+  // device (hand-entered ones too), keeps charge tasks on the next available
+  // clean and tells the cleaners once. Reads providers only.
+  if (jobEnabled("property-devices")) {
+    await boss.schedule("property-devices", "25 * * * *", {}, { tz: TZ });
+    await boss.work("property-devices", safeHandler("property-devices", async () => {
+      const { runPropertyDeviceChecks } = await import("@/lib/property-devices/sync");
+      const summary = await runPropertyDeviceChecks();
+      logger.info({ ...summary }, "[property-devices] done");
+    }));
+  }
+
   if (jobEnabled("urgent-stock-reminders")) {
     await boss.schedule("urgent-stock-reminders", "0 * * * *", {}, { tz: TZ });
     await boss.work("urgent-stock-reminders", safeHandler("urgent-stock-reminders", async () => {
