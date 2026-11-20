@@ -19,6 +19,7 @@ vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ timezone: "Aus
 vi.mock("@/lib/app-url", () => ({ resolveAppUrl: (path: string) => (/^https?:/.test(path) ? path : `https://app.test${path}`) }));
 vi.mock("@/lib/notifications/delivery", () => ({ deliverNotificationToRecipients: m.send }));
 vi.mock("@/lib/db", () => ({ db: {
+  jobTask: { findMany: async () => [] },
   job: { findMany: async () => m.jobs },
   notification: { findFirst: async () => null },
   appSetting: { create: m.create, update: m.update },

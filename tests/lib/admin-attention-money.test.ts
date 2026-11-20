@@ -13,7 +13,7 @@ vi.mock("@/lib/db", () => ({
     qaAssignment: { count: m.counter() },
     issueTicket: { count: m.counter() },
     lostFoundItem: { count: m.counter() },
-    quoteLead: { count: m.counter() },
+    quoteLead: { count: m.counter() }, propertyDevice: { count: m.counter() },
     clientInvoice: { count: m.invoiceCount },
     cleanerInvoiceSubmission: { count: m.submissionCount },
   },

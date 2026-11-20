@@ -6,6 +6,7 @@ const m = vi.hoisted(() => ({ rows: new Map<string, any>(), send: vi.fn(), creat
 vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ timezone: "Australia/Sydney" }) }));
 vi.mock("@/lib/notifications/delivery", () => ({ deliverNotificationToRecipients: m.send }));
 vi.mock("@/lib/db", () => ({ db: {
+  jobTask: { findMany: async () => [] },
   job: { findMany: async () => [{ id: "job", jobNumber: "J1", jobType: "AIRBNB_TURNOVER", scheduledDate: new Date("2026-10-03T00:00:00Z"), startTime: "10:00", property: { name: "Property", address: "Address" }, assignments: [{ user: { id: "cleaner", role: "CLEANER", name: "Cleaner" } }] }] },
   notification: { findFirst: async () => null },
   appSetting: { create: m.create, update: m.update },

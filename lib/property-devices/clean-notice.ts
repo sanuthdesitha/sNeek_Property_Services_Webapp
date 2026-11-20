@@ -12,14 +12,17 @@ export async function deviceChargeLinesForJobs(jobIds: readonly string[]): Promi
   const lines = new Map<string, string[]>();
   if (jobIds.length === 0) return lines;
   // The reminder still goes out if this lookup fails; the line is then missing, and that is logged.
-  const tasks = await db.jobTask.findMany({
-    where: { jobId: { in: [...jobIds] }, executionStatus: "OPEN", visibleToCleaner: true, metadata: { path: ["kind"], equals: DEVICE_CHARGE_TASK_KIND } },
-    select: { jobId: true, title: true },
-    orderBy: { createdAt: "asc" },
-  }).catch((err: unknown) => {
+  let tasks: Array<{ jobId: string | null; title: string }> = [];
+  try {
+    tasks = await db.jobTask.findMany({
+      where: { jobId: { in: [...jobIds] }, executionStatus: "OPEN", visibleToCleaner: true, metadata: { path: ["kind"], equals: DEVICE_CHARGE_TASK_KIND } },
+      select: { jobId: true, title: true },
+      orderBy: { createdAt: "asc" },
+    });
+  } catch (err) {
     logger.error({ err }, "property devices: charge lines for reminders could not be read");
-    return [] as Array<{ jobId: string | null; title: string }>;
-  });
+    return lines;
+  }
   for (const task of tasks) {
     if (!task.jobId) continue;
     lines.set(task.jobId, [...(lines.get(task.jobId) ?? []), `High priority: ${task.title}`]);

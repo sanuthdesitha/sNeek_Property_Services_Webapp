@@ -31,6 +31,7 @@ vi.mock("@/lib/db", () => {
     Object.entries(where).filter(([key]) => key === "reminder24hSent" || key === "reminder2hSent") as Array<[Flag, boolean]>;
   return {
     db: {
+      jobTask: { findMany: async () => [] },
       job: {
         findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
           m.jobs.filter((job) => flagsOf(where).every(([key, value]) => job[key] === value)).map((job) => structuredClone(job))),
