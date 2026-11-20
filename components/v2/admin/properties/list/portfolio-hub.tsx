@@ -20,6 +20,9 @@ import { PortfolioFilters } from "./portfolio-filters";
 import { PortfolioBulk } from "./portfolio-bulk";
 import { PortfolioCards, PortfolioMap } from "./portfolio-cards";
 import { PropertyPreviewPanel } from "./property-preview-panel";
+import { DevicesAttentionList } from "./devices-attention";
+import { OperationsDisclosure } from "@/components/operations/ui";
+import { BatteryWarning } from "lucide-react";
 import { portfolioFilterParams, portfolioListQuery, type PortfolioView } from "./portfolio-view";
 import { PORTFOLIO_PAGE_SIZE, usePortfolioList, usePortfolioView } from "./use-portfolio";
 
@@ -101,6 +104,9 @@ export function PortfolioHub({ initialView, timeZone }: { initialView: Portfolio
         <CollapsibleFigures storageKey="properties:portfolio" count={4} label="Portfolio figures">
           <StatCards data={data} />
         </CollapsibleFigures>
+        <OperationsDisclosure title="Devices needing attention" description="Low batteries, charges with no clean scheduled, offline or out-of-date devices, and Ring or Minut connection problems." icon={<BatteryWarning />}>
+          <DevicesAttentionList timeZone={timeZone} />
+        </OperationsDisclosure>
         <PortfolioFilters view={view} data={data} onChange={update} disabled={bulkRunning} />
 
         {view.mode === "list" ? (

@@ -64,6 +64,8 @@ export type AdminAttentionCounts = {
    * (administrators only), so no badge counts work they cannot see.
    */
   urgentStock: number | null;
+  /** Battery devices with an open charge (Properties › Devices needing attention, 2026-11-20). */
+  propertyDevices: number;
 };
 
 export type AdminAttentionOptions = {
@@ -122,6 +124,7 @@ export async function getAdminAttentionCounts(now = new Date(), options: AdminAt
     money,
     newLeads,
     awaitingAcknowledgement,
+    devicesNeedingCharge,
   ] = await Promise.all([
     db.job.count({
       where: { status: JobStatus.UNASSIGNED, scheduledDate: { gte: startOfTodaySydney(now) } },
@@ -163,6 +166,7 @@ export async function getAdminAttentionCounts(now = new Date(), options: AdminAt
     getMoneyAttentionCounts(),
     db.quoteLead.count({ where: { status: "NEW" } }),
     options.includeUrgentStock ? countUrgentNeedsAwaitingAcknowledgement() : Promise.resolve(null),
+    db.propertyDevice.count({ where: { isActive: true, batteryPowered: true, chargeCondition: "NEEDS_CHARGE" } }),
   ]);
 
   return {
@@ -194,5 +198,6 @@ export async function getAdminAttentionCounts(now = new Date(), options: AdminAt
     cleanerInvoices: money.cleanerInvoices,
     growth: newLeads,
     urgentStock: awaitingAcknowledgement,
+    propertyDevices: devicesNeedingCharge,
   };
 }

@@ -161,13 +161,23 @@ interface JobTask {
   source: string;
   requiresPhoto?: boolean;
   requiresNote?: boolean;
-  metadata?: { allowNotApplicable?: boolean };
+  /** kind DEVICE_CHARGE with priority HIGH and strictPhoto: a device charge task (2026-11-20). */
+  metadata?: { allowNotApplicable?: boolean; kind?: string; priority?: string; strictPhoto?: boolean };
 }
 interface TaskDraft {
   missingPhotoReason?: string;
+  /** Device charge tasks: the battery percent the cleaner saw, as typed (optional). */
+  observedBatteryPercent?: string;
   decision: "OPEN" | "COMPLETED" | "NOT_COMPLETED" | "NOT_APPLICABLE";
   note: string;
   proof: CapturedMedia[];
+}
+/** A typed battery percent as a whole number 0–100, or null when blank or not a valid percent. */
+function observedPercent(value: string | undefined): number | null {
+  const trimmed = value?.trim() ?? "";
+  if (!/^\d{1,3}$/.test(trimmed)) return null;
+  const number = Number(trimmed);
+  return number >= 0 && number <= 100 ? number : null;
 }
 /** A client- or admin-flagged request the cleaner must not miss on this job. */
 interface ImportantRequest {
@@ -411,6 +421,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
               raw.decision === "COMPLETED" || raw.decision === "NOT_COMPLETED" || raw.decision === "NOT_APPLICABLE" ? raw.decision : "OPEN",
             note: typeof raw.note === "string" ? raw.note : "",
             missingPhotoReason: typeof raw.missingPhotoReason === "string" ? raw.missingPhotoReason : undefined,
+            observedBatteryPercent: typeof raw.observedBatteryPercent === "string" ? raw.observedBatteryPercent : undefined,
             proof: Array.isArray(raw.proof)
               ? (raw.proof.filter((m: any) => m && typeof m.key === "string") as CapturedMedia[])
               : [],
@@ -1414,7 +1425,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
           decision: (d.decision === "OPEN" ? "NOT_COMPLETED" : d.decision) as "COMPLETED" | "NOT_COMPLETED" | "NOT_APPLICABLE",
           note: d.note,
           proofKeys: d.proof.map((m) => m.key),
-          missingPhotoReason: d.missingPhotoReason?.trim() || undefined,
+          missingPhotoReason: t.metadata?.strictPhoto ? undefined : d.missingPhotoReason?.trim() || undefined,
+          observedBatteryPercent: t.metadata?.kind === "DEVICE_CHARGE" && d.decision === "COMPLETED" ? observedPercent(d.observedBatteryPercent) : undefined,
         };
       });
 
@@ -1579,7 +1591,14 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     );
   }
 
-  const allTasksDecided = jobTasks.every((t) => (taskDrafts[t.id]?.decision ?? "OPEN") !== "OPEN");
+  // A device charge task counts as decided only when done with a photo, or not done with a reason (2026-11-20).
+  const allTasksDecided = jobTasks.every((t) => {
+    const draft = taskDrafts[t.id];
+    const decision = draft?.decision ?? "OPEN";
+    if (decision === "OPEN") return false;
+    if (t.metadata?.kind !== "DEVICE_CHARGE") return true;
+    return decision === "COMPLETED" ? (draft?.proof.length ?? 0) > 0 : Boolean(draft?.note.trim());
+  });
 
   const readFirstItems: ReadFirstItem[] = buildReadFirstItems(payload);
   const contact = (payload?.contact ?? null) as JobContact | null;

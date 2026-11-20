@@ -1,4 +1,5 @@
 import "server-only";
+import { deviceChargeLinesForJobs } from "@/lib/property-devices/clean-notice";
 import { randomUUID } from "node:crypto";
 import { format } from "date-fns";
 import { JobStatus, Prisma } from "@prisma/client";
@@ -247,7 +248,8 @@ function cleanersOnSeveralJobs(jobs: readonly ReminderJob[]): CombinedCleaner[] 
 async function sendCombinedManualReminder(cleaner: CombinedCleaner, input: ReminderInput, context: ReminderContext): Promise<RecipientOutcome[]> {
   const settings = await getAppSettings();
   const timezone = settings.timezone || "Australia/Sydney";
-  const jobs = sortDigestJobs(cleaner.jobs.map((job) => toDigestJob(job, { timezone, defaultTime: "09:00" })));
+  const chargeLines = await deviceChargeLinesForJobs(cleaner.jobs.map((job) => job.id));
+  const jobs = sortDigestJobs(cleaner.jobs.map((job) => toDigestJob(job, { timezone, defaultTime: "09:00", priorityLines: chargeLines.get(job.id) })));
   const jobIds = jobs.map((job) => job.jobId);
   const wording = await loadNotificationWording(JOB_REMINDER_TYPE_KEY);
   const userName = cleaner.recipient.name ?? cleaner.recipient.email ?? "Cleaner";

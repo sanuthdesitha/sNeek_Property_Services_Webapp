@@ -1,4 +1,5 @@
 import { format } from "date-fns";
+import { deviceChargeLinesForJobs } from "@/lib/property-devices/clean-notice";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { renderEmailTemplate } from "@/lib/email-templates";
@@ -200,7 +201,8 @@ async function sendSingleJobReminderEmail(batch: CleanerEmailBatch, job: LongRem
 
 /** One email listing every job of this cleaner's batch, in date and start-time order. */
 async function sendCombinedReminderEmail(batch: CleanerEmailBatch, context: SendLongContext, wording: WordingRenderer) {
-  const jobs = sortDigestJobs(batch.jobs.map((job) => toDigestJob(job, { timezone: context.timezone, defaultTime: "09:00" })));
+  const chargeLines = await deviceChargeLinesForJobs(batch.jobs.map((job) => job.id));
+  const jobs = sortDigestJobs(batch.jobs.map((job) => toDigestJob(job, { timezone: context.timezone, defaultTime: "09:00", priorityLines: chargeLines.get(job.id) })));
   const texts = reminderDigestTexts(wording, { userName: batch.displayName, jobCount: jobs.length, dayList: digestDayList(jobs) });
   const email = buildReminderDigestEmail(context.settings, { kind: "scheduled", jobs, texts, actionUrl: resolveAppUrl("/cleaner/jobs") });
   const jobIds = jobs.map((job) => job.jobId);

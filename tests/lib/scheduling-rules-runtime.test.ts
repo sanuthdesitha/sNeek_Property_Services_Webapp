@@ -23,6 +23,7 @@ vi.mock("@/lib/db", () => {
   const client: Record<string, unknown> = {
     schedulingRuleVersion: { findMany: (...args: unknown[]) => m.versions(...args), count: async () => 0, create: (...args: unknown[]) => m.create(...args) },
     job: { findMany: (...args: unknown[]) => m.jobFindMany(...args), findUnique: (...args: unknown[]) => m.jobFindUnique(...args), findFirst: async () => null },
+    jobTask: { findMany: async () => [] },
     user: { findMany: (...args: unknown[]) => m.users(...args), findFirst: async () => null },
     jobAssignment: { findMany: (...args: unknown[]) => m.assignments(...args) },
     qAReview: { findMany: (...args: unknown[]) => m.reviews(...args) },

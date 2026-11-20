@@ -22,6 +22,7 @@ const SENSITIVE_KEYS = new Set([
   "squareAccessToken",
   "paypalClientSecret",
   "xeroClientSecret",
+  "minutClientSecret",
   "googleMapsApiKey",
   "bootstrapAdminPassword",
   "vapidPrivateKey",
@@ -73,6 +74,10 @@ const DEFAULTS = {
   // Xero
   xeroClientId: "",
   xeroClientSecret: "",
+
+  // Minut noise sensors (2026-11-20; set from Settings › Ring and Minut devices)
+  minutClientId: "",
+  minutClientSecret: "",
 
   // Maps
   googleMapsApiKey: "",

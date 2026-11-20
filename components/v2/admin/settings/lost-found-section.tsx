@@ -195,7 +195,7 @@ export function LostFoundSettingsSection() {
               <div className="space-y-3 border-t border-[hsl(var(--e-border))] pt-4">
                 <h3 className="text-[0.875rem] font-[600]">Acknowledgement to the guest</h3>
                 <ESwitch checked={form.ackEnabled} onCheckedChange={(value) => set("ackEnabled", value)} label="Send this when a guest sends or changes a request" />
-                <p className={MUTED}>Sent by email (or text when the guest gave only a phone), exactly as written here. Each send, with its text and the provider&rsquo;s answer, is kept on the item&rsquo;s timeline. Placeholders: {ACK_TEMPLATE_VARIABLES.map((name) => `{{${name}}}`).join(", ")}.</p>
+                <p className={MUTED}>Sent by email (or text when the guest gave only a phone), as written here. The guest&rsquo;s stay details (name, stay dates, property and address) always go in: where {"{{stayDetails}}"} is, or after the first paragraph when the message does not have it. Each send, with its text and the provider&rsquo;s answer, is kept on the item&rsquo;s timeline. Placeholders: {ACK_TEMPLATE_VARIABLES.map((name) => `{{${name}}}`).join(", ")}.</p>
                 <EField label="Subject"><EInput value={form.ackSubject} maxLength={200} onChange={(event) => set("ackSubject", event.target.value)} /></EField>
                 <EField label="Message" hint={`${form.ackBody.length} of 1000 characters`}><ETextarea rows={8} value={form.ackBody} maxLength={1000} onChange={(event) => set("ackBody", event.target.value)} /></EField>
               </div>

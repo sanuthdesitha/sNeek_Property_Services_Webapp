@@ -12,6 +12,7 @@
  * what they did. The app never claims a message was delivered.
  */
 import { formatInTimeZone } from "date-fns-tz";
+import { stayDetailsText, type StayDetails } from "./stay-details";
 
 export type MessageAudience = "guest" | "client";
 
@@ -39,6 +40,8 @@ export type MessageDraftInput = {
   officeName: string;
   officePhone: string | null;
   timeZone: string;
+  /** Guest: the stay the item belongs to (name, dates, property and address), so the guest can tell which stay it is. */
+  stay?: StayDetails | null;
   /** Guest: the item's public page (photo, return request). Null when no link is open. */
   guestLinkUrl?: string | null;
   /** Client: the client's Lost and found page in the portal. */
@@ -91,12 +94,13 @@ export function draftLostFoundMessage(input: MessageDraftInput): MessageDraft {
       body: [
         greeting,
         `This is ${input.officeName}. After your stay at ${place}, our cleaner found this item on ${found}: ${input.itemName}${where}.`,
+        stayDetailsText(input.stay),
         input.guestLinkUrl
           ? `We are keeping it safe. View your item and request its return here: ${input.guestLinkUrl}\nWhatever you choose there is a preference until we confirm it with you.`
           : "We are keeping it safe. Please reply to let us know whether you would like to collect it or have it sent to you, and we will arrange the details.",
         contact,
         `Kind regards,\n${input.officeName}`,
-      ].join("\n\n"),
+      ].filter(Boolean).join("\n\n"),
     };
   }
   const greeting = input.clientName?.trim() ? `Hi ${input.clientName.trim()},` : "Hello,";

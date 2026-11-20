@@ -70,7 +70,7 @@ const NAV: NavItem[] = [
 ];
 
 // Which attention count badges which nav item. Pages without an unambiguous
-// pending queue (Calendar, Properties, Settings, …) deliberately have no badge —
+// pending queue (Calendar, Settings, …) deliberately have no badge —
 // see lib/admin/attention-counts.ts for each count's definition.
 const COUNT_KEY_BY_HREF: Record<string, keyof AdminAttentionCounts> = {
   "/v2/admin/jobs": "jobs",
@@ -85,6 +85,8 @@ const COUNT_KEY_BY_HREF: Record<string, keyof AdminAttentionCounts> = {
   "/v2/admin/growth": "growth",
   // Urgent stock needs awaiting acknowledgement (null for non-administrators).
   "/v2/admin/inventory": "urgentStock",
+  // Battery devices with an open charge (2026-11-20): the "Devices needing attention" list on Properties.
+  "/v2/admin/properties": "propertyDevices",
 };
 
 const POLL_MS = 60_000;

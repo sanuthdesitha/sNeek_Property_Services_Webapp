@@ -28,7 +28,45 @@ import { BulkPhotoAssign, type BulkAssignField } from "@/components/v2/cleaner/b
 import { TaskChip } from "@/components/v2/cleaner/job-stages/parts";
 import { EarlyCheckoutStatus } from "@/components/v2/cleaner/job-actions";
 import { PurchaseAsksCard } from "@/components/v2/cleaner/purchase-asks-card";
-import { titleCase, type WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
+import { titleCase, type JobTask, type TaskDraft, type WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
+import { EPill } from "@/components/v2/ui/pill";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
+import { EInput } from "@/components/v2/cleaner/fields";
+import { COULD_NOT_CHARGE_REASONS } from "@/lib/property-devices/types";
+
+/** A device charge task (2026-11-20): high priority, photo always required, never "not applicable". */
+function isDeviceChargeTask(task: JobTask): boolean {
+  return task.metadata?.kind === "DEVICE_CHARGE";
+}
+
+/**
+ * The extra controls on a device charge task: quick reasons when it could not
+ * be done, and the battery percent the cleaner saw after charging (optional).
+ */
+function DeviceChargeExtras({ task, draft, locked, onChange }: { task: JobTask; draft: TaskDraft; locked: boolean; onChange: (patch: Partial<TaskDraft>) => void }) {
+  const inputId = `device-battery-${task.id}`;
+  if (draft.decision === "NOT_COMPLETED") {
+    return (
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Why it could not be done">
+        {COULD_NOT_CHARGE_REASONS.map((reason) => (
+          <TaskChip key={reason} active={draft.note.trim() === reason} disabled={locked} tone="warning" onClick={() => onChange({ note: reason })}>
+            {reason}
+          </TaskChip>
+        ))}
+      </div>
+    );
+  }
+  if (draft.decision !== "COMPLETED") return null;
+  return (
+    <label htmlFor={inputId} className="block text-[0.8125rem]">
+      Battery shown after charging, if the device shows it (optional)
+      <span className="mt-1 flex max-w-[10rem] items-center gap-2">
+        <EInput id={inputId} inputMode="numeric" pattern="[0-9]*" maxLength={3} value={draft.observedBatteryPercent ?? ""} disabled={locked} onChange={(event) => onChange({ observedBatteryPercent: event.target.value.replace(/[^0-9]/g, "") })} />
+        <span aria-hidden>%</span>
+      </span>
+    </label>
+  );
+}
 
 export function StageClean({ api }: { api: WorkspaceApi }) {
   const [urgentStockMounted, setUrgentStockMounted] = React.useState(false);
@@ -97,9 +135,11 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
             </p>
             {jobTasks.map((t) => {
               const d = taskDrafts[t.id] ?? { decision: "OPEN", note: "", proof: [] };
+              const deviceCharge = isDeviceChargeTask(t);
               return (
-                <div key={t.id} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <div key={t.id} className={deviceCharge ? `rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-3` : "rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3"}>
                   <div className="min-w-0">
+                    {deviceCharge ? <EPill tone="warn" className="mb-1">High priority</EPill> : null}
                     <p className="text-[0.875rem] font-[550]">{t.title}</p>
                     {t.description ? (
                       <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{t.description}</p>
@@ -120,7 +160,7 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
                       tone="warning"
                       onClick={() => api.setTask(t.id, { decision: "NOT_COMPLETED" })}
                     >
-                      Not done
+                      {deviceCharge ? "Could not do" : "Not done"}
                     </TaskChip>
                     {t.metadata?.allowNotApplicable === true ? (
                       <TaskChip active={d.decision === "NOT_APPLICABLE"} disabled={locked}
@@ -132,7 +172,7 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
                       <ETextarea
                         placeholder={
                           d.decision === "NOT_APPLICABLE" ? "Why it does not apply (reason and photo required; no carry-forward)" : d.decision === "NOT_COMPLETED"
-                            ? "Reason it wasn't done (required)"
+                            ? deviceCharge ? "Why it could not be done (required). The office is told and it moves to the next clean." : "Reason it wasn't done (required)"
                             : t.requiresNote
                               ? "Add a note (required)"
                               : "Add a note (optional)"
@@ -141,12 +181,13 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
                         disabled={locked}
                         onChange={(e) => api.setTask(t.id, { note: e.target.value })}
                       />
-                      {t.requiresPhoto || d.decision === "COMPLETED" || d.decision === "NOT_APPLICABLE" ? (
+                      {deviceCharge ? <DeviceChargeExtras task={t} draft={d} locked={locked} onChange={(patch) => api.setTask(t.id, patch)} /> : null}
+                      {(t.requiresPhoto && !(deviceCharge && d.decision === "NOT_COMPLETED")) || d.decision === "COMPLETED" || d.decision === "NOT_APPLICABLE" ? (
                         <div>
                           <p className="mb-1 flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                            <Camera className="h-3.5 w-3.5" /> Proof photo{t.requiresPhoto || d.decision === "NOT_APPLICABLE" ? " (required)" : ""}
+                            <Camera className="h-3.5 w-3.5" /> {deviceCharge ? "Photo of the device on charge, or charged and back in place (required)" : <>Proof photo{t.requiresPhoto || d.decision === "NOT_APPLICABLE" ? " (required)" : ""}</>}
                           </p>
-                          {t.requiresPhoto && d.proof.length === 0 ? <label className="block text-sm">If no photo is available, explain why (work completion remains unverified)<textarea value={d.missingPhotoReason ?? ""} disabled={locked} maxLength={2000} onChange={e => api.setTask(t.id, { missingPhotoReason: e.target.value })} className="w-full rounded border p-2" /></label> : null}
+                          {t.requiresPhoto && d.proof.length === 0 && !t.metadata?.strictPhoto ? <label className="block text-sm">If no photo is available, explain why (work completion remains unverified)<textarea value={d.missingPhotoReason ?? ""} disabled={locked} maxLength={2000} onChange={e => api.setTask(t.id, { missingPhotoReason: e.target.value })} className="w-full rounded border p-2" /></label> : null}
                           <MediaCapture
                             evidenceDestination={{ type: "jobTask", taskId: t.id }}
                             value={d.proof}

@@ -40,6 +40,7 @@ import { FinalCheckupSettingsSection } from "@/components/v2/admin/settings/fina
 import { NoPhotoSection } from "@/components/v2/admin/settings/no-photo-section";
 import { NotificationAudienceSection } from "@/components/v2/admin/settings/notification-audience-section";
 import { LostFoundSettingsSection } from "@/components/v2/admin/settings/lost-found-section";
+import { PropertyDevicesSettingsSection } from "@/components/v2/admin/settings/property-devices-section";
 import { InsightsEmailSection } from "@/components/v2/admin/settings/insights-email-section";
 import { RequiredDocumentsSettingsSection } from "@/components/v2/admin/settings/required-documents-section";
 
@@ -433,6 +434,7 @@ export default async function SettingsPage({
       {activeTab === "integrations" && isAdmin ? <IntegrationsSection /> : null}
       {activeTab === "insights-email" && isAdmin ? <InsightsEmailSection /> : null}
       {activeTab === "ical-sync" && isAdmin ? <IcalSection /> : null}
+      {activeTab === "property-devices" && isAdmin ? <PropertyDevicesSettingsSection timeZone={appSettings.timezone || "Australia/Sydney"} /> : null}
       {activeTab === "payment-gateways" && isAdmin ? <GatewaysSection /> : null}
       {activeTab === "xero" && isAdmin ? <XeroSection /> : null}
       {activeTab === "finance-notifications" && isAdmin ? (

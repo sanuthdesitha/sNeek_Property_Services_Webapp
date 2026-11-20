@@ -6,7 +6,7 @@ vi.mock("@/lib/db", () => ({
   db: {
     job: { count: m.counter() }, cleanerPayAdjustment: { count: m.counter() }, timeLogAdjustmentRequest: { count: m.counter() },
     laundryTask: { count: m.counter() }, jobTask: { count: m.counter() }, qaIssue: { count: m.counter() }, qAReview: { count: m.counter() },
-    qaAssignment: { count: m.counter() }, issueTicket: { count: m.counter() }, lostFoundItem: { count: m.lostFound }, quoteLead: { count: m.counter() },
+    qaAssignment: { count: m.counter() }, issueTicket: { count: m.counter() }, lostFoundItem: { count: m.lostFound }, quoteLead: { count: m.counter() }, propertyDevice: { count: m.counter() },
     clientInvoice: { count: m.counter() }, cleanerInvoiceSubmission: { count: m.counter() }, urgentStockNeed: { count: m.urgent },
   },
 }));

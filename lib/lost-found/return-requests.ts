@@ -24,6 +24,7 @@ import { parsePhotos } from "./service";
 import { guestLinkToken, guestLinkUrl, type ResolvedGuestLink } from "./guest-link";
 import { readLostFoundSettings, type LostFoundSettings } from "./settings";
 import { isOpenStatus } from "./status";
+import { loadStayDetails } from "./stay-details-server";
 import {
   arrangementAttention,
   describeConfiguredFee,
@@ -110,6 +111,7 @@ export async function guestPageView(resolved: OpenLink, now: Date = new Date()):
   const timeZone = app.timezone || "Australia/Sydney";
   const open = isOpenStatus(item.status);
   const photos = parsePhotos(item.photos);
+  const stay = await loadStayDetails(item, timeZone);
   return {
     companyName: app.companyName || "sNeek Property Services",
     officePhone: app.companyPhone?.trim() || null,
@@ -119,6 +121,7 @@ export async function guestPageView(resolved: OpenLink, now: Date = new Date()):
       foundDate: formatInTimeZone(item.createdAt, timeZone, "yyyy-MM-dd"),
       foundWhere: item.foundLocation?.trim() || null,
       propertyLabel: label,
+      stay,
       photoUrls: photos.map((_photo, index) => `/api/public/lost-found/${token}/photo${index > 0 ? `?n=${index}` : ""}`),
       heldUntil: heldUntil(item, settings, timeZone, now),
     },

@@ -24,6 +24,15 @@ export type ReleaseNote = {
 
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    release: "2026.11.20-property-devices",
+    date: "2026-11-20",
+    author: "Property devices: Ring, Minut and charge tasks",
+    items: [
+      { change: "A device charge task shows first on the cleaner's job as High priority; it needs a photo when done, or a reason (with quick picks) when it could not be done, before the job can be submitted.", covered: { tourKey: "cleaner.job.practice", version: 2, stepIds: ["checklist"] } },
+      { change: "The Properties item in the admin menu shows how many devices need charging.", noVisibleChange: "A count badge on an existing menu item, the same badge other items carry; no control was added or moved on a toured page." },
+    ],
+  },
+  {
     release: "2026.11.20-lost-found-returns",
     date: "2026-11-20",
     author: "Lost and found: guest link and return requests",

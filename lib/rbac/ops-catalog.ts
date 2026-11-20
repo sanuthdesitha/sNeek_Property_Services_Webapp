@@ -377,6 +377,8 @@ const ADMIN_SECTIONS: Record<string, OpsFeature | "owner"> = {
   "property-client-rates": "properties",
   "deep-clean-planning": "properties",
   "deep-clean-proposals": "properties",
+  // Devices needing attention across properties (2026-11-20).
+  "property-devices": "properties",
   clients: "clients",
   "va-teams": "clients",
   "va-invites": "clients",
@@ -473,6 +475,8 @@ const SETTINGS_TABS: Record<string, OpsFeature | "owner"> = {
   "public-widgets": "website",
   integrations: "integrations",
   "ical-sync": "integrations",
+  // Ring and Minut device connections (2026-11-20): administrators only in the routes.
+  "property-devices": "integrations",
   ollama: "ai",
   // The old Settings › AI tab redirects to the AI configuration page
   // (/v2/admin/ai); operations managers read it with the AI tools pack.

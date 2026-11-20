@@ -224,6 +224,8 @@ export const submitJobSchema = z.object({
         note: z.string().trim().max(4000).optional(),
         proofKeys: z.array(z.string().trim().min(1)).max(20).optional(),
         missingPhotoReason: z.string().trim().min(1).max(2000).optional(),
+        // Device charge tasks (2026-11-20): the battery percent the cleaner saw, if shown.
+        observedBatteryPercent: z.number().int().min(0).max(100).nullable().optional(),
       })
     )
     .optional(),

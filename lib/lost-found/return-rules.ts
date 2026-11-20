@@ -9,6 +9,8 @@
  * a quote shown to the guest and never a charge; an unknown fee stays unknown.
  */
 
+import { stayDetailsText, type StayDetails } from "./stay-details";
+
 export const RETURN_METHODS = ["POST", "PICKUP_AT_CLEAN", "PICKUP_OTHER_TIME", "DROP_OFF", "OTHER"] as const;
 export type ReturnMethod = (typeof RETURN_METHODS)[number];
 
@@ -180,13 +182,28 @@ export function fillTemplate(template: string, values: Record<string, string>): 
   return template.replace(/\{\{\s*([a-zA-Z]+)\s*\}\}/g, (_match, name: string) => values[name] ?? "");
 }
 
-export const ACK_TEMPLATE_VARIABLES = ["guestFirstName", "itemName", "choice", "officeName", "link"] as const;
+export const ACK_TEMPLATE_VARIABLES = ["guestFirstName", "itemName", "stayDetails", "choice", "officeName", "link"] as const;
+
+/**
+ * Fills the acknowledgement body. The stay details (guest, dates, property and
+ * address) always go in: where the template has no {{stayDetails}}, they are
+ * put after its first paragraph. Details that are not recorded leave no gap.
+ */
+export function fillAcknowledgementBody(template: string, values: Record<string, string>, stay: StayDetails | null, form: "full" | "compact" = "full"): string {
+  const block = stayDetailsText(stay, form) ?? "";
+  const hasPlaceholder = /\{\{\s*stayDetails\s*\}\}/.test(template);
+  const filled = fillTemplate(template, { ...values, stayDetails: block });
+  const paragraphs = filled.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
+  if (block && !hasPlaceholder) paragraphs.splice(Math.min(1, paragraphs.length), 0, block);
+  return paragraphs.join("\n\n");
+}
 
 export const DEFAULT_ACK_SUBJECT = "We received your request for your {{itemName}}";
 
 export const DEFAULT_ACK_BODY = [
   "Hi {{guestFirstName}},",
   "Thanks for letting us know how you would like your {{itemName}} back. You asked for: {{choice}}.",
+  "{{stayDetails}}",
   "This is not confirmed yet. Our office will review it and write to you with the arrangement, including any cost.",
   "You can check or change your request here: {{link}}",
   "Kind regards,\n{{officeName}}",
@@ -208,6 +225,8 @@ export type DecisionDraftInput = {
   confirmedTime: string | null;
   address: string | null;
   propertyLabel: string;
+  /** The stay the item belongs to; every guest message names it. */
+  stay?: StayDetails | null;
   feeLine: string;
   note: string | null;
   link: string | null;
@@ -234,12 +253,14 @@ export function draftDecisionMessage(input: DecisionDraftInput): { subject: stri
   const contact = input.officePhone?.trim() ? `If anything changes, reply to this message or call us on ${input.officePhone.trim()}.` : "If anything changes, reply to this message.";
   const note = input.note?.trim() ? input.note.trim() : null;
   const link = input.link ? `Your request: ${input.link}` : null;
+  const stay = stayDetailsText(input.stay);
   if (input.decision === "decline") {
     return {
       subject: `About returning your ${input.itemName}`,
       body: [
         greeting,
         `We could not arrange the return of your ${input.itemName} the way you asked.`,
+        stay,
         note ? `Reason: ${note}` : null,
         input.link ? `You can choose another way here: ${input.link}` : "Please reply to choose another way.",
         contact,
@@ -252,6 +273,7 @@ export function draftDecisionMessage(input: DecisionDraftInput): { subject: stri
     body: [
       greeting,
       `Good news: we have confirmed how your ${input.itemName} will come back to you. ${arrangementLine(input)}`,
+      stay,
       `Cost: ${input.feeLine}.`,
       note,
       link,

@@ -26,7 +26,9 @@ import { ExternalMessageError, isValidExternalAddress, sendExternalRecipientMess
 import { getJobReference } from "@/lib/jobs/job-number";
 import { resolveClientNoticeTarget } from "./client-notice";
 import { buildGuestItemEmail } from "./guest-email";
-import { describeRequestChoice, fillTemplate, guestFirstName, type ReturnMethod } from "./return-rules";
+import { GUEST_SMS_MAX_CHARS } from "./message";
+import { describeRequestChoice, fillAcknowledgementBody, fillTemplate, guestFirstName, type ReturnMethod } from "./return-rules";
+import { loadStayDetailsForItem } from "./stay-details-server";
 import type { LostFoundSettings } from "./settings";
 
 export const OFFICE_RETURN_TYPE = "lostfound.return_request";
@@ -161,9 +163,14 @@ export async function notifyCleanersOfTask(input: { jobId: string; taskId: strin
 
 export type AckRecord = { sent: boolean; transport: "EMAIL" | "SMS" | null; subject: string; body: string; note: string };
 
-/** The exact acknowledgement text for a request (what Settings shows, filled in). */
-export async function acknowledgementText(settings: LostFoundSettings, input: { guestName: string; itemName: string; method: ReturnMethod; requestedDate: string | null; proposedTime: string | null; otherDetails: string | null; link: string }) {
+/**
+ * The exact acknowledgement text for a request (the Settings template, filled
+ * in). It always names the stay: guest, stay dates, property and address. A
+ * text message that would pass the SMS limit carries the one-line form.
+ */
+export async function acknowledgementText(settings: LostFoundSettings, input: { itemId: string; guestName: string; itemName: string; method: ReturnMethod; requestedDate: string | null; proposedTime: string | null; otherDetails: string | null; link: string; transport?: "EMAIL" | "SMS" | null }) {
   const app = await getAppSettings();
+  const stay = await loadStayDetailsForItem(input.itemId, app.timezone || "Australia/Sydney");
   const values = {
     guestFirstName: guestFirstName(input.guestName),
     itemName: input.itemName,
@@ -171,7 +178,9 @@ export async function acknowledgementText(settings: LostFoundSettings, input: { 
     officeName: app.companyName || "sNeek Property Services",
     link: input.link,
   };
-  return { subject: fillTemplate(settings.acknowledgement.subject, values).slice(0, 200), body: fillTemplate(settings.acknowledgement.body, values).slice(0, 1000) };
+  const full = fillAcknowledgementBody(settings.acknowledgement.body, values, stay);
+  const body = input.transport === "SMS" && full.length > GUEST_SMS_MAX_CHARS ? fillAcknowledgementBody(settings.acknowledgement.body, values, stay, "compact") : full;
+  return { subject: fillTemplate(settings.acknowledgement.subject, values).slice(0, 200), body: body.slice(0, 1500) };
 }
 
 /**
@@ -186,8 +195,8 @@ export async function sendGuestAcknowledgement(input: {
   link: { id: string; createdById: string; token: string; url: string };
 }): Promise<AckRecord | null> {
   if (!input.settings.acknowledgement.enabled) return null;
-  const { subject, body } = await acknowledgementText(input.settings, { guestName: input.request.contactName, itemName: input.item.itemName, method: input.request.method, requestedDate: input.request.requestedDate, proposedTime: input.request.proposedTime, otherDetails: input.request.otherDetails, link: input.link.url });
   const transport: "EMAIL" | "SMS" | null = isValidExternalAddress("EMAIL", input.request.contactEmail) ? "EMAIL" : isValidExternalAddress("SMS", input.request.contactPhone) ? "SMS" : null;
+  const { subject, body } = await acknowledgementText(input.settings, { itemId: input.item.id, guestName: input.request.contactName, itemName: input.item.itemName, method: input.request.method, requestedDate: input.request.requestedDate, proposedTime: input.request.proposedTime, otherDetails: input.request.otherDetails, link: input.link.url, transport });
   let record: AckRecord;
   if (!transport) {
     record = { sent: false, transport: null, subject, body, note: "Acknowledgement not sent: the guest gave no usable email or phone." };

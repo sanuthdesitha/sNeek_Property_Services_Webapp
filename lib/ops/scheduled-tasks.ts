@@ -42,6 +42,7 @@ const TASKS: ScheduledTaskInfo[] = [
   { name: "weekly-laundry-plan", plainName: "Plan next week's laundry", description: "Draft laundry plan every Monday", ifItFails: "This week's laundry draft may be missing." },
   { name: "stock-alerts", plainName: "Stock alerts", description: "Low stock at properties", ifItFails: "Low-stock alerts may be late." },
   { name: "property-care", plainName: "Property care reminders", description: "Care tasks coming due", ifItFails: "Property care tasks may not have been raised on time." },
+  { name: "property-devices", plainName: "Device batteries", description: "Ring and Minut battery levels and charge tasks", ifItFails: "Battery levels may be out of date and a low battery may not have reached the next clean; enter readings by hand meanwhile.", fix: { label: "Settings › Ring and Minut devices", href: "/v2/admin/settings?tab=property-devices" } },
   { name: "urgent-stock-reminders", plainName: "Urgent stock reminders", description: "Urgent needs not yet handled", ifItFails: "Reminders about urgent stock may be late." },
   { name: "agent-request-expiry", plainName: "Expire agent requests", description: "Agent requests nobody approved in time", ifItFails: "Old agent requests stay open a little longer; nothing is approved by it." },
   { name: "test-as-notices", plainName: "Tell people they were tested as", description: "Full-access Test as sessions that ended by themselves", ifItFails: "Someone tested as with full access may hear about it later; it is never sent twice." },

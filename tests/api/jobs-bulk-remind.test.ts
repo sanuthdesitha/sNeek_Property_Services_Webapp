@@ -16,7 +16,7 @@ vi.mock("@/lib/auth/session", () => ({ requireRole: m.session }));
 vi.mock("@/lib/db", () => {
   const tx = { pushSubscription: { findMany: vi.fn().mockResolvedValue([]) } };
   return { db: {
-    job: { findUnique: m.findJob }, notification: { create: m.notify }, auditLog: { create: m.audit },
+    job: { findUnique: m.findJob }, jobTask: { findMany: async () => [] }, notification: { create: m.notify }, auditLog: { create: m.audit },
     appSetting: { findUnique: m.controls, create: m.receipt, update: m.receiptUpdate },
     $transaction: (run: (client: typeof tx) => unknown) => run(tx),
   } };

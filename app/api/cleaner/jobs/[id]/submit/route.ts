@@ -46,6 +46,7 @@ import { resolveEffectiveJobForm } from "@/lib/forms/resolve-effective-job-form"
 import { jobFormRevision } from "@/lib/forms/job-form-revision";
 import { jobFormProperty, UnsupportedFormPropertyConditionError } from "@/lib/forms/job-form-property";
 import { applyCleanerJobTaskUpdates, listCleanerJobTasks } from "@/lib/job-tasks/service";
+import { isDeviceChargeTaskMetadata } from "@/lib/property-devices/charge-task-hook";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { queueClientPostJobAutomations } from "@/lib/notifications/client-automation";
@@ -652,6 +653,15 @@ export async function POST(
           return NextResponse.json({ error: `Explain why this task is not applicable and attach photo proof: ${task.title}` }, { status: 400 });
         }
       }
+      // Device charge (2026-11-20): never claimed without a photo, never "not applicable".
+      if (isDeviceChargeTaskMetadata(task.metadata)) {
+        if (update.decision === "COMPLETED" && proofKeys.length === 0) {
+          return NextResponse.json({ error: `Add a photo of the device on charge or charged: ${task.title}` }, { status: 400 });
+        }
+        if (update.decision !== "COMPLETED" && !note) {
+          return NextResponse.json({ error: `Say why the device could not be charged: ${task.title}` }, { status: 400 });
+        }
+      }
       if (update.decision === "COMPLETED") {
         if (task.requiresNote && !note) {
           return NextResponse.json(
@@ -1144,6 +1154,7 @@ export async function POST(
             note: task.note,
             proofKeys: task.proofKeys ?? [],
             missingPhotoReason: task.missingPhotoReason,
+            observedBatteryPercent: task.observedBatteryPercent ?? null,
           })),
           baseUrl: req,
         }, { transaction: db, afterCommit });

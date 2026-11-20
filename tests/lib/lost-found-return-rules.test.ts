@@ -12,6 +12,7 @@ import {
   describeFee,
   describeRequestChoice,
   draftDecisionMessage,
+  fillAcknowledgementBody,
   fillTemplate,
   formatCalendarDate,
   parseFeeCents,
@@ -108,6 +109,11 @@ describe("words", () => {
     const decline = draftDecisionMessage({ ...common, decision: "decline", note: "No cleans that week" });
     expect(decline.body).toContain("Reason: No cleans that week");
     expect(decline.body).toContain("choose another way here");
+    const stay = { guestName: "Gina Guest", propertyName: "Bondi Studio", propertyAddress: "1 Sea St, Bondi, NSW 2026", checkIn: "2026-11-09", checkOut: "2026-11-12" };
+    const block = "Your stay\nGuest: Gina Guest\nStay: 9 November 2026 to 12 November 2026\nProperty: Bondi Studio, 1 Sea St, Bondi, NSW 2026";
+    expect(draftDecisionMessage({ ...common, decision: "approve", stay }).body).toContain(block);
+    expect(draftDecisionMessage({ ...common, decision: "decline", note: "No cleans", stay }).body).toContain(block);
+    expect(approve.body).not.toContain("Your stay");
   });
 
   it("fills the acknowledgement template and says it is not confirmed", () => {
@@ -118,10 +124,27 @@ describe("words", () => {
     expect(fillTemplate("{{unknown}}x", {})).toBe("x");
   });
 
+  it("always puts the stay details in the acknowledgement, and leaves no gap when none are recorded", () => {
+    const values = { guestFirstName: "Gina", itemName: "charger", choice: "Post it to me", officeName: "sNeek", link: "https://app.test/lost-found/t" };
+    const stay = { guestName: "Gina Guest", propertyName: "Bondi Studio", propertyAddress: "1 Sea St, Bondi, NSW 2026", checkIn: "2026-11-09", checkOut: "2026-11-12" };
+    const withDefault = fillAcknowledgementBody(DEFAULT_ACK_BODY, values, stay);
+    expect(withDefault).toContain("Stay: 9 November 2026 to 12 November 2026");
+    expect(withDefault.match(/Your stay/g)).toHaveLength(1);
+    const custom = fillAcknowledgementBody("Hi {{guestFirstName}},\n\nGot it.\n\n{{officeName}}", values, stay);
+    expect(custom).toBe("Hi Gina,\n\nYour stay\nGuest: Gina Guest\nStay: 9 November 2026 to 12 November 2026\nProperty: Bondi Studio, 1 Sea St, Bondi, NSW 2026\n\nGot it.\n\nsNeek");
+    expect(fillAcknowledgementBody(DEFAULT_ACK_BODY, values, stay, "compact")).toContain("Your stay: Gina Guest; 9 Nov 2026 to 12 Nov 2026; Bondi Studio, 1 Sea St, Bondi, NSW 2026.");
+    const none = fillAcknowledgementBody(DEFAULT_ACK_BODY, values, null);
+    expect(none).not.toContain("Your stay");
+    expect(none).not.toMatch(/\n{3,}/);
+  });
+
   it("puts the guest link in the office's Message guest draft, and the portal link in Tell client", () => {
     const input = { itemName: "Charger", foundAt: "2026-11-10T01:00:00.000Z", foundLocation: null, propertyName: "Bondi", propertyAddress: null, guestName: "Gina", clientName: "Ann", officeName: "sNeek", officePhone: null, timeZone: "Australia/Sydney" };
     expect(draftLostFoundMessage({ ...input, audience: "guest", guestLinkUrl: "https://app.test/lost-found/t" }).body).toContain("View your item and request its return here: https://app.test/lost-found/t");
     expect(draftLostFoundMessage({ ...input, audience: "guest" }).body).toContain("Please reply");
+    const stay = { guestName: "Gina Guest", propertyName: "Bondi", propertyAddress: "1 Sea St, Bondi, NSW 2026", checkIn: "2026-11-09", checkOut: null };
+    expect(draftLostFoundMessage({ ...input, audience: "guest", stay }).body).toContain("Your stay\nGuest: Gina Guest\nStay: from 9 November 2026\nProperty: Bondi, 1 Sea St, Bondi, NSW 2026");
+    expect(draftLostFoundMessage({ ...input, audience: "client", stay }).body).not.toContain("Your stay");
     expect(draftLostFoundMessage({ ...input, audience: "client", clientLinkUrl: "https://app.test/v2/client/lost-found" }).body).toContain("https://app.test/v2/client/lost-found");
   });
 });

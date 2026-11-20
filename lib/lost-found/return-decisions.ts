@@ -33,6 +33,8 @@ import { lostFoundPhotoSrc } from "./photo-src";
 import { activeGuestLink, guestLinkToken, guestPhotoUrl } from "./guest-link";
 import { buildGuestItemEmail } from "./guest-email";
 import { readLostFoundSettings } from "./settings";
+import { loadStayDetails } from "./stay-details-server";
+import type { StayDetails } from "./stay-details";
 import {
   ATTENTION_LABEL,
   cleanerTaskText,
@@ -470,10 +472,10 @@ async function linkPhotoUrl(linkId: string): Promise<string | null> {
   return row ? guestPhotoUrl(guestLinkToken(row)) : null;
 }
 
-export type DraftContext = { officeName: string; officePhone: string | null; propertyLabel: string; link: string | null };
+export type DraftContext = { officeName: string; officePhone: string | null; propertyLabel: string; stay: StayDetails; link: string | null };
 
 export async function officeReturnPanel(itemId: string, permissions: { canDecide: GuestSendPermission; canSendGuest: GuestSendPermission }): Promise<OfficeReturnPanel> {
-  const item = await db.lostFoundItem.findUnique({ where: { id: itemId }, select: { id: true, propertyId: true, photos: true } });
+  const item = await db.lostFoundItem.findUnique({ where: { id: itemId }, select: { id: true, propertyId: true, photos: true, guestName: true, reservationId: true } });
   if (!item) throw new ReturnRequestError(404, "Item not found.", "NOT_FOUND");
   const [settings, app, requests, link] = await Promise.all([readLostFoundSettings(), getAppSettings(), officeRequestViews(itemId), activeGuestLink(itemId)]);
   const timeZone = app.timezone || "Australia/Sydney";
@@ -492,6 +494,7 @@ export async function officeReturnPanel(itemId: string, permissions: { canDecide
       officeName: app.companyName || "sNeek Property Services",
       officePhone: app.companyPhone?.trim() || null,
       propertyLabel: property ? (property.suburb ? `${property.name}, ${property.suburb}` : property.name) : "the property",
+      stay: await loadStayDetails(item, timeZone),
       link: link?.url ?? null,
     },
     addresses: Object.fromEntries(requests.map((row) => [row.id, formatReturnAddress(row.address)])),
@@ -538,7 +541,7 @@ export const clientReviewSchema = z.object({
   decisionKey: decisionKeySchema.optional(),
 }).strict();
 
-export function clientDecisionDraft(input: { itemName: string; row: LostFoundReturnRequest; officeName: string; officePhone: string | null; propertyLabel: string; link: string | null }) {
+export function clientDecisionDraft(input: { itemName: string; row: LostFoundReturnRequest; officeName: string; officePhone: string | null; propertyLabel: string; stay: StayDetails; link: string | null }) {
   return draftDecisionMessage({
     decision: "approve",
     guestName: input.row.contactName,
@@ -550,6 +553,7 @@ export function clientDecisionDraft(input: { itemName: string; row: LostFoundRet
     confirmedTime: input.row.proposedTime,
     address: formatReturnAddress(parseReturnAddress(input.row.address)),
     propertyLabel: input.propertyLabel,
+    stay: input.stay,
     feeLine: describeFee("NOT_SET", null, null) + "; the office will confirm any cost before anything is charged",
     note: null,
     link: input.link,
