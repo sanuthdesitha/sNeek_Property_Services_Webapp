@@ -1,3 +1,5 @@
+import { checkTemplateSchema } from "@/lib/forms/template-checks";
+import { isTemplateNodeVisible } from "@/lib/forms/visibility";
 import { describe, it, expect } from "vitest";
 import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
 import { collectRequiredUploadFields } from "@/lib/forms/visibility";
@@ -88,5 +90,20 @@ describe("normalizeFormSchema — read/submit required-set parity", () => {
     const a = collectRequiredUploadFields(raw, {}, {}, undefined).map((f) => f.id).sort();
     const b = collectRequiredUploadFields(rawAgain, {}, {}, undefined).map((f) => f.id).sort();
     expect(a).toEqual(b);
+  });
+
+  it("turns the seed's laundry question into a yes/no its follow-ups depend on, with no builder error", () => {
+    const seed = { sections: [{ id: "s9", label: "Laundry Confirmation", fields: [
+      { id: "s9_ready", type: "laundry_confirm", label: "Is laundry ready for pickup?", required: true },
+      { id: "s9_bags", type: "checkbox", label: "Bags clearly labelled (if YES)", conditional: { fieldId: "s9_ready", value: true } },
+    ] }] };
+    const normalized = normalizeFormSchema(seed);
+    const section = normalized.sections.find((candidate: { id: string }) => candidate.id === "s9");
+    expect(section.fields[0]).toMatchObject({ id: "s9_ready", type: "yesno", required: true });
+    expect(section.fields[1].conditional).toEqual({ fieldId: "s9_ready", operator: "equals", value: true });
+    // The stored (not yet normalised) shape is not reported as a type no form can show.
+    expect(checkTemplateSchema(seed as never).issues.some((issue) => issue.rule === "unknown-field-type")).toBe(false);
+    expect(isTemplateNodeVisible(section.fields[1], { s9_ready: true }, {})).toBe(true);
+    expect(isTemplateNodeVisible(section.fields[1], { s9_ready: false }, {})).toBe(false);
   });
 });

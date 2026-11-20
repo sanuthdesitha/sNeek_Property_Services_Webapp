@@ -2545,3 +2545,7 @@ Owner request (verbatim): "For guests always mention the stay date, location add
 - **Reverses an earlier choice:** the guest page used to withhold the property address; it is shown now on the owner's instruction. Description, storage place, value, cleaner, guest contact and access codes stay hidden (DB test still asserts this).
 - **Limits:** stay dates come only from the booking linked to the item. An item with no linked booking shows no stay dates (not guessed); the office can type them into the draft before sending. The longer Message guest draft can pass the 459-character text limit, in which case the dialog already asks the office to shorten it or send by email.
 
+## Forms: the seed's laundry question renders as yes/no (2026-11-20)
+
+Owner: "Ok fix the laundry confirm thing". The seed's `laundry_confirm` question type had no renderer (builder error "a question type no form can show"; a text box for cleaners, so the "if YES" follow-ups never showed). It is now aliased to `yesno` in `lib/forms/normalize-schema.ts` (also `lint-template.ts`, `template-checks.ts`). No schema change, no stored template rewritten. Answers already saved as text stay as they were stored.
+

@@ -36,6 +36,7 @@ const UPLOAD_TYPES = new Set(["photo", "video", "file", "upload"]);
 const LEGACY_FIELD_TYPES: Record<string, string> = {
   upload: "photo",
   textarea: "longtext",
+  laundry_confirm: "yesno",
 };
 
 function isRec(value: unknown): value is AnyRec {

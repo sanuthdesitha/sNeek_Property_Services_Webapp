@@ -39,7 +39,7 @@ export type TemplateCheckResult = {
 type SchemaNode = Record<string, unknown>;
 
 /** Legacy types normalizeFormSchema rewrites at read time (lint warns on them). */
-const LEGACY_TYPES = new Set(["upload", "textarea"]);
+const LEGACY_TYPES = new Set(["upload", "textarea", "laundry_confirm"]);
 const MAX_STRUCTURE_ISSUES = 5;
 
 function isNode(value: unknown): value is SchemaNode {

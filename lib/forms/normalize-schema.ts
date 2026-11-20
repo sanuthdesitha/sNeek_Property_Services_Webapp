@@ -8,7 +8,10 @@
 // Canonicalisations (make old templates behave like new ones):
 //  - section heading: legacy `label` → `title`
 //  - conditional: legacy `{ fieldId, equals }` → `{ fieldId, operator:"equals", value }`
-//  - field type aliases: `upload` → `photo`, `textarea` → `longtext`
+//  - field type aliases: `upload` → `photo`, `textarea` → `longtext`,
+//    `laundry_confirm` → `yesno` (the original seed's "Is laundry ready for
+//    pickup?"; its follow-up questions are conditional on the answer `true`,
+//    which is what a yes/no question stores)
 //  - backfill a stable `id` on any section/field missing one (deterministic, so
 //    read and submit derive the same id from the same raw schema)
 //  - keep one-level `children`
@@ -43,6 +46,7 @@ function normalizeConditional(cond: unknown): AnyRec | undefined {
 function aliasType(type: unknown): unknown {
   if (type === "upload") return "photo"; // legacy media alias (validation already treats it as upload)
   if (type === "textarea") return "longtext"; // legacy long-text alias
+  if (type === "laundry_confirm") return "yesno"; // seed's laundry question: a yes/no its follow-ups depend on
   return type;
 }
 
