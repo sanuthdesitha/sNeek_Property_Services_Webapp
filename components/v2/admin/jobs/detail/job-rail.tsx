@@ -148,7 +148,8 @@ function MoneyCard({ data }: { data: JobPageData }) {
             <li key={line.userId}>
               {line.name.split(" ")[0]} {line.basis}
               {line.transport > 0 ? ` + ${formatMoney(line.transport)} transport` : ""}
-              {line.base.kind === "amount" ? ` = ${formatMoney(line.base.amount + line.transport)}` : ""}
+              {line.extras !== 0 ? ` + ${formatMoney(line.extras)} approved extras` : ""}
+              {line.base.kind === "amount" ? ` = ${formatMoney(line.base.amount + line.transport + line.extras)}` : ""}
             </li>
           ))}
         </ul>

@@ -169,7 +169,7 @@ export const SETTINGS_DESTINATIONS = [
   {
     key: "bank",
     label: "Bank & payment",
-    description: "Bank account, ABN, invoice numbering and payment terms.",
+    description: "Bank account, ABN, invoice numbering, payment terms and pay requests on client invoices.",
     group: "money",
     adminOnly: false,
   },

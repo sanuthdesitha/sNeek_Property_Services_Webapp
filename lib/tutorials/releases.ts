@@ -24,6 +24,17 @@ export type ReleaseNote = {
 
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    release: "2026.11.18-pay-requests",
+    date: "2026-11-18",
+    author: "Pay requests: link, settle, bill the client",
+    items: [
+      { change: "The pay request panel states whether approving also bills the client, and for how much; it can be switched off for one request.", covered: { tourKey: "admin.approvals", version: 2, stepIds: ["clientBilling"] } },
+      { change: "Full details of a pay request (job, decision, where it was paid, client billing, history) with edit, link to a job and mark paid, in Approvals and Decided.", covered: { tourKey: "admin.approvals", version: 2, stepIds: ["decided"] } },
+      { change: "Client invoice job lines can carry approved extras: one line, combined total, the extras listed in the description.", covered: { tourKey: "admin.finance.send", version: 4, stepIds: ["lines"] } },
+      { change: "A cleaner's pay requests show where each was paid and its history.", covered: { tourKey: "cleaner.payRequests", version: 2, stepIds: ["list"] } },
+    ],
+  },
+  {
     release: "2026.11.18-xero-update",
     date: "2026-11-18",
     author: "Xero grouping and Update in Xero",

@@ -232,11 +232,11 @@ export const TOURS: readonly TourDefinition[] = [
     roles: ADMIN_OFFICE,
     route: "/v2/admin/finance?tab=invoices",
     title: "Send an invoice",
-    version: 3,
+    version: 4,
     practice: { banner: "Practice · nothing is emailed or sent to Xero", exitHref: "/v2/admin/finance?tab=invoices" },
     steps: [
       { id: "list", target: "admin.finance.invoices.list", since: 1, requiresHref: "/v2/admin/finance?tab=invoices", title: "Drafts to check", body: "Draft invoices are ready to check. Each lists the cleans it covers." },
-      { id: "lines", target: "admin.finance.invoice.lines", since: 1, practice: true, route: "/v2/admin/finance/invoices/practice", title: "Where lines come from", body: "Line items come from completed jobs and the client's rates. To change one, fix the job, not the total." },
+      { id: "lines", target: "admin.finance.invoice.lines", since: 4, practice: true, route: "/v2/admin/finance/invoices/practice", title: "Where lines come from", body: "Line items come from completed jobs, the client's rates and approved extras on the job's line. To change one, fix the job, not the total." },
       { id: "preview", target: "admin.finance.invoice.preview", since: 1, practice: true, route: "/v2/admin/finance/invoices/practice", title: "What the client sees", body: "This is the email the client gets, with the PDF attached." },
       { id: "send", target: "admin.finance.invoice.send", since: 2, practice: true, route: "/v2/admin/finance/invoices/practice", requiresManageHref: "/v2/admin/finance?tab=invoices", title: "Send to the client", body: "Send to client: emailed and sent to Xero; in practice nothing goes. Change recipients in the Send box sets who gets this client's invoices." },
       { id: "xeroUpdate", target: "admin.finance.invoice.xero", since: 3, practice: true, route: "/v2/admin/finance/invoices/practice", requiresManageHref: "/v2/admin/finance?tab=invoices", title: "Update in Xero", body: "After pushing, Update in Xero re-sends these lines, grouped by property, to the same Xero invoice. Paid invoices stay as they are." },
@@ -250,11 +250,12 @@ export const TOURS: readonly TourDefinition[] = [
     roles: ADMIN_OFFICE,
     route: "/v2/admin/approvals",
     title: "Approvals",
-    version: 1,
+    version: 2,
     steps: [
       { id: "queues", target: "admin.approvals.queues", since: 1, title: "Approval queues", body: "Each queue holds one kind of decision, with a live count. Pick one to see what's waiting." },
       { id: "list", target: "admin.approvals.list", since: 1, title: "Decide here", body: "Open a row to see the details and decide. Pay and charges change only when you approve." },
-      { id: "decided", target: "admin.approvals.decided", since: 1, title: "Decided", body: "Decided shows what was approved or declined, by whom and when." },
+      { id: "clientBilling", target: "admin.approvals.list", since: 2, title: "Extras on the client's invoice", body: "Approving a job's extra pay can also bill the client. The panel says how much; switch it off there for one request." },
+      { id: "decided", target: "admin.approvals.decided", since: 2, title: "Decided", body: "Decided shows what was approved or declined, by whom and when. Full details shows the job, where it was paid and its history." },
     ],
   },
 
@@ -304,10 +305,10 @@ export const TOURS: readonly TourDefinition[] = [
     roles: ["CLEANER"],
     route: "/v2/cleaner/pay?tab=requests",
     title: "Request extra pay",
-    version: 1,
+    version: 2,
     steps: [
       { id: "new", target: "cleaner.payRequests.new", since: 1, title: "Ask for extra pay", body: "Took longer for a real reason? Ask for extra pay here, with a note and a photo." },
-      { id: "list", target: "cleaner.payRequests.list", since: 1, title: "Your requests", body: "Each request shows whether the office approved it. Approved amounts appear in Pay." },
+      { id: "list", target: "cleaner.payRequests.list", since: 2, title: "Your requests", body: "Each request shows the office's decision, where it was paid and its history. Approved amounts appear in Pay." },
     ],
   },
 

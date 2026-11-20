@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { computeCleanerPay } from "@/lib/finance/job-money";
-import { adjustmentSignedAmount } from "@/lib/finance/pay-adjustments";
+import { adjustmentSignedAmount, adjustmentUnsettledWhere } from "@/lib/finance/pay-adjustments";
 import {
   computeQaAssignmentPay,
   qaAssignmentSettlementAmount,
@@ -81,9 +81,12 @@ export async function getPayrollSummary(input: {
           ? { lte: endInclusive }
           : { gte: start, lte: endInclusive },
         status: PayAdjustmentStatus.APPROVED,
+        // Paid outside the system is never payroll money, in either view: no
+        // run paid it and none may (lib/finance/pay-adjustments.ts).
+        paidOutsideAt: null,
         // When building a committable run, never re-include an adjustment already
-        // paid by a prior run (idempotency).
-        ...(input.excludePaidJobs ? { includedInPayrollRunId: null, includedInCleanerInvoiceId: null } : {}),
+        // paid by a prior run (idempotency). Same predicate as every other rail.
+        ...(input.excludePaidJobs ? adjustmentUnsettledWhere() : {}),
       },
       select: {
         id: true,

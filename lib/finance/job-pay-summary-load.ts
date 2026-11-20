@@ -65,6 +65,7 @@ export async function loadJobPaySummary(jobId: string): Promise<{
         includedInPayrollRunId: true,
         includedInCleanerInvoiceId: true,
         includedInCleanerInvoiceAt: true,
+        paidOutsideAt: true,
         cleaner: { select: { name: true, email: true, role: true } },
         reviewedBy: { select: { name: true, email: true } },
       },
@@ -128,6 +129,7 @@ export async function loadJobPaySummary(jobId: string): Promise<{
       includedInPayrollRunId: adj.includedInPayrollRunId,
       includedInCleanerInvoiceId: adj.includedInCleanerInvoiceId,
       includedInCleanerInvoiceAt: adj.includedInCleanerInvoiceAt,
+      paidOutsideAt: adj.paidOutsideAt,
     })),
     timerHoursByCleaner,
   });

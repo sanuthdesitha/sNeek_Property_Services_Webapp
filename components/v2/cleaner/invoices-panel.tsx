@@ -20,6 +20,7 @@
  *   GET  /api/me/profile-completeness   → { missing: [{ key, label }] }
  */
 import { useEffect, useMemo, useState } from "react";
+import { cleanerExtraText, type CleanerExtraDetail } from "@/lib/pay-adjustments/invoice-text";
 import {
   Download,
   Mail,
@@ -66,6 +67,8 @@ interface InvoiceRow {
   transportAllowance: number;
   amount: number;
   comment?: string;
+  /** Approved extras folded into this line (2026-11-18). */
+  extraDetails?: CleanerExtraDetail[];
 }
 
 interface ExpenseRow {
@@ -114,6 +117,7 @@ interface InvoicePreview {
     originLabel?: string;
     jobId?: string | null;
     reason?: string | null;
+    relatedJob?: string | null;
   }>;
   extraLineTotal?: number;
   qaInspectionRows?: Array<{ assignmentId: string; date: string; property: string; amount: number }>;
@@ -879,6 +883,14 @@ export function InvoicesPanel({
                     {row.transportAllowance > 0 ? <span>Transport: {money(row.transportAllowance)}</span> : null}
                     {row.isHoursOverridden && row.hoursChangeNote ? <span>Changed: {row.hoursChangeNote}</span> : null}
                   </div>
+                  {row.extraDetails && row.extraDetails.length > 0 ? (
+                    <ul className="mt-1.5 space-y-0.5 text-[0.75rem]" aria-label="What this line includes">
+                      <li className="text-[hsl(var(--e-muted-foreground))]">Base pay {money(row.baseAmount)}</li>
+                      {row.extraDetails.map((detail) => (
+                        <li key={detail.id} className="break-words">{cleanerExtraText(detail)}</li>
+                      ))}
+                    </ul>
+                  ) : null}
 
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <EField label="Paid hours override">
@@ -1032,7 +1044,8 @@ export function InvoicesPanel({
                   amount: Number(row.amount ?? 0),
                   kind: row.origin === "AUTOMATIC" ? "AUTOMATIC" : "MANUAL",
                   title: row.description,
-                  reason: row.reason ?? null,
+                  // A money-back line names the job it relates to (2026-11-18).
+                  reason: [row.relatedJob, row.reason].filter(Boolean).join(" · ") || null,
                   origin: row.origin ?? "MANUAL",
                   originLabel: row.originLabel ?? "Manual",
                   status: "APPROVED",

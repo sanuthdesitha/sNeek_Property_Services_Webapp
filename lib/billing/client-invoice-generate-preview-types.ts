@@ -32,7 +32,7 @@ export type PreviewJob = {
 
 export type PreviewOtherLine = {
   key: string;
-  kind: "SHOPPING" | "SHOPPING_CHARGE" | "REPAIR";
+  kind: "SHOPPING" | "SHOPPING_CHARGE" | "REPAIR" | "EXTRA";
   description: string;
   amount: number;
 };

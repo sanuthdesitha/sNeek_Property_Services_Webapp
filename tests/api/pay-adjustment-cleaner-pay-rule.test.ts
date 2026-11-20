@@ -27,14 +27,17 @@ const m = vi.hoisted(() => ({
   updateApproval: vi.fn(),
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.role }));
-vi.mock("@/lib/db", () => ({
-  db: {
+vi.mock("@/lib/db", () => {
+  const db: Record<string, unknown> = {
     cleanerPayAdjustment: { findUnique: m.find, update: m.update },
     job: { findUnique: m.job, updateMany: m.jobUpdateMany },
     notification: { create: m.notification },
     auditLog: { create: m.audit, findUnique: m.auditFind },
-  },
-}));
+  };
+  // The write and its client-billing follow-up share one transaction (2026-11-18).
+  db.$transaction = async (fn: (tx: unknown) => unknown) => fn(db);
+  return { db };
+});
 vi.mock("@/lib/notifications/email", () => ({ sendEmailDetailed: m.email }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ companyName: "Test" }) }));
 vi.mock("@/lib/commercial/client-approvals", () => ({
@@ -174,7 +177,9 @@ describe("PATCH /api/admin/pay-adjustments/[id] — cleaner pay is the requested
     row.approvedAmount = 40;
     m.role.mockResolvedValue(OPS);
     expect((await patch({ approvedAmount: 60 })).status).toBe(403);
-    expect((await patch({ approvedAmount: 38 })).status).toBe(200);
+    // Lowering an approved amount needs a reason the cleaner reads (2026-11-18).
+    expect((await patch({ approvedAmount: 38 })).status).toBe(400);
+    expect((await patch({ approvedAmount: 38, changeReason: "One room was not done" })).status).toBe(200);
     expect(storedApproved()).toBe(38);
   });
 

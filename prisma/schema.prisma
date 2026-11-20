@@ -1824,6 +1824,41 @@ model CleanerPayAdjustment {
   // proposers must check (source, sourceKey, cleanerId) before creating.
   source                 String?
   sourceKey              String?
+  /// The THIRD settlement marker (2026-11-18): the office paid this approved
+  /// request outside the system (cash, a separate transfer). Once set the row
+  /// is spent exactly like a payroll or cleaner-invoice stamp — no invoice and
+  /// no payroll run may select it (lib/finance/pay-adjustments.ts,
+  /// `adjustmentUnsettledWhere`). Undo clears all five fields, with a reason.
+  paidOutsideAt          DateTime?
+  /// The calendar day the money left (not the system timestamp above).
+  paidOutsideDate        DateTime?           @db.Date
+  paidOutsideMethod      String?
+  paidOutsideReference   String?
+  paidOutsideNote        String?             @db.Text
+  paidOutsideById        String?
+  /// CLIENT BILLING (2026-11-18). Whether this extra is charged to the client
+  /// of its property, and for how much. `clientAmount` is its own stored
+  /// figure — never derived from the cleaner's pay. False for every row that
+  /// existed before this change.
+  billToClient           Boolean             @default(false)
+  clientAmount           Float?
+  /// Optional client-facing wording for the invoice line; the title is used
+  /// when empty. The cleaner's own note never reaches the client.
+  clientDescription      String?             @db.Text
+  clientBillingDecidedAt DateTime?
+  clientBillingDecidedById String?
+  /// The client invoice line that carries this extra (folded into the job's
+  /// line, or its own line). SetNull: a line removed from a draft releases the
+  /// extra so it waits for the next invoice. Voiding releases it explicitly.
+  clientInvoiceLineId    String?
+  clientBilledAt         DateTime?
+  /// What was put on the line, and the exact text appended — so a draft can
+  /// take it off again precisely.
+  clientBilledAmount     Float?
+  clientBilledText       String?             @db.Text
+  /// Who linked an unlinked request to a job, and when (also in the audit log).
+  jobLinkedAt            DateTime?
+  jobLinkedById          String?
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
 
@@ -1831,6 +1866,7 @@ model CleanerPayAdjustment {
   property   Property? @relation(fields: [propertyId], references: [id])
   cleaner    User      @relation("CleanerAdjustmentRequests", fields: [cleanerId], references: [id])
   reviewedBy User?     @relation("CleanerAdjustmentReviews", fields: [reviewedById], references: [id])
+  clientInvoiceLine ClientInvoiceLine? @relation(fields: [clientInvoiceLineId], references: [id], onDelete: SetNull)
 
   @@index([cleanerId, status])
   @@index([jobId, status])
@@ -1838,6 +1874,8 @@ model CleanerPayAdjustment {
   @@index([includedInPayrollRunId])
   @@index([includedInCleanerInvoiceId])
   @@index([source, sourceKey])
+  @@index([clientInvoiceLineId])
+  @@index([billToClient, status])
 }
 
 model JobAssignment {
@@ -3899,6 +3937,8 @@ model ClientInvoiceLine {
   // SetNull, not Cascade: deleting a property must never delete a billed line.
   property    Property?     @relation(fields: [propertyId], references: [id], onDelete: SetNull)
   case        IssueTicket?  @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  /// Approved pay requests billed to the client on this line (2026-11-18).
+  payRequests CleanerPayAdjustment[]
 
   // generateClientInvoice scans lines by jobId to skip already-invoiced jobs.
   @@index([jobId])

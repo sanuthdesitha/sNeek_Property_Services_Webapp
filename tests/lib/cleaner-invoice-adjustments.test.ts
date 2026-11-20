@@ -119,8 +119,12 @@ describe("cleaner invoice — approved pay adjustments", { timeout: 30000 }, () 
     const where = settleableWhere();
     expect(where.status).toBe("APPROVED");
     expect(where.cleanerId).toBe("u1");
-    expect(where.includedInPayrollRunId).toBeNull();
-    expect(where.includedInCleanerInvoiceId).toBeNull();
+    // THE settlement predicate: neither stamp, and never paid outside.
+    expect(where.AND).toEqual([
+      { includedInPayrollRunId: null },
+      { includedInCleanerInvoiceId: null },
+      { paidOutsideAt: null },
+    ]);
     // The old query scoped to `jobId: { in: jobIds }`, which is exactly how
     // approved money went missing.
     expect(where.jobId).toBeUndefined();
@@ -132,10 +136,11 @@ describe("cleaner invoice — approved pay adjustments", { timeout: 30000 }, () 
     await build({ includeInvoiceId: "inv1" });
     const where = settleableWhere();
     expect(where.includedInCleanerInvoiceId).toBeUndefined();
-    expect(where.OR).toEqual([
-      { includedInCleanerInvoiceId: null },
-      { includedInCleanerInvoiceId: "inv1" },
-    ]);
+    expect(where.AND).toContainEqual({
+      OR: [{ includedInCleanerInvoiceId: null }, { includedInCleanerInvoiceId: "inv1" }],
+    });
+    // Paid outside the system has no recompute escape.
+    expect(where.AND).toContainEqual({ paidOutsideAt: null });
   });
 
   it("a job-linked DEDUCTION reduces that job's line", async () => {

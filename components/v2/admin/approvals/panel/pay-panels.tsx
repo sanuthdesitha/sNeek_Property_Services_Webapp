@@ -12,6 +12,7 @@ import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import { PayAdjustmentDisplay, toPayAdjustmentListItem } from "@/components/v2/shared/pay-adjustment-list";
 import { EvidenceThumbs } from "@/components/v2/shared/evidence-thumbs";
+import { PayRequestDetails } from "@/components/v2/shared/pay-request-details";
 import { money, payAskedAmount, payClientCharge, type ApprovalRecord } from "@/lib/admin/approvals/rows";
 import { cleanerPayFieldDefault } from "@/lib/payroll/cleaner-pay-amount";
 import { ConfirmButton, ContextLinks, DetailList, PanelNote, PanelSection, jobHref, type QueuePanelProps } from "./panel-kit";
@@ -112,6 +113,13 @@ export function PayRequestPanel({ row, busy, decide, reload }: QueuePanelProps) 
   const [visible, setVisible] = React.useState(true);
   const [override, setOverride] = React.useState(false);
   const [overrideReason, setOverrideReason] = React.useState("");
+  // CLIENT BILLING (2026-11-18). Starts from the server's default for this
+  // request (ON for a job-linked SERVICE request whose property has a client);
+  // the client amount is its own figure, starting at the pay amount only until
+  // the office types one.
+  const billDefault = record.clientBillingDefault === true;
+  const [billClient, setBillClient] = React.useState(billDefault);
+  const [clientAmount, setClientAmount] = React.useState("");
   const ids = React.useId();
   const awaitingClient = record.clientApproval?.status === "PENDING";
   const value = Number(amount);
@@ -119,6 +127,8 @@ export function PayRequestPanel({ row, busy, decide, reload }: QueuePanelProps) 
   const noteBody = note.trim() ? (visible ? { decisionMessage: note.trim() } : { adminNote: note.trim() }) : {};
   const overrideBody = aboveRequest && override ? { overrideAboveRequest: true, overrideReason: overrideReason.trim() } : {};
   const charge = payClientCharge(record);
+  const clientValue = clientAmount.trim() === "" ? value : Number(clientAmount);
+  const billable = Boolean(record.jobId || record.property);
 
   function approve() {
     if (!Number.isFinite(value) || value <= 0) return toast({ title: "A valid amount greater than zero is required.", variant: "destructive" });
@@ -126,7 +136,11 @@ export function PayRequestPanel({ row, busy, decide, reload }: QueuePanelProps) 
       return toast({ title: "More than the cleaner requested", description: `The cleaner asked for ${money(asked)}. Lower the amount, or use the administrator override with a reason.`, variant: "destructive" });
     }
     if (aboveRequest && !overrideReason.trim()) return toast({ title: "Say why the cleaner is paid more than they requested.", variant: "destructive" });
-    void decide({ url: `/api/admin/pay-adjustments/${record.id}`, body: { status: "APPROVED", approvedAmount: value, ...noteBody, ...overrideBody }, successMsg: "Pay request approved" });
+    if (billClient && (!Number.isFinite(clientValue) || clientValue <= 0)) return toast({ title: "Enter the amount the client is charged, more than $0.00.", variant: "destructive" });
+    // Sent only when it says something: billing on (with its amount), or the
+    // office switching OFF a default that would otherwise bill the client.
+    const clientBody = billClient ? { billToClient: true, clientAmount: clientValue } : billDefault ? { billToClient: false } : {};
+    void decide({ url: `/api/admin/pay-adjustments/${record.id}`, body: { status: "APPROVED", approvedAmount: value, ...noteBody, ...overrideBody, ...clientBody }, successMsg: billClient ? "Approved and added to the client's billing" : "Pay request approved" });
   }
 
   return (
@@ -150,6 +164,7 @@ export function PayRequestPanel({ row, busy, decide, reload }: QueuePanelProps) 
       <PanelSection title="Context">
         <PayAdjustmentDisplay item={payListItem(record)} />
         <ContextLinks links={[jobHref(row) ? { href: jobHref(row)!, label: "View job" } : null, { href: "/v2/admin/finance?tab=adjustments", label: "View pay request" }]} />
+        <PayRequestDetails key={record.id} requestId={record.id} onChanged={reload} />
       </PanelSection>
       <PanelSection title="Decision" tone="decision">
         {awaitingClient ? <EBadge tone="info" soft>Awaiting client approval</EBadge> : null}
@@ -187,6 +202,40 @@ export function PayRequestPanel({ row, busy, decide, reload }: QueuePanelProps) 
           <label className="flex min-h-[44px] items-center gap-2 text-[0.8125rem]">
             <input type="checkbox" checked={visible} onChange={(e) => setVisible(e.target.checked)} /> Visible to the cleaner
           </label>
+          {billable ? (
+            <div className="space-y-2 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] p-2.5" role="group" aria-label="Client billing">
+              <label className="flex min-h-[44px] items-center gap-2 text-[0.8125rem]">
+                <input type="checkbox" checked={billClient} onChange={(e) => setBillClient(e.target.checked)} /> Bill this extra to the client
+              </label>
+              {billClient ? (
+                <>
+                  <label className="text-[0.75rem] font-[550]" htmlFor={`${ids}-client`}>Client amount ($, before GST)</label>
+                  <input
+                    id={`${ids}-client`}
+                    className={FIELD + " e-tnum"}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder={Number.isFinite(value) && value > 0 ? value.toFixed(2) : ""}
+                    value={clientAmount}
+                    onChange={(e) => setClientAmount(e.target.value)}
+                  />
+                  <p className="text-[0.75rem] font-[550]" role="status">
+                    {record.jobId
+                      ? `This will add ${money(Number.isFinite(clientValue) ? clientValue : null) ?? "the client amount"} to the client's invoice for this job.`
+                      : `This will add ${money(Number.isFinite(clientValue) ? clientValue : null) ?? "the client amount"} to the client's next invoice as its own line.`}{" "}
+                    <span className="font-[400] text-[hsl(var(--e-muted-foreground))]">
+                      On a draft it joins the job's line on its date; an invoice already approved, sent or paid is never changed — the extra waits for the next one.
+                    </span>
+                  </p>
+                </>
+              ) : (
+                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  {billDefault ? "Not billed to the client: you switched off the default for this request." : "Not billed to the client. Parking, reimbursements and requests without a job are not billed by default."}
+                </p>
+              )}
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <EButton
               size="sm"

@@ -114,6 +114,7 @@ export function buildJobPageModel(input: {
     estimatedHours: job.estimatedHours,
     cleanerPayouts: meta.cleanerPayouts,
     transportAllowances: meta.transportAllowances,
+    approvedExtrasByPayee: input.related.approvedExtrasByPayee,
     liveInvoice: liveInvoice ? { invoiceNumber: liveInvoice.invoiceNumber, status: String(liveInvoice.status), lineTotal: liveInvoice.lineTotal } : null,
   });
 

@@ -28,6 +28,8 @@ function stubTx() {
       shoppingClientCharge: { updateMany: vi.fn(async () => ({ count: 0 })) },
       shoppingSettlement: { updateMany: shopping },
       maintenanceItemAssignment: { updateMany: maintenance },
+      // Client-billed pay requests (2026-11-18) are released with the rest.
+      cleanerPayAdjustment: { updateMany: vi.fn(async () => ({ count: 0 })) },
     } as any,
     shopping,
     maintenance,
@@ -79,6 +81,7 @@ describe("releaseInvoiceConsumables", () => {
       shoppingClientCharge: { updateMany: vi.fn(async () => ({ count: 0 })) },
       shoppingSettlement: { updateMany: vi.fn(async () => ({ count: 0 })) },
       maintenanceItemAssignment: { updateMany: vi.fn(async () => ({ count: 0 })) },
+      cleanerPayAdjustment: { updateMany: vi.fn(async () => ({ count: 0 })) },
     } as any;
     await expect(releaseInvoiceConsumables(tx, "inv-1")).resolves.toEqual({
       shoppingSettlements: 0,
@@ -97,3 +100,11 @@ describe("releaseInvoiceConsumables", () => {
   });
 });
 it("voiding releases allocated charges for this invoice and advances their revision", async () => { const { tx } = stubTx(); await releaseInvoiceConsumables(tx, "inv-release"); expect(tx.shoppingClientCharge.updateMany).toHaveBeenCalledWith({ where: { invoiceId: "inv-release" }, data: { invoiceId: null, billedAt: null, revision: { increment: 1 } } }); });
+it("voiding releases the client-billed pay requests carried by this invoice's lines", async () => {
+  const { tx } = stubTx();
+  await releaseInvoiceConsumables(tx, "inv-void");
+  expect(tx.cleanerPayAdjustment.updateMany).toHaveBeenCalledWith({
+    where: { clientInvoiceLine: { invoiceId: "inv-void" } },
+    data: { clientInvoiceLineId: null, clientBilledAt: null, clientBilledAmount: null, clientBilledText: null },
+  });
+});

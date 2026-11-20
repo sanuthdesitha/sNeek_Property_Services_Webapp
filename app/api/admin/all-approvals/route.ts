@@ -7,6 +7,8 @@ import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { normalizePayAdjustmentAmounts } from "@/lib/pay-adjustments/display";
+import { defaultBillToClient } from "@/lib/pay-adjustments/lifecycle";
+import { getAppSettings } from "@/lib/settings";
 import { listQaReworkTransfers } from "@/lib/qa/rework-transfers";
 import { listQaOutcomeApprovals } from "@/lib/qa/outcome-approvals";
 import { listPendingBookingRequests, getTeamAvailability } from "@/lib/booking/requests";
@@ -82,7 +84,7 @@ export async function GET() {
                 jobNumber: true,
                 scheduledDate: true,
                 startTime: true,
-                property: { select: { name: true, suburb: true } },
+                property: { select: { name: true, suburb: true, clientId: true } },
               },
             },
             property: { select: { id: true, name: true, suburb: true } },
@@ -389,6 +391,10 @@ export async function GET() {
       return meta?.source !== "pay_adjustment";
     });
 
+    // The bill-to-client default the decision panel starts from (owner default
+    // pending confirmation, 2026-11-18) — the same rule the PATCH applies when
+    // an approval does not say, so the screen states what will happen.
+    const billDefaultSetting = (await getAppSettings()).invoicing?.payRequestsBillClientByDefault === true;
     const enrichedPayAdjustments = payAdjustments.map((pa) => {
       const linked = allClientApprovals
         .filter((ca) => {
@@ -401,6 +407,12 @@ export async function GET() {
         ...pa,
         ...normalizePayAdjustmentAmounts(pa, clientApproval),
         clientApproval,
+        clientBillingDefault: defaultBillToClient({
+          settingOn: billDefaultSetting,
+          jobId: pa.jobId,
+          category: pa.category,
+          propertyHasClient: Boolean(pa.job?.property?.clientId),
+        }),
         // The receipt or photo the payee attached, resolved like pay claims so
         // the decision panel can show the evidence with the request.
         attachmentUrls: Array.isArray(pa.attachmentKeys)

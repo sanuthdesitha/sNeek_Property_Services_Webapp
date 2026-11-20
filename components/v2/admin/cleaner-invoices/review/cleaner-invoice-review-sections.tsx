@@ -12,6 +12,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { EToneCard, EToneNotice } from "@/components/v2/ui/tone-band";
 import { EvidenceThumbs } from "@/components/v2/shared/evidence-thumbs";
+import { PayRequestDetails } from "@/components/v2/shared/pay-request-details";
 import type { CleanerInvoiceReview } from "@/lib/cleaner/invoice-review";
 import { SubmissionBlock } from "../expected-invoice-cards";
 import { CLEANER_PAY_METHOD_LABEL, fmtDay, type CleanerRow } from "../cleaner-invoice-model";
@@ -52,6 +53,8 @@ export function PayRuleBand({ review }: { review: CleanerInvoiceReview }) {
             {request.clientCharge ? (
               <span className={MUTED}> {request.clientCharge.label}, read only, billed on the client&apos;s invoice and not paid to {name}.</span>
             ) : null}
+            {/* What it was for, the job, the decision and its history (2026-11-18). */}
+            <PayRequestDetails key={request.id} requestId={request.id} />
           </li>
         ))}
       </ul>

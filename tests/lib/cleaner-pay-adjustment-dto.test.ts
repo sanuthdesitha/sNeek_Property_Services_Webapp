@@ -27,6 +27,17 @@ const FORBIDDEN_FIELDS = [
   "includedInPayrollRunId",
   "includedInCleanerInvoiceId",
   "includedInCleanerInvoiceAt",
+  // Client billing (2026-11-18): whether, and for how much, the client is
+  // billed is office business — never shown to the cleaner.
+  "billToClient",
+  "clientAmount",
+  "clientDescription",
+  "clientInvoiceLineId",
+  "clientBilledAmount",
+  "clientBilledText",
+  "paidOutsideById",
+  "paidOutsideReference",
+  "paidOutsideNote",
 ];
 
 /** The DTO body — everything between the mapper's `return {` and its close. */
@@ -77,11 +88,16 @@ describe("cleaner pay-adjustment DTO", () => {
   it("reports settlement as a derived boolean, not the rail ids", () => {
     const body = dtoBody();
     expect(body).toMatch(/^\s*settled\s*:/m);
-    expect(body).toContain("Boolean(row.includedInPayrollRunId || row.includedInCleanerInvoiceId)");
+    // Derived from all three settlement markers (payroll, invoice, paid outside).
+    expect(body).toContain("settled: settlement !== null");
+    expect(source).toContain("paidOutsideAt: row.paidOutsideAt ?? null");
+    // History is built for the cleaner audience only.
+    expect(source).toContain('payRequestHistory(auditsById.get(row.id) ?? [], "self")');
+    expect(source).not.toContain('"internal"');
   });
 
   it("routes both responses through the mapper", () => {
-    expect(source).toContain("rows.map(toCleanerAdjustmentDto)");
+    expect(source).toContain("rows.map((row) => toCleanerAdjustmentDto(row,");
     expect(source).toContain("toCleanerAdjustmentDto(created)");
   });
 });

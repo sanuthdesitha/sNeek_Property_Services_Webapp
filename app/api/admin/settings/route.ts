@@ -276,6 +276,7 @@ const updateSchema = z.object({
       paymentNote: z.string().trim().optional(),
       abn: z.string().trim().optional(),
       companyAddress: z.string().trim().optional(),
+      payRequestsBillClientByDefault: z.boolean().optional(),
     })
     .optional(),
   evidenceStamp: z

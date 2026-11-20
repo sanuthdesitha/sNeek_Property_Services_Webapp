@@ -319,9 +319,19 @@ export function PayRequestsPanel({
 
                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                     {row.status === "APPROVED" ? <span>Approved: {money(row.approvedAmount)}</span> : null}
+                    {row.type === "HOURLY" && row.requestedHours != null && row.requestedRate != null ? (
+                      <span>{row.requestedHours} h × {money(row.requestedRate)}</span>
+                    ) : null}
                     {row.job?.scheduledDate ? <span>Job date: {formatDate(row.job.scheduledDate)}</span> : null}
+                    <span>{row.taxable === false ? "Money back (not income)" : "Work"}</span>
                     <span>Created: {formatDateTime(row.createdAt)}</span>
+                    {row.reviewedAt ? <span>Decided: {formatDateTime(row.reviewedAt)}</span> : null}
                   </div>
+                  {row.settlementText ? (
+                    <p className="text-[0.75rem] font-[550]">{row.settlementText}</p>
+                  ) : row.status === "APPROVED" ? (
+                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Not paid yet: it will be on your next invoice or pay run.</p>
+                  ) : null}
 
                   {row.cleanerNote ? (
                     <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Note: {row.cleanerNote}</p>
@@ -354,6 +364,23 @@ export function PayRequestsPanel({
                         className="grid grid-cols-4 gap-2 sm:grid-cols-6"
                       />
                     </div>
+                  ) : null}
+
+                  {Array.isArray(row.history) && row.history.length > 0 ? (
+                    <details className="text-[0.75rem]">
+                      <summary className="min-h-[44px] cursor-pointer content-center font-[550]">History ({row.history.length})</summary>
+                      <ol className="mt-1 space-y-1.5">
+                        {row.history.map((entry: { at: string; summary: string; details: string[] }, index: number) => (
+                          <li key={`${entry.at}-${index}`}>
+                            <span className="font-[550]">{entry.summary}</span>
+                            <span className="text-[hsl(var(--e-muted-foreground))]"> · {formatDateTime(entry.at)}</span>
+                            {entry.details.map((line) => (
+                              <span key={line} className="block break-words text-[hsl(var(--e-muted-foreground))]">{line}</span>
+                            ))}
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
                   ) : null}
 
                   {row.status === "PENDING" ? (

@@ -225,6 +225,7 @@ export default async function SettingsPage({
             bankAccountName: appSettings.invoicing.bankAccountName,
             companyAddress: appSettings.invoicing.companyAddress,
             paymentNote: appSettings.invoicing.paymentNote,
+            payRequestsBillClientByDefault: appSettings.invoicing.payRequestsBillClientByDefault,
           }}
           readOnly={!isAdmin}
         />

@@ -34,6 +34,8 @@ export type JobPayLine = {
   /** How the base was set, in words ("$36.50/h × 2.5 h", "Fixed pay", "Rate or hours missing"). */
   basis: string;
   transport: number;
+  /** Approved extra pay on this job (signed; 0 when none). */
+  extras: number;
 };
 
 export type JobInvoiceCharge = {
@@ -56,6 +58,11 @@ export type JobMoneyInput = {
   estimatedHours: number | null;
   cleanerPayouts: Record<string, number>;
   transportAllowances: Record<string, number>;
+  /**
+   * Approved pay requests per payee (canonical sumAdjustments). Null when they
+   * could not be read: pay is then unknown rather than shown without them.
+   */
+  approvedExtrasByPayee?: Record<string, number> | null;
   /** The live invoice the job is on, if any. */
   liveInvoice: JobInvoiceCharge | null;
 };
@@ -88,7 +95,8 @@ function roundCents(value: number): number {
 function payLine(assignment: JobMoneyAssignment, input: JobMoneyInput, payHours: number | null): JobPayLine {
   const custom = input.cleanerPayouts[assignment.userId];
   const transport = input.transportAllowances[assignment.userId] ?? 0;
-  const common = { userId: assignment.userId, name: assignment.name, isPrimary: assignment.isPrimary, transport };
+  const extras = input.approvedExtrasByPayee?.[assignment.userId] ?? 0;
+  const common = { userId: assignment.userId, name: assignment.name, isPrimary: assignment.isPrimary, transport, extras };
   if (typeof custom === "number") {
     return { ...common, base: { kind: "amount", amount: custom }, basis: "Fixed pay" };
   }
@@ -127,10 +135,10 @@ export function summarizeJobMoney(input: JobMoneyInput): JobMoneySummary {
   let pay: MoneyFigure;
   if (payLines.length === 0) {
     pay = { kind: "unknown", reason: NOT_ENOUGH_DATA };
-  } else if (payLines.some((line) => line.base.kind === "unknown")) {
+  } else if (payLines.some((line) => line.base.kind === "unknown") || input.approvedExtrasByPayee === null) {
     pay = { kind: "unknown", reason: NOT_ENOUGH_DATA };
   } else {
-    const total = payLines.reduce((sum, line) => sum + (line.base.kind === "amount" ? line.base.amount : 0) + line.transport, 0);
+    const total = payLines.reduce((sum, line) => sum + (line.base.kind === "amount" ? line.base.amount : 0) + line.transport + line.extras, 0);
     pay = { kind: "amount", amount: roundCents(total) };
   }
 

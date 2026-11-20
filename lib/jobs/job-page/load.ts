@@ -10,6 +10,7 @@
  * link never leads to a refusal and a blocked category is omitted.
  */
 import "server-only";
+import { sumAdjustments } from "@/lib/finance/pay-adjustments";
 import { JobTaskSource, Prisma, QaAssignmentStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
@@ -203,6 +204,20 @@ export async function loadJobPageRelated(job: JobPageJob, access: JobPageAccess)
   // outcome was saved but the run is not planned yet (retried hourly).
   const laundryNotPlanned = job.laundryTask ? null : await readUnplannedLaundry(db, job.id).catch(() => null);
 
+  // Approved pay requests on this job, per payee, through the canonical sum
+  // (2026-11-18): the rail's cleaner pay used to leave them out, so a job with
+  // an approved extra showed pay and margin as if it had none. Null = unread.
+  const approvedExtrasByPayee = await db.cleanerPayAdjustment
+    .findMany({ where: { jobId: job.id, status: "APPROVED" }, select: { cleanerId: true, status: true, approvedAmount: true, requestedAmount: true } })
+    .then((rows) => {
+      const byPayee: Record<string, number> = {};
+      for (const payee of Array.from(new Set(rows.map((row) => row.cleanerId)))) {
+        byPayee[payee] = sumAdjustments(rows.filter((row) => row.cleanerId === payee));
+      }
+      return byPayee;
+    })
+    .catch(() => null);
+
   const propertyRecord: Record<string, unknown> = fullProperty ? (JSON.parse(JSON.stringify(fullProperty)) as Record<string, unknown>) : {};
   for (const key of PROPERTY_SECRET_KEYS) delete propertyRecord[key];
 
@@ -219,6 +234,7 @@ export async function loadJobPageRelated(job: JobPageJob, access: JobPageAccess)
     messageCount,
     latestClientMessage,
     laundryNotPlanned: laundryNotPlanned ? UNPLANNED_LAUNDRY_TEXT : null,
+    approvedExtrasByPayee,
     links: {
       quotes: opsAllows(access.levels, "quotes"),
       lostFound: opsAllows(access.levels, "lost-found"),

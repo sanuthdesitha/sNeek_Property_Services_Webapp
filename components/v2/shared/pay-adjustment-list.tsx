@@ -22,6 +22,7 @@ import * as React from "react";
 import Link from "next/link";
 import { Loader2, Pencil, PlusCircle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { PayRequestDetails } from "@/components/v2/shared/pay-request-details";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import {
   describeAdjustment,
@@ -111,11 +112,13 @@ function settledLabel(item: PayAdjustmentListItem): string | null {
   if (!item.settled) return null;
   return item.settled.rail === "PAYROLL"
     ? `Paid · pay run ${item.settled.id.slice(0, 6)}`
-    : "Paid · invoice";
+    : item.settled.rail === "PAID_OUTSIDE"
+      ? "Paid · outside the system"
+      : "Paid · invoice";
 }
 
 export const SETTLED_EXPLANATION =
-  "Settled money is immutable — it was paid by a payroll run or billed on an invoice. Raise a correcting adjustment instead.";
+  "Settled money is immutable — it was paid by a payroll run, billed on an invoice or marked paid outside the system. Raise a correcting adjustment instead.";
 
 /** Display-only body for one adjustment — reused by the Approval Center cards
  *  so what-changed / origin / settled read identically everywhere. */
@@ -215,7 +218,8 @@ export function PayAdjustmentList({
   return (
     <div className="divide-y divide-[hsl(var(--e-border))]">
       {items.map((item) => (
-        <div key={item.id} className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+        <div key={item.id} className="py-2.5 first:pt-0 last:pb-0">
+        <div className="flex items-start justify-between gap-3">
           <PayAdjustmentDisplay item={item} />
           <div className="flex shrink-0 flex-col items-end gap-1">
             {variant === "admin" ? (
@@ -259,6 +263,11 @@ export function PayAdjustmentList({
               </Link>
             ) : null}
           </div>
+        </div>
+        {/* Everything about the request after it was decided: the job, the
+            decision, where it was settled, the client billing and history —
+            with edit, link, client billing and mark-paid tools (2026-11-18). */}
+        {variant === "admin" ? <PayRequestDetails key={item.id} requestId={item.id} onChanged={onChanged} /> : null}
         </div>
       ))}
 
@@ -494,7 +503,7 @@ function PayAdjustmentEditDialog({
                   variant="outline"
                   size="sm"
                   disabled={busy}
-                  onClick={() => patch({ status: "PENDING", decisionMessage: note.trim() || undefined, adminNote: privateNote.trim() || undefined }, "Adjustment reopened")}
+                  onClick={() => patch({ status: "PENDING", decisionMessage: note.trim() || undefined, adminNote: privateNote.trim() || undefined, ...(item.status === "APPROVED" && note.trim() ? { changeReason: note.trim() } : {}) }, "Adjustment reopened")}
                 >
                   Reopen (back to pending)
                 </EButton>
@@ -504,7 +513,7 @@ function PayAdjustmentEditDialog({
                   variant="outline"
                   size="sm"
                   disabled={busy}
-                  onClick={() => patch({ status: "REJECTED", decisionMessage: note.trim() || undefined, adminNote: privateNote.trim() || undefined }, "Adjustment rejected")}
+                  onClick={() => patch({ status: "REJECTED", decisionMessage: note.trim() || undefined, adminNote: privateNote.trim() || undefined, ...(item.status === "APPROVED" && note.trim() ? { changeReason: note.trim() } : {}) }, "Adjustment rejected")}
                 >
                   Reject
                 </EButton>
@@ -520,8 +529,14 @@ function PayAdjustmentEditDialog({
                       toast({ title: "Enter a valid amount greater than zero.", variant: "destructive" });
                       return;
                     }
+                    // Paying less than was approved needs a reason the payee
+                    // reads; the message to the payee is that reason.
+                    if (value < item.amount && !note.trim()) {
+                      toast({ title: "Say why the payee gets less", description: "Write it in the message to the payee — they will see it.", variant: "destructive" });
+                      return;
+                    }
                     void patch(
-                      { approvedAmount: value, decisionMessage: note.trim() || undefined, adminNote: privateNote.trim() || undefined },
+                      { approvedAmount: value, decisionMessage: note.trim() || undefined, adminNote: privateNote.trim() || undefined, ...(value < item.amount ? { changeReason: note.trim() } : {}) },
                       "Approved amount updated"
                     );
                   }}
