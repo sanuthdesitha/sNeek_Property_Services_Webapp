@@ -151,6 +151,22 @@ describe("cleaner form", () => {
     expect(within(block).getByText("Coffee capsules")).toBeTruthy();
     expect(within(block).queryByText("Toilet paper")).toBeNull();
   });
+
+  it("says in the Stock & consumables block when the stock list failed to load", () => {
+    const plain = { id: "note", type: "text", label: "Notes" } as FormField;
+    render(
+      <Harness
+        fields={[plain]}
+        stockTable={{ status: "unavailable", message: "The property's stock list could not be loaded." }}
+        property={{ inventoryEnabled: true }}
+        inventoryStock={[]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Stock" }));
+    const block = screen.getByText(/Stock & consumables used/).closest("section") as HTMLElement;
+    expect(block.getAttribute("role")).toBe("alert");
+    expect(block.textContent).toContain("could not be loaded");
+  });
 });
 
 describe("builder", () => {

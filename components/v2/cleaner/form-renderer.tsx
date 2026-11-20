@@ -65,6 +65,7 @@ import { BarcodeFieldInput, BARCODE_CAPTURE_KEY, type BarcodeCapture } from "@/c
 import { StockCountFieldInput, TableFieldInput } from "@/components/v2/cleaner/structured-field-inputs";
 import { StockTableFieldInput } from "@/components/v2/cleaner/stock-table-field-input";
 import { STOCK_TABLE_USAGE_KEY, coveredStockItemIds, type StockTableStock } from "@/lib/forms/stock-table";
+import { normalizeInventoryConfig } from "@/lib/forms/inventory-config";
 import { FormJobContext, QuestionEffectNotice } from "@/components/v2/cleaner/question-effect-notice";
 import { SandboxMediaInput } from "@/components/v2/cleaner/sandbox-media-input";
 import { toneNoticeClass } from "@/components/v2/ui/tone-band";
@@ -819,7 +820,28 @@ function StockUsageSection({
       ? coveredStockItemIds({ schema, answers, property, laundryReady }, stockTable.items)
       : new Set<string>();
   const stock = (inventoryStock ?? fetched ?? []).filter((row) => !covered.has(String(row.item?.id)));
-  if (property?.inventoryEnabled !== true || stock.length === 0) return null;
+  if (property?.inventoryEnabled !== true) return null;
+  // A failed stock read is said in words: an empty block would read as
+  // "this property has no stock to record".
+  const blockConfig = normalizeInventoryConfig((schema as { inventoryConfig?: unknown }).inventoryConfig);
+  const blockShowsNone = blockConfig?.mode === "selected" && blockConfig.itemIds.length === 0;
+  if (stockTable?.status === "unavailable" && !blockShowsNone) {
+    return (
+      <section
+        role="alert"
+        className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-warning)/0.4)] bg-[hsl(var(--e-warning)/0.08)] p-4"
+      >
+        <p className="e-eyebrow flex items-center gap-1.5">
+          <Package className="h-3.5 w-3.5" /> Stock &amp; consumables used
+        </p>
+        <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-foreground))]">
+          The stock list could not be loaded, so stock used cannot be recorded here yet. Reload the
+          page to try again, or tell the office what you used.
+        </p>
+      </section>
+    );
+  }
+  if (stock.length === 0) return null;
 
   const usage = (answers.inventoryUsage as Record<string, unknown> | undefined) ?? {};
   const valueFor = (itemId: string) => {
