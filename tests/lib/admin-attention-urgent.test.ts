@@ -29,7 +29,8 @@ it("badges Inventory with needs awaiting acknowledgement (REPORTED) for administ
   expect(counts.urgentStock).toBe(2);
   expect(m.urgent).toHaveBeenCalledWith({ where: { stage: "REPORTED" } });
   expect(counts.lostFound).toBe(1);
-  expect(m.lostFound).toHaveBeenCalledWith({ where: { status: "REPORTED" } });
+  // Also items with a guest return request waiting (2026-11-20).
+  expect(m.lostFound).toHaveBeenCalledWith({ where: { OR: [{ status: "REPORTED" }, { returnRequests: { some: { status: "PENDING" } } }] } });
   expect((await getAdminAttentionCounts(new Date("2026-11-11T00:00:00Z"))).urgentStock).toBeNull();
 });
 

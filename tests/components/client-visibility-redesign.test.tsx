@@ -144,7 +144,8 @@ describe("More menu filtering on the server", () => {
     const Page = (await import("@/app/v2/client/more/page")).default;
     render(await Page());
     const hrefs = screen.getAllByRole("link").map((link) => link.getAttribute("href"));
-    expect(hrefs).toEqual(["/v2/client/jobs", "/v2/client/calendar", "/v2/client/properties", "/v2/client/inventory"]);
+    // Lost and found (2026-11-20) is gated by the properties grant, like Properties.
+    expect(hrefs).toEqual(["/v2/client/jobs", "/v2/client/calendar", "/v2/client/properties", "/v2/client/inventory", "/v2/client/lost-found"]);
   });
 
   it("shows the account holder every enabled destination including Assistants", async () => {

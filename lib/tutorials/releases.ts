@@ -24,6 +24,14 @@ export type ReleaseNote = {
 
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    release: "2026.11.20-lost-found-returns",
+    date: "2026-11-20",
+    author: "Lost and found: guest link and return requests",
+    items: [
+      { change: "Clients have a Lost and found page (Your homes) listing items found at their properties and each guest's return request; they can recommend a request.", covered: { tourKey: "welcome.client", version: 2, stepIds: ["lostFound"] } },
+    ],
+  },
+  {
     release: "2026.11.18-pay-requests",
     date: "2026-11-18",
     author: "Pay requests: link, settle, bill the client",
