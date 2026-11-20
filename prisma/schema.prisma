@@ -5579,6 +5579,8 @@ model LostFoundItem {
   storageLocation  String?
   events           LostFoundEvent[]
   reservation      Reservation?     @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  guestLinks       LostFoundGuestLink[]
+  returnRequests   LostFoundReturnRequest[]
 
   @@index([propertyId])
   @@index([jobId])
@@ -5603,6 +5605,124 @@ model LostFoundEvent {
   item      LostFoundItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@index([itemId])
+}
+
+/// How the guest would like a found item back. A preference until the office
+/// approves it (lib/lost-found/return-rules.ts).
+enum LostFoundReturnMethod {
+  POST
+  PICKUP_AT_CLEAN
+  PICKUP_OTHER_TIME
+  DROP_OFF
+  OTHER
+}
+
+/// PENDING waits for the office (a client may have recommended it);
+/// SUPERSEDED = the guest changed it (a new row holds the change); COMPLETED =
+/// the item went back as arranged.
+enum LostFoundReturnStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  WITHDRAWN
+  SUPERSEDED
+  COMPLETED
+}
+
+/// NOT_SET = nobody said; NO_FEE = the office said there is no fee; QUOTED =
+/// `feeCents` holds the amount the office quoted. Never charged by this record.
+enum LostFoundReturnFee {
+  NOT_SET
+  NO_FEE
+  QUOTED
+}
+
+/// A no-login link to one lost item for its guest (2026-11-20). Only an HMAC of
+/// the token is stored; the token is rebuilt from `tokenSalt` with the server
+/// secret so the office can show it in a draft. One open link per item.
+model LostFoundGuestLink {
+  id            String    @id @default(cuid())
+  itemId        String
+  tokenSalt     String
+  tokenHash     String    @unique
+  expiresAt     DateTime
+  createdById   String
+  createdAt     DateTime  @default(now())
+  revokedAt     DateTime?
+  revokedById   String?
+  firstOpenedAt DateTime?
+  lastOpenedAt  DateTime?
+
+  item     LostFoundItem            @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  requests LostFoundReturnRequest[]
+
+  @@index([itemId, createdAt])
+}
+
+/// A guest's return request for a lost item. A change supersedes (a new row);
+/// nothing is overwritten. Job, task and actor ids are scalar, as on the item.
+model LostFoundReturnRequest {
+  id                      String                 @id @default(cuid())
+  itemId                  String
+  linkId                  String?
+  /// The browser's key for one submission: a double tap returns the same row.
+  submissionKey           String
+  method                  LostFoundReturnMethod
+  status                  LostFoundReturnStatus  @default(PENDING)
+  /// Optimistic concurrency for the guest's change/withdraw and the office decision.
+  version                 Int                    @default(1)
+  contactName             String
+  contactEmail            String?
+  contactPhone            String?
+  /// { line1, line2, suburb, state, postcode } for post and drop-off.
+  address                 Json?
+  requestedJobId          String?
+  /// Calendar date (YYYY-MM-DD) of the clean the guest picked, unshifted.
+  requestedDate           String?
+  proposedTime            String?                @db.Text
+  otherDetails            String?                @db.Text
+  guestNote               String?                @db.Text
+  supersedesId            String?                @unique
+  clientReview            String?
+  clientReviewNote        String?                @db.Text
+  clientReviewedById      String?
+  clientReviewedAt        DateTime?
+  decisionKey             String?
+  decidedById             String?
+  decidedByRole           String?
+  decidedAt               DateTime?
+  decisionNote            String?                @db.Text
+  confirmedMethod         LostFoundReturnMethod?
+  confirmedJobId          String?
+  confirmedDate           String?
+  confirmedTime           String?
+  feeState                LostFoundReturnFee     @default(NOT_SET)
+  feeCents                Int?
+  feeNote                 String?
+  shareContactWithCleaner Boolean                @default(false)
+  jobTaskId               String?                @unique
+  /// Cleaners on the job when the task was created (to see a reassignment).
+  taskCleanerIds          String[]               @default([])
+  /// The exact guest message for the decision and the provider's answer.
+  guestMessage            Json?
+  attentionReason         String?
+  attentionAt             DateTime?
+  completedAt             DateTime?
+  completedById           String?
+  completionNote          String?                @db.Text
+  trackingReference       String?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+
+  item       LostFoundItem           @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  link       LostFoundGuestLink?     @relation(fields: [linkId], references: [id], onDelete: SetNull)
+  supersedes LostFoundReturnRequest? @relation("LostFoundReturnChange", fields: [supersedesId], references: [id], onDelete: SetNull)
+  changedTo  LostFoundReturnRequest? @relation("LostFoundReturnChange")
+
+  @@unique([itemId, submissionKey])
+  @@index([itemId, status])
+  @@index([status, createdAt])
+  @@index([confirmedJobId])
 }
 
 // Urgent stock needs, moved from `urgent_stock_v1:need:*` AppSetting JSON (ids
