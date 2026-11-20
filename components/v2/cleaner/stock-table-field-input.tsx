@@ -94,7 +94,8 @@ function onHandText(item: StockTableItem): string {
 export function StockTableFieldInput({ field, answers, onUsageChange, stock, onRetry, disabled = false, error = false }: StockTableFieldInputProps) {
   const config = readStockTableConfig(field);
   const usage = readStockTableUsage(answers);
-  const areaNote = config.show === "all" ? "All stock items" : `${stockAreaLabel(config.show)} items`;
+  const limited = config.itemRefs.length > 0 || config.legacyLocations.length > 0;
+  const areaNote = config.show !== "all" ? `${stockAreaLabel(config.show)} items` : limited ? "Listed stock items" : "All stock items";
 
   const write = (itemId: string, value: number | string | undefined) => {
     const next = { ...readStockTableUsage(answers) };
