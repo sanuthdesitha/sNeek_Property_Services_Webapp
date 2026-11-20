@@ -82,7 +82,7 @@ import { approveReturnRequest, completeReturnRequest, declineReturnRequest, offi
 import { clientReviewReturnRequest, listClientLostFound } from "@/lib/lost-found/return-client";
 import { applyCleanerJobTaskUpdates } from "@/lib/job-tasks/service";
 import { cancelJob } from "@/lib/jobs/cancel";
-import { LOST_FOUND_SETTINGS_KEY } from "@/lib/lost-found/settings";
+import { LOST_FOUND_SETTINGS_KEY, readLostFoundSettings, saveLostFoundSettings } from "@/lib/lost-found/settings";
 import type { ClientPortalContext } from "@/lib/auth/client-portal";
 
 const url = process.env.SNEEK_TEST_DATABASE_URL;
@@ -179,6 +179,16 @@ describe.skipIf(!url)("lost and found return requests (explicit local DB)", () =
     m.externalSends.length = 0;
     m.officeSends.length = 0;
     m.guestState = "provider_accepted";
+  });
+
+  it("settings save merges into what is stored (a holding-days-only save keeps the fees) and is administrator only", async () => {
+    await saveLostFoundSettings({ id: admin.id, role: "ADMIN" as never }, { postFee: { text: "Tracked post", cents: 1250 } });
+    await saveLostFoundSettings({ id: admin.id, role: "ADMIN" as never }, { holdingDays: 14 });
+    const settings = await readLostFoundSettings();
+    expect(settings.postFee).toEqual({ text: "Tracked post", cents: 1250 });
+    expect(settings.dropOffFee).toEqual({ text: null, cents: null });
+    await expect(saveLostFoundSettings({ id: admin.id, role: "OPS_MANAGER" as never }, { holdingDays: 3 })).rejects.toThrow("FORBIDDEN");
+    await saveLostFoundSettings({ id: admin.id, role: "ADMIN" as never }, { postFee: { text: null, cents: null } });
   });
 
   it("a token opens its own item only; made-up, revoked and expired links are refused", async () => {

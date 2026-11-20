@@ -161,7 +161,7 @@ export function ItemPanel({ itemId, timeZone, holdingDays, onClose, onChanged }:
             <p className={dt}>&ldquo;Message guest&rdquo; opens a ready message with the item, its photo and the guest&rsquo;s link to request a return. Sending it (accepted by the provider) or recording that you sent it moves the item to Guest contacted.</p>
           </section>
           {actionError ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{actionError}</p> : null}
-          <ItemReturnRequests key={item.id} itemId={item.id} itemName={item.itemName} timeZone={timeZone} onItemChanged={onReturnChanged} />
+          <ItemReturnRequests key={`return:${item.id}`} itemId={item.id} itemName={item.itemName} timeZone={timeZone} onItemChanged={onReturnChanged} />
           <hr className="border-[hsl(var(--e-border))]" />
           <StorageFields key={`${item.id}:${item.storageLocation}:${item.estimatedValue}`} item={item} save={save} />
           <ItemDecisions key={item.id} item={item} timeZone={timeZone} save={save} post={post} />

@@ -75,7 +75,7 @@ export async function saveLostFoundSettings(actor: { id: string; role: Role }, r
   if (actor.role !== Role.ADMIN) throw new Error("FORBIDDEN");
   const patch = settingsPatchSchema.parse(raw);
   return db.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${LOST_FOUND_SETTINGS_KEY}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${LOST_FOUND_SETTINGS_KEY}))`;
     const before = await tx.appSetting.findUnique({ where: { key: LOST_FOUND_SETTINGS_KEY } });
     const current = lostFoundSettingsSchema.safeParse(before?.value);
     const settings = lostFoundSettingsSchema.parse({ ...(current.success ? current.data : DEFAULT_LOST_FOUND_SETTINGS), ...patch });

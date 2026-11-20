@@ -56,6 +56,6 @@ export const LOST_FOUND_RETURN_WORDING = [
   composed(
     "lostfound.return_ack",
     "The office writes this acknowledgement in Settings › Lost and found (switch, subject and message, with {{guestFirstName}}, {{itemName}}, {{choice}}, {{officeName}} and {{link}}). The exact text sent is kept on the item's timeline.",
-    "/v2/admin/settings?section=lost-found",
+    "/v2/admin/settings?tab=lost-found",
   ),
 ];
