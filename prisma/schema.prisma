@@ -1281,6 +1281,10 @@ model Property {
   clientRates         PropertyClientRate[]
   payAdjustments      CleanerPayAdjustment[]
   jobTasks            JobTask[]
+  /// Property devices register (2026-11-20): Ring, Minut and hand-entered battery devices.
+  devices             PropertyDevice[]
+  /// Low-battery threshold for this property's devices; null uses the organisation default.
+  deviceBatteryThresholdPercent Int?
   qaFormTemplates     QaFormTemplate[]
   maintenanceItems    PropertyMaintenanceItem[]
   heldStockDeliveries HeldStockDelivery[]
@@ -6501,4 +6505,164 @@ model SocialPostMetric {
   socialPost SocialPost @relation(fields: [socialPostId], references: [id], onDelete: Cascade)
 
   @@index([socialPostId, fetchedAt])
+}
+
+/// Property devices register (2026-11-20). Which provider a device comes from.
+enum PropertyDeviceProvider {
+  RING
+  MINUT
+  MANUAL
+}
+
+enum PropertyDeviceKind {
+  CAMERA
+  DOORBELL
+  NOISE_SENSOR
+  SMOKE_ALARM
+  LOCK
+  OTHER
+}
+
+/// Who supplied a battery reading.
+enum DeviceReadingSource {
+  PROVIDER
+  MANUAL
+  CLEANER
+}
+
+/// The low-battery condition of one device. NONE: nothing open.
+/// NEEDS_CHARGE: at or below its threshold, a charge task is open or waiting for a clean.
+/// CHARGED_AWAITING_CONFIRMATION: the cleaner charged it (with photo); waiting for a reading above the threshold.
+enum DeviceChargeCondition {
+  NONE
+  NEEDS_CHARGE
+  CHARGED_AWAITING_CONFIRMATION
+}
+
+/// A battery device at a property. Unknown battery is null, never 0.
+model PropertyDevice {
+  id                 String                 @id @default(cuid())
+  propertyId         String
+  provider           PropertyDeviceProvider @default(MANUAL)
+  /// The provider's own id; null for a hand-added device.
+  externalDeviceId   String?
+  externalLocationId String?
+  name               String
+  kind               PropertyDeviceKind     @default(OTHER)
+  locationNote       String?
+  /// Wired devices never raise charge tasks.
+  batteryPowered     Boolean                @default(true)
+  lastBatteryPercent Int?
+  lastReadingAt      DateTime?
+  lastReadingSource  DeviceReadingSource?
+  /// Null when the provider does not say.
+  online             Boolean?
+  onlineCheckedAt    DateTime?
+  /// Per-device threshold; null uses the property's, then the organisation's.
+  thresholdPercent   Int?
+  isActive           Boolean                @default(true)
+
+  chargeCondition         DeviceChargeCondition @default(NONE)
+  conditionOpenedAt       DateTime?
+  conditionReadingPercent Int?
+  /// The open charge JobTask (on a job, or waiting for the next clean).
+  chargeTaskId            String?
+  chargedAt               DateTime?
+  chargedTaskId           String?
+  lastCouldNotChargeAt    DateTime?
+  lastCouldNotChargeNote  String?               @db.Text
+  conditionClosedAt       DateTime?
+  conditionClosedNote     String?               @db.Text
+  conditionClosedById     String?
+  /// Incremented on every raise; names the raise in the task id.
+  raiseCount              Int                   @default(0)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  property Property                @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  readings PropertyDeviceReading[]
+
+  @@unique([provider, externalDeviceId])
+  @@index([propertyId, isActive])
+  @@index([chargeCondition, isActive])
+}
+
+/// Battery readings history: the trend and the evidence.
+model PropertyDeviceReading {
+  id           String              @id @default(cuid())
+  deviceId     String
+  percent      Int
+  source       DeviceReadingSource
+  readAt       DateTime
+  recordedById String?
+  jobId        String?
+  jobTaskId    String?
+  note         String?             @db.Text
+  createdAt    DateTime            @default(now())
+
+  device PropertyDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, readAt])
+}
+
+/// One organisation-level connection per provider (RING or MINUT). Ring keeps
+/// only an encrypted refresh token (enc:v1) and a generated hardware id, never
+/// the password. Minut's client id and secret live in the integrations credentials.
+model DeviceProviderConnection {
+  id                  String                 @id @default(cuid())
+  provider            PropertyDeviceProvider @unique
+  /// NOT_CONNECTED, CONNECTED or NEEDS_RECONNECT.
+  status              String                 @default("NOT_CONNECTED")
+  accountLabel        String?
+  refreshToken        String?                @db.Text
+  hardwareId          String?
+  /// Compare-and-set guard for refresh-token rotation.
+  tokenVersion        Int                    @default(0)
+  connectedAt         DateTime?
+  connectedById       String?
+  lastSyncStartedAt   DateTime?
+  lastSuccessAt       DateTime?
+  lastErrorAt         DateTime?
+  lastError           String?                @db.Text
+  consecutiveFailures Int                    @default(0)
+  failureNoticeAt     DateTime?
+  syncLeaseToken      String?
+  syncLeaseUntil      DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+}
+
+/// A provider location (Ring location, Minut home) and the property the office linked it to.
+model DeviceProviderLocation {
+  id                 String                 @id @default(cuid())
+  provider           PropertyDeviceProvider
+  externalLocationId String
+  name               String
+  address            String?
+  propertyId         String?
+  confirmedById      String?
+  confirmedAt        DateTime?
+  lastSeenAt         DateTime               @default(now())
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  @@unique([provider, externalLocationId])
+  @@index([propertyId])
+}
+
+/// One provider sync or device check run (scheduled or Sync now).
+model DeviceSyncRun {
+  id            String                  @id @default(cuid())
+  provider      PropertyDeviceProvider?
+  mode          String                  @default("AUTO")
+  status        String                  @default("RUNNING")
+  triggeredById String?
+  summary       Json?
+  error         String?                 @db.Text
+  createdAt     DateTime                @default(now())
+  completedAt   DateTime?
+
+  @@index([provider, createdAt])
 }
