@@ -11,6 +11,7 @@ import { isDeviceStatusField, incompleteDeviceExceptions } from "./device-status
 // The server stays authoritative — this only mirrors it for inline UX.
 import { isUploadFieldType } from "./field-types";
 import { structuredAnswerError } from "./structured-answers";
+import { stockTableFieldError, visibleStockTableFields, type StockTableStock } from "./stock-table";
 import {
   collectRequiredAnswerFields,
   collectRequiredUploadFields,
@@ -43,7 +44,9 @@ export type FormErrorRule =
   // Structured types (lib/forms/structured-answers.ts): enforced from the
   // first release, never an extended warning.
   | "table"
-  | "stock-count";
+  | "stock-count"
+  // Stock used table (lib/forms/stock-table.ts): enforced from the start.
+  | "stock-table";
 
 export interface FormFieldError {
   fieldId: string;
@@ -84,6 +87,12 @@ export const ENFORCE_EXTENDED_FORM_VALIDATION = false;
 export type CollectFormErrorsOptions = {
   /** Also run the extended rules (phone, dates, options, scale ranges, max files). */
   extended?: boolean;
+  /**
+   * The job property's stock list (the form payload's `stockTable`). Stock
+   * used tables are checked against it; omitted (a builder preview) = not
+   * checked. The submit route passes the list it read itself.
+   */
+  stockTable?: StockTableStock;
 };
 
 type AnswerMap = Record<string, unknown>;
@@ -172,6 +181,8 @@ export function collectFormErrors(
   }
 
   for (const error of collectUploadMinimumErrors(templateSchema, answers, uploadCounts, property, laundryReady, noPhoto)) push(error);
+
+  for (const error of collectStockTableErrors(templateSchema, answers, property, laundryReady, options.stockTable)) push(error);
 
   // 3) Additional answer rules.
   const sections = Array.isArray(templateSchema?.sections) ? templateSchema.sections : [];
@@ -425,6 +436,44 @@ export function collectStructuredAnswerErrors(
         ...problem,
       });
     }
+  }
+  return errors;
+}
+
+/**
+ * Stock used tables (rule "stock-table"): a required table needs an answer on
+ * every row it shows (an explicit 0 counts), and every answered row a whole
+ * number from 0. The phone and the submit route call this with the same
+ * schema, answers and property stock list. `stock` undefined = not checked.
+ */
+export function collectStockTableErrors(
+  templateSchema: unknown,
+  answers: AnswerMap,
+  property: Record<string, unknown>,
+  laundryReady: boolean | undefined,
+  stock: StockTableStock | undefined,
+): FormFieldError[] {
+  if (!stock) return [];
+  const errors: FormFieldError[] = [];
+  const schema = templateSchema as { sections?: unknown } | null;
+  const sectionOf = new Map<string, { id?: string; label?: string }>();
+  for (const section of Array.isArray(schema?.sections) ? (schema!.sections as any[]) : []) {
+    for (const field of flattenFieldsOneLevel(section?.fields)) {
+      if (typeof field?.id === "string") sectionOf.set(field.id, { id: typeof section?.id === "string" ? section.id : undefined, label: section?.title || section?.label });
+    }
+  }
+  for (const field of visibleStockTableFields({ schema: templateSchema, answers, property, laundryReady })) {
+    const message = stockTableFieldError(field, answers, stock);
+    if (!message) continue;
+    const section = sectionOf.get(field.id);
+    errors.push({
+      fieldId: field.id,
+      sectionId: section?.id,
+      sectionLabel: section?.label,
+      label: typeof field.label === "string" && field.label.trim() ? field.label.trim() : field.id,
+      message,
+      rule: "stock-table",
+    });
   }
   return errors;
 }

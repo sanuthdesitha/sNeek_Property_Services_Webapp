@@ -7,11 +7,14 @@
  *  - Stock count: which inventory item is counted, from the same catalogue
  *    the form's stock selection uses (GET /api/admin/inventory/items). The
  *    item's unit is copied onto the question so the phone can show it.
+ *  - Stock used: which of the property's items the table shows (all, kitchen,
+ *    bathroom, laundry, other) and whether items with none on hand are shown.
  */
 import * as React from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { EField, EInput, ESelect, ESwitch } from "@/components/v2/admin/estate-kit";
 import { readTableConfig, TABLE_MAX_COLUMNS, TABLE_MAX_ROWS } from "@/lib/forms/structured-answers";
+import { readStockTableConfig, STOCK_TABLE_SHOW_OPTIONS, type StockTableShow } from "@/lib/forms/stock-table";
 import type { FormField, TableCellType, TableColumn, TableConfig } from "@/lib/forms/types";
 import { PanelSection as Section } from "./panel-section";
 
@@ -219,6 +222,52 @@ export function StockCountSettings({ field, onUpdate }: { field: FormField; onUp
       ) : null}
       <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
         The cleaner enters a whole number{field.unit ? ` of ${field.unit}` : ""}. The count is kept on the submission.
+      </p>
+    </Section>
+  );
+}
+
+export function StockTableSettings({ field, onUpdate }: { field: FormField; onUpdate: (field: FormField) => void }) {
+  const config = readStockTableConfig(field);
+  const legacyLimit = config.itemRefs.length > 0 || config.legacyLocations.length > 0;
+  return (
+    <Section title="Stock used" defaultOpen>
+      <EField label="Show" hint="Kitchen and Bathroom follow where the item is kept; Laundry and Other follow its category.">
+        <ESelect value={config.show} onChange={(e) => onUpdate({ ...field, stockArea: e.target.value as StockTableShow })}>
+          {STOCK_TABLE_SHOW_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </ESelect>
+      </EField>
+      <label className="flex items-center justify-between gap-2 text-[0.8125rem]">
+        Include items with none on hand
+        <ESwitch
+          checked={config.includeZeroOnHand}
+          onCheckedChange={(on) => onUpdate({ ...field, includeZeroOnHand: on ? undefined : false })}
+        />
+      </label>
+      {legacyLimit ? (
+        <div className="space-y-1.5 rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border-strong))] p-2.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+          <p>
+            This question comes from an older form and is also limited to
+            {config.itemRefs.length > 0 ? ` ${config.itemRefs.length} listed item${config.itemRefs.length === 1 ? "" : "s"}` : ""}
+            {config.itemRefs.length > 0 && config.legacyLocations.length > 0 ? " and" : ""}
+            {config.legacyLocations.length > 0 ? ` items kept in ${config.legacyLocations.join(", ").toLowerCase().replace(/_/g, " ")}` : ""}.
+          </p>
+          <button
+            type="button"
+            onClick={() => onUpdate({ ...field, items: undefined, location: undefined, locations: undefined } as FormField)}
+            className="min-h-8 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-strong))] px-2.5 font-[550] text-[hsl(var(--e-foreground))] max-sm:min-h-11"
+          >
+            Use the Show setting only
+          </button>
+        </div>
+      ) : null}
+      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+        The cleaner enters how many of each item they used; it is taken off the property&apos;s stock once when the form is submitted.
+        Two Stock used questions that show the same item share one answer.
       </p>
     </Section>
   );

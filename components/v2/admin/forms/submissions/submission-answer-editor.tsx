@@ -30,7 +30,7 @@ export function isEditableAnswer(field: SubmissionField): boolean {
   return !field.id.startsWith("__") && !isUploadFieldType(field.type) && !LOCKED_TYPES.has(field.type);
 }
 
-export function AnswerEditor({ field, value, onChange }: { field: SubmissionField; value: unknown; onChange: (value: unknown) => void }) {
+export function AnswerEditor({ field, value, onChange, data }: { field: SubmissionField; value: unknown; onChange: (value: unknown) => void; data?: unknown }) {
   const id = React.useId();
   if (isUploadFieldType(field.type) || field.type === "signature") {
     return <p className="rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-surface-raised))] px-2.5 py-1.5 text-[hsl(var(--e-muted-foreground))]">Manage this answer in the media section below.</p>;
@@ -38,8 +38,12 @@ export function AnswerEditor({ field, value, onChange }: { field: SubmissionFiel
   if (!isEditableAnswer(field) || (value !== null && typeof value === "object")) {
     return (
       <div className="space-y-1">
-        {isBlockAnswer(field) ? <TableAnswer field={field} value={value} /> : <p className="font-[550]">{inlineAnswerText(field, value)}</p>}
-        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Not editable here; only the cleaner&apos;s form records this kind of answer.</p>
+        {isBlockAnswer(field, data) ? <TableAnswer field={field} value={value} data={data} /> : <p className="font-[550]">{inlineAnswerText(field, value)}</p>}
+        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          {field.type === "inventory"
+            ? "Not editable here: stock used was taken off the property's stock when the form was submitted. Correct the stock itself in Stock."
+            : "Not editable here; only the cleaner's form records this kind of answer."}
+        </p>
       </div>
     );
   }

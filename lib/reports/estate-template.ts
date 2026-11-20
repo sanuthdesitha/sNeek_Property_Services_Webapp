@@ -114,8 +114,10 @@ function fieldValueHtml(field: ReportFieldVM): string {
   }
 }
 
-function sectionHtml(section: ReportSectionVM): string {
+function sectionHtml(section: ReportSectionVM, showSupplies: boolean): string {
   const rows = section.fields
+    // Stock used tables follow the theme's Supplies switch, like "Supplies used".
+    .filter((field) => showSupplies || !field.stockTable)
     .map((field) => {
       if (field.kind === "instruction") {
         return field.value
@@ -358,7 +360,7 @@ export function renderEstateReport(vm: ReportViewModel, c: EstateRenderCtx): str
         tasksHtml("Priority job tasks", vm.jobTasks),
         tasksHtml("Admin requested tasks", vm.adminTasks),
         vm.sections.length
-          ? vm.sections.map(sectionHtml).join("\n")
+          ? vm.sections.map((section) => sectionHtml(section, c.showSupplies)).join("\n")
           : `<section class="est-card"><header class="est-card-head"><h2>Checklist</h2></header><div class="est-longtext">No checklist values captured.</div></section>`,
       ].join("\n")
     : "";

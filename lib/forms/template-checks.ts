@@ -14,6 +14,8 @@ import { formTemplateSchemaZ } from "./template-schema";
 import { lintTemplateSchema } from "./lint-template";
 import { getFieldTypeDef } from "./field-types";
 import { duplicateStockCountItems, structuredFieldIssues } from "./structured-schema-checks";
+import { overlappingStockTables, schemaHasStockTable } from "./stock-table";
+import { normalizeInventoryConfig } from "./inventory-config";
 
 export type TemplateCheckSeverity = "error" | "warning";
 
@@ -116,11 +118,40 @@ function registryIssues(schema: unknown): TemplateCheckIssue[] {
       }
     }
   }
+  issues.push(...stockTableIssues(schema));
   for (const duplicate of duplicateStockCountItems(schema)) {
     issues.push({
       rule: "duplicate-stock-count",
       severity: "error",
       message: `${duplicate.labels.map((label) => `"${label}"`).join(" and ")} count the same stock item; keep one.`,
+    });
+  }
+  return issues;
+}
+
+/**
+ * Stock used tables: warnings, never errors. Two tables that can show the same
+ * item share one answer per item (stock is deducted once), and a table
+ * replaces the "Stock & consumables used" block for the items it shows.
+ */
+function stockTableIssues(schema: unknown): TemplateCheckIssue[] {
+  if (!schemaHasStockTable(schema)) return [];
+  const issues: TemplateCheckIssue[] = [];
+  const blockConfig = normalizeInventoryConfig(isNode(schema) ? schema.inventoryConfig : undefined);
+  const blockShowsNothing = blockConfig?.mode === "selected" && blockConfig.itemIds.length === 0;
+  if (!blockShowsNothing) {
+    issues.push({
+      rule: "stock-table-and-block",
+      severity: "warning",
+      message:
+        "This form has a Stock used table and the \"Stock & consumables used\" block. Items a table shows are recorded in the table only; the block lists the rest.",
+    });
+  }
+  for (const pair of overlappingStockTables(schema)) {
+    issues.push({
+      rule: "stock-table-overlap",
+      severity: "warning",
+      message: `"${pair.labels[0]}" and "${pair.labels[1]}" can show the same items. The cleaner's answer is shared between them and each item is deducted once.`,
     });
   }
   return issues;

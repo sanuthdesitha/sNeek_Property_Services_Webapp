@@ -30,6 +30,7 @@ import { resolveEffectiveJobForm } from "@/lib/forms/resolve-effective-job-form"
 import { jobFormRevision } from "@/lib/forms/job-form-revision";
 import { jobFormPropertySelect, UnsupportedFormPropertyConditionError } from "@/lib/forms/job-form-property";
 import { filterStockByConfig, normalizeInventoryConfig } from "@/lib/forms/inventory-config";
+import { toStockTableItems, type StockTableStock } from "@/lib/forms/stock-table";
 import { isTeamStarted } from "@/lib/cleaner/team-state";
 import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
 import { getPreviousCleanLaundryCycle } from "@/lib/laundry/previous-cycle";
@@ -240,59 +241,26 @@ export async function GET(
     const { configuredPropertyTemplateId, templateSource } = effectiveForm;
 
     let inventoryStock: any[] = [];
+    // A failed stock read no longer fails the whole form: the Stock used
+    // table shows "could not be loaded" with a retry instead of "no items".
+    let stockReadFailed = false;
     if (job.property.inventoryEnabled) {
       try {
-        inventoryStock = await db.propertyStock.findMany({
-          where: {
-            propertyId: job.propertyId,
-            item: { isActive: true },
-          },
-          include: {
-            item: {
-              select: {
-                id: true,
-                name: true,
-                sku: true,
-                category: true,
-                location: true,
-                unit: true,
-              },
-            },
-          },
-          orderBy: [{ item: { location: "asc" } }, { item: { category: "asc" } }, { item: { name: "asc" } }],
-        });
-      } catch (stockErr: any) {
-        // Backward compatibility if DB migration for InventoryItem.location is not applied yet.
-        if (stockErr?.code !== "P2022" && !String(stockErr?.message ?? "").includes("location")) {
-          throw stockErr;
-        }
-        const fallback = await db.propertyStock.findMany({
-          where: {
-            propertyId: job.propertyId,
-            item: { isActive: true },
-          },
-          include: {
-            item: {
-              select: {
-                id: true,
-                name: true,
-                sku: true,
-                category: true,
-                unit: true,
-              },
-            },
-          },
-          orderBy: [{ item: { category: "asc" } }, { item: { name: "asc" } }],
-        });
-        inventoryStock = fallback.map((row) => ({
-          ...row,
-          item: {
-            ...row.item,
-            location: inferInventoryLocationFromCategory(row.item?.category),
-          },
-        }));
+        inventoryStock = await readPropertyStockForForm(job.propertyId);
+      } catch (stockReadError) {
+        console.error("[job form] property stock read failed", stockReadError);
+        inventoryStock = [];
+        stockReadFailed = true;
       }
     }
+    // The Stock used table's list: the FULL property stock (not narrowed by
+    // the block's inventoryConfig), cleaner-safe fields only (no cost, par,
+    // threshold or supplier).
+    const stockTable: StockTableStock = !job.property.inventoryEnabled
+      ? { status: "ready", tracked: false, items: [] }
+      : stockReadFailed
+        ? { status: "unavailable", message: "The property's stock list could not be loaded." }
+        : { status: "ready", tracked: true, items: toStockTableItems(inventoryStock) };
 
     // Restock needs for the job-start gate: items at/under their reorder
     // threshold, with the quantity needed to reach par. Empty when inventory is
@@ -617,6 +585,7 @@ export async function GET(
         inventoryStock,
         normalizeInventoryConfig((templateWithExtras?.schema as any)?.inventoryConfig)
       ),
+      stockTable,
       restockNeeds,
       recurringIssues,
       requireJobStartConfirmation,
@@ -697,5 +666,64 @@ export async function GET(
     const status =
       err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
+  }
+}
+
+/**
+ * The property's active stock rows with their item (no supplier or cost).
+ * Falls back to a category-derived location when the InventoryItem.location
+ * migration is not applied yet.
+ */
+async function readPropertyStockForForm(propertyId: string): Promise<any[]> {
+  try {
+    return await db.propertyStock.findMany({
+      where: {
+        propertyId,
+        item: { isActive: true },
+      },
+      include: {
+        item: {
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            category: true,
+            location: true,
+            unit: true,
+          },
+        },
+      },
+      orderBy: [{ item: { location: "asc" } }, { item: { category: "asc" } }, { item: { name: "asc" } }],
+    });
+  } catch (stockErr: any) {
+    // Backward compatibility if DB migration for InventoryItem.location is not applied yet.
+    if (stockErr?.code !== "P2022" && !String(stockErr?.message ?? "").includes("location")) {
+      throw stockErr;
+    }
+    const fallback = await db.propertyStock.findMany({
+      where: {
+        propertyId,
+        item: { isActive: true },
+      },
+      include: {
+        item: {
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            category: true,
+            unit: true,
+          },
+        },
+      },
+      orderBy: [{ item: { category: "asc" } }, { item: { name: "asc" } }],
+    });
+    return fallback.map((row) => ({
+      ...row,
+      item: {
+        ...row.item,
+        location: inferInventoryLocationFromCategory(row.item?.category),
+      },
+    }));
   }
 }

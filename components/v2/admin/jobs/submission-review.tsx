@@ -16,6 +16,7 @@ import { formatFieldValue, isUploadFieldType } from "@/lib/forms/field-types";
 import { EBadge } from "@/components/v2/ui/primitives";
 import { MediaGallery, type MediaGalleryItem } from "@/components/shared/media-gallery";
 import { TableAnswer, inlineAnswerText, isBlockAnswer } from "@/components/v2/admin/forms/submissions/structured-answer";
+import { formatStockTableRecord, stockTableRecordField } from "@/lib/forms/stock-table";
 import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /* ── Serialized shapes (built server-side in the job detail page) ───────── */
@@ -88,6 +89,9 @@ function renderFieldValue(field: any, sub: SubmissionRow): string {
     return count > 0 ? `${count} file(s) uploaded` : "Not uploaded";
   }
   if (field.type === "inventory") {
+    // A Stock used table records what it showed; older submissions list the clean's deductions.
+    const recorded = stockTableRecordField(answers, String(field.id));
+    if (recorded) return formatStockTableRecord(recorded);
     const used = sub.stockTxs.filter((tx) => tx.quantity < 0);
     if (used.length === 0) return "No inventory used";
     return used.map((tx) => `${tx.itemName}: ${Math.abs(tx.quantity)}`).join(", ");
@@ -303,12 +307,12 @@ export function SubmissionReview({
                                     <span className="ml-2 align-middle"><EBadge tone="danger" soft>Rework</EBadge></span>
                                   ) : null}
                                 </p>
-                                {!isCheckbox && !isBlockAnswer(field) ? (
+                                {!isCheckbox && !isBlockAnswer(field, answers) ? (
                                   <p className="text-[0.8125rem] font-[550]">{value}</p>
                                 ) : null}
                               </div>
-                              {isBlockAnswer(field) ? (
-                                <div className="mt-1.5"><TableAnswer field={field} value={(answers as Record<string, unknown>)[field.id]} /></div>
+                              {isBlockAnswer(field, answers) ? (
+                                <div className="mt-1.5"><TableAnswer field={field} value={(answers as Record<string, unknown>)[field.id]} data={answers} /></div>
                               ) : null}
                               {mediaForField.length > 0 ? (
                                 <div className="mt-2">

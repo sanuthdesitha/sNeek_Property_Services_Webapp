@@ -5,7 +5,8 @@ import { savedCleanerLaundryUpdate } from "@/lib/laundry/saved-cleaner-update";
 import { isDeviceStatusField, isDeviceAnswerComplete, incompleteDeviceExceptions } from "@/lib/forms/device-status";
 import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { persistSubmissionPayRequestOnce } from "@/lib/cleaner/submission-pay";
-import { deductJobStockOnce } from "@/lib/cleaner/submission-stock";
+import { deductJobStockOnce, readSubmissionStockTable } from "@/lib/cleaner/submission-stock";
+import { mergeStockUsage, resolveStockTableUsage, schemaHasStockTable, STOCK_TABLE_RECORD_KEY } from "@/lib/forms/stock-table";
 import { enqueueSubmissionFollowups, processSubmissionFollowups } from "@/lib/cleaner/submission-followups";
 import { enqueuePhotoReview } from "@/lib/ai/photo-review";
 import { enqueuePropertyModelTraining } from "@/lib/ai/property-model-training";
@@ -34,7 +35,7 @@ import { buildClockReview } from "@/lib/time/clock-rules";
 import { sumRecordedTimeLogMinutes } from "@/lib/time/log-duration";
 import { clearSharedCleanerJobDraft, getSharedCleanerJobDraft, withSharedCleanerJobDraftLock } from "@/lib/cleaner/shared-job-draft";
 import { collectRequiredAnswerFields, collectRequiredUploadFields, flattenFieldsOneLevel } from "@/lib/forms/visibility";
-import { collectStructuredAnswerErrors, collectUploadMinimumErrors } from "@/lib/forms/validate-submission";
+import { collectStockTableErrors, collectStructuredAnswerErrors, collectUploadMinimumErrors } from "@/lib/forms/validate-submission";
 import { planSubmissionEffects, schemaUsesEffectsOrStockCounts } from "@/lib/forms/form-effects";
 import { damageItemsForEffects, urgentRequestsForEffects } from "@/lib/forms/submission-effects";
 import { recordStockCountObservations } from "@/lib/inventory/stock-count-observations";
@@ -547,6 +548,23 @@ export async function POST(
         { status: 400 }
       );
     }
+    // Stock used tables (lib/forms/stock-table.ts): checked against the
+    // property's stock as it is now, read here (never the client's list).
+    // A table replaces the "Stock & consumables used" block for the items it
+    // shows; usage is merged below and deducted once by deductJobStockOnce.
+    const stockTableStock = schemaHasStockTable(effectiveSchema)
+      ? await readSubmissionStockTable(db, { propertyId: job.propertyId, inventoryEnabled: job.property.inventoryEnabled === true })
+      : undefined;
+    const stockTableErrors = collectStockTableErrors(effectiveSchema, answers, formProperty, legacyReady, stockTableStock);
+    if (stockTableErrors.length > 0) {
+      return NextResponse.json(
+        { error: stockTableErrors.map((field) => `${field.label}: ${field.message}`).join("; "), invalidFields: stockTableErrors },
+        { status: 400 }
+      );
+    }
+    const stockTableResolution = stockTableStock?.status === "ready"
+      ? resolveStockTableUsage({ schema: effectiveSchema, answers, property: formProperty, laundryReady: legacyReady }, stockTableStock.items)
+      : null;
     // Final self-inspection gate (Accountability Phase 3). The 14 checkboxes are
     // required in the schema, but an unticked checkbox can arrive as `false`
     // (which the generic required-answer check treats as answered), so this is
@@ -734,7 +752,10 @@ export async function POST(
       : { queued: [], outcomes: [] };
 
     // Media, stock, clock and laundry persist atomically with the final receipt.
-    const inventoryUsage = sanitizeInventoryUsage(body.data as Record<string, unknown>);
+    const inventoryUsage = mergeStockUsage(
+      sanitizeInventoryUsage(body.data as Record<string, unknown>),
+      stockTableResolution ?? { usage: {}, coveredItemIds: [] },
+    );
     let stockCorrectionRequired = false;
     const { submission, lowStockRows, clockOut } = await (async (tx: Prisma.TransactionClient) => {
         const created = await tx.formSubmission.create({
@@ -764,6 +785,11 @@ export async function POST(
               // Controlled system key: what the form's effects decided (server-computed).
               __formEffects: effectsPlan
                 ? { stockCounts: effectsPlan.stockCounts, damage: formDamage.outcomes, urgentStock: formUrgent.outcomes }
+                : undefined,
+              // Controlled system key: what each Stock used table showed and
+              // the answer per row, from the server's own stock read.
+              [STOCK_TABLE_RECORD_KEY]: stockTableResolution
+                ? { fields: stockTableResolution.fields, usage: stockTableResolution.usage, coveredItemIds: stockTableResolution.coveredItemIds, ignoredItemIds: stockTableResolution.ignoredItemIds }
                 : undefined,
               // Controlled system key: the server-sanctioned waivers only —
               // whatever the client sent under this key is overridden.

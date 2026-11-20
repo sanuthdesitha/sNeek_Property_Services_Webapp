@@ -1,4 +1,5 @@
 import { footerTextToHtml } from "./theme-rules";
+import { formatStockTableRecord, stockTableRecordField } from "@/lib/forms/stock-table";
 import { reportDocumentStatus } from "./document-status";
 import { isDeviceException } from "@/lib/forms/device-status";
 import { withReportGeneration } from "./generation-lease";
@@ -159,6 +160,9 @@ function buildFieldValue(field: any, context: { answers: Record<string, unknown>
   }
 
   if (field.type === "inventory") {
+    // A Stock used table records what it showed; older submissions list the clean's deductions.
+    const recorded = stockTableRecordField(submission?.data, String(field.id));
+    if (recorded) return formatStockTableRecord(recorded);
     const txs = (submission?.stockTxs ?? []).filter((tx: any) => tx.quantity < 0);
     if (txs.length === 0) return "No inventory recorded";
     return txs

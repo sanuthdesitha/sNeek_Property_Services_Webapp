@@ -37,6 +37,8 @@ export interface FieldTypeDef {
   hasRange?: boolean;
   /** Can carry a QA scoring weight. */
   scorable?: boolean;
+  /** One short line for the builder's palette (tooltip). */
+  description?: string;
   /** Default config applied when the field is first added in the builder. */
   defaultConfig?: Partial<FormField>;
   /** Text representation for reports / admin job view. */
@@ -171,6 +173,7 @@ export const FIELD_TYPES: Record<FormFieldType, FieldTypeDef> = {
     label: "Table",
     icon: "Table",
     category: "advanced",
+    description: "Rows and columns the cleaner fills in.",
     defaultConfig: { table: { columns: [{ id: "c1", label: "Item", cellType: "text", required: true }], rowMode: "dynamic", minRows: 1, maxRows: 10 } },
     formatValue: (field, value) => formatTableAnswer(field, value),
   },
@@ -180,7 +183,23 @@ export const FIELD_TYPES: Record<FormFieldType, FieldTypeDef> = {
     label: "Stock count",
     icon: "Package",
     category: "advanced",
+    description: "Counts how many of one stock item are there.",
     formatValue: (field, value) => formatStockCountAnswer(field, value),
+  },
+  // Stock used this clean, one row per stock item of the job's property
+  // (lib/forms/stock-table.ts). The answer is shared per item under the
+  // reserved `stockTableUsage` key, so the question's own value is normally
+  // empty; office views read the submission's `__stockTable` record instead.
+  inventory: {
+    type: "inventory",
+    label: "Stock used",
+    icon: "PackageMinus",
+    category: "advanced",
+    description: "Table of the property's stock: the cleaner enters how many of each item were used.",
+    defaultConfig: { stockArea: "all" },
+    // A value under the question's own id only exists on old submissions
+    // (the question once rendered as a text box); show it as it was typed.
+    formatValue: (_f, v) => fmtScalar(v),
   },
 };
 

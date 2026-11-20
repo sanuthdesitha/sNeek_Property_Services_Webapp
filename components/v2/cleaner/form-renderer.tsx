@@ -14,6 +14,8 @@ import { DeviceStatusInput } from "@/components/shared/device-status-input";
  * endpoint reads (`data.uploads[fieldId]`). Stock/consumables used are stored
  * under the reserved `inventoryUsage` answer key (itemId → quantity), which the
  * submit endpoint reads via `data.inventoryUsage` → `deductStockFromSubmission`.
+ * "Stock used" table questions share the reserved `stockTableUsage` key
+ * (lib/forms/stock-table.ts); the block leaves out the items a table shows.
  */
 import * as React from "react";
 import { usePathname } from "next/navigation";
@@ -61,6 +63,8 @@ import { ReportMaintenance } from "@/components/v2/cleaner/report-maintenance";
 import { QuickScanPanel } from "@/components/v2/inventory/quick-scan-panel";
 import { BarcodeFieldInput, BARCODE_CAPTURE_KEY, type BarcodeCapture } from "@/components/v2/cleaner/barcode-field-input";
 import { StockCountFieldInput, TableFieldInput } from "@/components/v2/cleaner/structured-field-inputs";
+import { StockTableFieldInput } from "@/components/v2/cleaner/stock-table-field-input";
+import { STOCK_TABLE_USAGE_KEY, coveredStockItemIds, type StockTableStock } from "@/lib/forms/stock-table";
 import { FormJobContext, QuestionEffectNotice } from "@/components/v2/cleaner/question-effect-notice";
 import { SandboxMediaInput } from "@/components/v2/cleaner/sandbox-media-input";
 import { toneNoticeClass } from "@/components/v2/ui/tone-band";
@@ -108,6 +112,14 @@ const LaundryVisibilityContext = React.createContext<boolean | undefined>(undefi
  */
 export type FormRenderMode = "live" | "preview" | "sandbox";
 const RenderModeContext = React.createContext<FormRenderMode>("live");
+
+/** The job property's stock list for "Stock used" tables (undefined = preview). */
+type StockTableRenderCtx = {
+  stock: StockTableStock | undefined;
+  onRetry?: () => void;
+  markTouched: (fieldId: string) => void;
+};
+const StockTableRenderContext = React.createContext<StockTableRenderCtx>({ stock: undefined, markTouched: () => {} });
 export function FormRenderer({
   schema,
   answers,
@@ -130,7 +142,17 @@ export function FormRenderer({
   mode = "live",
   enforceExtendedRules = ENFORCE_EXTENDED_FORM_VALIDATION,
   effectsJobId,
+  stockTable,
+  onRetryStockTable,
 }: {
+  /**
+   * The job property's stock list from GET /api/jobs/[id]/form (`stockTable`)
+   * for "Stock used" questions. Omitted (builder preview) → example rows and
+   * no stock check.
+   */
+  stockTable?: StockTableStock;
+  /** Re-read the job form when the stock list could not be loaded. */
+  onRetryStockTable?: () => void;
   /**
    * The job a question effect acts on ("'Yes' opens a damage report" opens
    * that job's damage report). Separate from `jobId`, which also turns on the
@@ -261,9 +283,9 @@ export function FormRenderer({
             >) ?? {},
         },
         // The extended rules show on the phone only once the server enforces them.
-        { extended: enforceExtendedRules }
+        { extended: enforceExtendedRules, stockTable }
       ),
-    [schema, answers, uploadCounts, property, laundryReady, requiredChecklistTicksBlockSubmit, canUseNoPhoto, enforceExtendedRules]
+    [schema, answers, uploadCounts, property, laundryReady, requiredChecklistTicksBlockSubmit, canUseNoPhoto, enforceExtendedRules, stockTable]
   );
   const errorMap = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -335,12 +357,18 @@ export function FormRenderer({
     ? errors
     : errors.filter((e) => touched.has(e.fieldId));
 
+  const stockTableCtx = React.useMemo<StockTableRenderCtx>(
+    () => ({ stock: stockTable, onRetry: onRetryStockTable, markTouched }),
+    [stockTable, onRetryStockTable, markTouched]
+  );
+
   return (
     <RenderModeContext.Provider value={mode}>
     <FormJobContext.Provider value={mode === "live" ? effectsJobId ?? jobId : undefined}>
     <LaundryVisibilityContext.Provider value={laundryReady}>
     <NoPhotoContext.Provider value={canUseNoPhoto}>
     <ValidationContext.Provider value={validation}>
+    <StockTableRenderContext.Provider value={stockTableCtx}>
       <div className="space-y-5">
         {visibleErrors.length > 0 ? (
           <ValidationSummary errors={visibleErrors} onJump={scrollToField} />
@@ -364,6 +392,9 @@ export function FormRenderer({
 
         {mode === "live" ? <ExtrasRegion
           jobId={jobId}
+          schema={schema}
+          laundryReady={laundryReady}
+          stockTable={stockTable}
           property={property}
           inventoryStock={inventoryStock}
           stockUpdateMode={stockUpdateMode}
@@ -375,6 +406,7 @@ export function FormRenderer({
           disabled={disabled}
         /> : null}
       </div>
+    </StockTableRenderContext.Provider>
     </ValidationContext.Provider>
     </NoPhotoContext.Provider>
     </LaundryVisibilityContext.Provider>
@@ -398,6 +430,9 @@ export function FormRenderer({
  */
 function ExtrasRegion({
   jobId,
+  schema,
+  laundryReady,
+  stockTable,
   property,
   inventoryStock,
   stockUpdateMode,
@@ -409,6 +444,9 @@ function ExtrasRegion({
   disabled,
 }: {
   jobId?: string;
+  schema: FormSchema;
+  laundryReady?: boolean;
+  stockTable?: StockTableStock;
   property: Record<string, unknown>;
   inventoryStock?: PropertyStockRow[];
   stockUpdateMode?: "CLASSIC" | "SCAN";
@@ -492,6 +530,9 @@ function ExtrasRegion({
             <QuickScanPanel propertyId={propertyId} />
           ) : (
             <StockUsageSection
+              schema={schema}
+              laundryReady={laundryReady}
+              stockTable={stockTable}
               property={property}
               inventoryStock={inventoryStock}
               answers={answers}
@@ -731,12 +772,18 @@ function SectionBlock({
 /* ── Stock / consumables used ───────────────────────────────────────────────── */
 
 function StockUsageSection({
+  schema,
+  laundryReady,
+  stockTable,
   property,
   inventoryStock,
   answers,
   onAnswer,
   disabled,
 }: {
+  schema: FormSchema;
+  laundryReady?: boolean;
+  stockTable?: StockTableStock;
   property: Record<string, unknown>;
   inventoryStock?: PropertyStockRow[];
   answers: AnswerMap;
@@ -765,7 +812,13 @@ function StockUsageSection({
     };
   }, [inventoryStock, property, pathname]);
 
-  const stock = inventoryStock ?? fetched ?? [];
+  // A "Stock used" table replaces this block for the items it shows (the
+  // submit route ignores block values for those items), so they are left out.
+  const covered =
+    stockTable?.status === "ready"
+      ? coveredStockItemIds({ schema, answers, property, laundryReady }, stockTable.items)
+      : new Set<string>();
+  const stock = (inventoryStock ?? fetched ?? []).filter((row) => !covered.has(String(row.item?.id)));
   if (property?.inventoryEnabled !== true || stock.length === 0) return null;
 
   const usage = (answers.inventoryUsage as Record<string, unknown> | undefined) ?? {};
@@ -860,6 +913,38 @@ function StockUsageSection({
         ))}
       </div>
     </section>
+  );
+}
+
+/* ── Stock used table ───────────────────────────────────────────────────────── */
+
+function StockTableControl({
+  field,
+  answers,
+  onAnswer,
+  disabled,
+  error,
+}: {
+  field: FormField;
+  answers: AnswerMap;
+  onAnswer?: (fieldId: string, value: unknown) => void;
+  disabled: boolean;
+  error?: boolean;
+}) {
+  const { stock, onRetry, markTouched } = React.useContext(StockTableRenderContext);
+  return (
+    <StockTableFieldInput
+      field={field}
+      answers={answers}
+      stock={stock}
+      onRetry={onRetry}
+      disabled={disabled}
+      error={error}
+      onUsageChange={(next) => {
+        markTouched(field.id);
+        onAnswer?.(STOCK_TABLE_USAGE_KEY, next);
+      }}
+    />
   );
 }
 
@@ -1362,6 +1447,9 @@ function FieldControl({
 
     case "stock_count":
       return <StockCountFieldInput field={field} value={value} onChange={set} disabled={disabled} error={error} />;
+
+    case "inventory":
+      return <StockTableControl field={field} answers={answers ?? {}} onAnswer={onAnswer} disabled={disabled} error={error} />;
 
     case "barcode":
       return (

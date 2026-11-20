@@ -3,21 +3,27 @@
 /**
  * How the office sees an answer in a submission view: a Table answer as a
  * real table (columns in builder order, labelled rows for fixed tables), a
- * Stock count as "item · counted N unit", everything else as the shared
- * formatted value. Shared by the job page's submission review and the Forms
- * page's submission view.
+ * Stock count as "item · counted N unit", a Stock used table as Item / Used
+ * from the submission's server record (`__stockTable`), everything else as
+ * the shared formatted value. Shared by the job page's submission review and
+ * the Forms page's submission view. Older submissions without the record keep
+ * their previous rendering.
  */
 import { formatFieldValue } from "@/lib/forms/field-types";
 import { stockCountSummary, tableAnswerGrid } from "@/lib/forms/structured-answers";
+import { stockTableRecordField, stockTableRecordGrid } from "@/lib/forms/stock-table";
 
 export type AnswerField = { id: string; type: string; label?: string; table?: unknown; unit?: unknown; stockItemName?: unknown };
 
-export function isBlockAnswer(field: AnswerField): boolean {
+/** `data` = the whole submission data (a Stock used table reads its record from it). */
+export function isBlockAnswer(field: AnswerField, data?: unknown): boolean {
+  if (field.type === "inventory") return stockTableRecordField(data, field.id) !== null;
   return field.type === "table";
 }
 
-export function TableAnswer({ field, value }: { field: AnswerField; value: unknown }) {
-  const grid = tableAnswerGrid(field, value);
+export function TableAnswer({ field, value, data }: { field: AnswerField; value: unknown; data?: unknown }) {
+  const grid = field.type === "inventory" ? stockTableRecordGrid(stockTableRecordField(data, field.id)) : tableAnswerGrid(field, value);
+  if (!grid && field.type === "inventory") return <p className="text-[0.8125rem] font-[550]">No items were shown for this property.</p>;
   if (!grid) return <p className="text-[0.8125rem] font-[550]">-</p>;
   return (
     <div className="max-w-full overflow-x-auto rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))]">

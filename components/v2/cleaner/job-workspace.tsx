@@ -1350,7 +1350,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
               { reasonCode: string }
             >) ?? {},
         },
-        { extended: enforceExtendedRules }
+        { extended: enforceExtendedRules, stockTable: payload?.stockTable }
       );
       if (formErrors.length > 0) {
         if (typeof window !== "undefined") window.dispatchEvent(new Event("sneek:validate-form"));
