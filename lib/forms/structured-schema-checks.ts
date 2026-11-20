@@ -6,6 +6,8 @@
  *  - a table has 1…TABLE_MAX_COLUMNS columns with unique ids, a known cell
  *    type, options on choice cells, and sane row limits;
  *  - a stock count names the inventory item it counts;
+ *  - a Stock used table shows a known area and says yes or no to items with
+ *    none on hand;
  *  - an effect sits on the type it belongs to ("urgent-stock-below" on a stock
  *    count with a whole-number threshold ≥ 1; "damage-report" on a Yes / No);
  *  - two stock count questions in one form may not count the same item (a
@@ -23,6 +25,8 @@
  * PURE.
  */
 import { TABLE_CELL_TYPES, TABLE_MAX_COLUMNS, TABLE_MAX_ROWS, STOCK_COUNT_MAX } from "./structured-answers";
+
+const STOCK_TABLE_SHOW = new Set(["all", "kitchen", "bathroom", "laundry", "other"]);
 
 type Node = Record<string, unknown>;
 
@@ -111,6 +115,14 @@ export function structuredFieldFindings(field: Node): StructuredFieldFinding[] {
   if (field.type === "table") findings.push(...tableFindings(field.table));
   if (field.type === "stock_count" && (typeof field.stockItemId !== "string" || !field.stockItemId.trim())) {
     findings.push({ message: STOCK_ITEM_MISSING, incomplete: true });
+  }
+  if (field.type === "inventory") {
+    if (field.stockArea !== undefined && !STOCK_TABLE_SHOW.has(String(field.stockArea))) {
+      findings.push({ message: `is a Stock used table showing an unknown area (${String(field.stockArea)}).`, incomplete: false });
+    }
+    if (field.includeZeroOnHand !== undefined && typeof field.includeZeroOnHand !== "boolean") {
+      findings.push({ message: "is a Stock used table whose \"items with none on hand\" setting is not yes or no.", incomplete: false });
+    }
   }
   for (const message of effectIssues(field)) findings.push({ message, incomplete: false });
   return findings;

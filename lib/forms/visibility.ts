@@ -321,6 +321,10 @@ export function collectRequiredAnswerFields(
       // validated separately by collectRequiredUploadFields — so skip them here,
       // otherwise a no-filter call would wrongly report every required upload.
       if (isUploadFieldType(fieldType)) continue;
+      // A Stock used table keeps no answer under its own id: its rows share
+      // the `stockTableUsage` map and are checked against the property's
+      // stock list by collectStockTableErrors (validate-submission.ts).
+      if (fieldType === "inventory") continue;
       if (allowedTypes && !allowedTypes.has(fieldType)) continue;
 
       const value = answers[String(field.id)];

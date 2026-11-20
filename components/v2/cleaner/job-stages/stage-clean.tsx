@@ -21,6 +21,7 @@ import { MediaCapture } from "@/components/v2/cleaner/media-capture";
 import { FormRenderer } from "@/components/v2/cleaner/form-renderer";
 import { flattenFieldsOneLevel, isTemplateNodeVisible, isFlattenedFieldVisible } from "@/lib/forms/visibility";
 import { formNavigation } from "@/lib/forms/navigation";
+import type { StockTableStock } from "@/lib/forms/stock-table";
 
 import { isUploadFieldType } from "@/lib/forms/field-types";
 import { BulkPhotoAssign, type BulkAssignField } from "@/components/v2/cleaner/bulk-photo-assign";
@@ -41,7 +42,8 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
   }, [uploads]);
 
   const laundryReady = api.laundryEnabled ? api.laundryOutcome === "READY_FOR_PICKUP" : undefined;
-  const navigation = React.useMemo(() => formNavigation(schema, answers, uploadCounts, property ?? {}, laundryReady, api.requiredChecklistTicksBlockSubmit, api.canUseNoPhoto), [schema, answers, uploadCounts, property, laundryReady, api.requiredChecklistTicksBlockSubmit, api.canUseNoPhoto]);
+  const stockTable = api.payload?.stockTable as StockTableStock | undefined;
+  const navigation = React.useMemo(() => formNavigation(schema, answers, uploadCounts, property ?? {}, laundryReady, api.requiredChecklistTicksBlockSubmit, api.canUseNoPhoto, stockTable), [schema, answers, uploadCounts, property, laundryReady, api.requiredChecklistTicksBlockSubmit, api.canUseNoPhoto, stockTable]);
   const sectionProgress = React.useCallback((sectionId: string) => navigation.rooms.find(room => room.id === sectionId), [navigation]);
   // Flat list of the form's upload fields (form order), for the bulk assign
   // sheet's destination list. Same flatten + visibility rules the renderer uses,
@@ -211,6 +213,8 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
             mode={api.formMode}
             stockUpdateMode={api.payload?.stockUpdateMode}
             propertyId={api.payload?.job?.propertyId}
+            stockTable={stockTable}
+            onRetryStockTable={api.load}
           />
         </div>
       ) : (

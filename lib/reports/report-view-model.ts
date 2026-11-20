@@ -1,4 +1,5 @@
 import { reportDocumentStatus } from "./document-status";
+import { formatStockTableRecord, stockTableRecordField, stockTableRecordGrid } from "@/lib/forms/stock-table";
 import { isDeviceException, formatDeviceException } from "@/lib/forms/device-status";
 // Pure data-shaping for the "Estate" job report template.
 //
@@ -67,6 +68,11 @@ export type ReportFieldVM = {
   noPhoto?: boolean;
   /** "table" questions: header and cells (value holds the same as text). */
   table?: { columns: string[]; rows: string[][] };
+  /**
+   * A "Stock used" table. The client report shows it only where it already
+   * shows stock usage (the theme's Supplies section), never on its own.
+   */
+  stockTable?: boolean;
 };
 
 export type ReportSectionVM = {
@@ -402,6 +408,22 @@ function classifyField(field: any, answers: Record<string, unknown>): ReportFiel
     return grid
       ? { ...base, kind: "table", answered: true, table: grid, value: formatFieldValue(field, raw) }
       : { ...base, kind: "table", answered: false, value: UNANSWERED };
+  }
+
+  if (type === "inventory") {
+    // Read from the submission's server record; older submissions have none
+    // and keep their previous rendering (the shared formatted value).
+    const recorded = stockTableRecordField(answers, id);
+    if (recorded) {
+      const grid = stockTableRecordGrid(recorded);
+      const answered = recorded.rows.some((row) => row.used !== null);
+      return grid
+        ? { ...base, kind: "table", stockTable: true, answered, table: grid, value: formatStockTableRecord(recorded) }
+        : { ...base, kind: "value", stockTable: true, answered: true, value: formatStockTableRecord(recorded) };
+    }
+    const formatted = formatFieldValue(field, raw);
+    const answered = formatted !== "-" && formatted !== "";
+    return { ...base, answered, value: answered ? formatted : UNANSWERED };
   }
 
   if (type === "longtext") {

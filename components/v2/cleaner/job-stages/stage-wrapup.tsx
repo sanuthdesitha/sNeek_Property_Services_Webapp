@@ -15,6 +15,7 @@
  * validation are untouched.
  */
 import { tourTarget } from "@/lib/tutorials/targets";
+import { mergeStockUsage, resolveStockTableUsage, type StockTableStock } from "@/lib/forms/stock-table";
 import * as React from "react";
 import { Forward, HandCoins, Plus, Trash2, Camera, CheckCircle2, AlertTriangle, Loader2, Package, Square } from "lucide-react";
 import Link from "next/link";
@@ -61,7 +62,7 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
               { reasonCode: string }
             >) ?? {},
         },
-        { extended: api.enforceExtendedRules }
+        { extended: api.enforceExtendedRules, stockTable: api.payload?.stockTable }
       )
     : [];
 
@@ -93,9 +94,10 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
-  // Restock summary (recorded as a form field in Clean — surface a tally here).
-  const inventoryUsage = (answers.inventoryUsage as Record<string, unknown> | undefined) ?? {};
-  const usedCount = Object.values(inventoryUsage).filter((v) => Number(v) > 0).length;
+  // Restock summary (recorded in Clean — surface a tally here). The same
+  // merge the submit route uses: a Stock used table replaces the block for the
+  // items it shows, so an item is counted once.
+  const usedCount = countItemsUsed(schema, answers, property ?? {}, laundryEnabled ? api.laundryOutcome === "READY_FOR_PICKUP" : undefined, api.payload?.stockTable);
 
   const blockerCount = formErrors.length + laundryErrors.length + Number(tasksPending) + syncBlockers.length;
   const submitDisabled = Boolean(busy) || tasksPending || syncBlockers.length > 0;
@@ -277,4 +279,22 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
       </StickyActionBar>
     </div>
   );
+}
+
+function countItemsUsed(
+  schema: unknown,
+  answers: Record<string, unknown>,
+  property: Record<string, unknown>,
+  laundryReady: boolean | undefined,
+  stockTable: StockTableStock | undefined,
+): number {
+  const blockUsage: Record<string, number> = {};
+  for (const [itemId, raw] of Object.entries((answers.inventoryUsage as Record<string, unknown> | undefined) ?? {})) {
+    const quantity = Number(raw);
+    if (Number.isFinite(quantity) && quantity > 0) blockUsage[itemId] = quantity;
+  }
+  const table = stockTable?.status === "ready"
+    ? resolveStockTableUsage({ schema, answers, property, laundryReady }, stockTable.items)
+    : { usage: {}, coveredItemIds: [] };
+  return Object.keys(mergeStockUsage(blockUsage, table) ?? {}).length;
 }

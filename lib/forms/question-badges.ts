@@ -19,6 +19,7 @@
  * PURE.
  */
 import { getFieldTypeDef } from "./field-types";
+import { stockTableShownText } from "./stock-table";
 import { isDeviceStatusField } from "./device-status";
 import { describePropertyCondition } from "./property-conditions";
 import { effectBadgeLabel, fieldEffects } from "./form-effects";
@@ -121,6 +122,9 @@ export function questionBadges(field: FormField, context: BadgeContext): Questio
   if (field.frequency === "MONTHLY") badges.push({ key: "rotation", label: "Monthly", tone: "gold" });
   if (field.type === "stock_count") {
     badges.push({ key: "stock-item", label: field.stockItemName ? `Counts ${field.stockItemName}` : "No item chosen", tone: field.stockItemId ? "neutral" : "bad" });
+  }
+  if (field.type === "inventory") {
+    badges.push({ key: "stock-shown", label: `Stock: ${stockTableShownText(field)}`, tone: "neutral" });
   }
   if (field.type === "table") {
     const table = readTableConfig(field.table);

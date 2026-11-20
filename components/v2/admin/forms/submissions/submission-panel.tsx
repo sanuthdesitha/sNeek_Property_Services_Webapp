@@ -128,9 +128,9 @@ export function SubmissionPanel({ submissionId, canWrite, onClose, onChanged }: 
                 <div key={field.id} className="space-y-1 px-3 py-2">
                   <p className="text-[hsl(var(--e-text-secondary))]">{field.sectionTitle ? <span className="text-[hsl(var(--e-muted-foreground))]">{field.sectionTitle} · </span> : null}{field.label}</p>
                   {editing ? (
-                    <AnswerEditor field={field} value={draft[field.id]} onChange={(value) => setDraft((current) => ({ ...current, [field.id]: value }))} />
-                  ) : isBlockAnswer(field) ? (
-                    <TableAnswer field={field} value={detail.data[field.id]} />
+                    <AnswerEditor field={field} value={draft[field.id]} data={detail.data} onChange={(value) => setDraft((current) => ({ ...current, [field.id]: value }))} />
+                  ) : isBlockAnswer(field, detail.data) ? (
+                    <TableAnswer field={field} value={detail.data[field.id]} data={detail.data} />
                   ) : (
                     <p className="font-[550] [overflow-wrap:anywhere]">{inlineAnswerText(field, detail.data[field.id])}</p>
                   )}

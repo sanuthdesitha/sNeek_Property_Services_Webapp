@@ -18,6 +18,7 @@ import { sectionDragId } from "@/lib/forms/builder-dnd";
 import { describePropertyCondition } from "@/lib/forms/property-conditions";
 import { isPropertyFieldCondition, type FormFieldType, type FormSchema, type FormSection } from "@/lib/forms/types";
 import { cn } from "@/lib/utils";
+import { EFieldIcon } from "./field-icon";
 
 function dragStyle(transform: { x: number; y: number } | null, transition: string | undefined): React.CSSProperties {
   return { transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined, transition };
@@ -134,9 +135,12 @@ export function OutlinePane({
                 type="button"
                 disabled={disabled || !activeSectionId}
                 onClick={() => onAddQuestion(def.type)}
-                className="inline-flex h-7 items-center rounded-full border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2.5 text-[0.75rem] font-[500] text-[hsl(var(--e-text-secondary))] hover:bg-[hsl(var(--e-muted))] disabled:opacity-50"
+                title={def.description}
+                className="inline-flex h-7 items-center gap-1 rounded-full border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2.5 text-[0.75rem] font-[500] text-[hsl(var(--e-text-secondary))] hover:bg-[hsl(var(--e-muted))] disabled:opacity-50"
               >
+                <EFieldIcon name={def.icon} className="h-3.5 w-3.5 shrink-0" />
                 {PALETTE_LABEL[def.type] ?? def.label}
+                {def.description ? <span className="sr-only">: {def.description}</span> : null}
               </button>
             ))}
         </div>

@@ -1,4 +1,5 @@
 import { collectFormErrors } from "./validate-submission";
+import type { StockTableStock } from "./stock-table";
 import { flattenFieldsOneLevel, isFlattenedFieldVisible, isTemplateNodeVisible } from "./visibility";
 import { isUploadFieldType } from "./field-types";
 import { stripHtmlToText } from "./sanitize";
@@ -6,8 +7,8 @@ export type FormRoomProgress = { id: string; label: string; visible: boolean; to
   remaining: ReturnType<typeof collectFormErrors>; dataTotal: number; dataDone: number; mediaTotal: number; mediaDone: number };
 
 /** Read-only projection: navigation never supplies answers, exemptions or receipts. */
-export function formNavigation(schema: any, answers: Record<string, unknown>, uploads: Record<string, number>, property: Record<string, unknown>, laundryReady?: boolean, ticksRequired = false, canUseNoPhoto = false) {
-  const errors = collectFormErrors(schema, answers, uploads, property, laundryReady, ticksRequired, { canUseNoPhoto, reasons: (answers.__noPhotoReasons ?? {}) as any });
+export function formNavigation(schema: any, answers: Record<string, unknown>, uploads: Record<string, number>, property: Record<string, unknown>, laundryReady?: boolean, ticksRequired = false, canUseNoPhoto = false, stockTable?: StockTableStock) {
+  const errors = collectFormErrors(schema, answers, uploads, property, laundryReady, ticksRequired, { canUseNoPhoto, reasons: (answers.__noPhotoReasons ?? {}) as any }, { stockTable });
   const rooms: FormRoomProgress[] = (Array.isArray(schema?.sections) ? schema.sections : []).map((section: any) => {
     const visible = isTemplateNodeVisible(section, answers, property, laundryReady);
     const fields = flattenFieldsOneLevel(section.fields);

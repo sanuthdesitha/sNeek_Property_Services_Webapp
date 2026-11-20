@@ -16,6 +16,7 @@ import { validateFormSchemaForSave } from "@/lib/forms/template-schema";
 import { collectFormErrors, extendedFieldError } from "@/lib/forms/validate-submission";
 import { makeField } from "@/components/v2/admin/forms/builder/use-builder-editing";
 import type { FormField, FormFieldType } from "@/lib/forms/types";
+import type { StockTableStock } from "@/lib/forms/stock-table";
 
 type Case = {
   /** Extra config for the question under test. */
@@ -28,6 +29,16 @@ type Case = {
   invalid: unknown[];
   /** Upload types: validated by count, not by answer. */
   upload?: { valid: number; invalid: number };
+  /** Answer key when the type does not answer under its own id (Stock used: the shared map). */
+  answerKey?: string;
+  /** The job property's stock list the renderer and the validator receive. */
+  stockTable?: StockTableStock;
+};
+
+const AUDIT_STOCK: StockTableStock = {
+  status: "ready",
+  tracked: true,
+  items: [{ itemId: "item-1", name: "Toilet paper", sku: "DEF-TP", unit: "roll", location: "BATHROOM", area: "bathroom", onHand: 12 }],
 };
 
 const input = () => screen.getByLabelText("Question") as HTMLInputElement;
@@ -73,14 +84,24 @@ const CASES: Record<FormFieldType, Case> = {
     valid: { itemId: "item-1", count: 0 },
     invalid: [{ itemId: "item-1", count: -1 }, { itemId: "item-1", count: 2.5 }, { itemId: "other", count: 3 }, "4"],
   },
+  // Stock used: rows of the property's stock; answers shared per item.
+  inventory: {
+    config: { stockArea: "bathroom" },
+    stockTable: AUDIT_STOCK,
+    answerKey: "stockTableUsage",
+    interact: () => fireEvent.change(screen.getByLabelText("Toilet paper"), { target: { value: "2" } }),
+    produced: { "item-1": 2 },
+    valid: { "item-1": 0 },
+    invalid: [{ "item-1": -1 }, { "item-1": 1.5 }, { "item-1": "two" }],
+  },
 };
 
 afterEach(cleanup);
 
 /** The server's full answer validation (core + extended rules) for this one question. */
-function serverErrors(field: FormField, answer: unknown, uploadCount = 0) {
-  const answers = answer === undefined ? {} : { q: answer };
-  return collectFormErrors({ sections: [{ id: "s", title: "S", fields: [field] }] }, answers, { q: uploadCount }, {}, undefined, true, undefined, { extended: true })
+function serverErrors(field: FormField, answer: unknown, uploadCount = 0, testCase?: Case) {
+  const answers = answer === undefined ? {} : { [testCase?.answerKey ?? "q"]: answer };
+  return collectFormErrors({ sections: [{ id: "s", title: "S", fields: [field] }] }, answers, { q: uploadCount }, {}, undefined, true, undefined, { extended: true, stockTable: testCase?.stockTable })
     .filter((error) => error.fieldId === "q");
 }
 
@@ -110,12 +131,13 @@ describe("field type audit", () => {
         property={{}}
         onAnswer={onAnswer}
         onUpload={vi.fn()}
+        stockTable={testCase.stockTable}
       />,
     );
     expect(screen.getAllByText("Question").length).toBeGreaterThan(0);
     if (testCase.interact) {
       testCase.interact();
-      expect(answers.q).toEqual(testCase.produced);
+      expect(answers[testCase.answerKey ?? "q"]).toEqual(testCase.produced);
     }
 
     // (c) server validation: valid accepted, each invalid flagged.
@@ -123,12 +145,12 @@ describe("field type audit", () => {
       expect(serverErrors(field, undefined, testCase.upload.valid)).toEqual([]);
       expect(serverErrors(field, undefined, testCase.upload.invalid)[0]?.rule).toBe("max-files");
     } else {
-      expect(serverErrors(field, testCase.valid)).toEqual([]);
-      for (const bad of testCase.invalid) expect(serverErrors(field, bad).length, `${type} ${JSON.stringify(bad)}`).toBe(1);
+      expect(serverErrors(field, testCase.valid, 0, testCase)).toEqual([]);
+      for (const bad of testCase.invalid) expect(serverErrors(field, bad, 0, testCase).length, `${type} ${JSON.stringify(bad)}`).toBe(1);
     }
     if (type !== "instruction") {
       const required = { ...field, required: true };
-      const errors = collectFormErrors({ sections: [{ id: "s", title: "S", fields: [required] }] }, {}, {}, {}, undefined, true, undefined, { extended: true });
+      const errors = collectFormErrors({ sections: [{ id: "s", title: "S", fields: [required] }] }, {}, {}, {}, undefined, true, undefined, { extended: true, stockTable: testCase.stockTable });
       expect(errors.map((error) => error.fieldId)).toContain("q");
     }
   });

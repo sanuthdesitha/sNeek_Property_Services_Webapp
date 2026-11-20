@@ -94,12 +94,13 @@ export type ValidatedFormTemplateSchema = z.infer<typeof formTemplateSchemaZ>;
 
 /**
  * Historical type names still found in stored templates. `upload` and
- * `textarea` are rewritten by normalizeFormSchema; `inventory` and
- * `laundry_confirm` come from the original seed and render as a plain text
- * answer. They are accepted on save so an old form can still be edited; the
- * checks flag them so they can be replaced.
+ * `textarea` are rewritten by normalizeFormSchema; `laundry_confirm` comes
+ * from the original seed and renders as a plain text answer. They are
+ * accepted on save so an old form can still be edited; the checks flag them
+ * so they can be replaced. (`inventory`, the seed's stock table, is a
+ * registered type again: the "Stock used" question, lib/forms/stock-table.ts.)
  */
-export const LEGACY_SAVE_FIELD_TYPES: ReadonlySet<string> = new Set(["upload", "textarea", "inventory", "laundry_confirm"]);
+export const LEGACY_SAVE_FIELD_TYPES: ReadonlySet<string> = new Set(["upload", "textarea", "laundry_confirm"]);
 
 export const CONDITION_OPERATORS: ReadonlySet<FieldConditionOperator> = new Set<FieldConditionOperator>([
   "equals",

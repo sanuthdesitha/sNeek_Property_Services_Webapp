@@ -44,6 +44,7 @@ import {
   normalizeInventoryLocation,
   type InventoryLocation,
 } from "@/lib/inventory/locations";
+import { STOCK_TABLE_USAGE_KEY, stockAreaLabel, stockTableRows, type StockTableItem } from "@/lib/forms/stock-table";
 import { formatDuration, elapsedSecondsSince, safeSeconds } from "@/lib/time/format-duration";
 import {
   getAccuratePosition,
@@ -155,16 +156,6 @@ function resolveFieldStep(field: any, section: any): RenderableFormStep {
   return "checklist";
 }
 
-function inferLocationFromText(value: unknown): InventoryLocation | null {
-  const text = String(value ?? "").trim().toLowerCase();
-  if (!text) return null;
-  if (text.includes("bath")) return "BATHROOM";
-  if (text.includes("kitchen")) return "KITCHEN";
-  if (text.includes("other") || text.includes("cleaner") || text.includes("cupboard")) {
-    return "CLEANERS_CUPBOARD";
-  }
-  return null;
-}
 
 function isFieldVisible(
   field: any,
@@ -1700,6 +1691,13 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   const sections: any[] = template?.schema?.sections ?? [];
   const property = (job?.property ?? {}) as Record<string, unknown>;
   const inventoryStock: Array<any> = Array.isArray(payload?.inventoryStock) ? payload.inventoryStock : [];
+  // Stock used tables (type "inventory") read the FULL property stock list
+  // and keep their answers in the shared `stockTableUsage` map, exactly as the
+  // v2 renderer and the submit route do (lib/forms/stock-table.ts).
+  const stockTableItems = useMemo<StockTableItem[]>(
+    () => (payload?.stockTable?.status === "ready" && Array.isArray(payload.stockTable.items) ? payload.stockTable.items : []),
+    [payload?.stockTable]
+  );
   const bagLocationOptions: string[] = Array.isArray(payload?.laundryBagLocationOptions)
     ? payload.laundryBagLocationOptions
     : [];
@@ -1752,18 +1750,14 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     // Items the form already targets via an explicit per-field list. Anything NOT
     // covered — including items added to the property after this form was built —
     // is surfaced in a catch-all so the cleaner always sees the FULL inventory.
-    const explicitKeys = new Set<string>();
+    const covered = new Set<string>();
     for (const section of baseSections) {
       for (const field of section?.fields ?? []) {
         if (field?.type !== "inventory") continue;
-        for (const sel of Array.isArray(field?.items) ? field.items : []) explicitKeys.add(String(sel));
+        for (const row of stockTableRows(field, stockTableItems)) covered.add(row.itemId);
       }
     }
-    const uncovered = inventoryStock.filter(
-      (stock) =>
-        !explicitKeys.has(String(stock?.item?.id ?? "")) &&
-        !explicitKeys.has(String(stock?.item?.sku ?? ""))
-    );
+    const uncovered = inventoryStock.filter((stock) => !covered.has(String(stock?.item?.id ?? "")));
     if (uncovered.length === 0) return baseSections;
 
     baseSections.push({
@@ -1780,7 +1774,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       ],
     });
     return baseSections;
-  }, [sections, job?.property?.inventoryEnabled, inventoryStock]);
+  }, [sections, job?.property?.inventoryEnabled, inventoryStock, stockTableItems]);
 
   // Whether the cleaner marked laundry ready. Derived here (from the laundryOutcome
   // state set near the top of the component) so visibility can use it BEFORE the
@@ -2777,86 +2771,58 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     }
   }
 
-  function updateInventoryUsage(itemId: string, rawValue: string) {
-    const qty = Math.max(0, Number(rawValue || 0));
-    setFormData((prev) => ({
-      ...prev,
-      inventoryUsage: {
-        ...(prev.inventoryUsage ?? {}),
-        [itemId]: Number.isFinite(qty) ? qty : 0,
-      },
-    }));
+  /** The catch-all block keeps `inventoryUsage`; a Stock used table the shared `stockTableUsage`. */
+  function usageKeyForField(field: any): "inventoryUsage" | typeof STOCK_TABLE_USAGE_KEY {
+    return field?.id === "__auto_inventory_all_other" ? "inventoryUsage" : STOCK_TABLE_USAGE_KEY;
   }
 
-  function adjustInventoryUsage(itemId: string, delta: number) {
-    const current = getInventoryValue(itemId);
+  function updateInventoryUsage(itemId: string, rawValue: string, key: string = "inventoryUsage") {
+    setFormData((prev) => {
+      const current = { ...((prev as Record<string, any>)[key] ?? {}) };
+      // An emptied table row is unanswered again, never a silent 0.
+      if (key === STOCK_TABLE_USAGE_KEY && rawValue.trim() === "") delete current[itemId];
+      else {
+        const qty = Math.max(0, Number(rawValue || 0));
+        current[itemId] = Number.isFinite(qty) ? qty : 0;
+      }
+      return { ...prev, [key]: current };
+    });
+  }
+
+  function adjustInventoryUsage(itemId: string, delta: number, key: string = "inventoryUsage") {
+    const current = getInventoryValue(itemId, key);
     const next = Math.max(0, current + delta);
     setFormData((prev) => ({
       ...prev,
-      inventoryUsage: {
-        ...(prev.inventoryUsage ?? {}),
+      [key]: {
+        ...((prev as Record<string, any>)[key] ?? {}),
         [itemId]: next,
       },
     }));
   }
 
-  function resolveInventoryTargetLocations(field: any, section?: any): InventoryLocation[] | null {
-    if (Array.isArray(field?.locations)) {
-      const fromArray = field.locations
-        .map((value: unknown) => normalizeInventoryLocation(value))
-        .filter((value: InventoryLocation, index: number, arr: InventoryLocation[]) => arr.indexOf(value) === index);
-      if (fromArray.length > 0) return fromArray;
-    }
-    if (field?.location) {
-      return [normalizeInventoryLocation(field.location)];
-    }
-    if (section?.location) {
-      return [normalizeInventoryLocation(section.location)];
-    }
-
-    const inferred =
-      inferLocationFromText(section?.label) ??
-      inferLocationFromText(section?.id) ??
-      inferLocationFromText(field?.label) ??
-      inferLocationFromText(field?.id);
-    return inferred ? [inferred] : null;
-  }
-
-  function getInventoryOptionsForField(field: any, section?: any) {
+  function getInventoryOptionsForField(field: any) {
     // Catch-all "Other & newly-added supplies": every property item not already
     // targeted by an explicit per-field list (so nothing is ever hidden).
     if (field?.id === "__auto_inventory_all_other") {
-      const explicitKeys = new Set<string>();
+      const covered = new Set<string>();
       for (const sec of Array.isArray(sections) ? sections : []) {
         for (const f of sec?.fields ?? []) {
           if (f?.type !== "inventory") continue;
-          for (const sel of Array.isArray(f?.items) ? f.items : []) explicitKeys.add(String(sel));
+          for (const row of stockTableRows(f, stockTableItems)) covered.add(row.itemId);
         }
       }
-      return inventoryStock.filter(
-        (stock) =>
-          !explicitKeys.has(String(stock?.item?.id ?? "")) &&
-          !explicitKeys.has(String(stock?.item?.sku ?? ""))
-      );
+      return inventoryStock.filter((stock) => !covered.has(String(stock?.item?.id ?? "")));
     }
-    const selectors = Array.isArray(field?.items) ? field.items : [];
-    const base = selectors.length === 0
-      ? inventoryStock
-      : inventoryStock.filter((stock) => {
-      const itemId = String(stock?.item?.id ?? "");
-      const sku = String(stock?.item?.sku ?? "");
-      return selectors.includes(itemId) || selectors.includes(sku);
-    });
-
-    const targetLocations = resolveInventoryTargetLocations(field, section);
-    if (!targetLocations || targetLocations.length === 0) return base;
-    return base.filter((stock) =>
-      targetLocations.includes(normalizeInventoryLocation(stock?.item?.location))
-    );
+    // A Stock used table: the shared "Show" / legacy item-list rule.
+    return stockTableRows(field, stockTableItems).map((row) => ({
+      onHand: row.onHand,
+      item: { id: row.itemId, name: row.name, sku: row.sku, unit: row.unit ?? "", location: row.location, category: stockAreaLabel(row.area) },
+    }));
   }
 
-  function getInventoryValue(itemId: string): number {
-    const raw = formData?.inventoryUsage?.[itemId];
+  function getInventoryValue(itemId: string, key: string = "inventoryUsage"): number {
+    const raw = (formData as Record<string, any>)?.[key]?.[itemId];
     const value = typeof raw === "number" ? raw : Number(raw ?? 0);
     return Number.isFinite(value) ? value : 0;
   }
@@ -3069,7 +3035,8 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     );
   }
 
-  function renderInventoryField(field: any, section?: any) {
+  function renderInventoryField(field: any) {
+    const usageKey = usageKeyForField(field);
     if (!job?.property?.inventoryEnabled) {
       return (
         <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
@@ -3078,7 +3045,14 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       );
     }
 
-    const options = getInventoryOptionsForField(field, section);
+    if (usageKey === STOCK_TABLE_USAGE_KEY && payload?.stockTable?.status === "unavailable") {
+      return (
+        <div role="alert" className="rounded-md border border-dashed p-3 text-xs text-destructive">
+          The property&apos;s stock list could not be loaded. Reload the page to try again.
+        </div>
+      );
+    }
+    const options = getInventoryOptionsForField(field);
     if (options.length === 0) {
       return (
         <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
@@ -3118,8 +3092,10 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                   <div key={`${location}-${category}`} className="space-y-2">
                     <p className="text-[11px] font-medium text-muted-foreground">{category}</p>
                     {rows.map((stock: any) => {
-                      const qtyUsed = getInventoryValue(stock.item.id);
-                      const remaining = Math.max(0, Number(stock.onHand ?? 0) - qtyUsed);
+                      const qtyUsed = getInventoryValue(stock.item.id, usageKey);
+                      const rawUsed = (formData as Record<string, any>)?.[usageKey]?.[stock.item.id];
+                      const unanswered = usageKey === STOCK_TABLE_USAGE_KEY && (rawUsed === undefined || rawUsed === null || rawUsed === "");
+                      const remaining = typeof stock.onHand === "number" ? Math.max(0, stock.onHand - qtyUsed) : null;
                       return (
                         <div
                           key={stock.item.id}
@@ -3128,7 +3104,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                           <div className="min-w-0">
                             <p className="text-sm font-medium leading-snug sm:truncate">{stock.item.name}</p>
                             <p className="text-xs text-muted-foreground">
-                              On hand: {Number(stock.onHand).toFixed(0)} {stock.item.unit}
+                              On hand: {typeof stock.onHand === "number" ? `${Number(stock.onHand).toFixed(0)} ${stock.item.unit}` : "not known"}
                               {stock.item.sku ? ` - ${stock.item.sku}` : ""}
                             </p>
                           </div>
@@ -3140,8 +3116,8 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                                 variant="outline"
                                 size="sm"
                                 className="h-9 w-9 shrink-0 p-0"
-                                onClick={() => adjustInventoryUsage(stock.item.id, -1)}
-                                disabled={qtyUsed <= 0}
+                                onClick={() => adjustInventoryUsage(stock.item.id, -1, usageKey)}
+                                disabled={qtyUsed <= 0 && !unanswered}
                                 aria-label={`Decrease ${stock.item.name} usage`}
                               >
                                 -
@@ -3150,8 +3126,10 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                                 type="number"
                                 min="0"
                                 step="1"
-                                value={String(qtyUsed)}
-                                onChange={(e) => updateInventoryUsage(stock.item.id, e.target.value)}
+                                value={unanswered ? "" : String(qtyUsed)}
+                                placeholder={unanswered ? "–" : undefined}
+                                aria-label={`${stock.item.name} used`}
+                                onChange={(e) => updateInventoryUsage(stock.item.id, e.target.value, usageKey)}
                                 className="h-9 min-w-0 flex-1 text-center sm:w-16 sm:flex-none sm:text-right"
                               />
                               <Button
@@ -3159,7 +3137,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                                 variant="outline"
                                 size="sm"
                                 className="h-9 w-9 shrink-0 p-0"
-                                onClick={() => adjustInventoryUsage(stock.item.id, 1)}
+                                onClick={() => adjustInventoryUsage(stock.item.id, 1, usageKey)}
                                 aria-label={`Increase ${stock.item.name} usage`}
                               >
                                 +
@@ -3169,7 +3147,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                           <div className="mt-3 rounded-md bg-muted/40 px-2 py-2 text-left sm:mt-0 sm:bg-transparent sm:px-0 sm:py-0 sm:text-right">
                             <p className="text-[10px] text-muted-foreground">After submit</p>
                             <p className="text-sm font-semibold">
-                              {remaining.toFixed(0)} {stock.item.unit}
+                              {remaining === null ? "Not known" : `${remaining.toFixed(0)} ${stock.item.unit}`}
                             </p>
                           </div>
                         </div>
@@ -3189,7 +3167,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     // Inventory is a bespoke widget driven by property stock; everything else
     // (including all the new field types) is rendered by the shared FieldInput.
     if (field.type === "inventory") {
-      return <div>{renderInventoryField(field, section)}</div>;
+      return <div>{renderInventoryField(field)}</div>;
     }
 
     // Normalize the legacy "textarea" type name to the canonical "longtext".

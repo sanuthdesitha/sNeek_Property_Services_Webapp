@@ -18,6 +18,7 @@
  * PURE: no database. The route reads the schemas (draft if there is one).
  */
 import { getFieldTypeDef } from "./field-types";
+import { stockTableShownText } from "./stock-table";
 import { effectBadgeLabel, fieldEffects } from "./form-effects";
 import { describeAnswerRule, ordinal } from "./question-badges";
 import { listQuestions, normalizeWording, questionKey, type SchemaNode } from "./template-questions";
@@ -76,6 +77,7 @@ const PROPERTIES: PropertyDef[] = [
     },
   },
   { key: "stockItem", label: "Item counted", read: (f) => (f.type === "stock_count" ? text(f.stockItemName) || text(f.stockItemId) || "None" : "–") },
+  { key: "stockShown", label: "Stock shown", read: (f) => (f.type === "inventory" ? stockTableShownText(f) : "–") },
   { key: "effects", label: "When submitted", read: (f) => fieldEffects(f).map(effectBadgeLabel).join("; ") || "–" },
 ];
 

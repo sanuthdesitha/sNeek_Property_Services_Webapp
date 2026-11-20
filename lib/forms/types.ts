@@ -36,7 +36,10 @@ export type FormFieldType =
   | "instruction"
   // structured (see lib/forms/structured-answers.ts)
   | "table"
-  | "stock_count";
+  | "stock_count"
+  // stock used per item of the job's property (see lib/forms/stock-table.ts);
+  // the original seed's type name, first-class again
+  | "inventory";
 
 export type FieldConditionOperator =
   | "equals"
@@ -285,6 +288,12 @@ export interface FormField {
   stockItemId?: string;
   /** "stock_count": the item's name when it was chosen (display only). */
   stockItemName?: string;
+  /** "inventory" (Stock used): which items the table shows (default "all"). */
+  stockArea?: "all" | "kitchen" | "bathroom" | "laundry" | "other";
+  /** "inventory": false hides items the property has none of on hand (default true). */
+  includeZeroOnHand?: boolean;
+  /** "inventory", legacy seed shape: item ids or SKUs the table is limited to. */
+  items?: string[];
   /** What submitting this answer does (see FieldEffect). */
   effects?: FieldEffect[];
 }
