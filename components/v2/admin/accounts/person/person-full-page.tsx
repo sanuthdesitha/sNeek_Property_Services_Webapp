@@ -35,12 +35,9 @@ import { PayHistorySection, PaySection } from "./pay-section";
 import { LeaveSection } from "./leave-section";
 import { PayAndTime, RecentJobs, Recognition, VaAccess, WorkKpis } from "./work-sections";
 import { PersonActions } from "./person-actions";
+import { PersonalSwitchesPanel } from "@/components/v2/notifications/personal-switches-panel";
 
-const PAGE_TABS = ["overview", "jobs", "pay", "documents", "leave", "quality", "access", "activity"] as const;
-type PageTab = (typeof PAGE_TABS)[number];
-const TAB_LABEL: Record<PageTab, string> = {
-  overview: "Overview", jobs: "Jobs", pay: "Pay and invoices", documents: "Documents", leave: "Leave and availability", quality: "Quality and coaching", access: "Access", activity: "Activity",
-};
+import { PERSON_PAGE_TABS as PAGE_TABS, PERSON_PAGE_TAB_LABEL as TAB_LABEL, type PersonPageTab as PageTab } from "./person-tabs";
 
 type Props = { profile: PersonProfile; caps: PersonCapabilities; onChanged: () => void };
 
@@ -79,6 +76,14 @@ function TabBody({ tab, profile, caps, onChanged }: Props & { tab: PageTab }) {
       );
     case "access":
       return (<><AccessSection {...props} /><VaAccess profile={profile} /></>);
+    case "notifications":
+      return (
+        <PersonalSwitchesPanel
+          key={profile.id}
+          source={{ kind: "admin", userId: profile.id }}
+          intro="What this person receives: the same switches they see on their own settings page. Each switch shows who changed it and when. Only an administrator can change them."
+        />
+      );
     case "activity":
       return (<><AccountEmailsSection userId={profile.id} /><ActivitySection userId={profile.id} /></>);
   }
@@ -102,16 +107,16 @@ function Rail({ profile, caps, onChanged }: Props) {
   );
 }
 
-export function PersonFullPage({ profile, caps }: { profile: PersonProfile; caps: PersonCapabilities }) {
+export function PersonFullPage({ profile, caps, initialTab = "overview" }: { profile: PersonProfile; caps: PersonCapabilities; initialTab?: PageTab }) {
   const router = useRouter();
-  const [tab, setTab] = useState<PageTab>("overview");
-  const [visited, setVisited] = useState<ReadonlySet<PageTab>>(new Set<PageTab>(["overview"]));
+  const [tab, setTab] = useState<PageTab>(initialTab);
+  const [visited, setVisited] = useState<ReadonlySet<PageTab>>(new Set<PageTab>([initialTab]));
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [messageOpen, setMessageOpen] = useState(false);
   useEffect(() => {
-    setTab("overview");
-    setVisited(new Set<PageTab>(["overview"]));
-  }, [profile.id]);
+    setTab(initialTab);
+    setVisited(new Set<PageTab>([initialTab]));
+  }, [profile.id, initialTab]);
   const refresh = () => router.refresh();
   const choose = (next: PageTab) => {
     setTab(next);

@@ -11,6 +11,7 @@ import { ClientPaymentTerms } from "@/components/v2/admin/clients/client-payment
 import { ClientTimeline } from "@/components/v2/admin/clients/client-timeline";
 import ClientCommunications from "@/components/v2/admin/clients/client-communications";
 import ClientDocuments from "@/components/v2/admin/clients/client-documents";
+import { PersonalSwitchesPanel } from "@/components/v2/notifications/personal-switches-panel";
 import { canEditClientPaymentTerms } from "@/lib/billing/client-payment-terms";
 import { paymentTermsDaysFrom } from "@/lib/billing/invoice-due";
 import { getAppSettings } from "@/lib/settings";
@@ -28,11 +29,11 @@ import { Card, CasesLeadsCard, NeedsAttention, OutstandingCard, PropertiesTable,
 export const metadata = { title: "Client · Estate admin" };
 export const dynamic = "force-dynamic";
 
-const CLIENT_TABS = ["overview", "properties", "jobs", "invoices", "profit", "portal", "messages", "documents", "history"] as const;
+const CLIENT_TABS = ["overview", "properties", "jobs", "invoices", "profit", "portal", "messages", "notifications", "documents", "history"] as const;
 type ClientTab = (typeof CLIENT_TABS)[number];
 const TAB_LABEL: Record<ClientTab, string> = {
   overview: "Overview", properties: "Properties", jobs: "Jobs", invoices: "Invoices", profit: "Profit and pricing",
-  portal: "Portal access", messages: "Messages", documents: "Documents", history: "History",
+  portal: "Portal access", messages: "Messages", notifications: "Notifications", documents: "Documents", history: "History",
 };
 
 function humanize(key: string): string {
@@ -153,6 +154,13 @@ export default async function AdminClientDetailPage({ params, searchParams }: { 
               <ClientCommunications clientId={client.id} />
               <div id="automation"><ClientAutomationRules clientId={client.id} /></div>
             </>
+          ) : null}
+          {tab === "notifications" ? (
+            <PersonalSwitchesPanel
+              key={client.id}
+              source={{ kind: "admin-client", clientId: client.id }}
+              intro="What this client receives: the same switches the client sees in their Settings. Each switch shows who changed it and when. Only an administrator can change them."
+            />
           ) : null}
           {tab === "documents" ? <ClientDocuments clientId={client.id} /> : null}
           {tab === "history" ? <ClientTimeline clientId={client.id} /> : null}

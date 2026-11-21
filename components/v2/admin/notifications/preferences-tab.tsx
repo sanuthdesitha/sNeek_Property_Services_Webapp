@@ -8,6 +8,7 @@ import { FinanceNotificationsSection } from "@/components/v2/admin/settings/fina
 import type { NotificationAudienceControls } from "@/lib/notifications/audience-controls";
 import { LazyDisclosure } from "./lazy-disclosure";
 import { SendingChoices } from "./sending-choices";
+import { SwitchedOffPeople } from "./switched-off-people";
 
 export type PreferencesSettings = {
   automation: NotificationsAutomationSettings;
@@ -28,12 +29,17 @@ export function PreferencesTab({ isAdmin, settings, onToast, timeZone = "Austral
       <div className="space-y-1">
         <h2 id="preferences-heading" className="text-lg font-semibold">Preferences</h2>
         <p className="text-sm text-[hsl(var(--e-muted-foreground))]">
-          Organisation defaults, automatic email switches and audience channel controls. Each person&apos;s own choices are on their panel in{" "}
-          <a className="underline" href="/v2/admin/accounts">Accounts</a>.
+          Organisation defaults, automatic email switches and audience channel controls. Each person&apos;s own switches are on the Notifications tab of their page in{" "}
+          <a className="underline" href="/v2/admin/accounts">Accounts</a> (clients: on the client&apos;s page).
         </p>
       </div>
 
       <SendingChoices timeZone={timeZone} />
+
+      <LazyDisclosure id="switched-off" summary="People and clients who switched notifications off">
+        <p className="mb-2 text-sm text-[hsl(var(--e-muted-foreground))]">Open someone to see exactly the switches they see. Administrators can switch them back on; the person can change them again.</p>
+        <SwitchedOffPeople timeZone={timeZone} />
+      </LazyDisclosure>
 
       <CommsControlCenter onToast={onToast} />
 

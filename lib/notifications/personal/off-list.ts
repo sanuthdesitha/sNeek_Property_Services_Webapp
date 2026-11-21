@@ -67,7 +67,7 @@ export async function listSwitchedOff(limit = 500): Promise<OffListEntry[]> {
     entries.push({
       kind: "USER", id: user.id, name: user.name, role: String(user.role), offCount, summary: parts.join(", "),
       lastChange: latestStamp(user.notificationPreference?.switchChanges),
-      href: `/v2/admin/accounts?person=${encodeURIComponent(user.id)}&section=notifications`,
+      href: `/v2/admin/accounts/users/${encodeURIComponent(user.id)}?tab=notifications`,
     });
   }
   for (const row of clients) {
