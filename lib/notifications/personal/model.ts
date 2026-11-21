@@ -115,16 +115,20 @@ export const ALWAYS_SENT_TYPES: ReadonlySet<string> = new Set([
   "system.sending_safeguard",
 ]);
 
+/** Campaigns: their own consent and one-click unsubscribe decide, never these switches. */
+export const CAMPAIGN_TYPE = "marketing.campaigns";
+
 /** Test sends an administrator makes to themselves: not a notification anyone receives. */
 const NOT_LISTED_TYPES: ReadonlySet<string> = new Set(["system.provider_tests"]);
 
 /** Why a type has no personal switch, in plain words. Null when the person can switch it. */
-export type FixedReason = "SECURITY" | "OFFICE_NEEDS" | "OFFICE_DECISION";
+export type FixedReason = "SECURITY" | "OFFICE_NEEDS" | "OFFICE_DECISION" | "OWN_CONSENT";
 
 export const FIXED_REASON_TEXT: Record<FixedReason, string> = {
   SECURITY: "Always sent: sign-in and security messages.",
   OFFICE_NEEDS: "Always sent: the office needs to reach you about this.",
   OFFICE_DECISION: "Sent only when someone in the office chooses to send it.",
+  OWN_CONSENT: "Follows the marketing choice (offers and news) and the unsubscribe link in each campaign, not these switches.",
 };
 
 /**
@@ -136,6 +140,7 @@ export const FIXED_REASON_TEXT: Record<FixedReason, string> = {
  */
 export function fixedReasonFor(entry: NotificationTypeEntry, respectsPreferencesNow: boolean): FixedReason | null {
   if (ALWAYS_SENT_TYPES.has(entry.key)) return "SECURITY";
+  if (entry.key === CAMPAIGN_TYPE) return "OWN_CONSENT";
   if (entry.preferences === "IGNORES") return "OFFICE_NEEDS";
   if (entry.preferences === "ADMIN_SWITCH" && !respectsPreferencesNow) return "OFFICE_DECISION";
   return null;
