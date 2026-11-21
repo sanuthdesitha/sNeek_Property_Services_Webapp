@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { writeDecidedInbox } from "@/lib/notifications/personal/inbox-guard";
 import {
   createClientApproval,
   listClientApprovals,
@@ -147,7 +148,8 @@ export async function POST(req: NextRequest) {
 
     if (recipients.length > 0) {
       const approvalNotice = (await loadNotificationWording("client.approvals")).render("approval-required", "INBOX", { placeName: client.name, approvalTitle: created.title });
-      await db.notification.createMany({
+      // A person asked the client for this approval: the client's own switches do not stop it.
+      await writeDecidedInbox("OFFICE_DECISION", () => db.notification.createMany({
         data: recipients.map((recipient) => ({
           userId: recipient.id,
           externalId: mobilePendingMarker("approvals"),
@@ -157,7 +159,7 @@ export async function POST(req: NextRequest) {
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         })),
-      });
+      }));
     }
 
     return NextResponse.json(created, { status: 201 });

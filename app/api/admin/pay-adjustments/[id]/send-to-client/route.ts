@@ -9,6 +9,7 @@ import { sendEmailDetailed } from "@/lib/notifications/email";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getAppSettings } from "@/lib/settings";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { writeDecidedInbox } from "@/lib/notifications/personal/inbox-guard";
 
 const schema = z.object({
   amount: z.number().nonnegative(),
@@ -145,7 +146,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const approvalWording = await loadNotificationWording("client.approvals");
     if (recipients.length > 0) {
       const approvalNotice = approvalWording.render("approval-required", "INBOX", { placeName: sourceProperty.name, approvalTitle: created.title });
-      await db.notification.createMany({
+      // A person pressed "send to client": the client's own switches do not stop it.
+      await writeDecidedInbox("OFFICE_DECISION", () => db.notification.createMany({
         data: recipients.map((recipient) => ({
           userId: recipient.id,
           jobId: payAdjustment.job?.id ?? undefined,
@@ -156,7 +158,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         })),
-      });
+      }));
     }
 
     if (recipientEmails.size > 0) {
@@ -174,6 +176,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         to: Array.from(recipientEmails),
         subject: approvalEmail.subject,
         html: approvalEmail.html,
+        // A person pressed "send to client".
+        safeguard: { typeKey: "client.approvals", officeDecision: true },
       });
     }
 

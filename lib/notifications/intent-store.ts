@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { notificationEnvelopeSchema, notificationEnvelopeHash, notificationIntentKey, DELIVERY_LEASE_MS, MAX_DELIVERY_ATTEMPTS, deliveryAttemptTransition, type DeliveryAttemptOutcome } from "./intent-contract";
 import { deliverProviderIntent, enabledIntentProviderTransports } from "./intent-provider";
 import { canDeliverNotification } from "./preferences";
+import { personalInboxAllowed } from "./personal/enforce";
 import { getAppSettings } from "@/lib/settings";
 import { audienceForRole, isChannelAllowed } from "./audience-controls";
 import { authorizeEntityRecipient, isSupportedEntityScope } from "./recipient-scopes";
@@ -111,6 +112,9 @@ export async function deliverInboxIntent(id: string, token: string, now = new Da
       const settings = await getAppSettings();
       if (!allowed || !isChannelAllowed(settings.notificationAudienceControls, audienceForRole(recipient.role), "push")) return finish(tx, intent, { kind: "SKIPPED", errorCode: "recipient_preference" }, now);
     }
+    // The recipient's own (and their client account's) "In the app" switches.
+    const personal = await personalInboxAllowed({ userId: envelope.recipient.userId, eventKey: envelope.eventKey, subject: envelope.subject, category: envelope.category ?? null });
+    if (!personal.allowed) return finish(tx, intent, { kind: "SKIPPED", errorCode: "recipient_switched_off" }, now);
     const notification = await tx.notification.create({ data: {
       id: `intent-${intent.id}`, userId: envelope.recipient.userId, jobId: envelope.jobId,
       channel: "PUSH", status: "SENT", sentAt: now, subject: envelope.subject, body: envelope.body,

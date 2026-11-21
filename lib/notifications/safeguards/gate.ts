@@ -43,6 +43,13 @@ export type SafeguardMeta = {
   relatedEntityKeys?: readonly string[] | null;
   recipientUserId?: string | null;
   messageClass?: "SECURITY" | null;
+  /**
+   * A person in the office deliberately sent this one message (pressed send,
+   * chose the transports). Personal switches do not stop it
+   * (lib/notifications/personal/enforce.ts); every office-level switch and
+   * every safeguard below still applies.
+   */
+  officeDecision?: boolean;
   /** Internal: a message held over quiet hours being sent once. */
   releasedFromHold?: boolean;
 };

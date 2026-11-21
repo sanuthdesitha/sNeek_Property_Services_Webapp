@@ -9,6 +9,7 @@ import {
 } from "@/lib/notifications/audience-controls";
 import { guardOutbound, recordOutboundOutcome, type SafeguardMeta } from "@/lib/notifications/safeguards/gate";
 import { notSentText, type SuppressionReason } from "@/lib/notifications/safeguards/config";
+import { checkPersonalSend } from "@/lib/notifications/personal/enforce";
 
 /** "suppressed": not sent by the sending safeguards (never a delivery). */
 export type SmsSendStatus = "sent" | "disabled" | "not_configured" | "failed" | "suppressed";
@@ -19,6 +20,12 @@ export interface SmsSendResult {
   provider: SmsProvider;
   error?: string;
   suppressed?: { reason: SuppressionReason; held: boolean };
+  /**
+   * Not sent because the recipient switched these notifications off (never a
+   * delivery). The status is then "disabled", so every caller already treats
+   * it as not sent; this carries the reason.
+   */
+  personalSkip?: { text: string };
 }
 
 // Hard cap on outbound SMS length. GSM-7 concatenated messages carry ~153 chars
@@ -239,6 +246,13 @@ export async function sendSmsDetailed(
   }
 
   const clamped = clampSmsBody(body);
+
+  // The recipient's own notification switches (lib/notifications/personal),
+  // before the sending safeguards count anything.
+  const personal = await checkPersonalSend({ transport: "SMS", address: to, meta: safeguard ?? null });
+  if (!personal.allowed) {
+    return { ok: false, status: "disabled", provider, error: personal.text, personalSkip: { text: personal.text } };
+  }
 
   // The sending safeguards (lib/notifications/safeguards/gate.ts).
   const decision = await guardOutbound({

@@ -135,6 +135,9 @@ export async function POST(req: NextRequest) {
       await deliverNotificationToRecipients({
         recipients: client.users,
         category: "account",
+        typeKey: "client.office_messages",
+        // A person wrote and sent this message: the client's own switches do not stop it.
+        officeDecision: true,
         web: {
           subject: "New admin message",
           body: `${client.name} has a new message in the portal.`,

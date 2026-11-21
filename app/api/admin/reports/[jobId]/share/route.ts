@@ -123,6 +123,8 @@ export async function POST(
       subject: emailTemplate.subject,
       html: emailTemplate.html,
       attachments: [attachment],
+      // A person pressed share: the client's own switches do not stop it.
+      safeguard: { typeKey: "client.documents", officeDecision: true },
     });
     const sent = sentResult.ok;
 

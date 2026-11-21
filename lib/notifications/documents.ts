@@ -308,6 +308,8 @@ export async function sendDocument(clientId: string, docType: DocumentType, targ
     html: doc.html,
     attachments: doc.attachments.length ? doc.attachments : undefined,
     transactional: true,
+    // A person pressed send: the client's own switches do not stop it.
+    safeguard: { typeKey: "client.documents", officeDecision: true },
   });
 
   await db.notification

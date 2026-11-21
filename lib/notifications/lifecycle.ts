@@ -389,7 +389,11 @@ export async function sendLifecycleEmail(input: LifecycleSendInput): Promise<Lif
         attachments: input.attachments,
         // Auto sends carry a kind → gated by the admin automation switch. Manual
         // sends omit kind → always deliver.
-        ...(mode === "auto" ? { kind: meta.kind } : { transactional: true }),
+        // Manual sends are a person's decision: the client's own switches do
+        // not stop them (lib/notifications/personal). Auto sends obey them.
+        ...(mode === "auto"
+          ? { kind: meta.kind, safeguard: { typeKey: "client.lifecycle_email" } }
+          : { transactional: true, safeguard: { typeKey: "client.lifecycle_email", officeDecision: true } }),
       });
       // Log every send to the Notification table so the client hub + activity
       // feed reflect it. Keyed to the recipient user + job where known.

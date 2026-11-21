@@ -2,6 +2,7 @@ import webpush, { type PushSubscription as WebPushSubscription } from "web-push"
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { guardOutbound, recordOutboundOutcome, type SafeguardMeta } from "@/lib/notifications/safeguards/gate";
+import { checkPersonalSend } from "@/lib/notifications/personal/enforce";
 
 /**
  * Browser / PWA Web Push (VAPID) delivery.
@@ -122,12 +123,19 @@ function buildNotificationPayload(payload: WebPushPayload) {
   });
 }
 
-type SendResult = { ok: boolean; gone: boolean; statusCode?: number; suppressed?: boolean };
+type SendResult = { ok: boolean; gone: boolean; statusCode?: number; suppressed?: boolean; personalSkip?: boolean };
 
 /** Who a push is for, so the sending safeguards can count it (one decision per person). */
 export type WebPushGuard = { userId: string; meta?: SafeguardMeta | null; deviceKey?: string };
 
 async function guardPush(guard: WebPushGuard, payload: WebPushPayload) {
+  // The person's own switches first ("In the app"), so a push they switched
+  // off is never counted by the sending safeguards.
+  const personal = await checkPersonalSend({
+    transport: "WEB_PUSH", userId: guard.userId, meta: { ...(guard.meta ?? {}), recipientUserId: guard.userId },
+    hints: { subject: payload.title ?? null },
+  });
+  if (!personal.allowed) return { allowed: false as const, eventId: null, reason: "PERSONAL_SWITCH" as const, held: false };
   return guardOutbound({
     transport: "WEB_PUSH",
     recipient: guard.userId,
@@ -150,7 +158,7 @@ export async function sendWebPush(
 ): Promise<SendResult> {
   if (!(await configureWebPush())) return { ok: false, gone: false };
   const decision = await guardPush(guard, payload);
-  if (!decision.allowed) return { ok: false, gone: false, suppressed: true };
+  if (!decision.allowed) return { ok: false, gone: false, suppressed: true, personalSkip: decision.reason === "PERSONAL_SWITCH" };
   const result = await deliverToSubscription(subscription, payload);
   await recordOutboundOutcome(decision.eventId, result.ok ? "ACCEPTED" : result.statusCode ? "NOT_ACCEPTED" : "UNCERTAIN");
   return result;

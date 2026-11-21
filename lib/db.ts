@@ -66,6 +66,11 @@ function registerNotificationMiddleware(prisma: PrismaClientType) {
     // Only annotate the inserted row. It commits/rolls back with its domain
     // transaction. A dedicated worker dispatches committed rows afterward.
     if (params.model === "Notification" && ["create", "createMany"].includes(params.action)) {
+      // Personal switches first: an inbox row the person (or their client
+      // account) switched off is recorded as not sent and never pushed.
+      // Imported lazily: the check itself reads through this client.
+      const { applyPersonalInboxSwitches } = await import("@/lib/notifications/personal/inbox-guard");
+      params.args.data = await applyPersonalInboxSwitches(params.args.data);
       params.args.data = markMobileOutboxRows(params.args.data);
     }
     // Stamp the new job's form version in its own transaction. No template,

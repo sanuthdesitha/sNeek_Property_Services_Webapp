@@ -113,6 +113,9 @@ export async function POST(req: NextRequest, { params }: { params: { jobId: stri
         recipients: client.users,
         category: "jobs",
         jobId: job.id,
+        typeKey: "client.office_messages",
+        // A person wrote and sent this reply: the client's own switches do not stop it.
+        officeDecision: true,
         web: {
           subject: "New message about your clean",
           body: `The sNeek team replied on job ${job.jobNumber ? `#${job.jobNumber}` : ""} (${job.property.name}).`,

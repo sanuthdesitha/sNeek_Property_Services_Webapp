@@ -93,6 +93,8 @@ export async function POST(req: NextRequest) {
       to: recipientEmail,
       subject: resolvedSubject ?? "(no subject)",
       html: resolvedBody.replace(/\n/g, "<br/>"),
+      // A person composed and sent this one message.
+      safeguard: { typeKey: "client.office_messages", officeDecision: true },
     });
     if (!result.skipped) await recordComposerSend("EMAIL", resolvedSubject, result.ok, result.error, result.externalId);
     return NextResponse.json({
@@ -113,7 +115,7 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const smsResult = await sendSmsDetailed(recipientPhone, resolvedBody);
+  const smsResult = await sendSmsDetailed(recipientPhone, resolvedBody, undefined, { typeKey: "client.office_messages", officeDecision: true });
   if (smsResult.status === "sent" || smsResult.status === "failed") await recordComposerSend("SMS", resolvedSubject, smsResult.ok, smsResult.error);
   return NextResponse.json({
     ok: smsResult.ok,
