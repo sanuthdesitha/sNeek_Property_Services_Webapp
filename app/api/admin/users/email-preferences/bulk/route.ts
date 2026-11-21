@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EMAIL_AUTO_KIND_KEYS } from "@/lib/notifications/email-kinds";
+import { recordLegacySwitchChange } from "@/lib/notifications/personal/write";
 
 const bodySchema = z.object({
   userIds: z.array(z.string().min(1)).min(1).max(500),
@@ -25,7 +26,9 @@ const bodySchema = z.object({
  */
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    // Administrators only, never while testing as someone else (2026-11-21).
+    const session = await requireRole([Role.ADMIN]);
+    if (session.impersonation) return NextResponse.json({ error: "Notification switches cannot be changed while testing as someone else." }, { status: 403 });
     const body = bodySchema.parse(await req.json().catch(() => ({})));
 
     // Unknown kinds are dropped rather than rejected: a stale browser tab
@@ -88,6 +91,13 @@ export async function POST(req: NextRequest) {
         } as any,
       },
     });
+
+    const stampIds = [
+      ...(typeof body.allEmailOff === "boolean" ? ["transport:EMAIL"] : []),
+      ...entries.map(([key]) => `emailKind:${key}`),
+    ];
+    const actor = { id: session.user.id, name: session.user.name ?? null, role: String(session.user.role) };
+    for (const userId of userIds) await recordLegacySwitchChange(userId, stampIds, actor);
 
     return NextResponse.json({ ok: true, affected: userIds.length });
   } catch (err: any) {

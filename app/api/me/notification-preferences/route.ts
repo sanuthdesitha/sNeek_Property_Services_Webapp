@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { getApiErrorStatus } from "@/lib/api/http";
 import { NOTIFICATION_CATEGORIES, type NotificationCategory, type NotificationChannelPreference } from "@/lib/settings";
 import { getUserNotificationPreferences, saveUserNotificationPreferences } from "@/lib/notifications/preferences";
+import { recordLegacySwitchChange, topicIdsFor } from "@/lib/notifications/personal/write";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,7 @@ export async function PATCH(req: NextRequest) {
     await db.auditLog.create({
       data: { userId: session.user.id, action: "OWN_NOTIFICATION_PREFERENCES_CHANGED", entity: "User", entityId: session.user.id, before: before as object, after: preferences as object },
     });
+    await recordLegacySwitchChange(session.user.id, topicIdsFor(patch), { id: session.user.id, name: session.user.name ?? null, role: String(session.user.role) });
     return NextResponse.json({ impersonating: false, preferences, hasPhone: Boolean(user?.phone?.trim()), phone: user?.phone ?? null }, { headers });
   } catch (err: unknown) {
     const status = getApiErrorStatus(err, 500);

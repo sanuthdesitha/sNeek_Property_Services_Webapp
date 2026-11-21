@@ -1,40 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
-import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { legacyClientChanges, legacyClientPreferenceRow, legacyClientPreferenceSchema } from "@/lib/notifications/personal/legacy-client";
+import { applySwitchChanges } from "@/lib/notifications/personal/write";
 
-const updateSchema = z.object({
-  notificationsEnabled: z.boolean().optional(),
-  notifyOnEnRoute: z.boolean().optional(),
-  notifyOnJobStart: z.boolean().optional(),
-  notifyOnJobComplete: z.boolean().optional(),
-  preferredChannel: z.enum(["EMAIL", "SMS", "BOTH"]).optional(),
-});
-
+/**
+ * The older per-client preference route (classic notifications page and the
+ * control center), kept compatible. Reads: ADMIN and OPS_MANAGER. Changes:
+ * ADMIN only (2026-11-21; OPS_MANAGER could change them before), never while
+ * testing as someone else, through the shared switch path (stamped, audited).
+ * A read no longer creates a row.
+ */
 export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-
-    const client = await db.client.findUnique({
-      where: { id: params.id },
-      select: { id: true },
-    });
+    const client = await db.client.findUnique({ where: { id: params.id }, select: { id: true } });
     if (!client) return NextResponse.json({ error: "Client not found." }, { status: 404 });
-
-    const pref = await db.clientNotificationPreference.upsert({
-      where: { clientId: params.id },
-      create: { clientId: params.id },
-      update: {},
-    });
-
-    return NextResponse.json(pref);
+    return NextResponse.json(await legacyClientPreferenceRow(params.id));
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 500;
-    return NextResponse.json({ error: err.message ?? "Failed" }, { status });
+    return NextResponse.json({ error: status === 500 ? "Failed" : err.message }, { status });
   }
 }
 
@@ -43,23 +32,20 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-
-    const body = updateSchema.parse(await req.json());
-
-    const client = await db.client.findUnique({
-      where: { id: params.id },
-      select: { id: true },
-    });
+    const session = await requireRole([Role.ADMIN]);
+    if (session.impersonation) {
+      return NextResponse.json({ error: "Notification switches cannot be changed while testing as someone else." }, { status: 403 });
+    }
+    const body = legacyClientPreferenceSchema.parse(await req.json());
+    const client = await db.client.findUnique({ where: { id: params.id }, select: { id: true } });
     if (!client) return NextResponse.json({ error: "Client not found." }, { status: 404 });
-
-    const pref = await db.clientNotificationPreference.upsert({
-      where: { clientId: params.id },
-      create: { clientId: params.id, ...body },
-      update: body,
+    await applySwitchChanges({
+      subject: { kind: "CLIENT", id: params.id },
+      actor: { id: session.user.id, name: session.user.name ?? null, role: String(session.user.role) },
+      expectedRevision: null,
+      changes: legacyClientChanges(body),
     });
-
-    return NextResponse.json(pref);
+    return NextResponse.json(await legacyClientPreferenceRow(params.id));
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message ?? "Failed" }, { status });

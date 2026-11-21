@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { NOTIFICATION_CATEGORIES, type NotificationCategory, type NotificationChannelPreference } from "@/lib/settings";
 import { getUserNotificationPreferences, saveUserNotificationPreferences } from "@/lib/notifications/preferences";
+import { recordLegacySwitchChange, topicIdsFor } from "@/lib/notifications/personal/write";
 
 const channelSchema = z.object({
   web: z.boolean().optional(),
@@ -63,7 +64,10 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireRole([Role.ADMIN]);
+    const session = await requireRole([Role.ADMIN]);
+    if (session.impersonation) {
+      return NextResponse.json({ error: "Notification switches cannot be changed while testing as someone else." }, { status: 403 });
+    }
 
     const user = await db.user.findUnique({
       where: { id: params.id },
@@ -74,7 +78,12 @@ export async function PUT(
     }
 
     const body = patchSchema.parse(await req.json().catch(() => ({})));
+    const before = await getUserNotificationPreferences(params.id);
     const preferences = await saveUserNotificationPreferences(params.id, toRecord(body));
+    await db.auditLog.create({
+      data: { userId: session.user.id, action: "USER_NOTIFICATION_PREFERENCES_SET", entity: "User", entityId: params.id, before: before as object, after: preferences as object },
+    });
+    await recordLegacySwitchChange(params.id, topicIdsFor(toRecord(body)), { id: session.user.id, name: session.user.name ?? null, role: String(session.user.role) });
     return NextResponse.json(preferences);
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
