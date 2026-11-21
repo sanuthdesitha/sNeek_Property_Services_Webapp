@@ -2549,3 +2549,43 @@ Owner request (verbatim): "For guests always mention the stay date, location add
 
 Owner: "Ok fix the laundry confirm thing". The seed's `laundry_confirm` question type had no renderer (builder error "a question type no form can show"; a text box for cleaners, so the "if YES" follow-ups never showed). It is now aliased to `yesno` in `lib/forms/normalize-schema.ts` (also `lint-template.ts`, `template-checks.ts`). No schema change, no stored template rewritten. Answers already saved as text stay as they were stored.
 
+
+## Personal notification switches: the client who switched notifications off, and two-way switches for every portal (2026-11-21)
+
+Owner request (verbatim in `docs/SYSTEM.md` › "Personal notification switches: one two-way model for every portal (2026-11-21)"). Migration `20261121090000_personal_notification_switches` (additive). No `lib/scheduling-rules/**`, `mobile/`, `mobile-app/` or `sneek-nextgen/` change.
+
+**Every automatic message that can reach a client (before → after).** "Checked" = what the sender looked at before this change. "Master off" = a client with Settings › Enable notifications off.
+
+| Message | Sender | Transports | Checked before | Master off: sent before? | After |
+| --- | --- | --- | --- | --- | --- |
+| On the way / arrived / started / finished (`client.job_updates`) | `lib/notifications/client-job-notifications.ts` (cleaner driving and status routes) | inbox, phone push, email, text | client master, 3 events, preferred channel, email kind | No | No (also per type/transport) |
+| Booked, reminder, cleaner assigned, rescheduled, cancelled/skipped, complete, report ready, issue raised, re-clean (`client.lifecycle_email`, auto) | `lib/notifications/lifecycle.ts` (job create, reminders, assign, skip, edit, QA rework, submit) | email | client master (auto mode), email kind | No | No |
+| Post-job automation rules: report and review emails and texts (`client.post_job`) | `lib/notifications/client-automation.ts` (worker after submit) | email, text | email kind, audience, login email prefs | **Yes** | No |
+| Follow-up sequence 1, 3, 14 days (`client.post_job`) | `lib/ops/follow-up-sequences.ts` (worker) | email | email kind `follow_up` | **Yes** | No |
+| Case created/updated/followed up, client-visible (`office.cases`) | `lib/cases/notifications.ts`, `lib/cases/follow-up.ts` | inbox, phone push, email (also to the client's own address) | login topic `cases`, email kind/audience | **Yes** | No |
+| Payment receipt (`client.documents`, kind `auto_invoice`) | `lib/billing/client-payment-receipt.ts` (record payment, Xero pull) | email | email kind | **Yes** | No |
+| Shopping run completed (`stock.shopping_and_orders`) | `lib/inventory/client-shopping-notifications.ts` | email | login topic `shopping` email | **Yes** | No |
+| Job-task request approved/declined, auto-approved (to the requesting client) | `lib/job-tasks/service.ts` via `deliverNotificationToRecipients` | inbox, phone push, email, text | login topic `jobs`/`approvals` | **Yes** | No |
+| Guest asked for a lost item back (`lostfound.client_return_request`) | `lib/lost-found/return-notices.ts` (pipeline inbox) | inbox | login topic | **Yes** (inbox) | No |
+| Phone push of any client inbox row | `lib/notifications/mobile-push.ts` | phone push | login topic `web` | **Yes** for the rows above | No |
+| Any future automatic sender | — | any | — | (would have) | No: chokepoints |
+| Delay notice / lost and found client notice / damage released / repair handed over or reminder | `office-actions.ts`, `lost-found/client-notice.ts`, `damage/release-notice.ts`, `maintenance/client-handling-notices.ts` | inbox, push, email, text | client master: refused with a reason | No (refused) | Unchanged: still refused |
+| Quote send, quote extras, report share, invoice send (single/bulk), document re-send, client hub lifecycle send, bulk client update, composer / portal replies, booking answer, approval request, pay adjustment to client, QA invite, onboarding and amenities links | send buttons (listed in `tests/lib/personal-switch-coverage.test.ts`) | email, text, inbox | none (human decision) | Yes (by design) | Yes, marked `officeDecision` |
+| Sign-in codes, password reset, two-step, invitations, backup code used, tested as | auth modules | email, inbox | none (`critical`) | Yes | Yes (always sent) |
+| Email/SMS campaigns | `lib/marketing/*` | email, text | campaign unsubscribe, marketing consent | Yes | Unchanged (own consent; shown as such) |
+| Finance event templates (`money.finance_events`) | `lib/notifications/engine.ts` | email, text | per-event switches | catalog: not sent today | Would be stopped by the chokepoints |
+
+**Fix:** `checkPersonalSend` in `email.ts` (per address), `sms.ts`, `web-push.ts`, `mobile-push.ts` (before the sending safeguards) and `applyPersonalInboxSwitches` in the Prisma middleware for every inbox row. Recipient found by account or by address (logins, the client's own email/phone, client logins' account, delivery lists). Skips: email `personalSkip` / row `deliveryStatus SKIPPED` → Delivery log "Skipped"; inbox row FAILED with "Not sent: this client has switched these notifications off.", hidden from the inbox, never pushed; pipeline SKIPPED `recipient_switched_off`. Fail rule: allowed and logged when switches cannot be read (as the existing email personal layer).
+
+- **Decisions made for the owner (pending confirmation):**
+  1. Client master off stops every automatic message, including payment receipts, automatic lifecycle emails and case updates (the office can still send any document by hand, and sees the switch on the client page).
+  2. Messages a person sends with a send button still go (marked `officeDecision`); the four office actions that already refused a client with notifications off keep refusing (no override added).
+  3. Campaigns are not governed by these switches (their own marketing consent and one-click unsubscribe); shown on the screen as such.
+  4. Always sent: sign-in, password reset, two-step, invitations, backup code used, tested-as notice, the safeguards' alert to administrators; operational types marked IGNORES (e.g. shift cancelled, clock changes) and office-directed types (unless "respects preferences" is on for the type) are shown as "Always sent" / "Sent only when someone in the office chooses" and cannot be switched off by the person.
+  5. ADMIN alone edits other people's switches; OPS_MANAGER reads (Messages & notifications pack). Three older routes became ADMIN-only for writes: client preferences PUT, a person's email preferences PUT, bulk email preferences.
+  6. A client login edits the client account's switches (they apply to all logins and to the client's own address/phone); a login's own switches are editable by an administrator on the person page (and by staff on their own pages).
+  7. Every write refused while testing as someone else (view-only and full), including the older client route.
+  8. Client job updates: "How cleaning updates reach you" keeps EMAIL / SMS / BOTH; switching both off is stored as two type switches.
+  9. Stopped inbox rows are kept as "not sent" records (status FAILED) rather than not written.
+- **Not changed:** classic (non-v2) pages keep their older controls (they write through the same path where they used the client route); topic (category) switches keep their meaning and enforcement points; no per-type staff switch for a message whose type the producer does not name (only All / per transport then apply — documented on SYSTEM.md).
+- **Migration verified:** fresh disposable database `sneek_np_fresh` (all migrations), repeated "No pending migrations to apply", `migrate diff --exit-code` 0; existing database `sneek_np_existing` migrated to the previous head, a client stored with notifications off / en route off / SMS, then the new migration applied: values unchanged, new columns empty, revision 0; repeated, diff 0; fixture `sneek_ui` applied, repeated, diff 0.
