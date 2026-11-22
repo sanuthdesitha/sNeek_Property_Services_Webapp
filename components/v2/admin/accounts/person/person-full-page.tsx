@@ -81,7 +81,7 @@ function TabBody({ tab, profile, caps, onChanged }: Props & { tab: PageTab }) {
         <PersonalSwitchesPanel
           key={profile.id}
           source={{ kind: "admin", userId: profile.id }}
-          intro="What this person receives: the same switches they see on their own settings page. Each switch shows who changed it and when. Only an administrator can change them."
+          intro="What this person receives: the same switches they see on their own settings page. Each switch shows who changed it and when."
         />
       );
     case "activity":

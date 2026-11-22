@@ -295,7 +295,7 @@ export function PersonalSwitchesPanel({
         ) : null}
 
         <div className="flex flex-col gap-2">
-          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--e-muted-foreground))]">By how it reaches {view.subject.kind === "CLIENT" ? "you" : "this person"}</p>
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--e-muted-foreground))]">By how it reaches {source.kind === "self" ? "you" : view.subject.kind === "CLIENT" ? "this client" : "this person"}</p>
           {view.transports.map((cell) => (
             <SwitchRow key={cell.id} cell={cell} label={cell.label} timeZone={view.timeZone} frozen={frozen} onChange={onChange} />
           ))}

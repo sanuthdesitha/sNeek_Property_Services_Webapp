@@ -159,7 +159,7 @@ export default async function AdminClientDetailPage({ params, searchParams }: { 
             <PersonalSwitchesPanel
               key={client.id}
               source={{ kind: "admin-client", clientId: client.id }}
-              intro="What this client receives: the same switches the client sees in their Settings. Each switch shows who changed it and when. Only an administrator can change them."
+              intro="What this client receives: the same switches the client sees in their Settings. Each switch shows who changed it and when."
             />
           ) : null}
           {tab === "documents" ? <ClientDocuments clientId={client.id} /> : null}
