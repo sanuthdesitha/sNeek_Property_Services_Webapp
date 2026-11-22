@@ -111,8 +111,11 @@ function TypeRow({ row, timeZone, frozen, onChange }: { row: TypeRowView; timeZo
   );
 }
 
+/** Client job updates' email/text cells mirror the channel choice above (text off by default), so only "In the app" counts. */
 function rowIsOff(row: TypeRowView): boolean {
-  return !row.fixed && row.cells.some((cell) => !cell.on);
+  if (row.fixed) return false;
+  const cells = row.key === "client.job_updates" ? row.cells.filter((cell) => cell.transport === "APP") : row.cells;
+  return cells.some((cell) => !cell.on);
 }
 
 /** Client job updates: the long-standing "how we reach you" choice, as its two cells. */
@@ -273,7 +276,7 @@ export function PersonalSwitchesPanel({
               <SwitchRow key={cell.id} cell={cell} label={cell.label} timeZone={view.timeZone} frozen={frozen || !view.master.on} onChange={onChange} />
             ))}
             <label className="flex flex-col gap-1.5 text-[0.8125rem]">
-              <span className="font-medium">How cleaning updates reach you</span>
+              <span className="font-medium">{source.kind === "self" ? "How cleaning updates reach you" : "How cleaning updates are sent"}</span>
               <ESelect
                 value={channel === "NONE" ? "" : channel ?? "EMAIL"}
                 disabled={frozen || !view.master.on}
@@ -345,7 +348,7 @@ export function PersonalSwitchesPanel({
           </LazyDisclosure>
         ) : null}
 
-        {view.logins && view.logins.length > 0 ? (
+        {source.kind === "admin-client" && view.logins && view.logins.length > 0 ? (
           <div className="flex flex-col gap-1 text-[0.8125rem]">
             <p className="font-medium">Logins of this client</p>
             <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">These switches apply to every login. A login can also switch things off for itself.</p>

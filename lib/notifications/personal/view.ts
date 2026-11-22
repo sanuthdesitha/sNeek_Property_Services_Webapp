@@ -205,7 +205,8 @@ function buildTopics(ctx: Context, categories: Record<NotificationCategory, { we
 }
 
 function countOff(view: Pick<PersonalSwitchesView, "master" | "transports" | "jobEvents" | "groups" | "topics">): number {
-  const cells = [view.master, ...view.transports, ...(view.jobEvents ?? []), ...view.groups.flatMap((group) => group.rows.flatMap((row) => (row.fixed ? [] : row.cells)))];
+  // Client job updates' email/text cells mirror the channel choice (text is off by default), so they are not counted as switched off.
+  const cells = [view.master, ...view.transports, ...(view.jobEvents ?? []), ...view.groups.flatMap((group) => group.rows.flatMap((row) => (row.fixed ? [] : row.key === CLIENT_JOB_UPDATES_TYPE ? row.cells.filter((item) => item.transport === "APP") : row.cells)))];
   return cells.filter((item) => !item.on).length + (view.topics ?? []).flatMap((topic) => topic.cells).filter((item) => !item.on && item.transport !== "SMS").length;
 }
 
