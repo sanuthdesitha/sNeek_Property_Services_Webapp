@@ -1,28 +1,20 @@
 "use client";
 
 /**
- * Estate client settings — notification preferences + appearance. Same
- * endpoints as the profile page's comms/theme controls:
- *   PATCH /api/me/client-notification-preferences   { ...comms }
- *   POST  /api/me/preferences                        { themePreference }
+ * Estate client settings — the account's notification switches + appearance.
+ *   GET/PATCH /api/me/notification-switches   (lib/notifications/personal; the
+ *     older /api/me/client-notification-preferences stays for the classic page)
+ *   POST  /api/me/preferences                  { themePreference }
  * Theme applies live via the shared ThemeProvider hook. Styled purely with
  * `--e-*` tokens — no v1 UI imports.
  */
 import * as React from "react";
-import { Loader2, Mail, MessageSquare, Monitor, Moon, Sun } from "lucide-react";
+import { Monitor, Moon, Sun } from "lucide-react";
 import { ECard, ECardBody, EEyebrow } from "@/components/v2/ui/primitives";
-import { ESelect, ESwitch } from "@/components/v2/admin/estate-kit";
 import { EInlineNotice } from "@/components/v2/client/fields";
+import { PersonalSwitchesPanel } from "@/components/v2/notifications/personal-switches-panel";
 import { useTheme, type ThemePreference } from "@/lib/theme/context";
 import { cn } from "@/lib/utils";
-
-export interface SettingsComms {
-  notificationsEnabled: boolean;
-  notifyOnEnRoute: boolean;
-  notifyOnJobStart: boolean;
-  notifyOnJobComplete: boolean;
-  preferredChannel: "EMAIL" | "SMS" | "BOTH";
-}
 
 function SectionCard({
   eyebrow,
@@ -51,174 +43,39 @@ function SectionCard({
   );
 }
 
-function ToggleRow({
-  label,
-  description,
-  checked,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  description?: string;
-  checked: boolean;
-  disabled?: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex items-center justify-between gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5",
-        disabled && "opacity-55"
-      )}
-    >
-      <div className="min-w-0">
-        <p className="text-[0.875rem]">{label}</p>
-        {description ? (
-          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{description}</p>
-        ) : null}
-      </div>
-      <ESwitch checked={checked} onCheckedChange={onChange} disabled={disabled} />
-    </div>
-  );
-}
-
 const THEMES: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
   { value: "light", label: "Light", icon: Sun },
   { value: "dark", label: "Dark", icon: Moon },
   { value: "system", label: "System", icon: Monitor },
 ];
 
-export function ClientSettingsPanel({ comms }: { comms: SettingsComms }) {
+export function ClientSettingsPanel() {
   const { preference, setPreference } = useTheme();
-  const [pref, setPref] = React.useState<SettingsComms>(comms);
-  const [error, setError] = React.useState<string | null>(null);
-  const [saving, setSaving] = React.useState(false);
-  const [saved, setSaved] = React.useState(false);
-
-  function flashSaved() {
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 1500);
-  }
-
-  async function patchComms(updates: Partial<SettingsComms>) {
-    setError(null);
-    setSaving(true);
-    const previous = pref;
-    setPref((prev) => ({ ...prev, ...updates }));
-    try {
-      const res = await fetch("/api/me/client-notification-preferences", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setPref(previous);
-        setError(body.error || `Could not save (${res.status}).`);
-        return;
-      }
-      flashSaved();
-    } catch {
-      setPref(previous);
-      setError("Could not save your preferences.");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const [themeSaved, setThemeSaved] = React.useState(false);
 
   async function applyTheme(next: ThemePreference) {
     setPreference(next);
-    setError(null);
     try {
       await fetch("/api/me/preferences", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ themePreference: next }),
       });
-      flashSaved();
+      setThemeSaved(true);
+      window.setTimeout(() => setThemeSaved(false), 1500);
     } catch {
       // Theme still applies locally even if persistence fails.
     }
   }
 
-  const notificationsOff = !pref.notificationsEnabled;
-  // Board: each event row names how it reaches the client (the preferred channel).
-  const channelText = notificationsOff
-    ? "Notifications are off"
-    : pref.preferredChannel === "BOTH" ? "Email and SMS" : pref.preferredChannel === "SMS" ? "SMS" : "Email";
-
   return (
     <div className="space-y-6">
-      {error ? <EInlineNotice tone="danger">{error}</EInlineNotice> : null}
-      {saved && !error ? <EInlineNotice tone="success">Saved.</EInlineNotice> : null}
-
-      <SectionCard
-        eyebrow="Notifications"
+      {/* The account's notification switches: the same ones the office sees and can change. */}
+      <PersonalSwitchesPanel
+        source={{ kind: "self" }}
         title="Service updates"
-        description="Choose which service events you hear about and how we reach you."
-      >
-        <div className="space-y-2.5">
-          <ToggleRow
-            label="Enable notifications"
-            description="Turn all service notifications on or off."
-            checked={pref.notificationsEnabled}
-            disabled={saving}
-            onChange={(v) => patchComms({ notificationsEnabled: v })}
-          />
-          <ToggleRow
-            label="Cleaner on the way"
-            description={channelText}
-            checked={pref.notifyOnEnRoute}
-            disabled={notificationsOff || saving}
-            onChange={(v) => patchComms({ notifyOnEnRoute: v })}
-          />
-          <ToggleRow
-            label="Clean started"
-            description={channelText}
-            checked={pref.notifyOnJobStart}
-            disabled={notificationsOff || saving}
-            onChange={(v) => patchComms({ notifyOnJobStart: v })}
-          />
-          <ToggleRow
-            label="Clean finished, report ready"
-            description={channelText}
-            checked={pref.notifyOnJobComplete}
-            disabled={notificationsOff || saving}
-            onChange={(v) => patchComms({ notifyOnJobComplete: v })}
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--e-muted-foreground))]">
-            Preferred channel
-          </p>
-          <ESelect
-            value={pref.preferredChannel}
-            disabled={notificationsOff || saving}
-            onChange={(e) =>
-              patchComms({ preferredChannel: e.target.value as SettingsComms["preferredChannel"] })
-            }
-          >
-            <option value="EMAIL">Email</option>
-            <option value="SMS">SMS</option>
-            <option value="BOTH">Email &amp; SMS</option>
-          </ESelect>
-          <p className="flex items-center gap-1.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-            {pref.preferredChannel === "SMS" ? (
-              <MessageSquare className="h-3.5 w-3.5" />
-            ) : pref.preferredChannel === "BOTH" ? (
-              <Mail className="h-3.5 w-3.5" />
-            ) : (
-              <Mail className="h-3.5 w-3.5" />
-            )}
-            {pref.preferredChannel === "BOTH"
-              ? "You will receive both email and text updates."
-              : pref.preferredChannel === "SMS"
-                ? "You will receive text-message updates."
-                : "You will receive email updates."}
-          </p>
-        </div>
-      </SectionCard>
+        intro="Choose which notifications you get and how we reach you. The office sees these switches and can change them for you if you ask."
+      />
 
       <SectionCard
         eyebrow="Appearance"
@@ -258,11 +115,7 @@ export function ClientSettingsPanel({ comms }: { comms: SettingsComms }) {
         </div>
       </SectionCard>
 
-      {saving ? (
-        <p className="flex items-center gap-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…
-        </p>
-      ) : null}
+      {themeSaved ? <EInlineNotice tone="success">Saved.</EInlineNotice> : null}
     </div>
   );
 }

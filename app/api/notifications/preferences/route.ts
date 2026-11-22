@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/session";
+import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 import { getUserNotificationPreferences, saveUserNotificationPreferences } from "@/lib/notifications/preferences";
+import { recordLegacySwitchChange, topicIdsFor } from "@/lib/notifications/personal/write";
 
 const channelSchema = z.object({
   web: z.boolean().optional(),
@@ -38,8 +41,19 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   try {
     const session = await requireSession();
+    if (session.impersonation) {
+      return NextResponse.json({ error: "You are testing as someone else: these switches are read-only." }, { status: 403 });
+    }
     const body = patchSchema.parse(await req.json().catch(() => ({})));
+    const before = await getUserNotificationPreferences(session.user.id);
     const preferences = await saveUserNotificationPreferences(session.user.id, body);
+    // Saved already: an audit failure is logged, never reported as a failed save.
+    await Promise.resolve()
+      .then(() => db.auditLog.create({
+        data: { userId: session.user.id, action: "OWN_NOTIFICATION_PREFERENCES_CHANGED", entity: "User", entityId: session.user.id, before: before as object, after: preferences as object },
+      }))
+      .catch((error: unknown) => logger.warn({ err: error }, "[notification-preferences] audit row not written"));
+    await recordLegacySwitchChange(session.user.id, topicIdsFor(body), { id: session.user.id, name: session.user.name ?? null, role: String(session.user.role) });
     return NextResponse.json(preferences);
   } catch (err: any) {
     return NextResponse.json(

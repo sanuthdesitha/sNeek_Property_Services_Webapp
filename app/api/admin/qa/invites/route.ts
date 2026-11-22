@@ -96,6 +96,8 @@ export async function POST(req: NextRequest) {
       subject: invite.subject,
       html: invite.html,
       transactional: true,
+      // A person sent this invitation.
+      safeguard: { typeKey: "client.post_job", officeDecision: true },
     });
     emailed = !!result.ok;
     if (!result.ok) emailError = result.error ?? "Email failed";

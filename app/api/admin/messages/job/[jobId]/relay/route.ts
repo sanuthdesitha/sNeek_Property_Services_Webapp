@@ -78,6 +78,8 @@ export async function POST(req: NextRequest, { params }: { params: { jobId: stri
       recipients: cleaners,
       category: "jobs",
       jobId: job.id,
+      // A person relayed this message: the cleaners' own switches do not stop it.
+      officeDecision: true,
       web: {
         subject: relayInbox.title.trim(),
         body: relayInbox.body,

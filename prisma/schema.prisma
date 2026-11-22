@@ -3974,6 +3974,15 @@ model UserEmailPreference {
 model UserNotificationPreference {
   userId     String   @id
   categories Json
+  /// Personal switches (2026-11-21, lib/notifications/personal): "all",
+  /// "transport:<APP|SMS>" and "type:<catalog key>:<APP|EMAIL|SMS>" -> boolean.
+  /// Only false blocks; absent means allowed. Email as a whole stays
+  /// User.allEmailOff and per email kind stays UserEmailPreference.
+  switches       Json?
+  /// Who last changed each switch id and when: { [switchId]: { by, name, role, at } }.
+  switchChanges  Json?
+  /// Bumped on every write to this person's switches; an older revision is refused.
+  switchRevision Int      @default(0)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -4954,6 +4963,15 @@ model ClientNotificationPreference {
   notifyOnJobStart     Boolean  @default(true)
   notifyOnJobComplete  Boolean  @default(true)
   preferredChannel     String   @default("EMAIL") // "EMAIL" | "SMS" | "BOTH"
+  /// Account-level switches (2026-11-21): "transport:<APP|EMAIL|SMS>" and
+  /// "type:<catalog key>:<APP|EMAIL|SMS>" -> boolean; only false blocks. The
+  /// account master stays notificationsEnabled. Applies to every client login
+  /// and to the client's own email address and phone number.
+  switches             Json?
+  /// Who last changed each switch id (including the columns above) and when.
+  switchChanges        Json?
+  /// Bumped on every write; a save naming an older revision is refused.
+  switchRevision       Int      @default(0)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

@@ -61,6 +61,7 @@ export async function deliverProviderIntent(envelope: NotificationEnvelope): Pro
       dispatchStarted = true;
       const result = await sendEmailDetailed({ to: user.email, subject: envelope.subject ?? "Notification", html: envelope.emailHtml ?? plainMessageEmail({ subject: envelope.subject ?? "Notification", text: envelope.body }).html, kind: envelope.emailKind ?? emailKinds[envelope.category], audience, safeguard: safeguardMeta(envelope) });
       if (result.suppressed) return { kind: "SKIPPED", errorCode: `safeguard_${result.suppressed.reason.toLowerCase()}` };
+      if (result.personalSkip) return { kind: "SKIPPED", errorCode: "recipient_switched_off" };
       if (result.skipped) return { kind: "SKIPPED", errorCode: "email_preference_or_suppression" };
       if (result.ok && result.externalId) return { kind: "ACCEPTED", providerReference: result.externalId };
       if (result.acceptance === "NOT_ACCEPTED") return { kind: "NOT_ACCEPTED", retryable: Boolean(result.retryable), errorCode: "email_rejected" };
@@ -71,6 +72,7 @@ export async function deliverProviderIntent(envelope: NotificationEnvelope): Pro
       dispatchStarted = true;
       const result = await sendSmsDetailed(user.phone, envelope.body, audience, safeguardMeta(envelope));
       if (result.status === "suppressed") return { kind: "SKIPPED", errorCode: `safeguard_${(result.suppressed?.reason ?? "SAFEGUARD_UNAVAILABLE").toLowerCase()}` };
+      if (result.personalSkip) return { kind: "SKIPPED", errorCode: "recipient_switched_off" };
       if (result.status === "disabled") return { kind: "SKIPPED", errorCode: "sms_disabled" };
       if (result.status === "not_configured") return { kind: "NOT_ACCEPTED", retryable: false, errorCode: "sms_not_configured" };
       if (result.ok) return { kind: "ACCEPTED" };
@@ -83,6 +85,7 @@ export async function deliverProviderIntent(envelope: NotificationEnvelope): Pro
     const result = await sendWebPush(subscription, { title: envelope.subject ?? "Notification", body: envelope.body,
       url: envelope.url ?? resolveNotificationHrefForRole({ jobId: envelope.jobId, subject: envelope.subject, body: envelope.body }, user.role), tag: `event-${envelope.eventId}` },
       { userId: user.id, meta: safeguardMeta(envelope), deviceKey: subscription.id });
+    if (result.personalSkip) return { kind: "SKIPPED", errorCode: "recipient_switched_off" };
     if (result.suppressed) return { kind: "SKIPPED", errorCode: "safeguard_not_sent" };
     if (result.ok) return { kind: "ACCEPTED" };
     if (result.gone) {

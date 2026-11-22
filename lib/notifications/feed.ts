@@ -1,7 +1,8 @@
-import { NotificationChannel, type Notification, Role } from "@prisma/client";
+import { NotificationChannel, NotificationStatus, type Notification, Role } from "@prisma/client";
 import { resolveAdminNotificationHref } from "@/lib/notifications/navigation";
 import type { PortalVersion } from "@/lib/portal-version";
 import { notificationLifecycle, type NotificationLifecycle } from "./delivery-lifecycle";
+import { PERSONAL_SKIP_TEXT } from "./personal/model";
 
 export type NotificationFeedItem = {
   id: string;
@@ -19,10 +20,18 @@ export type NotificationFeedItem = {
   lifecycle: NotificationLifecycle;
 };
 
+/**
+ * Rows recorded as "not sent" because the person (or their client account)
+ * switched the notification off (lib/notifications/personal/inbox-guard.ts)
+ * are never part of their inbox.
+ */
+const PERSONAL_SKIP_ERRORS = [PERSONAL_SKIP_TEXT.CLIENT, PERSONAL_SKIP_TEXT.PERSON];
+
 export function notificationWhereForRole(role: Role, userId: string) {
   return {
     userId,
     channel: NotificationChannel.PUSH,
+    NOT: { status: NotificationStatus.FAILED, errorMsg: { in: PERSONAL_SKIP_ERRORS } },
   };
 }
 

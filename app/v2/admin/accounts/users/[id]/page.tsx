@@ -5,6 +5,7 @@ import { loadPersonProfile } from "@/lib/accounts/person-profile";
 import { toPersonProfile } from "@/lib/accounts/person-types";
 import { personCapabilities, resolveAccountsViewer } from "@/lib/accounts/viewer";
 import { PersonFullPage } from "@/components/v2/admin/accounts/person/person-full-page";
+import { personPageTab } from "@/components/v2/admin/accounts/person/person-tabs";
 
 export const metadata = { title: "Account · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -15,10 +16,10 @@ export const dynamic = "force-dynamic";
  * same section components as the Accounts panel. Client logins have a page
  * too now (they used to 404 here).
  */
-export default async function EstateAccountDetailPage({ params }: { params: { id: string } }) {
+export default async function EstateAccountDetailPage({ params, searchParams }: { params: { id: string }; searchParams?: { tab?: string } }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   const raw = await loadPersonProfile(params.id);
   if (!raw) notFound();
   const viewer = await resolveAccountsViewer(session.user);
-  return <PersonFullPage profile={toPersonProfile(raw)} caps={personCapabilities(viewer)} />;
+  return <PersonFullPage profile={toPersonProfile(raw)} caps={personCapabilities(viewer)} initialTab={personPageTab(searchParams?.tab)} />;
 }

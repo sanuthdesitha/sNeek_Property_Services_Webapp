@@ -306,6 +306,8 @@ export async function POST(
       subject,
       html,
       attachments: attachments.length ? attachments : undefined,
+      // A person pressed send: the client's own switches do not stop it.
+      safeguard: { typeKey: "client.documents", officeDecision: true },
     });
     const sent = sentResult.ok;
 

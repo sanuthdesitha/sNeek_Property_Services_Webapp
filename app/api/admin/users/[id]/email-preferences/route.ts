@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EMAIL_AUTO_KIND_KEYS } from "@/lib/notifications/email-kinds";
+import { recordLegacySwitchChange } from "@/lib/notifications/personal/write";
 
 /**
  * One person's automatic-email switches, all of them, in one place.
@@ -71,7 +72,11 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
   try {
-    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    // Changing what someone else receives is an administrator's decision
+    // (2026-11-21; operations managers could change it before). Never while
+    // testing as someone else.
+    const session = await requireRole([Role.ADMIN]);
+    if (session.impersonation) return NextResponse.json({ error: "Notification switches cannot be changed while testing as someone else." }, { status: 403 });
 
     let payload: unknown;
     try {
@@ -135,6 +140,12 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
         after: { disabledKinds: disabled, allEmailOff: body.allEmailOff } as never,
       },
     });
+
+    const changedKinds = EMAIL_AUTO_KIND_KEYS.filter((key) => previous.disabledKinds.includes(key) !== disabled.includes(key));
+    await recordLegacySwitchChange(params.id, [
+      ...(previous.allEmailOff !== body.allEmailOff ? ["transport:EMAIL"] : []),
+      ...changedKinds.map((key) => `emailKind:${key}`),
+    ], { id: session.user.id, name: session.user.name ?? null, role: String(session.user.role) });
 
     return NextResponse.json({ disabledKinds: disabled, allEmailOff: body.allEmailOff });
   } catch (err) {

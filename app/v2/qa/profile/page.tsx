@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { EstateProfile } from "@/components/v2/laundry/estate-profile";
+import { PersonalSwitchesPanel } from "@/components/v2/notifications/personal-switches-panel";
 
 export const metadata = { title: "Profile · Estate QA" };
 export const dynamic = "force-dynamic";
@@ -74,6 +75,9 @@ export default async function QaProfilePage() {
         initialDensity={(user as any).uiDensity ?? undefined}
         initialTheme={(user as any).themePreference ?? undefined}
       />
+      <div className="mx-auto max-w-3xl">
+        <PersonalSwitchesPanel source={{ kind: "self" }} intro="Choose which notifications reach you and how. The office sees these switches and can change them for you." />
+      </div>
     </div>
   );
 }

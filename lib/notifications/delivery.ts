@@ -15,6 +15,8 @@ import { sendWebPushToUser } from "@/lib/notifications/web-push";
 import { resolveNotificationHrefForRole } from "@/lib/notifications/feed";
 import { logger } from "@/lib/logger";
 import type { SafeguardMeta } from "@/lib/notifications/safeguards/gate";
+import { personalInboxAllowed } from "@/lib/notifications/personal/enforce";
+import { writeDecidedInbox } from "@/lib/notifications/personal/inbox-guard";
 
 export type Recipient = {
   id: string;
@@ -70,6 +72,12 @@ export type DeliveryInput = {
    * key plus the jobs it covers (lib/notifications/safeguards/gate.ts).
    */
   safeguardSubject?: { entityKey: string; relatedEntityKeys: readonly string[] };
+  /**
+   * A person in the office deliberately sent this message (wrote it and
+   * pressed send). The recipients' own switches do not stop it; category
+   * preferences, office switches and the safeguards still apply.
+   */
+  officeDecision?: boolean;
 };
 
 /** Safeguard metadata for one recipient: type, subject entity (the job) and account. */
@@ -80,12 +88,14 @@ function safeguardFor(input: DeliveryInput, recipient: Recipient): SafeguardMeta
       entityKey: input.safeguardSubject.entityKey,
       relatedEntityKeys: input.safeguardSubject.relatedEntityKeys,
       recipientUserId: recipient.id,
+      ...(input.officeDecision ? { officeDecision: true } : {}),
     };
   }
   return {
     typeKey: input.typeKey ?? null,
     entityKey: input.jobId ? `Job:${input.jobId}` : null,
     recipientUserId: recipient.id,
+    ...(input.officeDecision ? { officeDecision: true } : {}),
   };
 }
 
@@ -164,8 +174,8 @@ function resolveWebPushUrl(input: DeliveryInput, recipient: Recipient): string {
 }
 
 async function createWebNotification(input: DeliveryInput, recipient: Recipient) {
-  // 1) In-app feed row (unchanged behaviour).
-  await db.notification.create({
+  // 1) In-app feed row (unchanged behaviour). Personal switches were applied by the caller.
+  await writeDecidedInbox("ALREADY_CHECKED", () => db.notification.create({
     data: {
       userId: recipient.id,
       jobId: input.jobId ?? null,
@@ -176,7 +186,7 @@ async function createWebNotification(input: DeliveryInput, recipient: Recipient)
       status: NotificationStatus.SENT,
       sentAt: new Date(),
     },
-  });
+  }));
 
   // 2) Real device Web Push (WhatsApp-style). Best-effort: never block the
   // email/SMS path and never throw out of delivery. Only reached when the
@@ -220,8 +230,8 @@ async function sendEmailNotification(
       sentAt: result.ok ? new Date() : undefined,
       errorMsg: result.ok ? undefined : result.error ?? "Email delivery failed.",
       externalId: result.externalId ?? undefined,
-      // A safeguard decision is "not sent", never pending delivery.
-      deliveryStatus: result.ok ? "PENDING" : result.suppressed ? (result.suppressed.held ? "HELD" : "SUPPRESSED") : undefined,
+      // A safeguard decision or the recipient's own switch is "not sent", never pending delivery.
+      deliveryStatus: result.ok ? "PENDING" : result.suppressed ? (result.suppressed.held ? "HELD" : "SUPPRESSED") : result.personalSkip ? "SKIPPED" : undefined,
     },
   });
 }
@@ -233,7 +243,7 @@ async function sendSmsNotification(
   audience: NotificationAudience
 ) {
   const result = await sendSmsDetailed(recipient.phone!, smsBody, audience, safeguardFor(input, recipient));
-  if (result.status !== "sent" && result.status !== "failed" && result.status !== "suppressed") return;
+  if (result.status !== "sent" && result.status !== "failed" && result.status !== "suppressed" && !result.personalSkip) return;
 
   await db.notification.create({
     data: {
@@ -245,7 +255,7 @@ async function sendSmsNotification(
       status: result.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
       sentAt: result.ok ? new Date() : undefined,
       errorMsg: result.ok ? undefined : result.error ?? "SMS delivery failed.",
-      deliveryStatus: result.suppressed ? (result.suppressed.held ? "HELD" : "SUPPRESSED") : undefined,
+      deliveryStatus: result.suppressed ? (result.suppressed.held ? "HELD" : "SUPPRESSED") : result.personalSkip ? "SKIPPED" : undefined,
     },
   });
 }
@@ -280,7 +290,9 @@ export async function deliverNotificationToRecipients(input: DeliveryInput) {
     const allowSms = wanted.sms && perms.allowSms && isChannelAllowed(controls, audience, "sms");
 
     if (allowWeb) {
-      await createWebNotification(input, recipient);
+      // The person's (and their client account's) own "In the app" switches.
+      const personal = await personalInboxAllowed({ userId: recipient.id, typeKey: input.typeKey ?? null, subject: input.web.subject, category: input.category, officeDecision: input.officeDecision });
+      if (personal.allowed) await createWebNotification(input, recipient);
     }
 
     const emailPayload = resolveEmailPayload(input, recipient);

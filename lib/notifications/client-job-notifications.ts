@@ -7,6 +7,9 @@ import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { loadNotificationWording, type WordingRenderer } from "@/lib/notifications/wording/render";
+import { personalInboxAllowed } from "@/lib/notifications/personal/enforce";
+import { writeDecidedInbox } from "@/lib/notifications/personal/inbox-guard";
+import type { ClientJobEvent } from "@/lib/notifications/personal/model";
 
 export type ClientJobNotificationType =
   | "EN_ROUTE"
@@ -82,6 +85,13 @@ function scheduleNoteFor(wording: WordingRenderer, diff: number, startTime: stri
 }
 
 
+/** Which of the client's three long-standing job-update switches an event belongs to. */
+export function clientJobEventOf(type: ClientJobNotificationType): ClientJobEvent {
+  if (type === "JOB_STARTED") return "started";
+  if (type === "JOB_COMPLETE") return "finished";
+  return "enRoute";
+}
+
 function isEventEnabled(
   type: ClientJobNotificationType,
   pref: { notifyOnEnRoute: boolean; notifyOnJobStart: boolean; notifyOnJobComplete: boolean } | null
@@ -103,7 +113,8 @@ function buildEmailPayload(
 }
 
 async function logPushNotification(input: { recipientUserId: string; jobId: string; subject: string; body: string }) {
-  await db.notification.create({
+  // The caller applied the login's and the account's switches (with the event).
+  await writeDecidedInbox("ALREADY_CHECKED", () => db.notification.create({
     data: {
       userId: input.recipientUserId,
       jobId: input.jobId,
@@ -114,7 +125,7 @@ async function logPushNotification(input: { recipientUserId: string; jobId: stri
       status: NotificationStatus.SENT,
       sentAt: new Date(),
     },
-  });
+  }));
 }
 
 async function logEmailNotification(input: {
@@ -135,7 +146,7 @@ async function logEmailNotification(input: {
       sentAt: input.result.ok ? new Date() : undefined,
       errorMsg: input.result.ok ? undefined : input.result.error ?? "Email delivery failed.",
       externalId: input.result.externalId ?? undefined,
-      deliveryStatus: input.result.ok ? "PENDING" : undefined,
+      deliveryStatus: input.result.ok ? "PENDING" : input.result.personalSkip ? "SKIPPED" : undefined,
     },
   });
 }
@@ -147,7 +158,7 @@ async function logSmsNotification(input: {
   body: string;
   result: Awaited<ReturnType<typeof sendSmsDetailed>>;
 }) {
-  if (input.result.status !== "sent" && input.result.status !== "failed") return;
+  if (input.result.status !== "sent" && input.result.status !== "failed" && !input.result.personalSkip) return;
 
   await db.notification.create({
     data: {
@@ -159,6 +170,7 @@ async function logSmsNotification(input: {
       status: input.result.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
       sentAt: input.result.ok ? new Date() : undefined,
       errorMsg: input.result.ok ? undefined : input.result.error ?? "SMS delivery failed.",
+      deliveryStatus: input.result.personalSkip ? "SKIPPED" : undefined,
     },
   });
 }
@@ -251,13 +263,19 @@ async function dispatchClientJobNotification(input: {
   const sendEmail = channel === "EMAIL" || channel === "BOTH";
   const sendSms = channel === "SMS" || channel === "BOTH";
 
+  const clientJobEvent = clientJobEventOf(input.type);
   for (const recipient of recipients) {
-    await logPushNotification({
-      recipientUserId: recipient.id,
-      jobId: input.jobId,
-      subject: msg.subject,
-      body: msg.webBody,
-    });
+    const safeguard = { typeKey: CLIENT_JOB_UPDATES_TYPE_KEY, entityKey: `Job:${input.jobId}`, recipientUserId: recipient.id };
+    // The login's and the account's own switches decide each transport.
+    const inbox = await personalInboxAllowed({ userId: recipient.id, typeKey: CLIENT_JOB_UPDATES_TYPE_KEY, clientJobEvent });
+    if (inbox.allowed) {
+      await logPushNotification({
+        recipientUserId: recipient.id,
+        jobId: input.jobId,
+        subject: msg.subject,
+        body: msg.webBody,
+      });
+    }
 
     if (sendEmail && recipient.email) {
       const emailPayload = buildEmailPayload(recipient.email, msg);
@@ -265,6 +283,7 @@ async function dispatchClientJobNotification(input: {
         to: recipient.email,
         subject: emailPayload.subject,
         html: emailPayload.html,
+        safeguard,
       });
       await logEmailNotification({
         recipientUserId: recipient.id,
@@ -276,7 +295,7 @@ async function dispatchClientJobNotification(input: {
     }
 
     if (sendSms && recipient.phone) {
-      const result = await sendSmsDetailed(recipient.phone, msg.smsBody);
+      const result = await sendSmsDetailed(recipient.phone, msg.smsBody, undefined, safeguard);
       await logSmsNotification({
         recipientUserId: recipient.id,
         jobId: input.jobId,

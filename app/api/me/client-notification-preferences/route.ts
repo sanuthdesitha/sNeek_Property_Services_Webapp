@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/session";
-import { z } from "zod";
 import { db } from "@/lib/db";
+import { legacyClientChanges, legacyClientPreferenceRow, legacyClientPreferenceSchema } from "@/lib/notifications/personal/legacy-client";
+import { applySwitchChanges } from "@/lib/notifications/personal/write";
 
-const schema = z.object({
-  notificationsEnabled: z.boolean().optional(),
-  notifyOnEnRoute: z.boolean().optional(),
-  notifyOnJobStart: z.boolean().optional(),
-  notifyOnJobComplete: z.boolean().optional(),
-  preferredChannel: z.enum(["EMAIL", "SMS", "BOTH"]).optional(),
-});
-
-async function getCurrentClientId() {
+/**
+ * The older client "Service updates" route (classic client profile page),
+ * kept compatible. It now writes through the shared switch path, so each
+ * change is stamped with who made it, audited and visible to the office
+ * (lib/notifications/personal). Refused while testing as someone else.
+ */
+async function getCurrentClient() {
   const session = await requireSession().catch(() => null);
   if (!session?.user?.id) return null;
   const user = await db.user.findUnique({
@@ -19,50 +18,38 @@ async function getCurrentClientId() {
     select: { clientId: true, role: true },
   });
   if (!user || user.role !== "CLIENT" || !user.clientId) return null;
-  return user.clientId;
+  return { clientId: user.clientId, session };
 }
 
 export async function GET() {
-  const clientId = await getCurrentClientId();
-  if (!clientId) {
+  const current = await getCurrentClient();
+  if (!current) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  const pref = await db.clientNotificationPreference.findUnique({
-    where: { clientId },
-  });
-  return NextResponse.json(
-    pref ?? {
-      clientId,
-      notificationsEnabled: true,
-      notifyOnEnRoute: true,
-      notifyOnJobStart: true,
-      notifyOnJobComplete: true,
-      preferredChannel: "EMAIL",
-    },
-  );
+  return NextResponse.json(await legacyClientPreferenceRow(current.clientId));
 }
 
 export async function PATCH(req: NextRequest) {
-  const clientId = await getCurrentClientId();
-  if (!clientId) {
+  const current = await getCurrentClient();
+  if (!current) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  const parsed = schema.safeParse(await req.json());
+  if (current.session.impersonation) {
+    return NextResponse.json({ error: "You are testing as someone else: these switches are read-only.", code: "ACTUAL_ACTOR_REQUIRED" }, { status: 403 });
+  }
+  const parsed = legacyClientPreferenceSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid" }, { status: 400 });
   }
-  const data = parsed.data;
-  const pref = await db.clientNotificationPreference.upsert({
-    where: { clientId },
-    create: {
-      clientId,
-      notificationsEnabled: data.notificationsEnabled ?? true,
-      notifyOnEnRoute: data.notifyOnEnRoute ?? true,
-      notifyOnJobStart: data.notifyOnJobStart ?? true,
-      notifyOnJobComplete: data.notifyOnJobComplete ?? true,
-      preferredChannel: data.preferredChannel ?? "EMAIL",
-    },
-    update: data,
-  });
-  return NextResponse.json(pref);
+  try {
+    await applySwitchChanges({
+      subject: { kind: "CLIENT", id: current.clientId },
+      actor: { id: current.session.user.id, name: current.session.user.name ?? null, role: String(current.session.user.role) },
+      expectedRevision: null,
+      changes: legacyClientChanges(parsed.data),
+    });
+  } catch {
+    return NextResponse.json({ error: "Your change was not saved. Try again." }, { status: 500 });
+  }
+  return NextResponse.json(await legacyClientPreferenceRow(current.clientId));
 }

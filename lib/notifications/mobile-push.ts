@@ -5,6 +5,7 @@ import { getUserNotificationPreferences } from "./preferences";
 import { audienceForRole, isChannelAllowed } from "./audience-controls";
 import { isNotificationVisibleToRole, resolveNotificationHrefForRole } from "@/lib/notifications/feed";
 import { guardOutbound, recordOutboundOutcome } from "@/lib/notifications/safeguards/gate";
+import { checkPersonalSend } from "@/lib/notifications/personal/enforce";
 
 const EXPO_PUSH_API_URL =
   process.env.EXPO_PUSH_API_URL?.trim() || "https://exp.host/--/api/v2/push/send";
@@ -143,6 +144,12 @@ export async function deliverMobilePushNotification(
       data: { path: message.href, url: message.url, jobId: notification.jobId, notificationId: notification.id },
     }));
     if (!messages.length) return "SKIPPED";
+    // The person's own switches ("In the app"), before the safeguards count it.
+    const personal = await checkPersonalSend({
+      transport: "MOBILE_PUSH", userId: user.id, meta: { recipientUserId: user.id },
+      hints: { category, subject: message.title },
+    });
+    if (!personal.allowed) return "SKIPPED";
     // The sending safeguards: one decision per person (the inbox row stays).
     const decision = await guardOutbound({
       transport: "MOBILE_PUSH", recipient: user.id,

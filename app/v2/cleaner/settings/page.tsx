@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { EstateProfile } from "@/components/v2/laundry/estate-profile";
+import { PersonalSwitchesPanel } from "@/components/v2/notifications/personal-switches-panel";
 
 export const metadata = { title: "Settings · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -56,6 +57,9 @@ export default async function CleanerSettingsPage() {
           We couldn&apos;t load your settings right now. Refresh the page to try again.
         </p>
       )}
+      <div className="mx-auto max-w-3xl">
+        <PersonalSwitchesPanel source={{ kind: "self" }} intro="Choose which notifications reach you and how. The office sees these switches and can change them for you." />
+      </div>
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { EButton } from "@/components/v2/ui/primitives";
 import { cn } from "@/lib/utils";
 import { PROFILE_HINT, PROFILE_INPUT, PROFILE_LABEL, ProfileCard, ProfileMessage, type CardState } from "./profile-card";
+import { PERSONAL_SWITCHES_CHANGED_EVENT, PersonalSwitchesPanel } from "@/components/v2/notifications/personal-switches-panel";
 
 type Message = { tone: "ok" | "error"; text: string } | null;
 
@@ -377,6 +378,7 @@ export function NotificationsCard({ categories, readOnlyReason }: { categories: 
       }
       setLoad((current) => (current.kind === "ready" ? { ...current, preferences: body.preferences } : current));
       setMessage({ tone: "ok", text: "Saved." });
+      window.dispatchEvent(new Event(PERSONAL_SWITCHES_CHANGED_EVENT));
     } catch {
       setLoad((current) => (current.kind === "ready" ? { ...current, preferences: previous } : current));
       setMessage({ tone: "error", text: "Not saved: the connection failed." });
@@ -473,6 +475,11 @@ export function NotificationsCard({ categories, readOnlyReason }: { categories: 
           <ProfileMessage message={message} />
         </>
       )}
+      {/* Each notification, per transport, and the all/per-transport switches (lib/notifications/personal). */}
+      <div className="mt-4 border-t border-[hsl(var(--e-border))] pt-4">
+        <h3 className="mb-2 text-[0.9375rem] font-semibold">Each notification</h3>
+        <PersonalSwitchesPanel source={{ kind: "self" }} framed={false} showTopics={false} />
+      </div>
     </ProfileCard>
   );
 }

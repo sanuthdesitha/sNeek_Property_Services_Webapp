@@ -294,7 +294,8 @@ async function applyExtrasChange(
       innerHtml
     );
     const subject = bookingEmail.subject;
-    const sent = await sendEmailDetailed({ to: recipients, subject, html });
+    // A person pressed send: the client's own switches do not stop it.
+    const sent = await sendEmailDetailed({ to: recipients, subject, html, safeguard: { typeKey: "client.documents", officeDecision: true }, });
     emailed = sent.ok;
 
     await db.notification.create({

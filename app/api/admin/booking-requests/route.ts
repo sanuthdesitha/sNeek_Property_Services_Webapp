@@ -90,6 +90,8 @@ async function notifyClientOfDecision(input: {
       subject,
       html,
       transactional: true,
+      // The office's answer to the client's own booking request, sent when a person decides it.
+      safeguard: { typeKey: "client.office_messages", officeDecision: true },
     });
     return { notified: sent.ok, notifyError: sent.ok ? undefined : sent.error };
   } catch (err: any) {

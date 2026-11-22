@@ -188,8 +188,17 @@ async function enforceRateLimits(policy: KindPolicy, input: ExternalSendInput, n
   if (senderCount >= policy.senderHourlyLimit) throw new ExternalMessageError(429, policy.senderTooMany);
 }
 
+/**
+ * Every kind here is sent by a person pressing send, except the automatic
+ * acknowledgement to a guest. A person's send is not stopped by the
+ * recipient's own switches (lib/notifications/personal); the automatic one is.
+ */
+function externalSafeguard(input: ExternalSendInput) {
+  return { typeKey: input.kind, officeDecision: input.kind !== "lostfound.return_ack" };
+}
+
 async function deliverEmail(policy: KindPolicy, input: ExternalSendInput): Promise<ExternalMessageResult> {
-  const sent = await sendEmailDetailed({ to: input.to, ...(input.email ?? plainMessageEmail({ subject: input.subject, text: input.body })) });
+  const sent = await sendEmailDetailed({ to: input.to, ...(input.email ?? plainMessageEmail({ subject: input.subject, text: input.body })), safeguard: externalSafeguard(input) });
   await db.notification.create({ data: {
     userId: null, jobId: input.jobId, channel: "EMAIL", subject: input.subject, body: policy.logBody(input.entityId),
     status: sent.ok ? "SENT" : "FAILED", sentAt: sent.ok ? new Date() : undefined, errorMsg: sent.ok ? undefined : sent.error ?? "Email delivery failed.",
@@ -199,7 +208,7 @@ async function deliverEmail(policy: KindPolicy, input: ExternalSendInput): Promi
 }
 
 async function deliverSms(policy: KindPolicy, input: ExternalSendInput): Promise<ExternalMessageResult> {
-  const sent = await sendSmsDetailed(input.to, input.body);
+  const sent = await sendSmsDetailed(input.to, input.body, undefined, externalSafeguard(input));
   await db.notification.create({ data: {
     userId: null, jobId: input.jobId, channel: "SMS", subject: input.subject, body: policy.logBody(input.entityId),
     status: sent.ok ? "SENT" : "FAILED", sentAt: sent.ok ? new Date() : undefined, errorMsg: sent.ok ? undefined : sent.error ?? "SMS delivery failed.",

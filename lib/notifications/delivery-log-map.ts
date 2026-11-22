@@ -5,6 +5,7 @@
  */
 import { catalogEntryForEventKey, catalogEntryForSubject } from "./catalog";
 import type { NotificationTransport } from "./catalog-types";
+import { isPersonalSkipError } from "./personal/model";
 
 export const DELIVERY_STATES = [
   "queued", "retry_wait", "processing", "inbox_available", "provider_accepted",
@@ -80,8 +81,11 @@ export function intentState(status: string, transport: string): DeliveryState {
   }
 }
 
-export function notificationState(row: { channel: string; status: string; deliveryStatus: string | null; externalId: string | null }): DeliveryState {
+export function notificationState(row: { channel: string; status: string; deliveryStatus: string | null; externalId: string | null; errorMsg?: string | null }): DeliveryState {
   if (row.status === "PENDING") return "queued";
+  // Not sent on purpose (the recipient switched it off): skipped, not failed.
+  if (row.status === "FAILED" && row.deliveryStatus === "SKIPPED") return "skipped";
+  if (row.status === "FAILED" && row.channel === "PUSH" && isPersonalSkipError(row.errorMsg)) return "skipped";
   if (row.status === "FAILED") return "failed";
   if (row.status !== "SENT") return "uncertain";
   if (row.channel === "PUSH") return "inbox_available";

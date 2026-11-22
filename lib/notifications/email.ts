@@ -16,6 +16,7 @@ import {
 } from "@/lib/notifications/audience-controls";
 import { guardOutbound, recordOutboundOutcome, refuseOversizedSend, type HeldPayload, type SafeguardMeta } from "@/lib/notifications/safeguards/gate";
 import { notSentText, type SuppressionReason } from "@/lib/notifications/safeguards/config";
+import { checkPersonalSend } from "@/lib/notifications/personal/enforce";
 
 const FROM = process.env.EMAIL_FROM ?? "admin@sneekproservices.com.au";
 let resendClient: Resend | null = null;
@@ -133,6 +134,8 @@ export type EmailSendResult = {
   retryable?: boolean;
   /** Not sent by the sending safeguards (never a delivery); `held` = sent once after quiet hours. */
   suppressed?: { reason: SuppressionReason; held: boolean };
+  /** Not sent because the recipient switched these notifications off (never a delivery). */
+  personalSkip?: { text: string };
 };
 
 type EmailGateOutcome =
@@ -174,6 +177,34 @@ async function applySendingSafeguards(payload: EmailPayload, recipients: string[
   }
   if (allowed.length === 0) return { kind: "suppressed", result: suppressedResult(first?.reason ?? "SAFEGUARD_UNAVAILABLE", first?.held ?? false) };
   return { kind: "send", to: allowed, eventIds };
+}
+
+type PersonalOutcome = { kind: "send"; to: string[] } | { kind: "skipped"; result: EmailSendResult };
+
+/**
+ * The recipients' own switches (lib/notifications/personal), per address,
+ * after the office-level gates and before the sending safeguards count
+ * anything. An address whose person or client account switched this message
+ * off is dropped; when none is left the send is "not sent", with the reason.
+ * Critical (security) mail never reaches here.
+ */
+async function applyPersonalSwitches(payload: EmailPayload, recipients: string[]): Promise<PersonalOutcome> {
+  const allowed: string[] = [];
+  let firstText: string | null = null;
+  // A recipient account id only identifies the person when there is one address.
+  const meta = recipients.length === 1 ? payload.safeguard ?? null : { ...(payload.safeguard ?? {}), recipientUserId: null };
+  for (const address of recipients) {
+    const check = await checkPersonalSend({
+      transport: "EMAIL", address, meta, critical: payload.critical, marketing: payload.marketing,
+      hints: { emailKind: payload.kind ?? null, subject: payload.subject },
+    });
+    if (check.allowed) allowed.push(address);
+    else firstText ??= check.text;
+  }
+  if (allowed.length > 0) return { kind: "send", to: allowed };
+  const text = firstText ?? "Not sent: the recipient switched these notifications off.";
+  logger.info({ subject: payload.subject, kind: payload.kind }, "Email not sent: every recipient switched these notifications off");
+  return { kind: "skipped", result: { ok: false, skipped: true, error: text, acceptance: "NOT_ACCEPTED", retryable: false, personalSkip: { text } } };
 }
 
 /** Non-production only: every email goes to one sandbox inbox, marked with the real recipients. */
@@ -281,6 +312,13 @@ export async function sendEmailDetailed(
         );
         payload = { ...payload, to: allowed };
       }
+    }
+
+    // The recipients' own notification switches (never for critical mail).
+    if (!payload.critical) {
+      const personal = await applyPersonalSwitches(payload, Array.isArray(payload.to) ? payload.to : [payload.to]);
+      if (personal.kind === "skipped") return personal.result;
+      if (personal.to.length !== (Array.isArray(payload.to) ? payload.to.length : 1)) payload = { ...payload, to: personal.to };
     }
 
     // Gate non-transactional sends on the suppression list.

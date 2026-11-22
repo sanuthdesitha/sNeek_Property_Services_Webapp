@@ -214,6 +214,8 @@ async function sendOnce(input: {
       // A finance document the admin explicitly sent — a stale suppression
       // must not silently eat an invoice.
       transactional: true,
+      // Sent by a person (single or bulk send): the client's switches do not stop it.
+      safeguard: { typeKey: "client.documents", officeDecision: true },
     });
     if (!result.ok) {
       await recordInvoiceAudit({
