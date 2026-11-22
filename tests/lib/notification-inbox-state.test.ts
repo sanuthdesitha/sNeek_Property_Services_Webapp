@@ -20,7 +20,7 @@ beforeEach(() => {
 const mutate = (action: string, revision = 0) => changeInboxState("owner", Role.CLIENT, { id: "note", revision, action });
 it("keeps personal follow-up independent from delivery with scoped audited writes", async () => {
   expect(await mutate("NEEDS_ACTION")).toMatchObject({ revision: 1, followUp: "NEEDS_ACTION" });
-  expect(m.find).toHaveBeenCalledWith({ where: { userId: "owner", channel: "PUSH", id: "note" } });
+  expect(m.find).toHaveBeenCalledWith({ where: { userId: "owner", channel: "PUSH", NOT: { status: "FAILED", errorMsg: { in: ["Not sent: this client has switched these notifications off.", "Not sent: this person has switched these notifications off."] } }, id: "note" } });
   expect(m.audit).toHaveBeenCalledWith({ data: expect.objectContaining({ userId: "owner", entityId: "note", action: "NOTIFICATION_INBOX_NEEDS_ACTION" }) });
   expect(m.lock).toHaveBeenCalled();
   expect(await mutate("RESOLVE", 1)).toMatchObject({ revision: 2, followUp: "RESOLVED" });

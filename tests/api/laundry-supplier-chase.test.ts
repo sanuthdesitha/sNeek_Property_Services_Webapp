@@ -143,7 +143,7 @@ describe("send", () => {
       { transport: "SMS", state: "provider_accepted", errorCode: null, to: "***123" },
     ]);
     expect(m.email).toHaveBeenCalledWith(expect.objectContaining({ to: "orders@fresh.invalid" }));
-    expect(m.sms).toHaveBeenCalledWith("+61 400 000 123", "Please confirm.");
+    expect(m.sms).toHaveBeenCalledWith("+61 400 000 123", "Please confirm.", undefined, { typeKey: "laundry.supplier_chase", officeDecision: true });
     const audits = m.auditCreate.mock.calls.map((call) => call[0].data);
     expect(audits).toHaveLength(2);
     expect(audits[0]).toMatchObject({ action: "LAUNDRY_SUPPLIER_CHASE_SENT", entity: "LaundryTask", entityId: "task-1", after: { to: "o***@fresh.invalid", chaseKey: "chase:task-1:42", deliveryConfirmed: false } });

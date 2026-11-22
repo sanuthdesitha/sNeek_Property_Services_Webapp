@@ -51,7 +51,7 @@ describe("private notification history", () => {
     const next = await GET(new Request(`http://localhost/api/notifications/log?paginated=1&cursor=${first.nextCursor}`));
     expect(await next.json()).toEqual({ items: [], nextCursor: null });
     expect(mocks.rows).toHaveBeenLastCalledWith({
-      where: { userId: "recipient-1", channel: "PUSH", OR: [
+      where: { userId: "recipient-1", channel: "PUSH", NOT: { status: "FAILED", errorMsg: { in: ["Not sent: this client has switched these notifications off.", "Not sent: this person has switched these notifications off."] } }, OR: [
         { createdAt: { lt: row.createdAt } }, { createdAt: row.createdAt, id: { lt: "n-199" } },
       ] }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 201,
     });
@@ -88,7 +88,7 @@ describe("private notification history", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(response.headers.get("vary")).toBe("Cookie");
     expect(mocks.rows).toHaveBeenCalledWith({
-      where: { userId: "recipient-1", channel: "PUSH" },
+      where: { userId: "recipient-1", channel: "PUSH", NOT: { status: "FAILED", errorMsg: { in: ["Not sent: this client has switched these notifications off.", "Not sent: this person has switched these notifications off."] } } },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 200,
     });
     const payload = await response.json();
@@ -135,7 +135,7 @@ describe("notification read lifecycle", () => {
     mocks.update.mockResolvedValue({ count: 1 });
     const response = await patch({ ids: ["n1", "n1"] });
     expect(response.status).toBe(200);
-    expect(mocks.update).toHaveBeenCalledWith({ where: { userId: "recipient-1", channel: "PUSH", id: { in: ["n1"] }, status: "SENT", OR: [{ deliveryStatus: null }, { deliveryStatus: "OPENED" }] }, data: { deliveryStatus: "OPENED" } });
+    expect(mocks.update).toHaveBeenCalledWith({ where: { userId: "recipient-1", channel: "PUSH", NOT: { status: "FAILED", errorMsg: { in: ["Not sent: this client has switched these notifications off.", "Not sent: this person has switched these notifications off."] } }, id: { in: ["n1"] }, status: "SENT", OR: [{ deliveryStatus: null }, { deliveryStatus: "OPENED" }] }, data: { deliveryStatus: "OPENED" } });
   });
   it.each([null, {}, { ids: [] }, { ids: [42] }, { ids: Array(201).fill("n") }])("rejects invalid IDs", async body => {
     expect((await patch(body)).status).toBe(400);

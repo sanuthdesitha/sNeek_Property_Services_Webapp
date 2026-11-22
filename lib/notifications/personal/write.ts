@@ -11,6 +11,7 @@ import "server-only";
  */
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 import { NOTIFICATION_CATEGORIES, type NotificationCategory } from "@/lib/settings";
 import { catalogEntry } from "../catalog";
 import { CLIENT_JOB_UPDATES_TYPE } from "./decide";
@@ -260,7 +261,9 @@ export async function applySwitchChanges(input: {
  */
 export async function recordLegacySwitchChange(userId: string, switchIds: string[], actor: SwitchActor, now = new Date()): Promise<void> {
   if (switchIds.length === 0) return;
-  await db.$transaction(async (tx) => {
+  // The change itself is already saved: a failed stamp is logged, never
+  // reported as a failed save.
+  await Promise.resolve().then(() => db.$transaction(async (tx) => {
     await tx.userNotificationPreference.upsert({ where: { userId }, create: { userId, categories: {} }, update: {} });
     await tx.$queryRaw`SELECT "userId" FROM "UserNotificationPreference" WHERE "userId" = ${userId} FOR UPDATE`;
     const row = await tx.userNotificationPreference.findUniqueOrThrow({ where: { userId }, select: { switchChanges: true } });
@@ -268,6 +271,8 @@ export async function recordLegacySwitchChange(userId: string, switchIds: string
     const stamp = stampFor(actor, now);
     for (const id of switchIds) stamps[id] = stamp;
     await tx.userNotificationPreference.update({ where: { userId }, data: { switchChanges: stamps as Prisma.InputJsonValue, switchRevision: { increment: 1 } } });
+  })).catch((error: unknown) => {
+    logger.warn({ err: error, userId }, "[personal-switches] could not stamp an older-route change");
   });
 }
 
