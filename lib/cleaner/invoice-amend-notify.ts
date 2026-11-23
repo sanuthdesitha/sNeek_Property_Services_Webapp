@@ -34,10 +34,6 @@ export type AmendNoticeRecord =
   | { status: "sent"; at: string; outcomes: Array<Pick<RecipientOutcome, "transport" | "path" | "state" | "errorCode">> }
   | { status: "not-sent"; at: string; reason: string };
 
-function escapeHtml(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
 export function payeeInvoicesPath(role: string | null | undefined): string {
   return role === Role.QA_INSPECTOR ? "/v2/qa/invoices" : "/v2/cleaner/pay?tab=invoices";
 }
@@ -80,11 +76,12 @@ export async function notifyPayeeOfAmendment(input: {
     ...values,
     periodStart: day(submission.periodStart),
     periodEnd: day(submission.periodEnd),
-    invoiceNumberPart: submission.invoiceNumber ? ` (<strong>${escapeHtml(submission.invoiceNumber)}</strong>)` : "",
-    changeList: input.changeLines.map((line) => `<li>${escapeHtml(line)}</li>`).join(""),
+    // Every value is escaped by the wording renderer; line breaks are kept for the two multiline values.
+    invoiceNumberPart: wording.line("invoice-number", "EMAIL", { invoiceNumber: submission.invoiceNumber }, Boolean(submission.invoiceNumber)),
+    changeLines: input.changeLines.join("\n"),
     newTotal: formatAud(input.afterTotal),
     originalTotal: formatAud(input.beforeTotal),
-    fixHtml: escapeHtml(input.reason).replace(/\n/g, "<br/>"),
+    reasonText: input.reason,
     pdfUrl: resolveAppUrl(pdfPath),
     invoicesUrl: resolveAppUrl(invoicesPath),
     companyName: settings.companyName,

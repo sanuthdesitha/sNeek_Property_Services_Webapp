@@ -136,6 +136,8 @@ const DICTIONARY: Record<string, Entry> = {
   invoiceNumberPart: { label: "Invoice number (empty when none)", sample: " (<strong>INV-0042</strong>)", format: "html" },
   invoicesUrl: { label: "Invoices link", sample: "https://app.sneek.au/v2/cleaner/invoices", format: "url" },
   changesText: { label: "What changed (plain text, with the new total)", sample: "Changed “12 Nov · Manly Loft”: line $120.00 → $100.00. Total $320.00 → $300.00." },
+  changeLines: { label: "What changed (one change per line)", sample: "Changed “12 Nov · Manly Loft”: line $120.00 → $100.00\nTotal $320.00 → $300.00", format: "multiline" },
+  reasonText: { label: "The office's reason (line breaks kept)", sample: "The parking was a personal trip.", format: "multiline" },
   originalTotal: { label: "Total before the amendment", sample: "$320.00" },
   newTotal: { label: "Amended total", sample: "$300.00" },
   pdfUrl: { label: "Amended invoice download link", sample: "https://app.sneek.au/api/cleaner/invoice/submissions/1/pdf", format: "url" },
