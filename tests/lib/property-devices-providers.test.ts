@@ -97,6 +97,7 @@ describe("Ring", () => {
     expect(order[0]).toBe("POST /oauth/token");
     expect(JSON.parse(calls[0].body!)).toMatchObject({ grant_type: "refresh_token", refresh_token: "REFRESH-OLD-1", client_id: "ring_official_android" });
     expect(calls.slice(1).every((call) => call.headers.Authorization === "Bearer ACCESS-SECRET-1")).toBe(true);
+    expect(calls.every((call) => call.headers.Accept === "application/json")).toBe(true);
     expect(snapshot.locations).toEqual([{ externalLocationId: "loc-1", name: "Bondi Beach House", address: "1 Ocean St, Bondi, NSW, 2026" }]);
     expect(snapshot.devices.map((device) => device.externalDeviceId)).toEqual(["101", "202", "303"]);
   });
@@ -132,6 +133,18 @@ describe("Ring", () => {
     await expect(ringSignIn(deps, { email: "s@e.test", password: "p", twoFactorCode: "123456", hardwareId: "hw" })).resolves.toEqual({ kind: "connected", refreshToken: "R-1" });
     expect(calls).toHaveLength(1);
     expect(calls[0].headers["2fa-code"]).toBe("123456");
+  });
+
+  it("every Ring request asks for JSON (Ring answers 406 to a sign-in without it); a 406 is explained, not saved", async () => {
+    const signIn = fakeDeps(() => ({ status: 200, body: { access_token: "A", refresh_token: "R-1" } }));
+    await ringSignIn(signIn.deps, { email: "s@e.test", password: "p", hardwareId: "hw" });
+    expect(signIn.calls[0].headers.Accept).toBe("application/json");
+
+    const notAcceptable = fakeDeps(() => ({ status: 406, body: {} }));
+    const error = await ringSignIn(notAcceptable.deps, { email: "s@e.test", password: "PASSWORD-SECRET", hardwareId: "hw" }).catch((err: unknown) => err as ProviderHttpError);
+    expect(error).toMatchObject({ kind: "refused", status: 406 });
+    expect(error.message).toMatch(/before checking the email or password/);
+    expect(error.message).not.toContain("PASSWORD-SECRET");
   });
 
   it("a refused renewal is an auth failure in words, without the token", async () => {
