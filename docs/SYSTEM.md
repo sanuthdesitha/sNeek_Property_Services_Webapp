@@ -4021,7 +4021,7 @@ Owner request (verbatim): "also allow admin/ops manager to edit cleaners invoice
 
 **Screens.** Review page (`/v2/admin/finance/cleaner-invoices/[id]`): "Amended by the office" card (each amendment: who and role, when in the organisation timezone, reason, changes, totals, notice outcome), "Lines as amended", lazy "Amend this invoice" disclosure (draft kept when collapsed; saves against the version it started from and keeps the draft with "Start again from the current invoice" when the invoice changed; fields frozen while saving; a failed save keeps the draft and the request key), the Xero notice, and history labels for both new audit actions; the office PDF prints the amendment. Cleaner list: "Amended by the office" and "Needs updating in Xero" pills. Payee (Pay › Invoices, and QA inspector invoices): "Amended by the office" with what they sent against the amended total, every amendment's changes and reason, and "Download the amended invoice (PDF)". Tour `cleaner.payRequests` v3 step "amended".
 
-Tests: `tests/lib/cleaner-invoice-amend-rules.test.ts`, `tests/components/amend-invoice-panel.test.tsx`, `tests/api/cleaner-invoice-amend-route.test.ts`, `tests/db/cleaner-invoice-amendments.test.ts` (PostgreSQL, real office pipeline with the email provider stubbed).
+Tests: `tests/lib/cleaner-invoice-amend-rules.test.ts`, `tests/components/amend-invoice-panel.test.tsx`, `tests/api/cleaner-invoice-amend-route.test.ts`, `tests/db/cleaner-invoice-amendments.test.ts` (PostgreSQL, real office pipeline with the email provider stubbed). Results, browser inspection and the owner decisions pending confirmation are in `docs/qa/recent-changes-review-2026-10-09.md` (2026-11-23).
 
 ## Change Log
 
