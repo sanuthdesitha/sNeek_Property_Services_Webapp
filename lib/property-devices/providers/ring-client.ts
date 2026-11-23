@@ -40,6 +40,8 @@ export type RingSignInResult =
 function tokenHeaders(hardwareId: string, twoFactorCode: string): Record<string, string> {
   return {
     "Content-Type": "application/json",
+    // Ring answers 406 to the sign-in without this (ring-client-api sends it on every JSON request).
+    Accept: "application/json",
     "2fa-support": "true",
     "2fa-code": twoFactorCode,
     hardware_id: hardwareId,
@@ -79,6 +81,7 @@ export async function ringSignIn(deps: ProviderFetchDeps, input: { email: string
     if (/^verification code/i.test(error)) throw new ProviderHttpError("Ring did not accept that code. Ask Ring for a new one and try again.", response.status, "two_factor");
     throw new ProviderHttpError("Ring did not accept the email or password for the shared account.", response.status, "auth");
   }
+  if (response.status === 406) throw new ProviderHttpError("Ring refused the sign-in request itself (406), before checking the email or password. Ring may have changed its interface; nothing was saved.", 406, "refused");
   if (!response.ok) throw new ProviderHttpError(`Ring answered ${response.status} to the sign-in.`, response.status, "refused");
   return { kind: "connected", refreshToken: readGrant(await readJson(response, "Ring sign-in")).refreshToken };
 }
@@ -97,7 +100,7 @@ export async function ringRefresh(deps: ProviderFetchDeps, input: { refreshToken
 }
 
 function bearer(accessToken: string, hardwareId: string): Record<string, string> {
-  return { Authorization: `Bearer ${accessToken}`, hardware_id: hardwareId, "User-Agent": USER_AGENT, "Content-Type": "application/json" };
+  return { Authorization: `Bearer ${accessToken}`, hardware_id: hardwareId, "User-Agent": USER_AGENT, "Content-Type": "application/json", Accept: "application/json" };
 }
 
 async function readAuthed(deps: ProviderFetchDeps, method: "GET" | "POST", url: string, accessToken: string, hardwareId: string, what: string, body?: string): Promise<unknown> {
