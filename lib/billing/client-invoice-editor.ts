@@ -17,6 +17,8 @@ import { clientInvoiceHistory } from "./client-invoice-history";
 import { readStartedWorkReviewSafely } from "./started-work-reconciliation";
 import { paymentLinkAvailability } from "./invoice-payment-link";
 import { xeroAccountName } from "./xero-account-name";
+import { clientInvoiceAccountsView } from "./client-invoice-xero-accounts-view";
+import { resolveClientInvoiceAccounts } from "@/lib/xero/client-invoice-accounts";
 import { loadDraftPanel } from "./client-invoice-editor-draft";
 import type {
   ClientInvoiceEditorData,
@@ -101,10 +103,16 @@ async function readXeroPanel(invoice: LoadedInvoice, row: ClientInvoiceEditorDat
   };
   try {
     const settings = await getPhase3IntegrationsSettings();
-    // The push uses the default account code, falling back to 200 when blank
-    // (shoppingXeroMapping); the panel states the same code.
-    panel.salesAccountCode = settings.xero.defaultAccountCode.trim() || "200";
-    panel.disbursementAccountCode = settings.xero.disbursementAccountCode?.trim() || null;
+    // The account the push uses, or null when none is chosen: the card then
+    // says "not chosen" and the refusal, never a made-up 200 (2026-11-23).
+    const resolved = resolveClientInvoiceAccounts(settings.xero);
+    panel.salesAccountCode = resolved.ok ? resolved.accounts.sales : null;
+    panel.disbursementAccountCode = resolved.ok ? resolved.accounts.disbursement : settings.xero.disbursementAccountCode?.trim() || null;
+    panel.accounts = await clientInvoiceAccountsView(
+      invoice.lines.map((line) => line.category),
+      settings.xero,
+      invoice.kind === "CREDIT_NOTE",
+    );
   } catch (error) {
     panel.settingsError = failed(error, "Xero settings could not be read.");
   }

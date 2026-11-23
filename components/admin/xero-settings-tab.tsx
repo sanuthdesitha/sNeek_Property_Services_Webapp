@@ -20,6 +20,12 @@ interface XeroInvoiceDefaults {
   itemCodeByService: Record<string, string>;
 }
 
+/** What the older screen saves: everything it edits, without a blank sales account. */
+function savedXeroDefaults(cfg: XeroInvoiceDefaults): Partial<XeroInvoiceDefaults> {
+  const { defaultAccountCode, ...rest } = cfg;
+  return defaultAccountCode.trim() ? { ...rest, defaultAccountCode: defaultAccountCode.trim() } : rest;
+}
+
 export function XeroSettingsTab() {
   const [cfg, setCfg] = useState<XeroInvoiceDefaults>({
     defaultAccountCode: "",
@@ -85,7 +91,9 @@ export function XeroSettingsTab() {
       const res = await fetch("/api/admin/integrations/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ xero: cfg }),
+        // A blank sales account is not sent, so a failed read never clears the
+        // stored account (pushes are refused without one since 2026-11-23).
+        body: JSON.stringify({ xero: savedXeroDefaults(cfg) }),
       });
       if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error ?? "Could not save"); return; }
       setCfgSaved(true);
@@ -226,9 +234,9 @@ export function XeroSettingsTab() {
                 id="xero-account"
                 value={cfg.defaultAccountCode}
                 onChange={(e) => setField("defaultAccountCode", e.target.value)}
-                placeholder="200"
+                placeholder="required"
               />
-              <p className="text-xs text-muted-foreground">Revenue account, e.g. 200 (Sales).</p>
+              <p className="text-xs text-muted-foreground">Revenue account from your Xero chart. Required: without it, pushing a client invoice is refused. All client invoice accounts are in the new Settings › Money › Xero.</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="xero-tax">Sales tax type (optional)</Label>

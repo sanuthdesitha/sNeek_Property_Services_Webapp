@@ -144,8 +144,8 @@ describe("permissions and missing targets", () => {
     const viewOnly: TourViewer = { role: "OPS_MANAGER", canOpen: () => true, canManage: () => false };
     const result = stepsForViewer(resolveSteps(findTour("admin.finance.send")!), viewOnly);
     expect(result.steps.map((step) => step.id)).toEqual(["list", "lines", "preview", "status"]);
-    // Update in Xero (2026-11-18) is an invoice action too: skipped at View.
-    expect(result.permissionSkipped).toEqual(["send", "xeroUpdate"]);
+    // Update in Xero (2026-11-18) and the push's accounts (2026-11-23) are invoice actions too: skipped at View.
+    expect(result.permissionSkipped).toEqual(["send", "xeroUpdate", "xeroAccounts"]);
   });
 
   it("skips a missing target and records it, never an error", () => {

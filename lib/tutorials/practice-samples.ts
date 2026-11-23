@@ -5,6 +5,7 @@
  * never be mistaken for, or written as, a real record.
  */
 import type { ClientInvoiceEditorData } from "@/lib/billing/client-invoice-editor-types";
+import { CLIENT_INVOICE_LINE_KIND_LABEL } from "@/lib/xero/client-invoice-accounts";
 
 export const PRACTICE_PROPERTY = {
   id: "practice-demo-cottage",
@@ -108,6 +109,15 @@ export function practiceInvoice(timezone: string): ClientInvoiceEditorData {
       disbursementAccountCode: null,
       hasDisbursementLines: false,
       settingsError: null,
+      // Practice: a sample account so the card shows where each kind of line goes; Xero is not contacted.
+      accounts: {
+        status: "set",
+        salesNeedsConfirmation: false,
+        salesCode: "4000",
+        groups: [
+          { label: CLIENT_INVOICE_LINE_KIND_LABEL.SALES, code: "4000", lines: 2, name: null, nameReason: "Practice: Xero is not contacted.", fallback: null, refusal: null },
+        ],
+      },
     },
     history: [{ id: "practice-history-1", at: createdAt, label: "Practice invoice created as a sample", actor: "Practice", source: "record" }],
     startedWork: null,

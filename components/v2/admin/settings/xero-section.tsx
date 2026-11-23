@@ -6,10 +6,15 @@ import { EAlert, EButton, ECard } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESaveStatus, ESectionHeading, useSaveStatus } from "./estate-form";
 import { XeroConnectionCard, type XeroStatusView } from "./xero-connection-card";
 import { CleanerBillAccountsCard } from "./xero-cleaner-bill-accounts";
+import { ClientInvoiceAccountsCard } from "./xero-client-invoice-accounts";
 
+/**
+ * What the Invoice defaults card edits and saves. The client invoice accounts
+ * (sales, repairs, shopping, credit notes, disbursements) moved to their own
+ * card on 2026-11-23 and are never sent from here, so this card cannot clear
+ * or re-save them.
+ */
 interface XeroInvoiceDefaults {
-  defaultAccountCode: string;
-  disbursementAccountCode: string;
   defaultItemCode: string;
   salesTaxType: string;
   contactFallbackEmail: string;
@@ -47,8 +52,6 @@ const ERROR_HELP: Record<string, string> = {
  */
 export function XeroSection() {
   const [cfg, setCfg] = useState<XeroInvoiceDefaults>({
-    defaultAccountCode: "",
-    disbursementAccountCode: "",
     defaultItemCode: "",
     salesTaxType: "",
     contactFallbackEmail: "",
@@ -102,8 +105,6 @@ export function XeroSection() {
       const data = await res.json();
       const x = data?.xero ?? {};
       setCfg({
-        defaultAccountCode: x.defaultAccountCode ?? "",
-        disbursementAccountCode: x.disbursementAccountCode ?? "",
         defaultItemCode: x.defaultItemCode ?? "",
         salesTaxType: x.salesTaxType ?? "",
         contactFallbackEmail: x.contactFallbackEmail ?? "",
@@ -230,7 +231,7 @@ export function XeroSection() {
         <ul className="mt-2 space-y-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
           <li>Client contacts are created or updated when invoices are pushed</li>
           <li>Cleaner contacts are created as suppliers</li>
-          <li>Client invoices arrive as DRAFT invoices (ACCREC) with full line descriptions</li>
+          <li>Client invoices arrive as DRAFT invoices (ACCREC) with full line descriptions, on the accounts chosen under Client invoices</li>
           <li>Cleaner bills arrive as DRAFT bills (ACCPAY), on the accounts chosen under Cleaner bills</li>
           <li>GST tax types follow your override or each invoice&apos;s GST toggle</li>
         </ul>
@@ -243,7 +244,7 @@ export function XeroSection() {
       <ECard className="p-6">
         <h3 className="text-[1rem] font-semibold tracking-[-0.01em]">Invoice defaults</h3>
         <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-          Applied to every invoice pushed to Xero. The item code links each line to your Xero inventory item.
+          Applied to every invoice pushed to Xero. The item code links each line to your Xero inventory item. The accounts are chosen under Client invoices below.
         </p>
         <div className="mt-5 grid gap-5 sm:grid-cols-2">
           <EField label="Item code" htmlFor="xero-item" hint="Must match an Item Code in Xero (Business → Products & services). Blank for none.">
@@ -253,17 +254,6 @@ export function XeroSection() {
               onChange={(e) => setField("defaultItemCode", e.target.value)}
               placeholder="e.g. CLEAN"
             />
-          </EField>
-          <EField label="Sales account code" htmlFor="xero-account" hint="Revenue account, e.g. 200 (Sales).">
-            <EInput
-              id="xero-account"
-              value={cfg.defaultAccountCode}
-              onChange={(e) => setField("defaultAccountCode", e.target.value)}
-              placeholder="200"
-            />
-          </EField>
-          <EField label="Client disbursement account" htmlFor="xero-disbursement" hint="Your accountant's balance-sheet clearing account for client agency purchases. Must differ from Sales; exports use BAS Excluded.">
-            <EInput id="xero-disbursement" value={cfg.disbursementAccountCode} onChange={(e) => setField("disbursementAccountCode", e.target.value)} />
           </EField>
           <EField label="Sales tax type" htmlFor="xero-tax" hint="Xero tax type code, e.g. OUTPUT. Blank = auto from the GST toggle.">
             <EInput
@@ -314,6 +304,8 @@ export function XeroSection() {
           </EButton>
         </div>
       </ECard>
+
+      <ClientInvoiceAccountsCard />
 
       <CleanerBillAccountsCard />
     </div>
