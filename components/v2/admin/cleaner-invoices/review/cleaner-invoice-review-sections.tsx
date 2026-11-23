@@ -77,8 +77,8 @@ export function LinesCard({ review }: { review: CleanerInvoiceReview }) {
   return (
     <section aria-labelledby="ci-lines" className="min-w-0 overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
       <div className="flex flex-wrap items-baseline justify-between gap-2 px-4 pb-2 pt-3.5">
-        <h2 id="ci-lines" className="text-[0.9375rem] font-[600]">Lines as submitted</h2>
-        <p className={cn("text-[0.75rem]", MUTED)}>The snapshot {firstName(row)} sent. Nothing here is edited; a wrong line is sent back with Request changes.</p>
+        <h2 id="ci-lines" className="text-[0.9375rem] font-[600]">{row.amendmentCount ? "Lines as amended" : "Lines as submitted"}</h2>
+        <p className={cn("text-[0.75rem]", MUTED)}>{row.amendmentCount ? `Amended by the office; ${firstName(row)}'s original lines are kept in the amendment history.` : `The snapshot ${firstName(row)} sent.`} Change lines with Amend this invoice, or send it back with Request changes.</p>
       </div>
       {lines.length ? (
         <>
@@ -246,10 +246,39 @@ export function XeroCard({ review }: { review: CleanerInvoiceReview }) {
           ) : (
             <p className={SMALL}><b>Not in Xero.</b> {row.status === "SUBMITTED" ? `After approval, "Push to Xero" creates a draft bill for ${firstName(row)}.` : row.status === "APPROVED" ? `"Push to Xero" creates a draft bill for ${firstName(row)}.` : "Nothing is sent to Xero from this state."}</p>
           )}
+          <BillAccounts xero={xero} />
           <p className={cn("text-[0.75rem]", MUTED)}>{connectionLine(xero, review.timezone)}</p>
         </>
       )}
     </RailCard>
+  );
+}
+
+/** The Xero accounts the bill's lines go to, or why a push would be refused (2026-11-23). */
+function BillAccounts({ xero }: { xero: Exclude<CleanerInvoiceReview["xero"], { error: string }> }) {
+  const accounts = xero.accounts;
+  if (!accounts || xero.state === "pushed") return null;
+  if (accounts.status === "error") return <p role="alert" className={cn(SMALL, "text-[hsl(var(--e-danger))]")}>The Xero accounts could not be read: {accounts.message}</p>;
+  if (accounts.status === "not-set") {
+    return (
+      <EToneNotice tone="problem" title="No Xero account chosen for cleaner invoices">
+        Push to Xero is refused until an administrator chooses the cleaning work account in <Link href="/v2/admin/settings?tab=xero" className="underline underline-offset-2">Settings › Money › Xero</Link>. Nothing is sent to a default account.
+      </EToneNotice>
+    );
+  }
+  return (
+    <div className={SMALL}>
+      <p className="font-[550]">Xero accounts for this bill</p>
+      <ul className="mt-1 space-y-0.5">
+        {accounts.groups.map((group) => (
+          <li key={`${group.label}:${group.code}`}>
+            {group.label}: <span className="e-tnum">{group.code}</span>
+            {group.name ? ` · ${group.name}` : <span className={MUTED}> · name not read{group.nameReason ? ` (${group.nameReason})` : ""}</span>}
+            {group.lines ? <span className={MUTED}> · {plural(group.lines, "line")}</span> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

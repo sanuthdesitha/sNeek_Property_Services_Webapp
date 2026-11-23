@@ -15,6 +15,9 @@ import { isLiveInvoiceLine } from "@/lib/jobs/invoiced-rule";
 import { formatMoney } from "@/lib/jobs/job-page/money";
 import type { TimelineStage } from "@/lib/jobs/job-page/timeline";
 import { JobDetailManage } from "../job-detail-reviews";
+import { AttachClientForm } from "@/components/v2/admin/properties/attach-client-form";
+import { isFallbackClientName } from "@/lib/jobs/service-site";
+import { isOneOffSite } from "@/lib/properties/portfolio-rules";
 import { JobDisclosure } from "./job-disclosure";
 import { titleCase, type JobPageData } from "./job-page-data";
 import { Muted, StageShell } from "./stage-shell";
@@ -88,8 +91,24 @@ export function StageInvoice({ data, stage, collapsed }: { data: JobPageData; st
   const lines = job.invoiceLines;
   const onlyVoid = lines.length > 0 && !lines.some(isLiveInvoiceLine);
   const actions = <Link href="/v2/admin/finance/invoices" className="inline-flex min-h-11 items-center font-[550] text-[hsl(var(--e-accent-portal))] hover:underline">Invoices</Link>;
+  // A one-off job filed under "Unassigned / One-off Jobs" cannot be invoiced
+  // to anyone real until its site is attached to the client (2026-11-23).
+  const property = job.property;
+  const needsClient = Boolean(property && isOneOffSite(property.accessInfo) && isFallbackClientName(property.client?.name));
   return (
     <StageShell stage={stage} actions={actions} collapsed={collapsed}>
+      {needsClient && property ? (
+        <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.5)] bg-[hsl(var(--e-warning-soft))] p-3">
+          <p className="font-[600]">No client yet: this one-off job cannot be invoiced</p>
+          {viewer.readOnly ? (
+            <Muted>Someone who can change properties can attach this site to its client.</Muted>
+          ) : (
+            <JobDisclosure id="attach-client" label="Attach to client" description="Moves this one-off site and its jobs to the real client. Invoices already issued are not changed.">
+              <AttachClientForm key={property.id} propertyId={property.id} siteName={property.name} jobCount={property._count.jobs} expectedUpdatedAt={property.updatedAt.toISOString()} />
+            </JobDisclosure>
+          )}
+        </div>
+      ) : null}
       {lines.length === 0 ? (
         <Muted>Not invoiced yet. Cleaner pay settles at payroll from clocked time.</Muted>
       ) : (

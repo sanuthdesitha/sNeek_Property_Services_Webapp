@@ -7,6 +7,14 @@ import {
   getPhase3IntegrationsSettings,
   savePhase3IntegrationsSettings,
 } from "@/lib/phase3/integrations";
+import { isValidXeroAccountCode } from "@/lib/xero/cleaner-bill-accounts";
+
+const accountCode = z
+  .string()
+  .trim()
+  .max(10, "A Xero account code is at most 10 characters.")
+  .refine(isValidXeroAccountCode, "A Xero account code uses letters, digits, dot, dash or underscore, as in your Xero chart of accounts.")
+  .optional();
 
 const schema = z.object({
   stripe: z
@@ -29,6 +37,10 @@ const schema = z.object({
       salesTaxType: z.string().trim().max(50).optional(),
       trackingCategory: z.string().trim().max(100).optional(),
       contactFallbackEmail: z.string().trim().max(200).optional(),
+      // Cleaner bill accounts (2026-11-23): empty clears; anything else must be a Xero account code.
+      cleanerBillAccountCode: accountCode,
+      cleanerBillInspectionAccountCode: accountCode,
+      cleanerBillReimbursementAccountCode: accountCode,
     })
     .optional(),
   googlePlaces: z
@@ -70,6 +82,8 @@ export async function PATCH(req: NextRequest) {
   } catch (err: any) {
     const status =
       err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message ?? "Update failed." }, { status });
+    // A refused field says which rule it broke (e.g. a Xero account code), not zod's JSON.
+    const message = err instanceof z.ZodError ? err.issues[0]?.message ?? "Update failed." : err.message ?? "Update failed.";
+    return NextResponse.json({ error: message }, { status });
   }
 }

@@ -306,10 +306,11 @@ export const TOURS: readonly TourDefinition[] = [
     roles: ["CLEANER"],
     route: "/v2/cleaner/pay?tab=requests",
     title: "Request extra pay",
-    version: 2,
+    version: 3,
     steps: [
       { id: "new", target: "cleaner.payRequests.new", since: 1, title: "Ask for extra pay", body: "Took longer for a real reason? Ask for extra pay here, with a note and a photo." },
       { id: "list", target: "cleaner.payRequests.list", since: 2, title: "Your requests", body: "Each request shows the office's decision, where it was paid and its history. Approved amounts appear in Pay." },
+      { id: "amended", target: null, since: 3, title: "Amended by the office", body: "If the office amends an invoice you sent, Invoices lists each change, both totals and their reason, with the amended PDF." },
     ],
   },
 

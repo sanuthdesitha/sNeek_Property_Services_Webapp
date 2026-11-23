@@ -15,6 +15,8 @@ import { getFinanceSummary } from "@/lib/finance/summary";
 import { getAppSettings } from "@/lib/settings";
 import { parseVaPropertyScope } from "@/lib/va/permissions";
 import { addDaysToKey, sydneyTodayKey } from "@/lib/time/sydney-range";
+import { isFallbackClientName } from "@/lib/jobs/service-site";
+import { isOneOffSite } from "@/lib/properties/portfolio-rules";
 import type { ClientAttentionItem, ClientInvoiceSummary, ClientPropertySummary, ClientSummary } from "./summary-types";
 
 const FINISHED: JobStatus[] = [JobStatus.COMPLETED, JobStatus.INVOICED, JobStatus.QA_REVIEW];
@@ -66,7 +68,7 @@ async function loadProperties(clientId: string, now: Date): Promise<ClientProper
     where: { clientId, isActive: true },
     orderBy: { name: "asc" },
     select: {
-      id: true, name: true, suburb: true,
+      id: true, name: true, suburb: true, accessInfo: true, updatedAt: true, _count: { select: { jobs: true } },
       integration: { select: { isEnabled: true, icalUrl: true, syncStatus: true, lastSyncAt: true, updatedAt: true } },
       clientRates: { where: { isActive: true, jobType: "AIRBNB_TURNOVER" }, select: { baseCharge: true } },
     },
@@ -105,6 +107,9 @@ async function loadProperties(clientId: string, now: Date): Promise<ClientProper
       turnoverRate: property.clientRates[0]?.baseCharge ?? null,
       calendar,
       calendarFailedSince: calendar === "FAILED" ? (integration?.lastSyncAt ?? integration?.updatedAt ?? null)?.toISOString() ?? null : null,
+      oneOff: isOneOffSite(property.accessInfo),
+      jobCount: property._count.jobs,
+      updatedAt: property.updatedAt.toISOString(),
     };
   });
 }
@@ -158,6 +163,7 @@ export async function loadClientSummary(clientId: string, options: { money: bool
         }
       : null,
     properties,
+    oneOffCatchAll: isFallbackClientName(client.name),
     logins: logins.map((login) => ({ id: login.id, name: login.name, email: login.email, isActive: login.isActive, invited: Boolean(login.invitation && !login.invitation.acceptedAt), lastSeenAt: login.lastSeenAt?.toISOString() ?? null })),
     teams: teams.map((team) => ({ id: team.id, name: team.name, isActive: team.isActive, members: team._count.members, propertyCount: parseVaPropertyScope(team.propertyIds)?.length ?? null })),
     attention,

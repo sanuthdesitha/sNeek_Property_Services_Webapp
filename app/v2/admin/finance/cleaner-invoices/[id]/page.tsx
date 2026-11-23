@@ -43,5 +43,7 @@ export default async function CleanerInvoiceReviewRoute({
   const showClientCharge = !levels || canUseOpsPath(levels, "/v2/admin/finance?tab=invoices");
   const review = await loadCleanerInvoiceReview(params.id, { showClientCharge });
   if (!review) notFound();
-  return <CleanerInvoiceReviewPage key={review.row.id} review={review} role={session.user.role} backHref={backHref(searchParams?.back)} />;
+  // Amending and "Xero bill updated" are writes: an operations manager needs the payroll pack at manage (as the API does).
+  const canManage = !levels || canUseOpsPath(levels, `/api/admin/cleaner-invoices/${params.id}/amend`, "POST");
+  return <CleanerInvoiceReviewPage key={review.row.id} review={review} role={session.user.role} backHref={backHref(searchParams?.back)} canManage={canManage && !session.impersonation} />;
 }

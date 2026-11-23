@@ -76,10 +76,10 @@ function OneOffFields({ draft, onOneOff, problemFields }: Pick<PropertySectionPr
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <EField label="Client (optional)">
+        <EField label="Client" hint="Billed to and shown to this client. Without one it waits under “Unassigned / One-off Jobs” and cannot be invoiced until a client is attached.">
           <ESelect value={site.clientId} onChange={set("clientId")}>
-            <option value="">No linked client</option>
-            {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
+            <option value="">No client yet (attach before invoicing)</option>
+            {clients.filter((client) => client.name.trim() !== "Unassigned / One-off Jobs").map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
           </ESelect>
         </EField>
         <EField label="Site name">

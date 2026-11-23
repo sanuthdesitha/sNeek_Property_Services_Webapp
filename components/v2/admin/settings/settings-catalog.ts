@@ -205,7 +205,7 @@ export const SETTINGS_DESTINATIONS = [
   {
     key: "xero",
     label: "Xero",
-    description: "Accounting connection and invoice synchronization.",
+    description: "Accounting connection, invoice synchronization and the Xero accounts for cleaner invoices (bills).",
     group: "money",
     adminOnly: true,
   },

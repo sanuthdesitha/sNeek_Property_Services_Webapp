@@ -31,6 +31,16 @@ export type ClientPropertySummary = {
   turnoverRate: number | null;
   calendar: "SYNCED" | "FAILED" | "NOT_CONNECTED" | "DISABLED";
   calendarFailedSince: string | null;
+  /**
+   * A one-off service site (accessInfo.serviceSite), made by New job for work
+   * outside the managed portfolio. Listed in its own "One-off sites" group on
+   * the client page, not among the managed properties (2026-11-23).
+   */
+  oneOff: boolean;
+  /** Every job ever scheduled at the property (one-off sites show it). */
+  jobCount: number;
+  /** For the attach-to-client stale-write guard (ISO). */
+  updatedAt: string;
 };
 
 export type ClientLoginSummary = {
@@ -75,6 +85,8 @@ export type ClientSummary = {
     marginPct12: number | null;
   } | null;
   properties: ClientPropertySummary[];
+  /** This is the catch-all "Unassigned / One-off Jobs" client: its sites can be attached to real clients. */
+  oneOffCatchAll: boolean;
   logins: ClientLoginSummary[];
   teams: ClientTeamSummary[];
   attention: ClientAttentionItem[];

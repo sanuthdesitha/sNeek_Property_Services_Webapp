@@ -130,6 +130,10 @@ export function toCleanerInvoiceRow(row: CleanerInvoiceSubmission, payee: Payee 
     paidClaimedProofUrls: proofUrls(row.paidClaimedProofKeys),
     changesRequestedAt: iso(row.changesRequestedAt),
     changesRequestedNote: row.changesRequestedNote,
+    amendmentCount: row.amendmentCount,
+    amendedAt: iso(row.amendedAt),
+    xeroOutOfDateSince: iso(row.xeroOutOfDateSince),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 

@@ -19,6 +19,7 @@
  *   GET  /api/cleaner/invoice/submissions
  *   GET  /api/me/profile-completeness   → { missing: [{ key, label }] }
  */
+import type { PayeeAmendmentView } from "@/lib/cleaner/invoice-amend-history";
 import { useEffect, useMemo, useState } from "react";
 import { cleanerExtraText, type CleanerExtraDetail } from "@/lib/pay-adjustments/invoice-text";
 import {
@@ -145,6 +146,8 @@ interface Submission {
    *  moves on, so a note here always describes the CURRENT state. */
   changesRequestedAt?: string | null;
   changesRequestedNote?: string | null;
+  /** The office amended this invoice after it was sent (2026-11-23); null when never. */
+  amendment?: PayeeAmendmentView | null;
 }
 
 function money(value: number | null | undefined) {
@@ -221,6 +224,38 @@ async function uploadPaymentProofFile(file: File): Promise<ProofAttachment> {
 }
 
 export type InvoicePayeeKind = "cleaner" | "inspector";
+
+/**
+ * "Amended by the office" (2026-11-23): what the office changed on an invoice
+ * the payee had sent, the original against the amended total, the office's
+ * reason, and the amended invoice to download. Every amendment is listed,
+ * newest first; dates in Sydney time like the rest of this list.
+ */
+function AmendedByOffice({ submissionId, amendment }: { submissionId: string; amendment: PayeeAmendmentView }) {
+  return (
+    <div className="mt-2.5 border-t border-[hsl(var(--e-warning)/0.4)] pt-2.5">
+      <p className="text-[0.75rem] font-[600] uppercase tracking-[0.06em] text-[hsl(var(--e-warning))]">Amended by the office</p>
+      <p className="mt-1 text-[0.8125rem]">
+        You sent <span className="e-numeral">{money(amendment.originalTotal)}</span> · amended total <span className="e-numeral font-[600]">{money(amendment.amendedTotal)}</span>
+      </p>
+      <ol className="mt-1.5 space-y-2">
+        {amendment.amendments.map((entry) => (
+          <li key={entry.revision} className="text-[0.8125rem]">
+            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Amendment {entry.revision} · {sydneyStamp(entry.at)}</p>
+            <ul className="list-disc pl-5">
+              {entry.changes.map((change) => <li key={change}>{change}</li>)}
+            </ul>
+            <p className="mt-0.5">The office&apos;s reason: {entry.reason}</p>
+            {entry.note ? <p className="text-[hsl(var(--e-muted-foreground))]">Note: {entry.note}</p> : null}
+          </li>
+        ))}
+      </ol>
+      <a href={`/api/cleaner/invoice/submissions/${encodeURIComponent(submissionId)}/pdf`} className="mt-2 inline-flex min-h-11 items-center text-[0.8125rem] font-[550] text-[hsl(var(--e-primary))] underline underline-offset-2 sm:min-h-0">
+        Download the amended invoice (PDF)
+      </a>
+    </div>
+  );
+}
 
 export function InvoicesPanel({
   payeeKind = "cleaner",
@@ -1242,6 +1277,7 @@ export function InvoicesPanel({
                       </div>
                     </div>
                   ) : null}
+                  {s.amendment ? <AmendedByOffice submissionId={s.id} amendment={s.amendment} /> : null}
                   {/* What the payee sent with their claim, shown back to them so
                       a claim waiting on the office still explains itself. */}
                   {s.paidClaimedNote || (s.paidClaimedProofUrls?.length ?? 0) > 0 ? (

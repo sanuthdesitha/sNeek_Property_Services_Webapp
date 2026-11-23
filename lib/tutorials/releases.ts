@@ -24,6 +24,16 @@ export type ReleaseNote = {
 
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    release: "2026.11.23-cleaner-invoice-amendments",
+    date: "2026-11-23",
+    author: "Cleaner invoice amendments, one-off jobs, Xero cleaner bill accounts",
+    items: [
+      { change: "Pay › Invoices: an invoice the office amended shows \"Amended by the office\" with each change, the original and amended totals, the reason and the amended PDF.", covered: { tourKey: "cleaner.payRequests", version: 3, stepIds: ["amended"] } },
+      { change: "Invoices and pay › Cleaner invoices: rows show \"Amended by the office\" and \"Needs updating in Xero\" pills.", noVisibleChange: "Two status pills on the Cleaner invoices tab only; the Send tour's steps and targets (client invoices) are unchanged." },
+      { change: "New invoice refuses \"Unassigned / One-off Jobs\" with a reason saying how to attach each one-off site to its client.", noVisibleChange: "An error message in the existing New invoice preview, shown only for that catch-all client; no control was added or moved." },
+    ],
+  },
+  {
     release: "2026.11.20-property-devices",
     date: "2026-11-20",
     author: "Property devices: Ring, Minut and charge tasks",

@@ -1,6 +1,17 @@
 import { JobType, type PrismaClient } from "@prisma/client";
 
-const FALLBACK_CLIENT_NAME = "Unassigned / One-off Jobs";
+/**
+ * The catch-all client a one-off job is filed under when no client was chosen
+ * on New job ("No client yet"). Such a job cannot be invoiced to anyone real
+ * until its site is attached to the right client
+ * (lib/properties/one-off-client.ts).
+ */
+export const FALLBACK_CLIENT_NAME = "Unassigned / One-off Jobs";
+
+/** Is this the catch-all one-off client (matched by its fixed name, as it is created)? */
+export function isFallbackClientName(name: string | null | undefined): boolean {
+  return (name ?? "").trim() === FALLBACK_CLIENT_NAME;
+}
 
 export type ServiceSiteInput = {
   clientId?: string;

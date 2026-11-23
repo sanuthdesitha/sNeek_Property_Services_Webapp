@@ -6,8 +6,9 @@
  * action and a menu of every other action this role may take (from the one
  * transition table, so nothing the server refuses is offered); the stage bar;
  * the pay-rule band; the lines as submitted; comparison, Xero and history.
- * Read-only: nothing on the invoice is edited here. After an action the server
- * data is re-read. On a phone the next step is docked and the page opens on
+ * Lines are changed only through "Amend this invoice" (2026-11-23), which keeps
+ * the original and every amendment and tells the payee. After an action the
+ * server data is re-read. On a phone the next step is docked and the page opens on
  * Lines, with Compare and History one tap away.
  */
 import * as React from "react";
@@ -27,6 +28,9 @@ import { cleanerPdfHref } from "../cleaner-invoice-columns";
 import { CleanerInvoiceDialogs } from "../cleaner-invoice-dialogs";
 import { useCleanerInvoiceActions } from "../use-cleaner-invoice-actions";
 import { ComparisonCard, HistoryCard, LinesCard, PayRuleBand, StatusNotice, XeroCard } from "./cleaner-invoice-review-sections";
+import { AmendmentsCard, XeroOutOfDateNotice } from "./amendment-sections";
+import { AmendInvoicePanel } from "./amend-invoice-panel";
+import { JobDisclosure } from "@/components/v2/admin/jobs/detail/job-disclosure";
 
 /** The page leads with the next step; Approve first for an administrator. */
 const PRIMARY_ORDER: CleanerUiAction[] = ["approve", "review-delivery", "push-xero", "record-payment"];
@@ -55,7 +59,7 @@ function approveNote(review: CleanerInvoiceReview): string | undefined {
     : `Each pay request is paid at what was asked: ${amounts.join(", ")}.`;
 }
 
-export function CleanerInvoiceReviewPage({ review, role, backHref }: { review: CleanerInvoiceReview; role: string; backHref: string }) {
+export function CleanerInvoiceReviewPage({ review, role, backHref, canManage = true }: { review: CleanerInvoiceReview; role: string; backHref: string; canManage?: boolean }) {
   const router = useRouter();
   const { row } = review;
   const [phoneTab, setPhoneTab] = React.useState<PhoneTab>("lines");
@@ -120,6 +124,7 @@ export function CleanerInvoiceReviewPage({ review, role, backHref }: { review: C
         <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Only an administrator can approve cleaner invoices.</p>
       ) : null}
       <StatusNotice review={review} />
+      <XeroOutOfDateNotice review={review} readOnly={!canManage} />
       <div role="group" aria-label="Invoice sections" className="flex gap-1.5 sm:hidden">
         {(["lines", "compare", "history"] as PhoneTab[]).map((tab) => (
           <button
@@ -136,7 +141,13 @@ export function CleanerInvoiceReviewPage({ review, role, backHref }: { review: C
       <div className="flex min-w-0 flex-col gap-3.5 xl:flex-row">
         <div className={cn("min-w-0 flex-1 space-y-3.5", tabClass("lines"))}>
           <PayRuleBand review={review} />
+          <AmendmentsCard review={review} />
           <LinesCard review={review} />
+          {canManage ? (
+            <JobDisclosure id="amend-invoice" label="Amend this invoice" description="Change, add or remove lines and hours with a reason. The payee is told; their original submission is kept.">
+              <AmendInvoicePanel row={row} role={role} />
+            </JobDisclosure>
+          ) : null}
         </div>
         <aside aria-label="Comparison, Xero and history" className="flex min-w-0 flex-col gap-3.5 xl:w-[360px] xl:flex-none">
           <div className={cn("space-y-3.5", tabClass("compare"))}>

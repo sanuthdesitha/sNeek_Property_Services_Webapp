@@ -32,6 +32,9 @@ const JOB_SELECT = {
     select: {
       id: true, name: true, address: true, suburb: true, latitude: true, longitude: true,
       geofenceRadiusM: true, requireNfcCheckIn: true, keyLocation: true, accessNotes: true, accessInfo: true,
+      // A one-off site under "Unassigned / One-off Jobs" offers "Attach to client"
+      // in the Invoice stage: its stale-write guard and how many jobs move with it.
+      updatedAt: true, _count: { select: { jobs: true } },
       client: { select: { id: true, name: true, email: true, phone: true } },
     },
   },

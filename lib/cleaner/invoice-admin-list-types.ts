@@ -51,6 +51,13 @@ export type CleanerInvoiceRow = {
   paidClaimedProofUrls: CleanerInvoiceProof[];
   changesRequestedAt: string | null;
   changesRequestedNote: string | null;
+  /** Office amendments (2026-11-23). Optional so older callers and fixtures stay valid. */
+  amendmentCount?: number;
+  amendedAt?: string | null;
+  /** The Xero bill still shows the lines before an amendment, since this time. */
+  xeroOutOfDateSince?: string | null;
+  /** The amend form's stale-write guard. */
+  updatedAt?: string;
 };
 
 export type CleanerInvoiceCounts = {

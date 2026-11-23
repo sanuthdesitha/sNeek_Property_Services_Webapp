@@ -80,11 +80,15 @@ const OPS_POLICY_SETTING_KEY = "ops_feature_permissions_v1";
  *   OPS_MANAGER whose pack gives the lost-found feature at least "read"
  *   (re-read each time). Used for guest return requests.
  *
+ * - CLEANER_INVOICE_PAYEE (id = cleaner invoice submission id, 2026-11-23): the
+ *   active CLEANER or QA_INSPECTOR who submitted that invoice (its cleanerId),
+ *   for the office's amendment notice. A deleted invoice is skipped.
+ *
  * In every scope the role recorded in the envelope must still be the
  * recipient's role: a role change between queueing and dispatch skips the
  * delivery instead of disclosing to a different kind of account.
  */
-export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "LAUNDRY_TASK_SUPPLIER_TEAM", "STAFF_MEMBER", "JOB_CLIENT_CONTACT", "LOST_ITEM_PROPERTY_CLIENT", "URGENT_STOCK_PURCHASE_ASK", "URGENT_STOCK_OFFICE", "JOB_OFFICE", "AGENT_ACTION_APPROVER", "ACCOUNT_HOLDER", "MAINTENANCE_ITEM_CLIENT", "MAINTENANCE_OFFICE", "LOST_ITEM_OFFICE"] as const;
+export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "LAUNDRY_TASK_SUPPLIER_TEAM", "STAFF_MEMBER", "JOB_CLIENT_CONTACT", "LOST_ITEM_PROPERTY_CLIENT", "URGENT_STOCK_PURCHASE_ASK", "URGENT_STOCK_OFFICE", "JOB_OFFICE", "AGENT_ACTION_APPROVER", "ACCOUNT_HOLDER", "MAINTENANCE_ITEM_CLIENT", "MAINTENANCE_OFFICE", "LOST_ITEM_OFFICE", "CLEANER_INVOICE_PAYEE"] as const;
 export type RecipientScopeType = (typeof RECIPIENT_SCOPE_TYPES)[number];
 
 export { STAFF_MESSAGE_ROLES };
@@ -93,7 +97,7 @@ export type RecipientAuthorization =
   | { ok: true; role: Role }
   | { ok: false; errorCode: "recipient_unavailable" | "recipient_not_in_scope" | "unsupported_recipient_scope" };
 
-type ScopeReader = Pick<Prisma.TransactionClient, "user" | "jobAssignment" | "laundryTask" | "job"> & Partial<Pick<Prisma.TransactionClient, "lostFoundItem" | "property" | "urgentStockPurchaseAsk" | "appSetting" | "agentActionRequest" | "propertyMaintenanceItem">>;
+type ScopeReader = Pick<Prisma.TransactionClient, "user" | "jobAssignment" | "laundryTask" | "job"> & Partial<Pick<Prisma.TransactionClient, "lostFoundItem" | "property" | "urgentStockPurchaseAsk" | "appSetting" | "agentActionRequest" | "propertyMaintenanceItem" | "cleanerInvoiceSubmission">>;
 type Recipient = NotificationEnvelope["recipient"];
 
 export function isSupportedEntityScope(type: string): type is RecipientScopeType {
@@ -240,6 +244,11 @@ export async function authorizeEntityRecipient(reader: ScopeReader, recipient: R
       const item = await reader.propertyMaintenanceItem.findUnique({ where: { id: scope.id }, select: { id: true } });
       if (!item) return { ok: false, errorCode: "recipient_not_in_scope" };
       return (await officeFeatureRecipientAllowed(reader, user, "maintenance")) ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
+    }
+    case "CLEANER_INVOICE_PAYEE": {
+      if ((user.role !== "CLEANER" && user.role !== "QA_INSPECTOR") || !reader.cleanerInvoiceSubmission) return { ok: false, errorCode: "recipient_not_in_scope" };
+      const submission = await reader.cleanerInvoiceSubmission.findUnique({ where: { id: scope.id }, select: { cleanerId: true } });
+      return submission && submission.cleanerId === user.id ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
     }
     case "LOST_ITEM_OFFICE": {
       if (!reader.lostFoundItem) return { ok: false, errorCode: "recipient_not_in_scope" };

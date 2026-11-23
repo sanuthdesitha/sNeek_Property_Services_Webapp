@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { EAlert, EButton, ECard } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESaveStatus, ESectionHeading, useSaveStatus } from "./estate-form";
 import { XeroConnectionCard, type XeroStatusView } from "./xero-connection-card";
+import { CleanerBillAccountsCard } from "./xero-cleaner-bill-accounts";
 
 interface XeroInvoiceDefaults {
   defaultAccountCode: string;
@@ -230,7 +231,7 @@ export function XeroSection() {
           <li>Client contacts are created or updated when invoices are pushed</li>
           <li>Cleaner contacts are created as suppliers</li>
           <li>Client invoices arrive as DRAFT invoices (ACCREC) with full line descriptions</li>
-          <li>Cleaner bills arrive as DRAFT bills (ACCPAY)</li>
+          <li>Cleaner bills arrive as DRAFT bills (ACCPAY), on the accounts chosen under Cleaner bills</li>
           <li>GST tax types follow your override or each invoice&apos;s GST toggle</li>
         </ul>
         <p className="mt-3 text-[0.75rem] text-[hsl(var(--e-text-faint))]">
@@ -313,6 +314,8 @@ export function XeroSection() {
           </EButton>
         </div>
       </ECard>
+
+      <CleanerBillAccountsCard />
     </div>
   );
 }

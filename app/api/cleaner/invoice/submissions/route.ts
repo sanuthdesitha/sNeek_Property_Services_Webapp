@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { publicUrl } from "@/lib/s3";
+import { loadAmendmentHistories, payeeAmendmentView } from "@/lib/cleaner/invoice-amend-history";
 import {
   invoiceErrorMessage,
   invoiceErrorStatus,
@@ -41,13 +42,18 @@ export async function GET() {
         // is indistinguishable from one still sitting with accounts.
         changesRequestedAt: true,
         changesRequestedNote: true,
+        // Office amendments (2026-11-23): the payee sees "Amended by the office".
+        amendmentCount: true,
+        amendedAt: true,
       },
       orderBy: { createdAt: "desc" },
       take: 50,
     });
+    const histories = await loadAmendmentHistories(rows.filter((row) => row.amendmentCount > 0).map((row) => row.id));
     return NextResponse.json(
       rows.map((row) => ({
         ...row,
+        amendment: payeeAmendmentView(histories.get(row.id) ?? null),
         // The payee sees the receipt they attached, so a claim they made weeks
         // ago is still self-explanatory while it waits on the office.
         paidClaimedProofUrls: Array.isArray(row.paidClaimedProofKeys)

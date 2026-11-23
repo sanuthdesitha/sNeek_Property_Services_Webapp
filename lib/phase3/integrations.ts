@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { canUseNodePrisma } from "@/lib/database-runtime";
+import { cleanXeroAccountCode, isValidXeroAccountCode } from "@/lib/xero/cleaner-bill-accounts";
 
 const INTEGRATIONS_KEY = "phase3_integrations_v1";
 
@@ -24,6 +25,15 @@ export interface Phase3IntegrationsSettings {
     salesTaxType: string;
     trackingCategory: string;
     contactFallbackEmail: string;
+    /**
+     * Expense account of cleaner (payee) bills: cleaning work. Empty means not
+     * chosen, and the bill push is refused (lib/xero/cleaner-bill-accounts.ts).
+     */
+    cleanerBillAccountCode: string;
+    /** QA inspection lines; empty uses cleanerBillAccountCode (said on screen). */
+    cleanerBillInspectionAccountCode: string;
+    /** Reimbursement lines (shopping, parking, receipts); empty uses cleanerBillAccountCode. */
+    cleanerBillReimbursementAccountCode: string;
   };
   googlePlaces: {
     placeId: string;
@@ -54,6 +64,9 @@ export const DEFAULT_PHASE3_INTEGRATIONS: Phase3IntegrationsSettings = {
     salesTaxType: "",
     trackingCategory: "Branch",
     contactFallbackEmail: "",
+    cleanerBillAccountCode: "",
+    cleanerBillInspectionAccountCode: "",
+    cleanerBillReimbursementAccountCode: "",
   },
   googlePlaces: {
     placeId: "",
@@ -87,6 +100,12 @@ function sanitizeItemCodeMap(input: unknown): Record<string, string> {
     count += 1;
   }
   return out;
+}
+
+/** A stored Xero account code, or "" when absent or unreadable (the route refuses an invalid one). */
+function storedAccountCode(value: unknown): string {
+  const code = cleanXeroAccountCode(value);
+  return isValidXeroAccountCode(code) ? code : "";
 }
 
 function sanitize(input: unknown): Phase3IntegrationsSettings {
@@ -143,6 +162,10 @@ function sanitize(input: unknown): Phase3IntegrationsSettings {
         typeof xeroRaw.contactFallbackEmail === "string"
           ? xeroRaw.contactFallbackEmail.trim().toLowerCase().slice(0, 200)
           : "",
+      // Kept only when it is a readable Xero account code; never defaulted.
+      cleanerBillAccountCode: storedAccountCode(xeroRaw.cleanerBillAccountCode),
+      cleanerBillInspectionAccountCode: storedAccountCode(xeroRaw.cleanerBillInspectionAccountCode),
+      cleanerBillReimbursementAccountCode: storedAccountCode(xeroRaw.cleanerBillReimbursementAccountCode),
     },
     googlePlaces: {
       placeId:

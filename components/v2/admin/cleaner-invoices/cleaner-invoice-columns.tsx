@@ -123,6 +123,8 @@ export function cleanerColumns(input: {
               Sent back {fmtStamp(row.changesRequestedAt)}: {row.changesRequestedNote ? `“${row.changesRequestedNote}”` : "no reason recorded."}
             </span>
           ) : null}
+          {row.amendmentCount ? <EPill tone="warn">Amended by the office</EPill> : null}
+          {row.xeroOutOfDateSince ? <EPill tone="bad">Needs updating in Xero</EPill> : null}
         </span>
       ),
     },
