@@ -17,6 +17,10 @@ import { xeroCreditNoteLineItem, xeroInvoiceReference } from "./client-invoice-x
 import { getPhase3IntegrationsSettings } from "@/lib/phase3/integrations";
 import { actionResult, type InvoiceActionResult } from "./invoice-action-result";
 import { buildXeroLineItems } from "./client-invoice-xero-lines";
+import { resolveClientInvoiceAccounts } from "@/lib/xero/client-invoice-accounts";
+
+/** The code a push or "Update in Xero" answers when no sales account is chosen (409). */
+export const XERO_ACCOUNT_NOT_SET = "XERO_ACCOUNT_NOT_SET";
 
 /**
  * The lines a push (and "Update in Xero") reads: the job's service type and
@@ -105,6 +109,11 @@ async function pushOnce(invoiceId: string): Promise<InvoiceActionResult> {
     if (creditNote && invoice.status !== ClientInvoiceStatus.APPROVED && invoice.status !== ClientInvoiceStatus.SENT) {
       return actionResult({ error: "Approve or send this credit note before pushing it to Xero." }, 409);
     }
+    // The sales account, from Settings › Money › Xero › Client invoices.
+    // Refused before the invoice is reserved or Xero is contacted when none is
+    // chosen; nothing is defaulted (2026-11-23, was "200").
+    const accounts = resolveClientInvoiceAccounts(integrations.xero);
+    if (!accounts.ok) return actionResult({ error: accounts.reason, code: XERO_ACCOUNT_NOT_SET }, 409);
 
     // Only send an explicit tax type when configured (e.g. AU "OUTPUT2"); leaving
     // it undefined lets Xero apply the sales account's own default tax rate,
@@ -120,8 +129,9 @@ async function pushOnce(invoiceId: string): Promise<InvoiceActionResult> {
     // In the PDF's order (grouped by property when the invoice spans more
     // than one), whichever screen or job started the push. The stored
     // sortOrder is not changed. Descriptions, amounts, tax, account and item
-    // codes are mapped as before (client-invoice-xero-lines.ts).
-    const lineItems = buildXeroLineItems(invoice.lines, integrations.xero, taxType);
+    // codes are mapped as before; each line's account is its kind's account
+    // from Settings (client-invoice-xero-lines.ts, client-invoice-accounts.ts).
+    const lineItems = buildXeroLineItems(invoice.lines, integrations.xero, taxType, { creditNote });
     // Reserve a durable export intent under the same row lock as invoice edits.
     // A failure after this point is recorded as FAILED with the provider's
     // sanitised reason (client-invoice-xero-failure.ts); the reservation still

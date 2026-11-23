@@ -101,7 +101,31 @@ export type EditorXeroPanel = {
   settingsError: string | null;
   /** "Update in Xero" (2026-11-18): whether it is offered, and the last attempt stored on the invoice. */
   update?: EditorXeroUpdate;
+  /**
+   * Which Xero account each kind of line on this invoice goes to (Settings ›
+   * Money › Xero › Client invoices, 2026-11-23). Optional so older fixtures stay
+   * valid; the editor always reads it.
+   */
+  accounts?: EditorXeroAccounts;
 };
+
+/** One kind of line on the invoice and the account it goes to. */
+export type EditorXeroAccountGroup = {
+  label: string;
+  /** Null when this kind has no usable account, so the push is refused (see `refusal`). */
+  code: string | null;
+  lines: number;
+  name: string | null;
+  nameReason: string | null;
+  /** Said on screen when the kind uses another account because its own is empty. */
+  fallback: string | null;
+  refusal: string | null;
+};
+
+export type EditorXeroAccounts =
+  | { status: "not-set"; reason: string }
+  | { status: "set"; groups: EditorXeroAccountGroup[]; salesNeedsConfirmation: boolean; salesCode: string }
+  | { status: "error"; message: string };
 
 export type EditorXeroUpdate = {
   available: boolean;

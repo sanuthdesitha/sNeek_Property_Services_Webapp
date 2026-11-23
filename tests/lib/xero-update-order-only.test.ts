@@ -173,7 +173,7 @@ describe("the Xero transport for Update in Xero", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
   const send = (kind: "ACCREC" | "ACCRECCREDIT" = "ACCREC") =>
-    updateClientDocumentInXero({ kind, xeroId: "xero-1", idempotencyKey: "client-invoice-update-inv-k", lineItems: [{ description: "A", quantity: 1, unitAmount: 60 }], gstEnabled: true });
+    updateClientDocumentInXero({ kind, xeroId: "xero-1", idempotencyKey: "client-invoice-update-inv-k", lineItems: [{ description: "A", quantity: 1, unitAmount: 60, accountCode: "4000" }], gstEnabled: true });
 
   it("POSTs to the existing document only, with its key, and never sends status, contact or a create", async () => {
     const result = await send();

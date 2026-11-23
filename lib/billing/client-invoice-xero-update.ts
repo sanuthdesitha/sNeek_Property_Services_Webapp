@@ -21,7 +21,8 @@ import { readXeroCreditNote, readXeroInvoice, updateClientDocumentInXero } from 
 import type { XeroDocument } from "@/lib/xero/xero-documents";
 import { getPhase3IntegrationsSettings } from "@/lib/phase3/integrations";
 import { recordInvoiceAudit } from "./client-invoice-audit";
-import { XERO_PUSH_LINES_INCLUDE } from "./client-invoice-xero";
+import { XERO_ACCOUNT_NOT_SET, XERO_PUSH_LINES_INCLUDE } from "./client-invoice-xero";
+import { resolveClientInvoiceAccounts } from "@/lib/xero/client-invoice-accounts";
 import { buildXeroLineItems, type XeroLineItem } from "./client-invoice-xero-lines";
 import { xeroCreditNoteLineItem } from "./client-invoice-xero-mapping";
 import { recordXeroUpdateFailure, sanitiseXeroFailureReason } from "./client-invoice-xero-failure";
@@ -112,12 +113,17 @@ export async function updateClientInvoiceInXero(input: XeroUpdateInput): Promise
   const kind = creditNote ? "ACCRECCREDIT" : "ACCREC";
   const xeroId = invoice.xeroInvoiceId;
 
+  // No sales account chosen: refused before Xero is read or anything is
+  // reserved, exactly as the push is (2026-11-23, was "200").
+  const accounts = resolveClientInvoiceAccounts(integrations.xero);
+  if (!accounts.ok) return actionResult({ error: accounts.reason, code: XERO_ACCOUNT_NOT_SET }, 409);
+
   // Built before anything is read or reserved: a missing disbursement account
   // refuses here, exactly as the push does.
   let lineItems: XeroLineItem[];
   try {
     const taxType = invoice.gstEnabled === false ? "NONE" : integrations.xero.salesTaxType?.trim() || undefined;
-    lineItems = outgoingLines(buildXeroLineItems(invoice.lines, integrations.xero, taxType), creditNote);
+    lineItems = outgoingLines(buildXeroLineItems(invoice.lines, integrations.xero, taxType, { creditNote }), creditNote);
   } catch (error) {
     return actionResult({ error: error instanceof Error ? error.message : "The lines could not be prepared for Xero." }, 400);
   }

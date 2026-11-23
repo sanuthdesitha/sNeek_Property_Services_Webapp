@@ -294,3 +294,23 @@ describe("route authorization", () => {
     expect((await post({})).status).toBe(400);
   });
 });
+
+describe("accounts (2026-11-23: no silent 200)", () => {
+  it("refuses with no sales account before Xero is read or anything is reserved", async () => {
+    m.settings.mockResolvedValue({ xero: { defaultAccountCode: "", disbursementAccountCode: "", salesTaxType: "", defaultItemCode: "", itemCodeByService: {} } });
+    const result = await run();
+    expect(result.status).toBe(409);
+    expect(result.body).toMatchObject({ code: "XERO_ACCOUNT_NOT_SET", error: expect.stringContaining("Choose the Xero sales account for client invoices") });
+    expect(m.readInvoice).not.toHaveBeenCalled();
+    expect(m.updateDocument).not.toHaveBeenCalled();
+    expect(m.update).not.toHaveBeenCalled();
+  });
+
+  it("sends each line on its kind's account: repairs to the repairs account, the rest to sales", async () => {
+    m.stored.lines = [lines()[0], { ...lines()[1], category: "MAINTENANCE" }];
+    m.settings.mockResolvedValue({ xero: { defaultAccountCode: "4000", clientRepairsAccountCode: "4100", disbursementAccountCode: "", salesTaxType: "", defaultItemCode: "", itemCodeByService: {} } });
+    expect((await run({ confirmTotals: true })).status).toBe(200);
+    const sent = m.updateDocument.mock.calls[0][0].lineItems.map((line: { description: string; accountCode: string }) => [line.description.slice(0, 5), line.accountCode]);
+    expect(Object.fromEntries(sent)).toEqual({ Bondi: "4100", Manly: "4000" });
+  });
+});

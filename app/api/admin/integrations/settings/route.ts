@@ -30,8 +30,14 @@ const schema = z.object({
     .object({
       enabled: z.boolean().optional(),
       tenantId: z.string().trim().max(200).optional(),
-      defaultAccountCode: z.string().trim().max(32).optional(),
-      disbursementAccountCode: z.string().trim().max(32).optional(),
+      // Client invoice accounts (2026-11-23): empty clears (the push is then
+      // refused); anything else must be a Xero account code.
+      defaultAccountCode: accountCode,
+      defaultAccountCodeConfirmed: z.literal(true).optional(),
+      clientRepairsAccountCode: accountCode,
+      clientShoppingAccountCode: accountCode,
+      clientCreditNoteAccountCode: accountCode,
+      disbursementAccountCode: accountCode,
       defaultItemCode: z.string().trim().max(30).optional(),
       itemCodeByService: z.record(z.string().trim().max(30)).optional(),
       salesTaxType: z.string().trim().max(50).optional(),
@@ -64,7 +70,10 @@ export async function GET() {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    // Only administrators change these: both screens that write them
+    // (Settings › Xero, v2 and classic) are administrator-only, and they now
+    // decide which Xero accounts money is booked to (2026-11-23).
+    const session = await requireRole([Role.ADMIN]);
     const body = schema.parse(await req.json().catch(() => ({})));
     const before = await getPhase3IntegrationsSettings();
     const next = await savePhase3IntegrationsSettings(body);

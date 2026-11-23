@@ -18,7 +18,7 @@
  * property name, so the grouping is visible in Xero. Quantities, unit amounts,
  * tax, account and item codes are exactly what the push always sent.
  */
-import { isShoppingDisbursement, shoppingXeroMapping } from "@/lib/finance/shopping-accounting";
+import { isShoppingDisbursement, shoppingXeroMapping, type ShoppingXeroMappingSettings } from "@/lib/finance/shopping-accounting";
 import { groupInvoiceLines, shouldGroupInvoice, type GroupableLine } from "./invoice-grouping";
 
 type PropertyRef = { name?: string | null; suburb?: string | null } | null | undefined;
@@ -48,11 +48,8 @@ export type XeroLineOrder<T extends XeroSourceLine> = {
   lines: OrderedXeroLine<T>[];
 };
 
-/** The Xero integration settings the line mapping reads. */
-export type XeroLineSettings = {
-  defaultAccountCode: string;
-  disbursementAccountCode?: string;
-  salesTaxType?: string;
+/** The Xero integration settings the line mapping reads (accounts: lib/xero/client-invoice-accounts.ts). */
+export type XeroLineSettings = ShoppingXeroMappingSettings & {
   defaultItemCode?: string;
   itemCodeByService?: Record<string, string>;
 };
@@ -112,11 +109,19 @@ function pushDescription(line: XeroSourceLine, sectionProperty: string | null): 
 }
 
 /**
- * Xero line items for an invoice, in the PDF's order. The amount, tax,
- * account and item code of each line are mapped exactly as the push always
- * mapped them; a missing disbursement account still throws before any request.
+ * Xero line items for an invoice, in the PDF's order. The amount, tax and
+ * item code of each line are mapped exactly as the push always mapped them.
+ * Each line's account comes from Settings › Money › Xero › Client invoices
+ * (its kind's account, else the sales account; a credit note's own account
+ * when chosen). With no sales account, or a disbursement without its own
+ * account, this throws before any request (never "200").
  */
-export function buildXeroLineItems(lines: readonly XeroSourceLine[], settings: XeroLineSettings, taxType: string | undefined): XeroLineItem[] {
+export function buildXeroLineItems(
+  lines: readonly XeroSourceLine[],
+  settings: XeroLineSettings,
+  taxType: string | undefined,
+  options: { creditNote?: boolean } = {},
+): XeroLineItem[] {
   const defaultItemCode = settings.defaultItemCode?.trim() || "";
   const itemCodeByService = settings.itemCodeByService ?? {};
   // Per line: the item code mapped to that job's service type, else the
@@ -129,7 +134,7 @@ export function buildXeroLineItems(lines: readonly XeroSourceLine[], settings: X
     description: pushDescription(line, sectionProperty),
     quantity: line.quantity,
     unitAmount: line.unitPrice,
-    ...shoppingXeroMapping(line.category, settings, taxType),
+    ...shoppingXeroMapping(line.category, settings, taxType, { creditNote: options.creditNote }),
     itemCode: isShoppingDisbursement(line.category) ? undefined : itemCodeFor(line),
   }));
 }

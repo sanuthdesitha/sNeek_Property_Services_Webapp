@@ -12,6 +12,9 @@ const m = vi.hoisted(() => ({ client: null as unknown as PrismaClient, read: vi.
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db", () => ({ db: new Proxy({}, { get: (_target, key) => { const value = (m.client as unknown as Record<string | symbol, unknown>)[key]; return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(m.client) : value; } }) }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ pricing: { gstEnabled: false }, invoicing: { defaultPaymentTermsDays: 14 }, timezone: "Australia/Sydney" }), getTransactionAppSettings: async () => ({}) }));
+// Since 2026-11-23 no account is defaulted: the fixture chooses the sales account
+// (stored settings are fixture-wide, so they are not written here).
+vi.mock("@/lib/phase3/integrations", () => ({ getPhase3IntegrationsSettings: async () => ({ xero: { defaultAccountCode: "4000", disbursementAccountCode: "", salesTaxType: "", defaultItemCode: "", itemCodeByService: {} } }) }));
 vi.mock("@/lib/xero/client", () => ({
   readXeroInvoice: m.read,
   readXeroCreditNote: vi.fn(),

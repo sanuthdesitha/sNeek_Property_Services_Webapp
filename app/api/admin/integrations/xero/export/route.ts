@@ -3,6 +3,7 @@ import { QuoteStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getPhase3IntegrationsSettings } from "@/lib/phase3/integrations";
+import { CLIENT_INVOICE_EXPORT_REFUSAL, resolveClientInvoiceAccounts } from "@/lib/xero/client-invoice-accounts";
 
 function csvEscape(value: string) {
   const text = value ?? "";
@@ -35,6 +36,12 @@ export async function GET(req: NextRequest) {
     const settings = await getPhase3IntegrationsSettings();
     if (!settings.xero.enabled) {
       return NextResponse.json({ error: "Xero integration is disabled in settings." }, { status: 400 });
+    }
+    // Accepted quotes export on the client invoice sales account; with none
+    // chosen the export is refused (never "200", 2026-11-23).
+    const accounts = resolveClientInvoiceAccounts(settings.xero, CLIENT_INVOICE_EXPORT_REFUSAL);
+    if (!accounts.ok) {
+      return NextResponse.json({ error: accounts.reason, code: "XERO_ACCOUNT_NOT_SET" }, { status: 409 });
     }
 
     const quotes = await db.quote.findMany({
@@ -83,7 +90,7 @@ export async function GET(req: NextRequest) {
           csvEscape(`${String(quote.serviceType).replace(/_/g, " ")} quote`),
           csvEscape("1"),
           csvEscape(Number(quote.subtotal).toFixed(2)),
-          csvEscape(settings.xero.defaultAccountCode || "200"),
+          csvEscape(accounts.accounts.sales),
           csvEscape(taxType),
           csvEscape(settings.xero.trackingCategory || "Branch"),
           csvEscape("Default"),
