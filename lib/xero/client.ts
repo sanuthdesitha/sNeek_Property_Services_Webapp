@@ -363,6 +363,18 @@ export async function syncXeroContact(input: {
 // ── Invoices ──
 
 /**
+ * Client invoice, credit note and "Update in Xero" lines each name their
+ * account (lib/xero/client-invoice-accounts.ts). Before 2026-11-23 a line
+ * without one went to "200"; a line that still arrives without one now stops
+ * the request before Xero is contacted.
+ */
+function requireClientLineAccounts(lines: ReadonlyArray<{ accountCode?: string }>): void {
+  if (lines.some((line) => !line.accountCode || !line.accountCode.trim())) {
+    throw new Error("Choose the Xero sales account for client invoices in Settings › Money › Xero before pushing. Nothing was sent to Xero.");
+  }
+}
+
+/**
  * Push a client invoice to Xero as a DRAFT invoice.
  */
 export async function pushClientInvoiceToXero(input: {
@@ -377,6 +389,7 @@ export async function pushClientInvoiceToXero(input: {
   reference?: string;
   gstEnabled?: boolean;
 }): Promise<{ xeroInvoiceId: string; contactId: string }> {
+  requireClientLineAccounts(input.lineItems);
   await requireXeroToken();
 
   // Ensure contact exists
@@ -405,7 +418,8 @@ export async function pushClientInvoiceToXero(input: {
         Description: line.description,
         Quantity: line.quantity,
         UnitAmount: line.unitAmount,
-        AccountCode: line.accountCode || "200", // Sales account
+        // Always the line's own account (checked above); never a guessed one.
+        AccountCode: line.accountCode!.trim(),
       };
       // TaxType: only send an explicit code when the admin configured one — its
       // value is region-specific (e.g. AU uses OUTPUT2, NZ uses OUTPUT), and a
@@ -453,6 +467,7 @@ export async function pushClientCreditNoteToXero(input: {
   reference?: string;
   gstEnabled?: boolean;
 }): Promise<{ xeroCreditNoteId: string; contactId: string }> {
+  requireClientLineAccounts(input.lineItems);
   await requireXeroToken();
 
   let contactId = input.clientXeroContactId;
@@ -472,7 +487,7 @@ export async function pushClientCreditNoteToXero(input: {
         Description: line.description,
         Quantity: line.quantity,
         UnitAmount: line.unitAmount,
-        AccountCode: line.accountCode || "200",
+        AccountCode: line.accountCode!.trim(),
       };
       if (line.taxType && line.taxType.trim()) item.TaxType = line.taxType.trim();
       else if (!gstOn) item.TaxType = "NONE";
@@ -498,7 +513,7 @@ function xeroUpdateLineItem(line: { description: string; quantity: number; unitA
     Description: line.description,
     Quantity: line.quantity,
     UnitAmount: line.unitAmount,
-    AccountCode: line.accountCode || "200",
+    AccountCode: line.accountCode!.trim(),
   };
   if (line.taxType && line.taxType.trim()) item.TaxType = line.taxType.trim();
   else if (!gstOn) item.TaxType = "NONE";
@@ -523,6 +538,7 @@ export async function updateClientDocumentInXero(input: {
   lineItems: Array<{ description: string; quantity: number; unitAmount: number; accountCode?: string; taxType?: string; itemCode?: string }>;
   gstEnabled?: boolean;
 }): Promise<XeroDocumentUpdate> {
+  requireClientLineAccounts(input.lineItems);
   await requireXeroToken();
   const gstOn = input.gstEnabled !== false;
   const creditNote = input.kind === "ACCRECCREDIT";

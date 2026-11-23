@@ -116,7 +116,7 @@ describe("the 30-minute lapse (regression, public functions)", () => {
       apiCalls += 1;
       return apiCalls === 1 ? fail(401, { Title: "Unauthorized" }) : ok({ Invoices: [{ InvoiceID: "remote-1" }] });
     });
-    const result = await pushClientInvoiceToXero({ idempotencyKey: "key-1", invoiceNumber: "INV-1", clientName: "Client", clientEmail: "c@example.invalid", clientXeroContactId: "contact", lineItems: [{ description: "Work", quantity: 1, unitAmount: 10 }] });
+    const result = await pushClientInvoiceToXero({ idempotencyKey: "key-1", invoiceNumber: "INV-1", clientName: "Client", clientEmail: "c@example.invalid", clientXeroContactId: "contact", lineItems: [{ description: "Work", quantity: 1, unitAmount: 10, accountCode: "4000" }] });
     expect(result.xeroInvoiceId).toBe("remote-1");
     expect(exchanges).toBe(1);
     expect(apiCalls).toBe(2);

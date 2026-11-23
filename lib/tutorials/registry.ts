@@ -233,7 +233,7 @@ export const TOURS: readonly TourDefinition[] = [
     roles: ADMIN_OFFICE,
     route: "/v2/admin/finance?tab=invoices",
     title: "Send an invoice",
-    version: 4,
+    version: 5,
     practice: { banner: "Practice · nothing is emailed or sent to Xero", exitHref: "/v2/admin/finance?tab=invoices" },
     steps: [
       { id: "list", target: "admin.finance.invoices.list", since: 1, requiresHref: "/v2/admin/finance?tab=invoices", title: "Drafts to check", body: "Draft invoices are ready to check. Each lists the cleans it covers." },
@@ -241,6 +241,7 @@ export const TOURS: readonly TourDefinition[] = [
       { id: "preview", target: "admin.finance.invoice.preview", since: 1, practice: true, route: "/v2/admin/finance/invoices/practice", title: "What the client sees", body: "This is the email the client gets, with the PDF attached." },
       { id: "send", target: "admin.finance.invoice.send", since: 2, practice: true, route: "/v2/admin/finance/invoices/practice", requiresManageHref: "/v2/admin/finance?tab=invoices", title: "Send to the client", body: "Send to client: emailed and sent to Xero; in practice nothing goes. Change recipients in the Send box sets who gets this client's invoices." },
       { id: "xeroUpdate", target: "admin.finance.invoice.xero", since: 3, practice: true, route: "/v2/admin/finance/invoices/practice", requiresManageHref: "/v2/admin/finance?tab=invoices", title: "Update in Xero", body: "After pushing, Update in Xero re-sends these lines, grouped by property, to the same Xero invoice. Paid invoices stay as they are." },
+      { id: "xeroAccounts", target: "admin.finance.invoice.xero", since: 5, practice: true, route: "/v2/admin/finance/invoices/practice", requiresManageHref: "/v2/admin/finance?tab=invoices", title: "Which Xero account", body: "The Xero card shows which account each kind of line goes to. With no sales account chosen in Settings, pushing is refused." },
       { id: "status", target: "admin.finance.invoice.status", since: 1, practice: true, route: "/v2/admin/finance/invoices/practice", title: "Sent isn't paid", body: "Sent isn't paid. It turns Paid only when the payment or Xero confirms it." },
     ],
   },

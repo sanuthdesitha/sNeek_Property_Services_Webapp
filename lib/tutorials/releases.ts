@@ -24,6 +24,15 @@ export type ReleaseNote = {
 
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    release: "2026.11.23-xero-client-invoice-accounts",
+    date: "2026-11-23",
+    author: "Xero accounts for client invoices and shopping",
+    items: [
+      { change: "The invoice's Xero card lists the Xero account each kind of line goes to (sales, repairs, shopping, disbursements, credit notes), or why the push is refused when no sales account is chosen.", covered: { tourKey: "admin.finance.send", version: 5, stepIds: ["xeroAccounts"] } },
+      { change: "Settings › Money › Xero: a Client invoices card holds the sales, repairs, shopping recharges, credit notes and agency disbursements accounts; the Invoice defaults card no longer shows the two account fields.", noVisibleChange: "Settings › Xero has no tour; recorded here so the change is listed." },
+    ],
+  },
+  {
     release: "2026.11.23-cleaner-invoice-amendments",
     date: "2026-11-23",
     author: "Cleaner invoice amendments, one-off jobs, Xero cleaner bill accounts",

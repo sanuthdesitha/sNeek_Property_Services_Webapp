@@ -10,6 +10,7 @@ import { publicUrl } from "@/lib/s3";
 import { getAppSettings } from "@/lib/settings";
 import { calculateShoppingAwareInvoiceTotals } from "./shopping-client-charges";
 import { shoppingXeroMapping } from "@/lib/finance/shopping-accounting";
+import { CLIENT_INVOICE_EXPORT_REFUSAL } from "@/lib/xero/client-invoice-accounts";
 import { getPhase3IntegrationsSettings } from "@/lib/phase3/integrations";
 import { computeClientCharge } from "@/lib/finance/job-money";
 import { assertHolidayRateSnapshots } from "@/lib/finance/holiday-rates";
@@ -1050,19 +1051,25 @@ export async function buildClientInvoiceXeroCsv(invoice: NonNullable<Awaited<Ret
   ];
   // The PDF's order (grouped by property across properties), the same rule
   // the API push uses, so an imported CSV reads like the PDF too.
-  const rows = xeroLineOrder(invoice.lines).lines.map(({ line, sectionProperty }) => [
-    invoice.client.name,
-    invoice.client.email || "",
-    invoice.invoiceNumber,
-    format(new Date(invoice.createdAt), "yyyy-MM-dd"),
-    format(new Date(invoice.periodEnd || invoice.createdAt), "yyyy-MM-dd"),
-    withSectionProperty(line.description, sectionProperty),
-    line.quantity.toFixed(2),
-    line.unitPrice.toFixed(2),
-    shoppingXeroMapping(line.category, integrationSettings.xero, taxType).taxType ?? taxType,
-    shoppingXeroMapping(line.category, integrationSettings.xero, taxType).accountCode,
-    line.job?.jobNumber || line.job?.id || line.id,
-  ]);
+  // Each line's account from Settings › Money › Xero › Client invoices; with no
+  // sales account the export is refused (never "200", 2026-11-23).
+  const mappingOptions = { creditNote: invoice.kind === "CREDIT_NOTE", refusal: CLIENT_INVOICE_EXPORT_REFUSAL };
+  const rows = xeroLineOrder(invoice.lines).lines.map(({ line, sectionProperty }) => {
+    const mapping = shoppingXeroMapping(line.category, integrationSettings.xero, taxType, mappingOptions);
+    return [
+      invoice.client.name,
+      invoice.client.email || "",
+      invoice.invoiceNumber,
+      format(new Date(invoice.createdAt), "yyyy-MM-dd"),
+      format(new Date(invoice.periodEnd || invoice.createdAt), "yyyy-MM-dd"),
+      withSectionProperty(line.description, sectionProperty),
+      line.quantity.toFixed(2),
+      line.unitPrice.toFixed(2),
+      mapping.taxType ?? taxType,
+      mapping.accountCode,
+      line.job?.jobNumber || line.job?.id || line.id,
+    ];
+  });
   return [header, ...rows]
     .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","))
     .join("\n");

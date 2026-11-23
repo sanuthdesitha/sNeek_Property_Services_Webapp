@@ -11,8 +11,9 @@ it.each(["", "200"])("does not silently map disbursements into sales: %s", disbu
   expect(() => shoppingXeroMapping("SHOPPING_DISBURSEMENT", { defaultAccountCode: "200", disbursementAccountCode })).toThrow("separate balance-sheet");
 });
 
-it("validates agency accounts against the effective sales fallback", () => {
- expect(() => shoppingXeroMapping("SHOPPING_DISBURSEMENT", { defaultAccountCode: " ", disbursementAccountCode: "200" })).toThrow("separate balance-sheet");
+it("refuses with no sales account instead of falling back to 200 (2026-11-23)", () => {
+ expect(() => shoppingXeroMapping("SHOPPING_DISBURSEMENT", { defaultAccountCode: " ", disbursementAccountCode: "200" })).toThrow("Choose the Xero sales account for client invoices");
+ expect(() => shoppingXeroMapping("SHOPPING_TIME", { defaultAccountCode: "" })).toThrow("Choose the Xero sales account for client invoices");
 });
 it("preserves invoice no-GST treatment despite configured sales tax", () => {
  expect(shoppingXeroMapping("SHOPPING_TIME", { defaultAccountCode: "200", salesTaxType: "OUTPUT" }, "NONE")).toEqual({ accountCode: "200", taxType: "NONE" });

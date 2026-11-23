@@ -7,11 +7,12 @@
  * could work (otherwise disabled with the reason), "Push to Xero when sent"
  * runs the existing idempotent push after a successful send.
  */
+import Link from "next/link";
 import { tourTarget } from "@/lib/tutorials/targets";
 import { formatInTimeZone } from "date-fns-tz";
 import { EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
-import type { ClientInvoiceEditorData, EditorXeroUpdate, HistoryEntry } from "@/lib/billing/client-invoice-editor-types";
+import type { ClientInvoiceEditorData, EditorXeroAccounts, EditorXeroUpdate, HistoryEntry } from "@/lib/billing/client-invoice-editor-types";
 import { XERO_LINE_CHANGE_LABEL } from "@/lib/billing/client-invoice-xero-update-rules";
 import { xeroDisplay } from "@/lib/billing/client-invoice-xero-display";
 
@@ -213,6 +214,87 @@ function XeroUpdateControl({
   );
 }
 
+const SETTINGS_XERO_HREF = "/v2/admin/settings?tab=xero";
+
+/**
+ * Which Xero account each kind of line on this invoice goes to, from Settings ›
+ * Money › Xero › Client invoices (2026-11-23), or why a push is refused. An
+ * empty optional account says which account its lines use instead.
+ */
+function InvoiceAccounts({ accounts }: { accounts: EditorXeroAccounts }) {
+  if (accounts.status === "error") {
+    return <span role="alert" className="text-[hsl(var(--e-danger))]">The Xero accounts could not be read: {accounts.message}</span>;
+  }
+  if (accounts.status === "not-set") {
+    return (
+      <span className="block text-[hsl(var(--e-danger))]">
+        Not chosen. Push to Xero, Update in Xero and the CSV export are refused until an administrator chooses the sales account in{" "}
+        <Link href={SETTINGS_XERO_HREF} className="underline underline-offset-2">
+          Settings › Money › Xero
+        </Link>
+        . Nothing is sent to a default account.
+      </span>
+    );
+  }
+  // One reason for every unnamed account (e.g. "Xero is not connected.") is said once, under the list.
+  const unnamedReasons = new Set(accounts.groups.filter((group) => group.code && !group.name).map((group) => group.nameReason ?? ""));
+  const sharedReason = unnamedReasons.size === 1 ? Array.from(unnamedReasons)[0] : null;
+  return (
+    <>
+      <ul className="space-y-1">
+        {accounts.groups.map((group) => (
+          <li key={group.label}>
+            <span className="text-[hsl(var(--e-text-secondary))]">{group.label}:</span>{" "}
+            {group.code ? (
+              <>
+                <span className="e-tnum">{group.code}</span>
+                {group.name ? ` · ${group.name}` : " · name unavailable"}
+              </>
+            ) : (
+              <span className="text-[hsl(var(--e-danger))]">no account, so the push will be refused</span>
+            )}
+            {group.fallback ? <span className={`block ${MUTED}`}>{group.fallback}</span> : null}
+            {group.code && !group.name && group.nameReason && sharedReason === null ? <span className={`block ${MUTED}`}>{group.nameReason}</span> : null}
+            {group.refusal ? <span className={`block ${MUTED}`}>{group.refusal}</span> : null}
+          </li>
+        ))}
+      </ul>
+      {sharedReason ? <span className={`mt-1 block ${MUTED}`}>Account names: {sharedReason}</span> : null}
+      {accounts.salesNeedsConfirmation ? (
+        <span className={`mt-1 block ${MUTED}`}>
+          The sales account {accounts.salesCode} was stored before accounts had to be chosen. It is still used; confirm or change it in{" "}
+          <Link href={SETTINGS_XERO_HREF} className="underline underline-offset-2">
+            Settings › Money › Xero
+          </Link>
+          .
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+/** The single-account line older data shows (practice samples without the accounts view). */
+function LegacyAccount({ data }: { data: ClientInvoiceEditorData }) {
+  const { xero } = data;
+  return (
+    <>
+      {xero.salesAccountCode
+        ? xero.salesAccountName
+          ? `${xero.salesAccountCode} · ${xero.salesAccountName}`
+          : `${xero.salesAccountCode} · name unavailable`
+        : "Not chosen"}
+      {xero.salesAccountCode && !xero.salesAccountName && xero.salesAccountNameReason ? (
+        <span className={`block ${MUTED}`}>{xero.salesAccountNameReason}</span>
+      ) : null}
+      {xero.hasDisbursementLines ? (
+        <span className={`block ${MUTED}`}>
+          Shopping disbursements: {xero.disbursementAccountCode ?? "no account set, so the push will be refused"}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 export function XeroCard({
   data,
   onRefresh,
@@ -248,19 +330,7 @@ export function XeroCard({
         </dd>
         <dt className="text-[hsl(var(--e-muted-foreground))]">Account</dt>
         <dd className="min-w-0 break-words">
-          {xero.salesAccountCode
-            ? xero.salesAccountName
-              ? `${xero.salesAccountCode} · ${xero.salesAccountName}`
-              : `${xero.salesAccountCode} · name unavailable`
-            : "Unknown"}
-          {xero.salesAccountCode && !xero.salesAccountName && xero.salesAccountNameReason ? (
-            <span className={`block ${MUTED}`}>{xero.salesAccountNameReason}</span>
-          ) : null}
-          {xero.hasDisbursementLines ? (
-            <span className={`block ${MUTED}`}>
-              Shopping disbursements: {xero.disbursementAccountCode ?? "no account set, so the push will be refused"}
-            </span>
-          ) : null}
+          {xero.accounts ? <InvoiceAccounts accounts={xero.accounts} /> : <LegacyAccount data={data} />}
         </dd>
         <dt className="text-[hsl(var(--e-muted-foreground))]">State</dt>
         <dd className="min-w-0">{xeroStateText(data)}</dd>
