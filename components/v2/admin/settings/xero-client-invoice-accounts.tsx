@@ -51,7 +51,7 @@ const FIELDS: FieldSpec[] = [
     id: "xero-client-sales",
     label: "Sales account (required)",
     hint: "Cleaning services, extras on job lines, other charges and discounts. Without it, pushing a client invoice to Xero is refused.",
-    placeholder: "e.g. 200",
+    placeholder: "Xero account code",
   },
   {
     key: "clientRepairsAccountCode",

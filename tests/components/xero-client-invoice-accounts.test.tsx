@@ -126,4 +126,22 @@ describe("invoice editor Xero card", () => {
     expect(screen.getByText("no account, so the push will be refused")).toBeVisible();
     expect(screen.getByText(/The sales account 200 was stored before accounts had to be chosen/)).toBeVisible();
   });
+
+  it("says a reason shared by every unnamed account once", () => {
+    render(
+      <XeroCard
+        data={withAccounts({
+          status: "set",
+          salesNeedsConfirmation: false,
+          salesCode: "4000",
+          groups: [
+            { label: "Cleaning services and other charges", code: "4000", lines: 1, name: null, nameReason: "Xero is not connected.", fallback: null, refusal: null },
+            { label: "Repairs the client covers", code: "4100", lines: 1, name: null, nameReason: "Xero is not connected.", fallback: null, refusal: null },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getAllByText(/Xero is not connected\./)).toHaveLength(1);
+    expect(screen.getByText("Account names: Xero is not connected.")).toBeVisible();
+  });
 });

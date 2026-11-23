@@ -236,6 +236,9 @@ function InvoiceAccounts({ accounts }: { accounts: EditorXeroAccounts }) {
       </span>
     );
   }
+  // One reason for every unnamed account (e.g. "Xero is not connected.") is said once, under the list.
+  const unnamedReasons = new Set(accounts.groups.filter((group) => group.code && !group.name).map((group) => group.nameReason ?? ""));
+  const sharedReason = unnamedReasons.size === 1 ? Array.from(unnamedReasons)[0] : null;
   return (
     <>
       <ul className="space-y-1">
@@ -251,11 +254,12 @@ function InvoiceAccounts({ accounts }: { accounts: EditorXeroAccounts }) {
               <span className="text-[hsl(var(--e-danger))]">no account, so the push will be refused</span>
             )}
             {group.fallback ? <span className={`block ${MUTED}`}>{group.fallback}</span> : null}
-            {group.code && !group.name && group.nameReason ? <span className={`block ${MUTED}`}>{group.nameReason}</span> : null}
+            {group.code && !group.name && group.nameReason && sharedReason === null ? <span className={`block ${MUTED}`}>{group.nameReason}</span> : null}
             {group.refusal ? <span className={`block ${MUTED}`}>{group.refusal}</span> : null}
           </li>
         ))}
       </ul>
+      {sharedReason ? <span className={`mt-1 block ${MUTED}`}>Account names: {sharedReason}</span> : null}
       {accounts.salesNeedsConfirmation ? (
         <span className={`mt-1 block ${MUTED}`}>
           The sales account {accounts.salesCode} was stored before accounts had to be chosen. It is still used; confirm or change it in{" "}
