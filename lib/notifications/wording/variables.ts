@@ -135,6 +135,10 @@ const DICTIONARY: Record<string, Entry> = {
   fixHtml: { label: "What needs fixing (line breaks kept)", sample: "Remove the 12 Nov job.<br/>Add the oven clean.", format: "html" },
   invoiceNumberPart: { label: "Invoice number (empty when none)", sample: " (<strong>INV-0042</strong>)", format: "html" },
   invoicesUrl: { label: "Invoices link", sample: "https://app.sneek.au/v2/cleaner/invoices", format: "url" },
+  changesText: { label: "What changed (plain text, with the new total)", sample: "Changed “12 Nov · Manly Loft”: line $120.00 → $100.00. Total $320.00 → $300.00." },
+  originalTotal: { label: "Total before the amendment", sample: "$320.00" },
+  newTotal: { label: "Amended total", sample: "$300.00" },
+  pdfUrl: { label: "Amended invoice download link", sample: "https://app.sneek.au/api/cleaner/invoice/submissions/1/pdf", format: "url" },
   // Summaries
   caseItems: { label: "Stale cases (list items)", sample: "<li>Broken lock (DAMAGE) - Manly Loft - Job J-1061 - stale for 3 days</li>", format: "html" },
   casesUrl: { label: "Cases link", sample: "https://app.sneek.au/admin/cases", format: "url" },

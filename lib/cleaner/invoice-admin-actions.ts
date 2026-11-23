@@ -244,17 +244,22 @@ async function recordXeroPushFailure(submissionId: string, actorId: string, erro
   }
 }
 
-/** Hard-delete an unexported, unpaid invoice and hand its work back. */
+export const AMENDED_DELETE_REFUSAL =
+  "The office amended this invoice, so it is kept with its amendment history and cannot be deleted. Reverse it instead to hand its work back.";
+
+/** Hard-delete an unexported, unpaid, never-amended invoice and hand its work back. */
 export async function deleteCleanerInvoice(id: string, actor: CleanerInvoiceActor): Promise<CleanerActionResult> {
   const existing = await db.cleanerInvoiceSubmission.findUnique({ where: { id } });
   if (!existing) return result({ error: "Submission not found." }, 404);
   const answer = cleanerInvoiceTransition("delete", existing, actor.role);
   if (!answer.ok) return result({ error: answer.reason }, answer.status);
+  // An amended invoice keeps its history (CleanerInvoiceRevision): reverse it instead.
+  if (existing.amendmentCount > 0) return result({ error: AMENDED_DELETE_REFUSAL }, 409);
   const released = await db.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.cleanerId}))`;
     await tx.$queryRaw`SELECT "id" FROM "CleanerInvoiceSubmission" WHERE "id" = ${id} FOR UPDATE`;
     const locked = await tx.cleanerInvoiceSubmission.findUnique({ where: { id } });
-    if (!locked || locked.status !== existing.status || locked.xeroBillId || locked.paidAt || locked.paidAmount != null) {
+    if (!locked || locked.status !== existing.status || locked.xeroBillId || locked.paidAt || locked.paidAmount != null || locked.amendmentCount > 0) {
       throw new Error("Invoice changed or has payment evidence. Refresh before deleting.");
     }
     const counts = await releaseCleanerInvoiceConsumables(tx, id);

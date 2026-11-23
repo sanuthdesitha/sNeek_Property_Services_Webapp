@@ -77,8 +77,8 @@ export function LinesCard({ review }: { review: CleanerInvoiceReview }) {
   return (
     <section aria-labelledby="ci-lines" className="min-w-0 overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
       <div className="flex flex-wrap items-baseline justify-between gap-2 px-4 pb-2 pt-3.5">
-        <h2 id="ci-lines" className="text-[0.9375rem] font-[600]">Lines as submitted</h2>
-        <p className={cn("text-[0.75rem]", MUTED)}>The snapshot {firstName(row)} sent. Nothing here is edited; a wrong line is sent back with Request changes.</p>
+        <h2 id="ci-lines" className="text-[0.9375rem] font-[600]">{row.amendmentCount ? "Lines as amended" : "Lines as submitted"}</h2>
+        <p className={cn("text-[0.75rem]", MUTED)}>{row.amendmentCount ? `Amended by the office; ${firstName(row)}'s original lines are kept in the amendment history.` : `The snapshot ${firstName(row)} sent.`} Change lines with Amend this invoice, or send it back with Request changes.</p>
       </div>
       {lines.length ? (
         <>

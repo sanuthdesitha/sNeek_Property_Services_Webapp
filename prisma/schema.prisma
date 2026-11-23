@@ -3898,11 +3898,62 @@ model CleanerInvoiceSubmission {
   paymentMethod   String? // how it was paid: BANK_TRANSFER | CARD | CASH | XERO | OTHER
   paidDate        DateTime? // date the money was actually sent (vs paidAt = record timestamp)
   paidAt          DateTime?
+  /// Office amendments after submission (2026-11-23): how many were made and
+  /// when the latest was. `lineData.lines`, `totalAmount` and `hours` hold the
+  /// amended figures; the payee's original submission and every amendment are
+  /// kept, before and after, in CleanerInvoiceRevision.
+  amendmentCount     Int       @default(0)
+  amendedAt          DateTime?
+  /// Set when an amendment changed an invoice that is already a Xero bill: the
+  /// bill in Xero still shows the earlier lines until someone updates it there
+  /// and records that they did. Never cleared by the amendment itself.
+  xeroOutOfDateSince DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
+  revisions CleanerInvoiceRevision[]
+
   @@index([cleanerId])
   @@index([status])
+}
+
+/// One office amendment of a submitted payee invoice (2026-11-23). Append-only:
+/// revision 1's `beforeLines` is the payee's original submission. Who is the
+/// actual person (never a tested-as subject); the reason is required.
+model CleanerInvoiceRevision {
+  id           String   @id @default(cuid())
+  submissionId String
+  /// 1, 2, 3… per submission.
+  revision     Int
+  /// The office request's idempotency key; a retry with the same key returns this row.
+  requestKey   String   @unique
+  /// Hash of the request body, so a reused key with different changes is refused.
+  requestHash  String
+  actorUserId  String
+  actorRole    String
+  reason       String   @db.Text
+  /// Optional note printed on the amended invoice.
+  note         String?  @db.Text
+  statusBefore String
+  statusAfter  String
+  beforeLines  Json
+  afterLines   Json
+  /// Per-line changes (added / removed / changed, before and after).
+  changes      Json
+  beforeTotal  Float
+  afterTotal   Float
+  beforeHours  Float
+  afterHours   Float
+  /// The Xero bill id when the invoice was already in Xero (it then needs updating there).
+  xeroBillId   String?
+  /// What happened to the payee's notice (inbox and email outcomes); null until sent.
+  notification Json?
+  createdAt    DateTime @default(now())
+
+  submission CleanerInvoiceSubmission @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+
+  @@unique([submissionId, revision])
+  @@index([submissionId, createdAt])
 }
 
 model ClientInvoiceLine {

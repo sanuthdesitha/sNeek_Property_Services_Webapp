@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { renderCleanerInvoicePdf } from "@/lib/cleaner/invoice";
 import { buildSubmittedInvoiceHtml } from "@/lib/cleaner/invoice-snapshot-pdf";
+import { latestSnapshotAmendment, loadAmendmentHistory } from "@/lib/cleaner/invoice-amend-history";
 
 export const dynamic = "force-dynamic";
 
@@ -18,11 +19,13 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const submission = await db.cleanerInvoiceSubmission.findUnique({ where: { id: params.id } });
     if (!submission) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
-    const [payee, settings] = await Promise.all([
+    const [payee, settings, history] = await Promise.all([
       db.user.findUnique({ where: { id: submission.cleanerId }, select: { name: true, email: true } }),
       getAppSettings(),
+      // An amended invoice prints what the office changed (2026-11-23).
+      submission.amendmentCount > 0 ? loadAmendmentHistory(submission.id) : Promise.resolve(null),
     ]);
-    const html = buildSubmittedInvoiceHtml(submission, payee?.name || payee?.email || "Payee", settings.companyName);
+    const html = buildSubmittedInvoiceHtml(submission, payee?.name || payee?.email || "Payee", settings.companyName, latestSnapshotAmendment(history));
     const pdf = await renderCleanerInvoicePdf(html);
     const inline = new URL(req.url).searchParams.get("inline") === "1";
     const fileName = `${(submission.invoiceNumber ?? `payee-invoice-${submission.id}`).replace(/[^A-Za-z0-9._-]/g, "_")}.pdf`;

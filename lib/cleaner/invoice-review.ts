@@ -12,6 +12,7 @@ import { withPayees } from "./invoice-admin-list";
 import type { CleanerInvoiceRow } from "./invoice-admin-list-types";
 import { CLEANER_INVOICE_STATUS_LABEL, type CleanerInvoiceStatus } from "./invoice-transitions";
 import { getAppSettings } from "@/lib/settings";
+import { loadAmendmentHistory, type AmendmentHistory } from "./invoice-amend-history";
 import {
   cleanerInvoiceLines,
   cleanerInvoicePayRequests,
@@ -46,6 +47,8 @@ export type CleanerInvoiceReview = {
   paymentRecordedBy: string | null;
   /** The organisation timezone history is shown in. */
   timezone: string;
+  /** Office amendments, newest first (2026-11-23); null when never amended. Optional for older fixtures. */
+  amendments?: AmendmentHistory | null | { error: string };
 };
 
 export type CleanerInvoiceReviewOptions = {
@@ -108,6 +111,10 @@ export function describeCleanerAudit(action: string, after: unknown): string {
       return "Payee said it has been paid";
     case "CLEANER_INVOICE_XERO_PUSH_FAILED":
       return `Push to Xero did not finish${field(after, "reason") ? `: ${field(after, "reason")}` : ""}`;
+    case "CLEANER_INVOICE_AMENDED":
+      return `Amended by the office (amendment ${field(after, "revision") ?? "?"})${field(after, "reason") ? `: ${field(after, "reason")}` : ""}`;
+    case "CLEANER_INVOICE_XERO_MARKED_UPDATED":
+      return `Xero bill marked as updated by hand${field(after, "note") ? `: ${field(after, "note")}` : ""}`;
     case "CLEANER_INVOICE_DELIVERY_REVIEWED":
       return `Delivery reviewed: ${field(after, "resolution") === "CONFIRMED_SENT" ? "confirmed received" : "confirmed not delivered"}`;
     default:
@@ -161,13 +168,14 @@ export async function loadCleanerInvoiceReview(id: string, options: CleanerInvoi
   const submission = await db.cleanerInvoiceSubmission.findUnique({ where: { id } });
   if (!submission) return null;
   const [row] = await withPayees([submission]);
-  const [history, comparison, lines, payRequests, xero, settings] = await Promise.all([
+  const [history, comparison, lines, payRequests, xero, settings, amendments] = await Promise.all([
     readHistory(row),
     readComparison(row),
     part(() => cleanerInvoiceLines(row), "The lines could not be read."),
     part(() => cleanerInvoicePayRequests(row.id, options), "The pay requests could not be read."),
     part(() => cleanerInvoiceXero(row), "The Xero state could not be read."),
     getAppSettings().catch(() => null),
+    submission.amendmentCount > 0 ? part(() => loadAmendmentHistory(row.id), "The amendments could not be read.") : Promise.resolve(null),
   ]);
   const approvedAt = "error" in history ? null : history.approvedAt;
   return {
@@ -180,5 +188,6 @@ export async function loadCleanerInvoiceReview(id: string, options: CleanerInvoi
     xero,
     paymentRecordedBy: "error" in history ? null : history.paymentRecordedBy,
     timezone: settings?.timezone || "Australia/Sydney",
+    amendments,
   };
 }
