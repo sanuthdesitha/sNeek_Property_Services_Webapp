@@ -13,6 +13,8 @@ import { formatMoney, moneyText, type MoneyFigure } from "@/lib/jobs/job-page/mo
 import { PhoneFold } from "@/components/v2/admin/phone-fold";
 import { JobLinkedActions } from "./job-linked-actions";
 import { titleCase, type JobPageData } from "./job-page-data";
+import { isFallbackClientName } from "@/lib/jobs/service-site";
+import { isOneOffSite } from "@/lib/properties/portfolio-rules";
 
 function RailCard({ title, action, children, id, fold = false }: { title: string; action?: ReactNode; children: ReactNode; id?: string; fold?: boolean }) {
   const headingId = `rail-${title.toLowerCase().replace(/\s+/g, "-")}`;
@@ -83,6 +85,12 @@ function PeopleCard({ data }: { data: JobPageData }) {
           {client ? (
             <>
               <Link href={`/v2/admin/clients/${client.id}`} className="font-[550] text-[hsl(var(--e-accent-portal))] hover:underline">{client.name}</Link>
+              {isFallbackClientName(client.name) && isOneOffSite(job.property?.accessInfo) ? (
+                <div className="text-[hsl(var(--e-muted-foreground))]">
+                  One-off site with no client yet.{" "}
+                  {data.viewer.readOnly ? null : <a href="#attach-client" className="text-[hsl(var(--e-accent-portal))] hover:underline">Attach to client</a>}
+                </div>
+              ) : null}
               <div className="text-[hsl(var(--e-muted-foreground))]">
                 {client.phone ? <a href={`tel:${client.phone}`} className="hover:underline">{client.phone}</a> : null}
                 {client.phone && client.email ? " · " : null}

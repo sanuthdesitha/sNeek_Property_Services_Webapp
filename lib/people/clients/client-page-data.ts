@@ -9,6 +9,7 @@ import { ClientInvoiceStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getFinanceSummary } from "@/lib/finance/summary";
 import { sydneyTodayKey, addDaysToKey } from "@/lib/time/sydney-range";
+import { isOneOffSite } from "@/lib/properties/portfolio-rules";
 
 export async function loadClientPageData(id: string) {
   const client = await db.client
@@ -54,9 +55,11 @@ export async function loadClientPageData(id: string) {
               jobType: true,
               status: true,
               scheduledDate: true,
-              property: { select: { name: true, suburb: true } },
+              property: { select: { name: true, suburb: true, accessInfo: true } },
             },
           })
+          // A one-off site's job is labelled as such in Recent jobs (2026-11-23).
+          .then((rows) => rows.map(({ property, ...job }) => ({ ...job, property: { name: property.name, suburb: property.suburb }, oneOff: isOneOffSite(property.accessInfo) })))
           .catch(() => [])
       : Promise.resolve([]),
     db.clientInvoice

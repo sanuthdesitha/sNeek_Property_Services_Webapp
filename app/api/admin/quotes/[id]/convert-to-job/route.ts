@@ -22,6 +22,7 @@ import { stripHtmlToText } from "@/lib/forms/sanitize";
 import { recordQuoteEvent } from "@/lib/quotes/events";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { logger } from "@/lib/logger";
+import { agreedJobPriceFromQuote } from "@/lib/quotes/convert-price";
 
 /** Recurring cadences a quote can carry (one_off → a single job, no schedule). */
 const RECURRING_FREQUENCIES = new Set(["weekly", "fortnightly", "monthly"]);
@@ -317,12 +318,16 @@ export async function POST(
         ? `\nRecurring service — ${quote.frequency} (schedule saved on the property).`
         : "";
 
+      // A one-off quote's accepted subtotal becomes the job's agreed client
+      // price (lib/quotes/convert-price.ts); a recurring quote sets none.
+      const agreedPrice = agreedJobPriceFromQuote({ frequency: quote.frequency, subtotal: quote.subtotal, quoteNumber: quote.quoteNumber });
       const job = await tx.job.create({
         data: {
           jobNumber,
           propertyId: targetPropertyId,
           jobType: quote.serviceType,
           scheduledDate: new Date(scheduledDate!),
+          ...(agreedPrice ? { fixedPrice: agreedPrice.fixedPrice, invoiceNote: agreedPrice.invoiceNote } : {}),
           notes: `Converted from quote #${params.id}${recurringNote}`,
           // Carry the quoted extras onto the job so the cleaner's form shows them
           // as an "Additionals" section with how-to instructions, plus the quote's

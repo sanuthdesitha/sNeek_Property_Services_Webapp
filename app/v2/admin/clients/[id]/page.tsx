@@ -74,6 +74,9 @@ export default async function AdminClientDetailPage({ params, searchParams }: { 
     showCleanerLiveLocation: client.showCleanerLiveLocation === true,
   };
   const base = `/v2/admin/clients/${client.id}`;
+  // The managed portfolio count leaves one-off sites out, as the Properties list does.
+  const oneOffCount = summary.properties.filter((property) => property.oneOff).length;
+  const managedCount = summary.properties.length - oneOffCount;
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -91,7 +94,7 @@ export default async function AdminClientDetailPage({ params, searchParams }: { 
         collapsible={{ storageKey: "client:facts" }}
         facts={[
           { key: "since", label: "Client since", value: format(new Date(client.createdAt), "MMM yyyy") },
-          { key: "properties", label: "Properties", value: client.properties.length, extra: <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">active</span> },
+          { key: "properties", label: "Properties", value: managedCount, extra: <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">active{oneOffCount > 0 ? ` · ${oneOffCount} one-off site${oneOffCount === 1 ? "" : "s"}` : ""}</span> },
           { key: "outstanding", label: "Outstanding", value: summary.money?.owing == null ? null : formatMoney(summary.money.owing), extra: (summary.money?.overdue ?? 0) > 0 ? <EPill tone="bad">{formatMoney(summary.money?.overdue ?? 0)} overdue</EPill> : undefined },
           { key: "revenue", label: "Revenue, 12 mo", value: profitRow ? formatMoney(profitRow.revenue) : null },
           { key: "margin", label: "Gross margin, 12 mo", value: profitRow?.marginPct == null ? null : `${profitRow.marginPct.toFixed(0)}%` },
@@ -120,14 +123,14 @@ export default async function AdminClientDetailPage({ params, searchParams }: { 
               <NeedsAttention summary={summary} />
               <PropertiesTable summary={summary} limit={5} />
               <div className="grid gap-4 xl:grid-cols-2"><OutstandingCard summary={summary} approved={outstanding} /><QuotesCard quotes={quotes.slice(0, 4)} /></div>
-              <div className="grid gap-4 xl:grid-cols-2"><RecentJobsCard jobs={recentJobs.slice(0, 4)} /><CasesLeadsCard cases={cases.slice(0, 3)} leads={leads.slice(0, 2)} /></div>
+              <div className="grid gap-4 xl:grid-cols-2"><RecentJobsCard jobs={recentJobs.slice(0, 4)} clientId={client.id} /><CasesLeadsCard cases={cases.slice(0, 3)} leads={leads.slice(0, 2)} /></div>
               <Card title="Activity" action={<Link className="text-[0.8125rem] underline" href={`${base}?tab=history`}>Full history</Link>}>
                 <ClientTimeline clientId={client.id} />
               </Card>
             </>
           ) : null}
           {tab === "properties" ? <PropertiesTable summary={summary} /> : null}
-          {tab === "jobs" ? <RecentJobsCard jobs={recentJobs} /> : null}
+          {tab === "jobs" ? <RecentJobsCard jobs={recentJobs} clientId={client.id} /> : null}
           {tab === "invoices" ? <><OutstandingCard summary={summary} approved={outstanding} /><QuotesCard quotes={quotes} /></> : null}
           {tab === "profit" ? (
             <>

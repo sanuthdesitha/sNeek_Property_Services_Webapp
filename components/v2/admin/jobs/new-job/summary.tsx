@@ -43,6 +43,9 @@ export function warningsFor(draft: NewJobDraft, facts: NewJobPropertyFacts | nul
     if (day.sameDayJobs.length) warnings.push(`${dayLabel(day.dayKey)}: ${day.sameDayJobs.map((job) => job.jobNumber).join(", ")} already there`);
   }
   if (facts && !facts.property.isActive) warnings.push("Property is inactive");
+  // A one-off with no client is filed under "Unassigned / One-off Jobs" and
+  // cannot be invoiced or seen by a client until a client is attached.
+  if (draft.siteMode === "one_off" && draft.jobType !== "AIRBNB_TURNOVER" && !draft.oneOff.clientId) warnings.push("No client: cannot be invoiced until one is attached");
   if (facts && !draft.fixedPriceOn && facts.clientPrice.missing) warnings.push("Client price not set");
   if (facts && !draft.estimatedHours) warnings.push("Pay hours not set (pays clocked time)");
   if (facts && !facts.form) warnings.push("No cleaner form for this type");

@@ -12,6 +12,7 @@ import { formatMoney } from "@/components/v2/admin/accounts/hub/account-display"
 import type { ClientPageData } from "@/lib/people/clients/client-page-data";
 import type { ClientSummary } from "@/lib/people/clients/summary-types";
 import { formatCalendarDay, formatInstant, formatInstantDay } from "../format";
+import { AttachClientDisclosure } from "@/components/v2/admin/properties/attach-client-form";
 import { caseStateTone, formatEstimate, jobStatusTone, leadStatusTone, quoteStatusTone, titleCase } from "./tones";
 
 export function Card({ title, action, children, className }: { title: string; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
@@ -47,35 +48,87 @@ export function NeedsAttention({ summary }: { summary: ClientSummary }) {
 const CALENDAR_LABEL = { SYNCED: "Synced", FAILED: "Sync failed", NOT_CONNECTED: "Not connected", DISABLED: "Switched off" } as const;
 
 export function PropertiesTable({ summary, limit }: { summary: ClientSummary; limit?: number }) {
-  const rows = limit ? summary.properties.slice(0, limit) : summary.properties;
+  // One-off sites (made by New job for work outside the managed portfolio) are
+  // listed in their own group, as the Properties list keeps them apart too.
+  const managed = summary.properties.filter((property) => !property.oneOff);
+  const oneOff = summary.properties.filter((property) => property.oneOff);
+  const rows = limit ? managed.slice(0, limit) : managed;
   return (
-    <Card
-      title="Properties"
-      action={
-        <div className="flex items-center gap-2">
-          <EButton asChild size="sm" variant="outline"><Link href={`/v2/admin/properties/new?clientId=${encodeURIComponent(summary.id)}`}>Add property</Link></EButton>
-          {limit ? <Link className="text-[0.8125rem] underline" href={`/v2/admin/clients/${summary.id}?tab=properties`}>All {summary.properties.length}</Link> : null}
-        </div>
-      }
-    >
-      {rows.length === 0 ? <p className={`text-[0.8125rem] ${muted}`}>No active properties.</p> : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[40rem] text-[0.8125rem]">
-            <thead><tr className={`text-left text-[0.75rem] ${muted}`}><th className="py-1.5 pr-3">Property</th><th className="py-1.5 pr-3">Next clean</th><th className="py-1.5 pr-3">Last clean</th><th className="py-1.5 pr-3 text-right">Turnover rate</th><th className="py-1.5">Calendar</th></tr></thead>
-            <tbody>
-              {rows.map((property) => (
-                <tr key={property.id} className="border-t border-[hsl(var(--e-border)/0.7)]">
-                  <td className="py-2 pr-3"><Link href={`/v2/admin/properties/${property.id}`} className="font-[600] hover:underline">{property.name}</Link> <span className={muted}>{property.suburb}</span></td>
-                  <td className="py-2 pr-3">{property.nextCleanAt ? formatInstant(property.nextCleanAt) : <span className={muted}>Nothing booked</span>} {property.nextCleanUnassigned ? <EPill tone="bad">Unassigned</EPill> : null}</td>
-                  <td className="py-2 pr-3">{property.lastCleanAt ? formatInstantDay(property.lastCleanAt) : <span className={muted}>Not recorded</span>} {property.awaitingReview ? <EPill tone="gold">Awaiting review</EPill> : null}</td>
-                  <td className="py-2 pr-3 text-right e-tnum">{property.turnoverRate === null ? <EPill tone="warn">No rate</EPill> : formatMoney(property.turnoverRate)}</td>
-                  <td className="py-2"><EPill tone={property.calendar === "SYNCED" ? "ok" : property.calendar === "FAILED" ? "warn" : "neutral"}>{CALENDAR_LABEL[property.calendar]}{property.calendarFailedSince ? ` since ${formatInstantDay(property.calendarFailedSince)}` : ""}</EPill></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+    <>
+      <Card
+        title="Properties"
+        action={
+          <div className="flex items-center gap-2">
+            <EButton asChild size="sm" variant="outline"><Link href={`/v2/admin/properties/new?clientId=${encodeURIComponent(summary.id)}`}>Add property</Link></EButton>
+            {limit ? <Link className="text-[0.8125rem] underline" href={`/v2/admin/clients/${summary.id}?tab=properties`}>All {managed.length}</Link> : null}
+          </div>
+        }
+      >
+        {limit && oneOff.length > 0 ? (
+          <p className={`text-[0.8125rem] ${muted}`}>
+            {oneOff.length} one-off site{oneOff.length === 1 ? "" : "s"}{summary.oneOffCatchAll ? " waiting for a client" : ""}:{" "}
+            <Link className="underline" href={`/v2/admin/clients/${summary.id}?tab=properties`}>see Properties</Link>
+          </p>
+        ) : null}
+        {rows.length === 0 ? <p className={`text-[0.8125rem] ${muted}`}>{oneOff.length > 0 ? (limit ? "No managed properties." : "No managed properties. One-off sites are listed below.") : "No active properties."}</p> : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[40rem] text-[0.8125rem]">
+              <thead><tr className={`text-left text-[0.75rem] ${muted}`}><th className="py-1.5 pr-3">Property</th><th className="py-1.5 pr-3">Next clean</th><th className="py-1.5 pr-3">Last clean</th><th className="py-1.5 pr-3 text-right">Turnover rate</th><th className="py-1.5">Calendar</th></tr></thead>
+              <tbody>
+                {rows.map((property) => (
+                  <tr key={property.id} className="border-t border-[hsl(var(--e-border)/0.7)]">
+                    <td className="py-2 pr-3"><Link href={`/v2/admin/properties/${property.id}`} className="font-[600] hover:underline">{property.name}</Link> <span className={muted}>{property.suburb}</span></td>
+                    <td className="py-2 pr-3">{property.nextCleanAt ? formatInstant(property.nextCleanAt) : <span className={muted}>Nothing booked</span>} {property.nextCleanUnassigned ? <EPill tone="bad">Unassigned</EPill> : null}</td>
+                    <td className="py-2 pr-3">{property.lastCleanAt ? formatInstantDay(property.lastCleanAt) : <span className={muted}>Not recorded</span>} {property.awaitingReview ? <EPill tone="gold">Awaiting review</EPill> : null}</td>
+                    <td className="py-2 pr-3 text-right e-tnum">{property.turnoverRate === null ? <EPill tone="warn">No rate</EPill> : formatMoney(property.turnoverRate)}</td>
+                    <td className="py-2"><EPill tone={property.calendar === "SYNCED" ? "ok" : property.calendar === "FAILED" ? "warn" : "neutral"}>{CALENDAR_LABEL[property.calendar]}{property.calendarFailedSince ? ` since ${formatInstantDay(property.calendarFailedSince)}` : ""}</EPill></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+      {oneOff.length > 0 && !limit ? <OneOffSitesCard summary={summary} sites={oneOff} /> : null}
+    </>
+  );
+}
+
+/**
+ * One-off sites: each with its jobs and the last and next job. Under the
+ * catch-all "Unassigned / One-off Jobs" client each site offers "Attach to
+ * client", the only way its jobs reach a real client's history and invoices.
+ */
+function OneOffSitesCard({ summary, sites }: { summary: ClientSummary; sites: ClientSummary["properties"] }) {
+  return (
+    <Card title="One-off sites">
+      <p className={`text-[0.8125rem] ${muted}`}>
+        {summary.oneOffCatchAll
+          ? "Sites of one-off jobs made without a client. They cannot be invoiced to anyone until each is attached to its client."
+          : "Sites made by New job for one-off work. They are kept out of the managed portfolio; their jobs are billed to this client like any other."}
+      </p>
+      <ul className="divide-y divide-[hsl(var(--e-border)/0.7)] text-[0.8125rem]">
+        {sites.map((site) => (
+          <li key={site.id} className="space-y-2 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="min-w-0 [overflow-wrap:anywhere]">
+                <Link href={`/v2/admin/properties/${site.id}`} className="font-[600] hover:underline">{site.name}</Link> <span className={muted}>{site.suburb}</span>{" "}
+                <EPill tone="neutral">One-off</EPill>
+              </span>
+              <span className={`e-tnum ${muted}`}>
+                {site.jobCount} job{site.jobCount === 1 ? "" : "s"}
+                {site.lastCleanAt ? ` · last ${formatInstantDay(site.lastCleanAt)}` : ""}
+                {site.nextCleanAt ? ` · next ${formatInstantDay(site.nextCleanAt)}` : ""}
+                {" · "}
+                <Link className="underline" href={`/v2/admin/jobs?propertyId=${encodeURIComponent(site.id)}`}>Jobs</Link>
+              </span>
+            </div>
+            {summary.oneOffCatchAll ? (
+              <AttachClientDisclosure key={site.id} propertyId={site.id} siteName={site.name} jobCount={site.jobCount} expectedUpdatedAt={site.updatedAt} />
+            ) : null}
+          </li>
+        ))}
+      </ul>
     </Card>
   );
 }
@@ -118,13 +171,15 @@ export function QuotesCard({ quotes }: { quotes: ClientPageData["quotes"] }) {
   );
 }
 
-export function RecentJobsCard({ jobs }: { jobs: ClientPageData["recentJobs"] }) {
+export function RecentJobsCard({ jobs, clientId }: { jobs: ClientPageData["recentJobs"]; clientId?: string }) {
+  // "All jobs" opens the Jobs list filtered to this client (managed and one-off sites alike).
+  const allHref = clientId ? `/v2/admin/jobs?clientId=${encodeURIComponent(clientId)}` : "/v2/admin/jobs";
   return (
-    <Card title="Recent jobs" action={<Link className="text-[0.8125rem] underline" href="/v2/admin/jobs">All jobs</Link>}>
+    <Card title="Recent jobs" action={<Link className="text-[0.8125rem] underline" href={allHref}>All jobs</Link>}>
       {jobs.length === 0 ? <p className={`text-[0.8125rem] ${muted}`}>Nothing scheduled yet.</p> : null}
       {jobs.map((job) => (
         <div key={job.id} className="flex flex-wrap items-center justify-between gap-2 text-[0.8125rem]">
-          <span><Link href={`/v2/admin/jobs/${job.id}`} className="font-[600] hover:underline">{job.jobNumber}</Link> {job.property?.name ?? "Property"} · {format(new Date(job.scheduledDate), "d MMM yy")} <span className={muted}>{titleCase(job.jobType)}</span></span>
+          <span><Link href={`/v2/admin/jobs/${job.id}`} className="font-[600] hover:underline">{job.jobNumber}</Link> {job.property?.name ?? "Property"} · {format(new Date(job.scheduledDate), "d MMM yy")} <span className={muted}>{titleCase(job.jobType)}</span>{job.oneOff ? <> <EPill tone="neutral">One-off</EPill></> : null}</span>
           <EBadge tone={jobStatusTone(job.status)} soft>{titleCase(job.status)}</EBadge>
         </div>
       ))}

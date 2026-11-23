@@ -1,5 +1,6 @@
 import { ClientInvoiceStatus, JobStatus, JobType, Prisma } from "@prisma/client";
 import { format } from "date-fns";
+import { isFallbackClientName } from "@/lib/jobs/service-site";
 import { db } from "@/lib/db";
 import { startedWorkPeriodWhere, snapshotStartedWork, hasStartedWorkEvidence } from "./started-work-review";
 import { inspectStartedWorkReview } from "./started-work-reconciliation";
@@ -54,6 +55,10 @@ function escapeHtml(value: string) {
     .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+/** Why "Unassigned / One-off Jobs" is never invoiced, with the way forward. */
+export const ONE_OFF_CATCH_ALL_REFUSAL =
+  "“Unassigned / One-off Jobs” holds one-off jobs made without a client, so it is not invoiced. Attach each site to its client (job page › Invoice and pay › Attach to client, or this client's Properties tab), then invoice that client.";
 
 export async function listInvoiceContext() {
   const [clients, properties, rates, invoices] = await Promise.all([
@@ -252,6 +257,11 @@ export async function loadGeneratorJobs(input: ClientInvoiceGeneratorInput) {
   ]);
   if (!client) {
     throw new Error("Client not found.");
+  }
+  // The catch-all client of one-off jobs made without a client is nobody to
+  // invoice: refuse, and say how to reach the real client (2026-11-23).
+  if (isFallbackClientName(client.name)) {
+    throw new Error(ONE_OFF_CATCH_ALL_REFUSAL);
   }
 
   const invoicedJobIds = new Set(existingInvoiced.map((row) => row.jobId).filter((value): value is string => Boolean(value)));
