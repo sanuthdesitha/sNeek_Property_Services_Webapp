@@ -232,17 +232,17 @@ export function AmendInvoicePanel({ row, role }: { row: CleanerInvoiceRow; role:
             const amount = Number.isFinite(quantity) && Number.isFinite(unit) ? formatAud(lineAmount(quantity, unit)) : "–";
             return (
               <li key={line.key} className={cn("rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3", line.removed && "opacity-60")}>
-                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_6rem_8rem_6.5rem] sm:items-end">
-                  <EField label={line.sourceIndex === null ? `New line ${index + 1}` : `Line ${index + 1}`}>
-                    <EInput value={line.description} disabled={line.removed} onChange={(event) => update(line.key, { description: event.target.value })} className="max-sm:text-[16px]" />
-                  </EField>
+                <EField label={line.sourceIndex === null ? `New line ${index + 1}` : `Line ${index + 1}`}>
+                  <EInput value={line.description} disabled={line.removed} onChange={(event) => update(line.key, { description: event.target.value })} className="max-sm:text-[16px]" />
+                </EField>
+                <div className="mt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2 sm:grid-cols-[7rem_9rem_minmax(0,1fr)] sm:items-end">
                   <EField label="Qty or hours">
                     <EInput type="number" inputMode="decimal" min="0" step="0.25" value={line.quantity} disabled={line.removed} onChange={(event) => update(line.key, { quantity: event.target.value })} className="max-sm:text-[16px]" />
                   </EField>
                   <EField label="Unit amount (AUD)">
                     <EInput type="number" inputMode="decimal" step="0.01" value={line.unitAmount} disabled={line.removed} onChange={(event) => update(line.key, { unitAmount: event.target.value })} className="max-sm:text-[16px]" />
                   </EField>
-                  <p className={cn(SMALL, "e-tnum sm:pb-2.5 sm:text-right", line.removed && "line-through")}>{amount}</p>
+                  <p className={cn(SMALL, "e-tnum col-span-2 sm:col-span-1 sm:pb-2.5 sm:text-right", line.removed && "line-through")}>Line {amount}</p>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-3">
                   {line.sourceIndex === null ? (
