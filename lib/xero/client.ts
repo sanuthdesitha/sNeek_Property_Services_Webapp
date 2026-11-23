@@ -567,9 +567,16 @@ export async function pushCleanerBillToXero(input: {
   cleanerPhone?: string;
   cleanerAddress?: string;
   cleanerXeroContactId?: string;
-  lineItems: Array<{ description: string; quantity: number; unitAmount: number; accountCode?: string; itemCode?: string }>;
+  /** Every line names its expense account (lib/xero/cleaner-bill-accounts.ts); none is guessed here. */
+  lineItems: Array<{ description: string; quantity: number; unitAmount: number; accountCode: string; itemCode?: string }>;
   reference?: string;
 }): Promise<{ xeroBillId: string; contactId: string }> {
+  // Before 2026-11-23 a line without an account went to "400". The caller now
+  // resolves the account from Settings and refuses when none is chosen; a line
+  // that still arrives without one stops the push before Xero is contacted.
+  if (input.lineItems.some((line) => !line.accountCode || !line.accountCode.trim())) {
+    throw new Error("Choose the Xero account for cleaner invoices in Settings › Money › Xero before pushing. Nothing was sent to Xero.");
+  }
   await requireXeroToken();
 
   // Match an existing Xero contact by name (or the stored id) or create one with
@@ -594,7 +601,7 @@ export async function pushCleanerBillToXero(input: {
         Description: line.description,
         Quantity: line.quantity,
         UnitAmount: line.unitAmount,
-        AccountCode: line.accountCode || "400", // Cost of goods sold / wages
+        AccountCode: line.accountCode.trim(),
       };
       // Let Xero apply the account's default tax rate (region-safe) rather than a
       // hardcoded INPUT that AU/other regions reject.

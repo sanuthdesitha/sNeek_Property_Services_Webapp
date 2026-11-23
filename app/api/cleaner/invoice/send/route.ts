@@ -111,12 +111,16 @@ export async function POST(req: NextRequest) {
     const billLines = [
       // One bill line per job: the combined total, with the base pay and each
       // folded extra listed in the description (owner request 2026-11-18).
-      ...data.rows.map((r) => ({ kind: "CLEANING" as const, description: cleanerJobLineText({ date: r.date, property: r.property, jobName: r.jobName, baseAmount: r.baseAmount, extras: r.extraDetails ?? [] }), quantity: 1, unitAmount: Number(r.amount ?? 0) })),
-      ...data.extraLineRows.map((r) => ({ kind: "CLEANING" as const, description: `Extra · ${r.date} · ${r.description}${r.relatedJob ? ` · ${r.relatedJob}` : ""}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
-      ...data.qaInspectionRows.map((r) => ({ kind: "INSPECTION" as const, description: `QA inspection · ${r.date} · ${r.property}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
-      ...data.transportAllowanceRows.map((r) => ({ kind: "INSPECTION" as const, description: r.description, quantity: 1, unitAmount: r.amount })),
-      ...data.expenseRows.map((r) => ({ kind: "CLEANING" as const, description: `Shopping reimbursement · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
-      ...data.shoppingTimeRows.map((r) => ({ kind: "CLEANING" as const, description: `Shopping time · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      // `category` (2026-11-23) picks the Xero expense account of the line
+      // (lib/xero/cleaner-bill-accounts.ts): LABOUR, INSPECTION or
+      // REIMBURSEMENT (money the payee spent and gets back: shopping expenses
+      // and non-taxable extras such as parking and receipts).
+      ...data.rows.map((r) => ({ kind: "CLEANING" as const, category: "LABOUR" as const, description: cleanerJobLineText({ date: r.date, property: r.property, jobName: r.jobName, baseAmount: r.baseAmount, extras: r.extraDetails ?? [] }), quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.extraLineRows.map((r) => ({ kind: "CLEANING" as const, category: r.taxable === false ? ("REIMBURSEMENT" as const) : ("LABOUR" as const), description: `Extra · ${r.date} · ${r.description}${r.relatedJob ? ` · ${r.relatedJob}` : ""}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.qaInspectionRows.map((r) => ({ kind: "INSPECTION" as const, category: "INSPECTION" as const, description: `QA inspection · ${r.date} · ${r.property}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.transportAllowanceRows.map((r) => ({ kind: "INSPECTION" as const, category: "INSPECTION" as const, description: r.description, quantity: 1, unitAmount: r.amount })),
+      ...data.expenseRows.map((r) => ({ kind: "CLEANING" as const, category: "REIMBURSEMENT" as const, description: `Shopping reimbursement · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.shoppingTimeRows.map((r) => ({ kind: "CLEANING" as const, category: "LABOUR" as const, description: `Shopping time · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
     ].filter((l) => Number.isFinite(l.unitAmount));
     const lineData = {
       contact: {

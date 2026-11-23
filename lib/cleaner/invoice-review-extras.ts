@@ -9,6 +9,9 @@ import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { ACCOUNTABILITY_SOURCES } from "@/lib/admin/approvals/sources";
 import { cleanerRequestedAmount, clientChargeView, type ClientChargeView } from "@/lib/payroll/cleaner-pay-amount";
 import { getXeroStatus } from "@/lib/xero/client";
+import { cleanerBillLineKind, planCleanerBillAccounts, type CleanerBillLineKind } from "@/lib/xero/cleaner-bill-accounts";
+import { getPhase3IntegrationsSettings } from "@/lib/phase3/integrations";
+import { xeroAccountName } from "@/lib/billing/xero-account-name";
 import type { CleanerInvoiceRow } from "./invoice-admin-list-types";
 
 /** One stored line, as the payee sent it. */
@@ -45,6 +48,12 @@ export type CleanerXeroConnection =
   | { status: "not-connected" }
   | { status: "error"; message: string };
 
+/** Which Xero account the bill's lines go to (Settings › Money › Xero › Cleaner bills). */
+export type CleanerBillAccountsView =
+  | { status: "not-set"; reason: string }
+  | { status: "set"; groups: Array<{ label: string; code: string; lines: number; name: string | null; nameReason: string | null }> }
+  | { status: "error"; message: string };
+
 export type CleanerXeroView = {
   /** pushed: a bill id is stored. pending: a push started and did not finish. none: not in Xero. */
   state: "pushed" | "pending" | "none";
@@ -53,6 +62,8 @@ export type CleanerXeroView = {
   /** The last recorded push failure, with the reason Xero or the network gave. */
   lastFailure: { at: string; reason: string } | null;
   connection: CleanerXeroConnection;
+  /** Optional so older callers and fixtures stay valid; the review page always reads it. */
+  accounts?: CleanerBillAccountsView;
 };
 
 type StoredLine = { description?: unknown; label?: unknown; jobNumber?: unknown; hours?: unknown; amount?: unknown; unitAmount?: unknown; quantity?: unknown };
@@ -172,8 +183,41 @@ async function xeroConnection(): Promise<CleanerXeroConnection> {
   }
 }
 
-/** The Xero card: stored bill, a push that did not finish, and the connection (read from the token store, no call to Xero). */
-export async function cleanerInvoiceXero(row: Pick<CleanerInvoiceRow, "id" | "status" | "xeroBillId" | "xeroExportedAt">): Promise<CleanerXeroView> {
+const KIND_LABEL: Record<CleanerBillLineKind, string> = { LABOUR: "Cleaning work", INSPECTION: "QA inspections", REIMBURSEMENT: "Reimbursements" };
+
+/**
+ * The account each kind of line on this bill goes to, with the account's name
+ * from Xero when it can be read (the invoice editor's cached read; a failure is
+ * shown with its reason). Not set: the push is refused, and the card says so.
+ */
+async function cleanerBillAccounts(lineData: unknown): Promise<CleanerBillAccountsView> {
+  try {
+    const lines = storedLines(lineData);
+    const settings = (await getPhase3IntegrationsSettings()).xero;
+    const plan = planCleanerBillAccounts(lines, settings);
+    if (!plan.ok) return { status: "not-set", reason: plan.reason };
+    const counts = new Map<string, { label: string; code: string; lines: number }>();
+    lines.forEach((line, index) => {
+      const label = KIND_LABEL[cleanerBillLineKind(line)];
+      const code = plan.codes[index];
+      const key = `${label}:${code}`;
+      const entry = counts.get(key) ?? { label, code, lines: 0 };
+      entry.lines += 1;
+      counts.set(key, entry);
+    });
+    if (counts.size === 0) counts.set(`${KIND_LABEL.LABOUR}:${plan.labourCode}`, { label: KIND_LABEL.LABOUR, code: plan.labourCode, lines: 0 });
+    const groups = await Promise.all(Array.from(counts.values()).map(async (group) => {
+      const name = await xeroAccountName(group.code);
+      return { ...group, name: name.name, nameReason: name.reason };
+    }));
+    return { status: "set", groups };
+  } catch (error) {
+    return { status: "error", message: error instanceof Error && error.message ? error.message : "The Xero account settings could not be read." };
+  }
+}
+
+/** The Xero card: stored bill, a push that did not finish, the connection (token store) and the bill's accounts. */
+export async function cleanerInvoiceXero(row: Pick<CleanerInvoiceRow, "id" | "status" | "xeroBillId" | "xeroExportedAt"> & { lineData?: unknown }): Promise<CleanerXeroView> {
   const failure = await db.auditLog.findFirst({
     where: { entity: "CleanerInvoiceSubmission", entityId: row.id, action: "CLEANER_INVOICE_XERO_PUSH_FAILED" },
     orderBy: { createdAt: "desc" },
@@ -187,5 +231,6 @@ export async function cleanerInvoiceXero(row: Pick<CleanerInvoiceRow, "id" | "st
     exportedAt: row.xeroExportedAt,
     lastFailure: failure && !row.xeroBillId ? { at: failure.createdAt.toISOString(), reason: typeof reason === "string" && reason ? reason : "No reason was recorded." } : null,
     connection: await xeroConnection(),
+    accounts: await cleanerBillAccounts(row.lineData ?? null),
   };
 }

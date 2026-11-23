@@ -246,10 +246,39 @@ export function XeroCard({ review }: { review: CleanerInvoiceReview }) {
           ) : (
             <p className={SMALL}><b>Not in Xero.</b> {row.status === "SUBMITTED" ? `After approval, "Push to Xero" creates a draft bill for ${firstName(row)}.` : row.status === "APPROVED" ? `"Push to Xero" creates a draft bill for ${firstName(row)}.` : "Nothing is sent to Xero from this state."}</p>
           )}
+          <BillAccounts xero={xero} />
           <p className={cn("text-[0.75rem]", MUTED)}>{connectionLine(xero, review.timezone)}</p>
         </>
       )}
     </RailCard>
+  );
+}
+
+/** The Xero accounts the bill's lines go to, or why a push would be refused (2026-11-23). */
+function BillAccounts({ xero }: { xero: Exclude<CleanerInvoiceReview["xero"], { error: string }> }) {
+  const accounts = xero.accounts;
+  if (!accounts || xero.state === "pushed") return null;
+  if (accounts.status === "error") return <p role="alert" className={cn(SMALL, "text-[hsl(var(--e-danger))]")}>The Xero accounts could not be read: {accounts.message}</p>;
+  if (accounts.status === "not-set") {
+    return (
+      <EToneNotice tone="problem" title="No Xero account chosen for cleaner invoices">
+        Push to Xero is refused until an administrator chooses the cleaning work account in <Link href="/v2/admin/settings?tab=xero" className="underline underline-offset-2">Settings › Money › Xero</Link>. Nothing is sent to a default account.
+      </EToneNotice>
+    );
+  }
+  return (
+    <div className={SMALL}>
+      <p className="font-[550]">Xero accounts for this bill</p>
+      <ul className="mt-1 space-y-0.5">
+        {accounts.groups.map((group) => (
+          <li key={`${group.label}:${group.code}`}>
+            {group.label}: <span className="e-tnum">{group.code}</span>
+            {group.name ? ` · ${group.name}` : <span className={MUTED}> · name not read{group.nameReason ? ` (${group.nameReason})` : ""}</span>}
+            {group.lines ? <span className={MUTED}> · {plural(group.lines, "line")}</span> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

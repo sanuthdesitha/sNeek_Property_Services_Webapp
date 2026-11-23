@@ -10,6 +10,8 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { pushCleanerBillToXero } from "@/lib/xero/client";
+import { planCleanerBillAccounts } from "@/lib/xero/cleaner-bill-accounts";
+import { getPhase3IntegrationsSettings } from "@/lib/phase3/integrations";
 import { releaseCleanerInvoiceConsumables } from "@/lib/cleaner/invoice-release";
 import { clearsChangesNote, clearsPaymentRecord, releasesPayeeWork, requiresChangesNote } from "@/lib/cleaner/invoice-status";
 import { payeeKindFromSnapshot, payeeKindLabel, xeroLineFallbackDescription } from "@/lib/invoicing/payee-kind";
@@ -140,7 +142,7 @@ export async function applyCleanerInvoiceStatus(input: { id: string; body: Clean
   return result({ ok: true, status: updated.status });
 }
 
-type SnapshotLine = { kind?: string; description?: string; quantity?: number; unitAmount?: number };
+type SnapshotLine = { kind?: string; category?: string; description?: string; quantity?: number; unitAmount?: number };
 
 /** Push an approved invoice to Xero as a DRAFT bill, exactly once. */
 export async function pushCleanerInvoiceOnce(id: string, actor: CleanerInvoiceActor): Promise<CleanerActionResult> {
@@ -154,6 +156,10 @@ export async function pushCleanerInvoiceOnce(id: string, actor: CleanerInvoiceAc
   const contact = data.contact ?? {};
   const lines = Array.isArray(data.lines) ? data.lines : [];
   if (lines.length === 0) return result({ error: "This invoice has no line items to push." }, 400);
+  // The expense account of every line, from Settings › Money › Xero. Refused
+  // before the invoice is reserved or Xero is contacted when none is chosen.
+  const accounts = planCleanerBillAccounts(lines, (await getPhase3IntegrationsSettings()).xero);
+  if (!accounts.ok) return result({ error: accounts.reason, code: "XERO_ACCOUNT_NOT_SET" }, 409);
 
   const cleaner = await db.user.findUnique({ where: { id: sub.cleanerId }, select: { name: true, email: true, phone: true, role: true } });
   // What this bill CONTAINS, read off the snapshot written at send time.
@@ -181,7 +187,8 @@ export async function pushCleanerInvoiceOnce(id: string, actor: CleanerInvoiceAc
     cleanerPhone: contact.phone || cleaner?.phone || undefined,
     cleanerAddress: contact.address || undefined,
     reference: `${payeeLabel} invoice ${isoDate(sub.periodStart)} – ${isoDate(sub.periodEnd)}`,
-    lineItems: lines.map((line) => ({
+    lineItems: lines.map((line, index) => ({
+      accountCode: accounts.codes[index],
       // Per line, from the tag the send route stamped (older lines fall back to
       // the invoice-level kind).
       description: String(
