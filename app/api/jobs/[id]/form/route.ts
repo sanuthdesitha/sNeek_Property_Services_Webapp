@@ -33,6 +33,7 @@ import { resolvePropertyReminders } from "@/lib/properties/property-reminders";
 import { cleanerJobFlowOn, reminderSource, unusedCheckEnabled } from "@/lib/pilots/gates";
 import type { CleanerJobPilots } from "@/lib/pilots/registry";
 import { allowedEvidenceFields } from "@/lib/jobs/evidence-override";
+import { isPilotOn } from "@/lib/pilots/state";
 import { filterStockByConfig, normalizeInventoryConfig } from "@/lib/forms/inventory-config";
 import { toStockTableItems, type StockTableStock } from "@/lib/forms/stock-table";
 import { isTeamStarted } from "@/lib/cleaner/team-state";
@@ -538,6 +539,7 @@ export async function GET(
     const pilots: CleanerJobPilots = {
       unusedCheck: cleanerViewer ? await unusedCheckEnabled(pilotSubject) : false,
       cleanerJobFlow: cleanerViewer ? await cleanerJobFlowOn(db, { jobId: job.id, userId: session.user.id, propertyId: job.propertyId }) : false,
+      checkinLocation: cleanerViewer ? await isPilotOn("checkin-location", pilotSubject) : false,
     };
     // Photo questions the office allowed this job to be submitted without
     // (honoured whatever the pilot state; the submit route re-reads them).

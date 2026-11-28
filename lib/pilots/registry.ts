@@ -54,10 +54,10 @@ export const PILOTS: readonly PilotDefinition[] = [
   {
     key: "checkin-location",
     name: "Check-in location",
-    description: "Clock-in records the phone's location; outside 150 m, or with no location, the cleaner gives a reason and the office sees a flag. Never blocks clock-in.",
-    affects: "Cleaners clocking in; the office review list.",
-    whenOff: "The existing clock-in location step.",
-    built: false,
+    description: "Clock-in already records the phone's location, asks a reason outside 150 m and lets a phone with no position start with a reason. With this on, a phone with location turned off for the app can also clock in with a reason (no position recorded, the office is told) instead of being refused.",
+    affects: "Cleaners clocking in with location turned off; the office (the existing no-location notice and job page flag).",
+    whenOff: "Location turned off refuses the clock-in, as before. Starts already recorded keep their reason.",
+    built: true,
   },
   {
     key: "unused-check",
@@ -203,6 +203,7 @@ export function pilotApplies(state: PilotState, key: PilotKey, subject: PilotSub
 export type CleanerJobPilots = {
   unusedCheck: boolean;
   cleanerJobFlow: boolean;
+  checkinLocation: boolean;
 };
 
 export const pilotUpdateInput = z.object({

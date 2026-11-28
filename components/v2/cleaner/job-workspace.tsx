@@ -323,7 +323,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   const [busy, setBusy] = React.useState<string | null>(null);
   /** Set when the browser refuses a location fix — clock-in is blocked until fixed. */
   const [gpsBlocked, setGpsBlocked] = React.useState<string | null>(null);
-  const locationGate = useLocationGate("CLEANER");
+  // Pilot "Check-in location", decided by the server: location turned off may clock in with a reason.
+  const locationGate = useLocationGate("CLEANER", { allowDeniedWithReason: payload?.pilots?.checkinLocation === true });
   /** Server asked why the cleaner is starting away from the property. */
   const [offSitePrompt, setOffSitePrompt] = React.useState<{
     message?: string;

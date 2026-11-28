@@ -31,6 +31,7 @@ import {
 } from "@/lib/forms/start-briefing";
 import { loadStartBriefingItems } from "@/lib/forms/start-briefing-load";
 import { reminderSource } from "@/lib/pilots/gates";
+import { isPilotOn } from "@/lib/pilots/state";
 
 const schema = z.object({
   verificationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -241,6 +242,9 @@ export async function POST(
         location: body.startLocation ?? null,
         property: job.property ?? null,
         tagTapped: Boolean(tagToday),
+        // Pilot "Check-in location", decided now for this cleaner and property:
+        // location turned off may start with a reason (flagged for the office).
+        allowPermissionDenied: await isPilotOn("checkin-location", { userId: session.user.id, propertyId: job.propertyId }),
       });
       if (!evaluated.ok) return NextResponse.json(evaluated.body, { status: 409 });
       startLocation = evaluated.record;

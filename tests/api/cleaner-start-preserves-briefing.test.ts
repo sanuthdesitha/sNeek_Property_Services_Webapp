@@ -3,7 +3,9 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { JobStatus, Role } from "@prisma/client";
 const mocks = vi.hoisted(() => ({ role: vi.fn(), settings: vi.fn(), job: vi.fn(), update: vi.fn(),
-  log: vi.fn(), logs: vi.fn(), createLog: vi.fn(), tasks: vi.fn(), audit: vi.fn(), notify: vi.fn(), noFixNotice: vi.fn(), db: {} as any }));
+  log: vi.fn(), logs: vi.fn(), createLog: vi.fn(), tasks: vi.fn(), audit: vi.fn(), notify: vi.fn(), noFixNotice: vi.fn(), pilotOn: vi.fn(), db: {} as any }));
+// Pilots (lib/pilots): all off unless a test switches one on.
+vi.mock("@/lib/pilots/state", () => ({ isPilotOn: mocks.pilotOn, loadPilotState: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.role }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: mocks.settings }));
 vi.mock("@/lib/jobs/continuation-requests", () => ({ listContinuationRequests: async () => [] }));
@@ -28,6 +30,7 @@ beforeEach(() => {
     // The live-location notice is accepted and no tag was tapped, unless a test says otherwise.
     locationTrackingNotice: { findUnique: async () => ({ id: "notice" }) }, nfcScanEvent: { findFirst: async () => null } };
   mocks.createLog.mockResolvedValue({ id: "log" });
+  mocks.pilotOn.mockResolvedValue(false);
 });
 /** Where the cleaner is: required for every start and resume since live location 2026-11. */
 const AT = { lat: -33.86, lng: 151.2, accuracy: 8 };
@@ -162,10 +165,24 @@ it("allows a start without a fix when the phone cannot get one, with a reason, t
 
 it("still refuses a refused permission, a missing reason, or an unaccepted notice", async () => {
   mocks.job.mockResolvedValue(farJob());
-  expect((await start({ propertyCodeConfirmed: true, startLocation: { noFix: { reason: "Denied", error: "PERMISSION_DENIED" } } })).status).toBe(400);
+  // Pilot "Check-in location" off (nothing stored): a refused permission is still refused, now by the location rule (409) rather than the schema.
+  const denied = await start({ propertyCodeConfirmed: true, startLocation: { noFix: { reason: "Denied", error: "PERMISSION_DENIED" } } });
+  expect(denied.status).toBe(409);
+  expect((await denied.json()).error).toBe("LOCATION_REQUIRED");
   expect((await start({ propertyCodeConfirmed: true, startLocation: { noFix: { reason: "", error: "TIMEOUT" } } })).status).toBe(400);
   mocks.db.locationTrackingNotice = { findUnique: async () => null };
   const notice = await start({ propertyCodeConfirmed: true, startLocation: { noFix: { reason: "No GPS signal here", error: "TIMEOUT" } } });
   expect((await notice.json()).error).toBe("LOCATION_NOTICE_REQUIRED");
   expect(mocks.createLog).not.toHaveBeenCalled();
+});
+
+it("pilot Check-in location on: location turned off clocks in with the reason, no position, told to the office", async () => {
+  mocks.pilotOn.mockImplementation(async (key: string) => key === "checkin-location");
+  mocks.job.mockResolvedValue(farJob());
+  mocks.noFixNotice.mockResolvedValue([]);
+  const response = await start({ propertyCodeConfirmed: true, startLocation: { noFix: { reason: "Location is off on this phone", error: "PERMISSION_DENIED" } } });
+  expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+  expect(mocks.createLog.mock.calls[0][0].data).toMatchObject({ startVerdict: "NO_FIX", startReasonCode: "PERMISSION_DENIED", startLat: null, startDistanceM: null });
+  expect(mocks.pilotOn).toHaveBeenCalledWith("checkin-location", expect.objectContaining({ userId: "cleaner" }));
+  await vi.waitFor(() => expect(mocks.noFixNotice).toHaveBeenCalledWith(expect.objectContaining({ reason: "Location is off on this phone" })));
 });

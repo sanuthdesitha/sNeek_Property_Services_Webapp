@@ -12,8 +12,8 @@ import { GpsError } from "@/lib/geo/get-position";
 import { useLocationGate, type GateResult } from "@/components/v2/location/location-gate";
 
 let result: GateResult | undefined;
-function Harness() {
-  const gate = useLocationGate("CLEANER");
+function Harness({ allowDenied = false }: { allowDenied?: boolean }) {
+  const gate = useLocationGate("CLEANER", { allowDeniedWithReason: allowDenied });
   return (
     <div>
       <button type="button" onClick={async () => { result = await gate.ensureReady(); }}>Start</button>
@@ -89,5 +89,16 @@ describe("live-location start gate", () => {
     await userEvent.click(screen.getByRole("button", { name: "Start" }));
     await act(async () => { await userEvent.click(await screen.findByRole("button", { name: "Try again later" })); });
     await waitFor(() => expect(result).toBeNull());
+  });
+
+  it("pilot Check-in location: location turned off starts with a reason instead of refusing", async () => {
+    m.position.mockRejectedValue(new GpsError("PERMISSION_DENIED", "Location access is blocked."));
+    render(<Harness allowDenied />);
+    await userEvent.click(screen.getByRole("button", { name: "Start" }));
+    expect(await screen.findByText("Start without a location fix?")).toBeVisible();
+    expect(screen.getByText(/No location is recorded and the office is told why/)).toBeVisible();
+    expect(screen.queryByText("Turn on location to start")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start without a fix" }));
+    await waitFor(() => expect(result).toEqual({ noFix: { reason: "I don't want to share location", error: "PERMISSION_DENIED" } }));
   });
 });

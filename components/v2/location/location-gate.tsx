@@ -24,14 +24,14 @@ import { EActionDialog } from "@/components/v2/ui/action-dialog";
 import { EButton } from "@/components/v2/ui/primitives";
 import { toneMutedClass, toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { getAccuratePosition, GpsError } from "@/lib/geo/get-position";
-import type { NoFixError } from "@/lib/gps/start-location";
+import type { ClockInNoFixError, NoFixError } from "@/lib/gps/start-location";
 import { LOCATION_NOTICE_TEXT, LOCATION_NOTICE_VERSION, type NoticePortal } from "@/lib/gps/notice";
 
 export type GateFix = { lat: number; lng: number; accuracy: number | null };
 /** No location is needed: an administrator is viewing as this person. */
 export const LOCATION_NOT_REQUIRED = "NOT_REQUIRED" as const;
 /** Permission granted, notice accepted, but no position: start with this reason. */
-export type GateNoFix = { noFix: { reason: string; error: NoFixError } };
+export type GateNoFix = { noFix: { reason: string; error: ClockInNoFixError } };
 export type GateResult = GateFix | GateNoFix | typeof LOCATION_NOT_REQUIRED | null;
 
 export function isGateNoFix(value: GateResult): value is GateNoFix {
@@ -41,11 +41,23 @@ export function isGateNoFix(value: GateResult): value is GateNoFix {
 /** Quick choices for the reason; "Other" lets the person type their own. */
 export const NO_FIX_REASONS = ["No GPS signal here", "Indoors or in a basement", "Phone location not working"] as const;
 
+/** Quick choices when location is turned off for the app (pilot "Check-in location"). */
+export const DENIED_REASONS = ["I don't want to share location", "Location is turned off on this phone", "Phone location not working"] as const;
+
+export type LocationGateOptions = {
+  /**
+   * Pilot "Check-in location" (clock-in only): when location is turned off
+   * for the app, offer to start with a reason instead of refusing. The server
+   * decides again; the start records no position and the office is told.
+   */
+  allowDeniedWithReason?: boolean;
+};
+
 type DialogState =
   | { kind: "closed" }
   | { kind: "notice"; busy: boolean; error: string | null }
   | { kind: "blocked"; message: string }
-  | { kind: "noFix"; error: NoFixError; message: string; choice: string; other: string; invalid: boolean };
+  | { kind: "noFix"; error: ClockInNoFixError; message: string; choice: string; other: string; invalid: boolean };
 
 /** Map a geolocation failure: a refusal blocks; anything else may start with a reason. */
 export function classifyGateError(error: unknown): { blocked: true; message: string } | { blocked: false; error: NoFixError; message: string } {
@@ -62,7 +74,9 @@ const PERMISSION_STEPS = [
   "Then come back here and try again.",
 ];
 
-export function useLocationGate(portal: NoticePortal) {
+export function useLocationGate(portal: NoticePortal, options: LocationGateOptions = {}) {
+  const allowDeniedRef = React.useRef(false);
+  allowDeniedRef.current = options.allowDeniedWithReason === true;
   const [dialog, setDialog] = React.useState<DialogState>({ kind: "closed" });
   const resolver = React.useRef<((accepted: boolean) => void) | null>(null);
   const noFixResolver = React.useRef<((result: GateNoFix | null) => void) | null>(null);
@@ -127,6 +141,12 @@ export function useLocationGate(portal: NoticePortal) {
       return { lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy };
     } catch (error) {
       const classified = classifyGateError(error);
+      if (classified.blocked && allowDeniedRef.current) {
+        return new Promise<GateNoFix | null>((resolve) => {
+          noFixResolver.current = resolve;
+          setDialog({ kind: "noFix", error: "PERMISSION_DENIED", message: "Location is turned off for this app.", choice: DENIED_REASONS[0], other: "", invalid: false });
+        });
+      }
       if (classified.blocked) {
         setDialog({ kind: "blocked", message: classified.message });
         return null;
@@ -227,11 +247,15 @@ export function useLocationGate(portal: NoticePortal) {
           <div className="space-y-3 text-[0.875rem]">
             <p className={`rounded-[var(--e-radius)] p-2 ${toneNoticeClass("attention")}`}>
               {dialog.message}
-              <span className={`block ${toneMutedClass("attention")}`}>You can still start. The office is told, your phone keeps trying, and the first position it gets is shown as a late location.</span>
+              <span className={`block ${toneMutedClass("attention")}`}>
+                {dialog.error === "PERMISSION_DENIED"
+                  ? "You can still clock in. No location is recorded and the office is told why."
+                  : "You can still start. The office is told, your phone keeps trying, and the first position it gets is shown as a late location."}
+              </span>
             </p>
             <fieldset className="space-y-2">
               <legend className="font-semibold">Why is there no location?</legend>
-              {[...NO_FIX_REASONS, "Other"].map((choice) => (
+              {[...(dialog.error === "PERMISSION_DENIED" ? DENIED_REASONS : NO_FIX_REASONS), "Other"].map((choice) => (
                 <label key={choice} className="flex min-h-11 items-center gap-2">
                   <input
                     type="radio"
