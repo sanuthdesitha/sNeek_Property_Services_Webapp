@@ -78,10 +78,10 @@ export const PILOTS: readonly PilotDefinition[] = [
   {
     key: "before-start-extras",
     name: "Before-you-start extras",
-    description: "Open QA issues at the property in the start briefing, and \"I can't attend\" / \"Running late\" actions that tell the office at once.",
-    affects: "Cleaners before a job; the office.",
-    whenOff: "The existing start briefing and job actions.",
-    built: false,
+    description: "Up to five open QA issues at the property are read out in the start briefing (acknowledged like the other items), and the job + menu offers \"Running late\" and \"I can't attend\" before clock-in, which tell the office at once (inbox and phone push).",
+    affects: "Cleaners before a job; the office (inbox).",
+    whenOff: "The start briefing and + menu as before. Notices already sent stay in the office inbox and the job History.",
+    built: true,
   },
   {
     key: "review-flags",
@@ -204,6 +204,7 @@ export type CleanerJobPilots = {
   unusedCheck: boolean;
   cleanerJobFlow: boolean;
   checkinLocation: boolean;
+  beforeStartExtras: boolean;
 };
 
 export const pilotUpdateInput = z.object({

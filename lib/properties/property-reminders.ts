@@ -20,8 +20,38 @@ export type PropertyReminder = {
   detail?: string;
 };
 
-/** The property facts the rules read. `features` is Property.features (amenity JSON). */
-export type PropertyReminderSource = { features?: unknown } | null | undefined;
+/**
+ * An open QA issue at the property, read out before the clean (pilot
+ * "Before-you-start extras", 2026-11-28). Loaded on the server.
+ */
+export type OpenQaIssueReminder = { id: string; category: string; description: string };
+
+/**
+ * The property facts the rules read. `features` is Property.features (amenity
+ * JSON); `openQaIssues` is present only where the pilot loaded them.
+ */
+export type PropertyReminderSource = { features?: unknown; openQaIssues?: OpenQaIssueReminder[] } | null | undefined;
+
+export const QA_ISSUE_REMINDER_PREFIX = "property-reminder-qa-";
+const QA_DESCRIPTION_MAX = 160;
+
+function categoryLabel(category: string): string {
+  const words = category.replace(/[_-]+/g, " ").trim().toLowerCase();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : "Quality";
+}
+
+function qaIssueReminders(property: PropertyReminderSource): PropertyReminder[] {
+  const issues = Array.isArray(property?.openQaIssues) ? property!.openQaIssues : [];
+  return issues.map((issue) => {
+    const description = issue.description.trim();
+    const short = description.length > QA_DESCRIPTION_MAX ? `${description.slice(0, QA_DESCRIPTION_MAX - 1)}…` : description;
+    return {
+      id: `${QA_ISSUE_REMINDER_PREFIX}${issue.id}`,
+      title: `Open QA issue here: ${categoryLabel(issue.category)}`,
+      ...(short ? { detail: `Check it is fixed this time: ${short}` } : {}),
+    };
+  });
+}
 
 type PropertyReminderRule = {
   id: string;
@@ -50,10 +80,12 @@ function featuresOf(property: PropertyReminderSource): Record<string, unknown> |
 /** The reminders that apply to this property, in rule order. Unknown facts give none. */
 export function resolvePropertyReminders(property: PropertyReminderSource): PropertyReminder[] {
   const features = featuresOf(property);
-  if (!features) return [];
-  return PROPERTY_REMINDER_RULES
-    .filter((rule) => rule.applies(features))
-    .map((rule) => ({ id: rule.id, title: rule.title, ...(rule.detail ? { detail: rule.detail } : {}) }));
+  const fromFacts = features
+    ? PROPERTY_REMINDER_RULES
+        .filter((rule) => rule.applies(features))
+        .map((rule) => ({ id: rule.id, title: rule.title, ...(rule.detail ? { detail: rule.detail } : {}) }))
+    : [];
+  return [...fromFacts, ...qaIssueReminders(property)];
 }
 
 export function isPropertyReminderId(itemId: string): boolean {

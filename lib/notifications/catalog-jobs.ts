@@ -348,5 +348,23 @@ export const JOB_NOTIFICATION_TYPES: NotificationTypeEntry[] = [
     preferences: "RESPECTS",
     producers: ["lib/jobs/evidence-override.ts"],
     notes: "Explicit transports: the inbox row plus the phone push of its category (approvals for the office, jobs for the cleaner), as the cleaner's other requests and their decisions. Never email or SMS. Allowing waives only the chosen photo questions on that one job; the decision is shown with the submission.",
+  },  {
+    key: "job.attendance_notice",
+    name: "I can't attend / Running late",
+    group: "Jobs",
+    trigger: "Before starting, a cleaner tells the office they can't attend a job, or that they will be late (minutes and reason).",
+    audience: "Active administrators, and operations managers whose Jobs pack allows at least read (scope JOB_OFFICE, checked when queued and again at dispatch).",
+    audienceKeys: ["STAFF_ADMIN"],
+    initiator: "PERSON_ACTION",
+    transports: [...INBOX_AND_PHONE],
+    defaultTransports: [...INBOX_AND_PHONE],
+    path: "PIPELINE",
+    eventKeys: ["job_attendance.cant_attend", "job_attendance.running_late"],
+    switches: [{ kind: "NONE" }],
+    template: { kind: "NONE" },
+    preferences: "RESPECTS",
+    producers: ["lib/jobs/attendance-notice.ts"],
+    notes: "Explicit transports: the inbox row plus the approvals phone push, as the cleaner's other requests to the office. Never email or SMS, and never to the client. The notice changes nothing on the job: the office reassigns or reschedules through the existing job flows.",
   },
+
 ];

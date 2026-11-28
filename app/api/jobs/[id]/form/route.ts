@@ -540,6 +540,7 @@ export async function GET(
       unusedCheck: cleanerViewer ? await unusedCheckEnabled(pilotSubject) : false,
       cleanerJobFlow: cleanerViewer ? await cleanerJobFlowOn(db, { jobId: job.id, userId: session.user.id, propertyId: job.propertyId }) : false,
       checkinLocation: cleanerViewer ? await isPilotOn("checkin-location", pilotSubject) : false,
+      beforeStartExtras: cleanerViewer ? await isPilotOn("before-start-extras", pilotSubject) : false,
     };
     // Photo questions the office allowed this job to be submitted without
     // (honoured whatever the pilot state; the submit route re-reads them).

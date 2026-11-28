@@ -2721,3 +2721,14 @@ Spec item 4, behind the pilot "Check-in location". No schema change. **Found alr
 **Decision for the owner (pending confirmation):** the one-time live-location notice still has to be accepted before the first clock-in (it is a consent record); the pilot does not remove it.
 
 - **Tests:** `tests/lib/start-location-denied.test.ts` (3), `tests/components/location-gate.test.tsx` (+1), `tests/api/cleaner-start-preserves-briefing.test.ts` (+1 pilot-on start; the existing refusal case now expects the location rule's 409 `LOCATION_REQUIRED` instead of the schema's 400 — still refused before anything is written). TypeScript passed. **Browser:** not walked (needs a phone permission denial; the dialog is covered by the component test).
+
+## Cleaner job flow v2 — 5. Before-you-start extras (2026-11-28)
+
+Spec item 5, behind the pilot "Before-you-start extras". No schema change. **Reused:** the start briefing and its acknowledgement/fingerprint contract (QA issues ride the same property source as the live plants reminder), the notification intent pipeline, the job + menu. **Existing and unchanged:** Driving mode's "Running late" (tells the client while on the way).
+
+**Decisions made for the owner (pending confirmation):**
+1. At most five open QA issues (newest first), description cut at 160 characters; QA issues raised against any cleaner at the property are read out (the text is the inspector's description).
+2. "Running late" / "I can't attend" go to the office only (inbox + approvals push), not the client, and change nothing on the job.
+3. Offered from the + menu, which appears from "Get there" onward (not on the Accept step).
+
+- **Tests:** `tests/lib/pilot-briefing-source.test.ts` (5: both off = null and no read; extras only; both on with fingerprint change; failed read; per-cleaner office proof), `tests/api/attendance-notice-route.test.ts` (3), `tests/db/job-attendance-notice.test.ts` (2, PostgreSQL: audit, inbox-only notices, double tap = one notice, refusals, job unchanged), `tests/components/attendance-notice-form.test.tsx` (2). TypeScript passed. **Browser:** see the walk notes at the end of this record.

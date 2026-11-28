@@ -139,7 +139,7 @@ export const TEST_AS_RULES: readonly TestAsRule[] = [
   },
   {
     key: "decisions",
-    label: "Raise QA issues, reset someone's PIN, answer the office, re-confirm a changed job briefing, ask the office about a property that looks unused or about photos that cannot be taken",
+    label: "Raise QA issues, reset someone's PIN, answer the office, re-confirm a changed job briefing, ask the office about a property that looks unused or about photos that cannot be taken, say they can't attend or are running late",
     viewOnly: REFUSED,
     full: REFUSED,
     how: "These are the reviewer's or partner's own acts; the routes refuse while testing.",
@@ -159,6 +159,8 @@ export const TEST_AS_RULES: readonly TestAsRule[] = [
       route("cleaner/jobs/[id]/unused-check"),
       // "Camera not working — ask the office" is the cleaner's own statement about their phone.
       route("cleaner/jobs/[id]/evidence-override"),
+      // "I can't attend" / "Running late" is the cleaner's own statement to the office.
+      route("cleaner/jobs/[id]/attendance-notice"),
     ],
   },
   {

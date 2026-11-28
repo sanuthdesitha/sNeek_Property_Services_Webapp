@@ -20,6 +20,8 @@ import {
   PackageSearch,
   PackageX,
   HelpCircle,
+  Timer,
+  UserX,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -32,6 +34,7 @@ import { SafetyCheckin } from "@/components/v2/cleaner/job-actions";
 import { LostFoundForm } from "@/components/v2/cleaner/lost-found-form";
 import { UrgentStockWorkspace } from "@/components/inventory/urgent-stock-workspace";
 import { UnusedCheckRequest } from "@/components/v2/cleaner/unused-check";
+import { AttendanceNoticeForm } from "@/components/v2/cleaner/attendance-notice-form";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 
 type ActionKey =
@@ -43,7 +46,9 @@ type ActionKey =
   | "laundry"
   | "safety"
   | "lostfound"
-  | "unusedcheck";
+  | "unusedcheck"
+  | "runninglate"
+  | "cantattend";
 
 interface Row {
   key: ActionKey;
@@ -78,7 +83,12 @@ export function ActionFab({
   // Board order: the unused-property question first (it comes before any
   // cleaning), then damage, urgent stock, lost item, maintenance, extra pay,
   // pause or continue, then the conditional laundry and safety rows.
+  // Pilot "Before-you-start extras", decided by the server: tell the office before clocking in.
+  const offersAttendance = api.payload?.pilots?.beforeStartExtras === true && !api.ownStarted;
+
   const allRows: Row[] = [
+    { key: "runninglate", label: "Running late", detail: "Tell the office how late and why", icon: <Timer className="h-4 w-4" />, show: offersAttendance },
+    { key: "cantattend", label: "I can't attend", detail: "Tell the office now; they decide what happens", icon: <UserX className="h-4 w-4 text-[hsl(var(--e-warning))]" />, show: offersAttendance },
     { key: "unusedcheck", label: "Looks unused — ask the office", detail: "Nobody seems to have stayed? Ask before you clean", icon: <HelpCircle className="h-4 w-4" />, show: offersUnusedCheck },
     { key: "damage", label: "Report damage", detail: "Photo markup, severity, cause", icon: <AlertTriangle className="h-4 w-4 text-[hsl(var(--e-warning))]" />, show: true },
     { key: "urgentstock", label: "Urgent stock for this property", detail: "Tells the office; does not order anything", icon: <PackageX className="h-4 w-4" />, show: Boolean(api.job?.propertyId) },
@@ -220,6 +230,10 @@ function ActionBody({
       ) : null;
     case "unusedcheck":
       return <UnusedCheckRequest key={jobId} jobId={jobId} onChanged={onUnusedCheckChanged} />;
+    case "runninglate":
+      return <AttendanceNoticeForm jobId={jobId} kind="RUNNING_LATE" />;
+    case "cantattend":
+      return <AttendanceNoticeForm jobId={jobId} kind="CANT_ATTEND" />;
     case "lostfound":
       return <LostFoundForm jobs={[{ id: jobId, label: api.propertyCode || api.addressLine || "This job" }]} />;
     default:
