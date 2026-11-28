@@ -30,21 +30,27 @@ import { ReviewTab } from "./review-tab";
 import { CoachingTab } from "./coaching-tab";
 import type { OpenIssueRequest } from "./cleaner-expanded";
 import { LaundryTeamSection } from "./laundry-team-section";
+import { RegisterTab, type RegisterSharedFilters } from "./register-tab";
 
-const MANAGER_TABS: readonly QualityTab[] = ["review", "issues", "cleaners", "inspectors", "categories", "coaching"];
+const MANAGER_TABS: readonly QualityTab[] = ["review", "issues", "register", "cleaners", "inspectors", "categories", "coaching"];
 const INSPECTOR_TABS: readonly QualityTab[] = ["issues"];
 /** A manager whose packs refuse the coaching endpoints never gets a blank tab. */
 const MANAGER_TABS_WITHOUT_COACHING: readonly QualityTab[] = MANAGER_TABS.filter((tab) => tab !== "coaching");
 
 type OpenDetail = { issue: QualityIssueRow; action: IssueActionKey | null };
 
+/** "All issues" sits after Issues, only where the pilot is on for this person. */
+function withRegister(tabs: readonly QualityTab[], visible: boolean): readonly QualityTab[] {
+  return visible ? tabs : tabs.filter((tab) => tab !== "register");
+}
+
 export function QualityHub({ context }: { context: HubContext }) {
   const coaching = context.coaching ?? { visible: true, canManage: context.canManage, fullPageLink: true };
-  const tabs = context.inspectorView
-    ? INSPECTOR_TABS
-    : coaching.visible
-      ? MANAGER_TABS
-      : MANAGER_TABS_WITHOUT_COACHING;
+  const registerVisible = !context.inspectorView && context.register?.visible === true;
+  const tabs = React.useMemo(
+    () => withRegister(context.inspectorView ? INSPECTOR_TABS : coaching.visible ? MANAGER_TABS : MANAGER_TABS_WITHOUT_COACHING, registerVisible),
+    [context.inspectorView, coaching.visible, registerVisible],
+  );
   const defaultTab: QualityTab = context.inspectorView ? "issues" : "cleaners";
   const { state, update, hrefForTab } = useHubState(tabs, defaultTab);
   const [refreshToken, setRefreshToken] = React.useState(0);
@@ -91,6 +97,8 @@ export function QualityHub({ context }: { context: HubContext }) {
     ? { review: summary.data.tabs.reviewQueue, issues: summary.data.tabs.issues, coaching: summary.data.tabs.coaching }
     : {};
   const exportParams = new URLSearchParams(issueQuery);
+  const onRegister = state.tab === "register";
+  const onRegisterShared = React.useCallback((patch: Partial<RegisterSharedFilters>) => update({ filters: patch }), [update]);
 
   return (
     <div className="space-y-4">
@@ -100,19 +108,22 @@ export function QualityHub({ context }: { context: HubContext }) {
         actions={
           <>
             <PeriodControl period={state.period} onChange={(period) => update({ period })} />
+            {onRegister ? null : (
             <EButton asChild size="sm" variant="outline">
               <a href={`/api/admin/quality/issues/export?${exportParams.toString()}`} download title="Download the issues for this period and these filters as CSV">
                 <Download aria-hidden className="h-3.5 w-3.5" /> Export
               </a>
             </EButton>
+            )}
           </>
         }
       />
 
-      {context.inspectorView ? null : <QualityStatCards summary={summary.data} loading={summary.loading} error={summary.error} />}
+      {context.inspectorView || onRegister ? null : <QualityStatCards summary={summary.data} loading={summary.loading} error={summary.error} />}
 
       <QualityTabs tabs={tabs} active={state.tab} counts={counts} hrefFor={(tab) => hrefForTab(tab)} />
 
+      {onRegister ? null : (
       <SharedFilters
         filters={state.filters}
         options={options.data}
@@ -122,6 +133,7 @@ export function QualityHub({ context }: { context: HubContext }) {
         phoneExtra={phoneIssueFilters ? <IssueStatusFilters filters={state.filters} onFilters={onFilters} /> : undefined}
         phoneExtraActive={phoneIssueFilters ? issueStatusActiveFilters(state.filters, onFilters) : undefined}
       />
+      )}
 
       <div className="lg:flex lg:items-start lg:gap-5">
         <div className="min-w-0 lg:flex-1">
@@ -157,6 +169,20 @@ export function QualityHub({ context }: { context: HubContext }) {
               onOpenIssueAction={openIssueAction}
               onChanged={onChanged}
               activeIssueId={detail?.issue.id ?? null}
+            />
+          ) : null}
+          {onRegister && registerVisible ? (
+            <RegisterTab
+              period={state.period}
+              shared={{ q: state.filters.q, propertyId: state.filters.propertyId, cleanerId: state.filters.cleanerId, category: state.filters.category }}
+              sort={state.sort}
+              dir={state.dir}
+              page={state.page}
+              timeZone={context.timeZone}
+              canLog={context.register?.canLog === true}
+              onShared={onRegisterShared}
+              onSort={onSort}
+              onPage={onPage}
             />
           ) : null}
           {state.tab === "inspectors" ? (

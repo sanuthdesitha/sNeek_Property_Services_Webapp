@@ -6,6 +6,7 @@ import { toPersonProfile } from "@/lib/accounts/person-types";
 import { personCapabilities, resolveAccountsViewer } from "@/lib/accounts/viewer";
 import { PersonFullPage } from "@/components/v2/admin/accounts/person/person-full-page";
 import { personPageTab } from "@/components/v2/admin/accounts/person/person-tabs";
+import { issueHistoryHrefFor } from "@/lib/quality/register/history-access";
 
 export const metadata = { title: "Account · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -21,5 +22,7 @@ export default async function EstateAccountDetailPage({ params, searchParams }: 
   const raw = await loadPersonProfile(params.id);
   if (!raw) notFound();
   const viewer = await resolveAccountsViewer(session.user);
-  return <PersonFullPage profile={toPersonProfile(raw)} caps={personCapabilities(viewer)} initialTab={personPageTab(searchParams?.tab)} />;
+  const profile = toPersonProfile(raw);
+  const issueHistoryHref = profile.isFieldRole ? await issueHistoryHrefFor(session.user, { cleanerId: params.id }) : null;
+  return <PersonFullPage profile={profile} caps={personCapabilities(viewer)} initialTab={personPageTab(searchParams?.tab)} issueHistoryHref={issueHistoryHref} />;
 }

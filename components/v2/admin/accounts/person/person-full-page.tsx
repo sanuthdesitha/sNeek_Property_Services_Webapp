@@ -39,9 +39,15 @@ import { PersonalSwitchesPanel } from "@/components/v2/notifications/personal-sw
 
 import { PERSON_PAGE_TABS as PAGE_TABS, PERSON_PAGE_TAB_LABEL as TAB_LABEL, type PersonPageTab as PageTab } from "./person-tabs";
 
-type Props = { profile: PersonProfile; caps: PersonCapabilities; onChanged: () => void };
+type Props = {
+  profile: PersonProfile;
+  caps: PersonCapabilities;
+  onChanged: () => void;
+  /** "Issue history" (pilot "All issues register"): the register for this cleaner, or null when off. */
+  issueHistoryHref?: string | null;
+};
 
-function TabBody({ tab, profile, caps, onChanged }: Props & { tab: PageTab }) {
+function TabBody({ tab, profile, caps, onChanged, issueHistoryHref = null }: Props & { tab: PageTab }) {
   const props = { profile, caps, onChanged };
   switch (tab) {
     case "overview":
@@ -70,6 +76,7 @@ function TabBody({ tab, profile, caps, onChanged }: Props & { tab: PageTab }) {
             <div className="flex flex-wrap gap-2">
               <EButton asChild size="sm" variant="outline"><Link href={`/v2/admin/workforce/performance/${profile.id}`}>Full performance</Link></EButton>
               <EButton asChild size="sm" variant="outline"><Link href="/v2/admin/workforce/coaching">Coaching</Link></EButton>
+              {issueHistoryHref ? <EButton asChild size="sm" variant="outline"><Link href={issueHistoryHref}>Issue history</Link></EButton> : null}
             </div>
           ) : null}
         </>
@@ -107,7 +114,17 @@ function Rail({ profile, caps, onChanged }: Props) {
   );
 }
 
-export function PersonFullPage({ profile, caps, initialTab = "overview" }: { profile: PersonProfile; caps: PersonCapabilities; initialTab?: PageTab }) {
+export function PersonFullPage({
+  profile,
+  caps,
+  initialTab = "overview",
+  issueHistoryHref = null,
+}: {
+  profile: PersonProfile;
+  caps: PersonCapabilities;
+  initialTab?: PageTab;
+  issueHistoryHref?: string | null;
+}) {
   const router = useRouter();
   const [tab, setTab] = useState<PageTab>(initialTab);
   const [visited, setVisited] = useState<ReadonlySet<PageTab>>(new Set<PageTab>([initialTab]));
@@ -180,7 +197,7 @@ export function PersonFullPage({ profile, caps, initialTab = "overview" }: { pro
           ) : null}
           {PAGE_TABS.filter((key) => visited.has(key)).map((key) => (
             <div key={`${profile.id}-${key}`} id={`page-panel-${key}`} role="tabpanel" aria-labelledby={`page-tab-${key}`} hidden={tab !== key} className={cn("flex-col gap-3", tab === key ? "flex" : "hidden")}>
-              <TabBody tab={key} profile={profile} caps={caps} onChanged={refresh} />
+              <TabBody tab={key} profile={profile} caps={caps} onChanged={refresh} issueHistoryHref={issueHistoryHref} />
             </div>
           ))}
         </div>

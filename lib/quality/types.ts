@@ -7,12 +7,14 @@
  * QA issue register already used; they are not new rules.
  */
 
-export const QUALITY_TABS = ["review", "issues", "cleaners", "inspectors", "categories", "coaching"] as const;
+export const QUALITY_TABS = ["review", "issues", "register", "cleaners", "inspectors", "categories", "coaching"] as const;
 export type QualityTab = (typeof QUALITY_TABS)[number];
 
 export const QUALITY_TAB_LABEL: Record<QualityTab, string> = {
   review: "Review queue",
   issues: "Issues",
+  /** All issues register (pilot "All issues register"): shown only where the pilot is on. */
+  register: "All issues",
   cleaners: "Cleaners",
   inspectors: "Inspectors",
   categories: "Categories",
