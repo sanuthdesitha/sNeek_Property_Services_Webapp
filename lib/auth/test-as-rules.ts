@@ -139,7 +139,7 @@ export const TEST_AS_RULES: readonly TestAsRule[] = [
   },
   {
     key: "decisions",
-    label: "Raise QA issues, reset someone's PIN, answer the office, re-confirm a changed job briefing",
+    label: "Raise QA issues, reset someone's PIN, answer the office, re-confirm a changed job briefing, ask the office about a property that looks unused",
     viewOnly: REFUSED,
     full: REFUSED,
     how: "These are the reviewer's or partner's own acts; the routes refuse while testing.",
@@ -155,6 +155,8 @@ export const TEST_AS_RULES: readonly TestAsRule[] = [
       // A cleaner's confirmation that they read a changed briefing is evidence
       // of their own reading; an administrator testing as them cannot give it.
       route("cleaner/jobs/[id]/briefing-ack"),
+      // "Looks unused — ask the office" is the cleaner's own report from the property.
+      route("cleaner/jobs/[id]/unused-check"),
     ],
   },
   {
