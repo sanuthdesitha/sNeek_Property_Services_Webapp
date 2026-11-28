@@ -68,6 +68,8 @@ export type ReminderCandidate = ReminderItem & {
   untilDate: string | null;
   /** Jobs it was already used on (claimed at clock-in). */
   claimedJobIds: readonly string[];
+  /** Jobs it is never shown on (e.g. the job that already carries the same device charge task). */
+  skipJobIds?: readonly string[];
 };
 
 export type ReminderJobContext = {
@@ -89,6 +91,7 @@ export type ReminderJobContext = {
 export function reminderApplies(candidate: ReminderCandidate, context: ReminderJobContext): boolean {
   if (candidate.cleanerId && candidate.cleanerId !== context.userId) return false;
   if (candidate.moment === "ROOM" && !candidate.roomKey) return false;
+  if (context.jobId && candidate.skipJobIds?.includes(context.jobId)) return false;
   switch (candidate.lifetime) {
     case "EVERY_JOB":
       return true;

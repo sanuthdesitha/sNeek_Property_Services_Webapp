@@ -474,6 +474,8 @@ const SETTINGS_TABS: Record<string, OpsFeature | "owner"> = {
   // Pilot features (2026-11-28): operations managers view with Settings; only administrators change.
   "pilot-features": "settings",
   pilots: "settings",
+  // Property reminder rules (2026-11-28): operations managers view with Settings; only administrators switch.
+  "reminder-rules": "settings",
   "property-form": "property-form",
   safeguards: "quality-settings",
   accountability: "quality-settings",

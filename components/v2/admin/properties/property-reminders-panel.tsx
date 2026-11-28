@@ -344,6 +344,23 @@ export function PropertyRemindersPanel({ propertyId, timeZone = "Australia/Sydne
         </ul>
       )}
 
+      {data.automatic === null ? (
+        <p role="status" className="text-[0.8125rem] text-[hsl(var(--e-warning))]">Automatic reminders could not be loaded.</p>
+      ) : data.automatic.length > 0 ? (
+        <section aria-labelledby={`automatic-${propertyId}`} className="space-y-1.5">
+          <h3 id={`automatic-${propertyId}`} className="text-[0.8125rem] font-[600]">From automatic rules ({data.automatic.length})</h3>
+          <ul className="space-y-1.5">
+            {data.automatic.map((item) => (
+              <li key={item.key} className="rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border))] p-2.5">
+                <p className="text-[0.8125rem] font-[600] [overflow-wrap:anywhere]">{item.text}</p>
+                <p className={MUTED}>{item.where}. <span className="font-[550]">Ends:</span> {item.endsLabel}. <span className="font-[550]">Why:</span> {item.why}</p>
+              </li>
+            ))}
+          </ul>
+          <p className={MUTED}>Rules are switched in Settings › Property reminder rules. Cleaner-specific rule reminders follow the cleaner and are not listed here.</p>
+        </section>
+      ) : null}
+
       {adding ? (
         <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
           <h3 className="mb-2 text-[0.875rem] font-[600]">New reminder</h3>

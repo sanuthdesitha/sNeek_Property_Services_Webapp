@@ -9,6 +9,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { isReminderRoomKey } from "./sections";
+import { loadRuleCandidates } from "./rules-load";
 import {
   OFFICE_REMINDER_ITEM_PREFIX,
   officeReminderKey,
@@ -91,12 +92,13 @@ export async function organisationTodayKey(now: Date = new Date()): Promise<stri
 }
 
 /**
- * Every candidate reminder at a property (office reminders now; automatic
- * rules join here). One read for every caller that must agree on a job's
+ * Every candidate reminder at a property (office reminders and
+ * the switched-on automatic rules). One read for every caller that must agree on a job's
  * list (the start gate, the re-confirm route, the job payload, the office proof).
  */
 export async function loadReminderCandidates(propertyId: string): Promise<ReminderCandidate[]> {
-  return loadOfficeCandidates(propertyId);
+  const [office, rules] = await Promise.all([loadOfficeCandidates(propertyId), loadRuleCandidates(propertyId)]);
+  return [...office, ...rules];
 }
 
 /** The reminders that apply to this job and person now. */

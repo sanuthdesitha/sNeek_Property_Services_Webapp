@@ -378,6 +378,16 @@ export const SETTINGS_DESTINATIONS = [
     href: "/v2/admin/settings/tutorials",
   },
   {
+    // Automatic property reminder rules (smart property reminders, 2026-11-28).
+    // Operations managers view with the Settings pack; administrators switch rules.
+    key: "reminder-rules",
+    label: "Property reminder rules",
+    description: "Automatic reminders for cleaners from devices, QA issues, stock and maintenance: each rule off until an administrator checks its preview.",
+    group: "quality",
+    adminOnly: false,
+    href: "/v2/admin/settings/reminder-rules",
+  },
+  {
     // Pilot features (2026-11-28): new behaviours switched off / on / for a
     // few people or properties. Operations managers view; administrators change.
     key: "pilot-features",

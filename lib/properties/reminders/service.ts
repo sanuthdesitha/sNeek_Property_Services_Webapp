@@ -22,6 +22,8 @@ import {
   type ReminderMoment,
 } from "./model";
 import { claimsByKey, dateKey, officeReminderWhy, organisationTodayKey } from "./load";
+import { loadRuleCandidates } from "./rules-load";
+import { REMINDER_MOMENT_LABEL } from "./model";
 
 export class ReminderServiceError extends Error {
   constructor(public readonly status: number, message: string, public readonly code: string) {
@@ -87,7 +89,12 @@ export type OfficeReminderView = {
 
 export type ReminderPilotStatus = "ON" | "OFF" | "SCOPED_NOT_THIS_PROPERTY" | "SCOPED_THIS_PROPERTY" | "UNREADABLE";
 
+/** A reminder a switched-on automatic rule makes at this property now (not stored). */
+export type AutomaticReminderView = { key: string; text: string; why: string; where: string; endsLabel: string };
+
 export type PropertyRemindersView = {
+  /** From switched-on rules at this property; null when they could not be read (never shown as none). */
+  automatic: AutomaticReminderView[] | null;
   active: OfficeReminderView[];
   ended: OfficeReminderView[];
   cleaners: Array<{ id: string; name: string }>;
@@ -184,7 +191,24 @@ export async function listPropertyReminders(propertyId: string): Promise<Propert
       endedBy: row.endedById ? people.get(row.endedById) ?? "Unknown" : null,
     };
   });
+  const automatic = await loadRuleCandidates(propertyId)
+    .then((candidates) =>
+      candidates
+        .filter((candidate) => !candidate.cleanerId)
+        .map<AutomaticReminderView>((candidate) => ({
+          key: candidate.key,
+          text: candidate.text,
+          why: candidate.why,
+          where: candidate.moment === "ROOM" && isReminderRoomKey(candidate.roomKey) ? `In a room: ${REMINDER_ROOM_LABEL[candidate.roomKey]}` : REMINDER_MOMENT_LABEL[candidate.moment],
+          endsLabel: describeLifetime({ lifetime: candidate.lifetime, jobsCount: candidate.jobsCount, untilDate: candidate.untilDate, usedOnJobs: new Set(candidate.claimedJobIds).size }).replace("until someone ends it", "while the facts hold"),
+        })),
+    )
+    .catch((error) => {
+      console.error("[property-reminders] automatic reminders could not be read", error);
+      return null;
+    });
   return {
+    automatic,
     active: views.filter((view) => !view.endedAt),
     ended: views.filter((view) => view.endedAt),
     cleaners: cleaners.map((user) => ({ id: user.id, name: user.name ?? user.email ?? user.id })),
