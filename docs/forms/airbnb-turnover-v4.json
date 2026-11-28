@@ -1,0 +1,1978 @@
+{
+  "format": "sneek.form-templates",
+  "formatVersion": 1,
+  "exportedAt": "2026-11-28T00:00:00.000Z",
+  "forms": [
+    {
+      "name": "Airbnb Turnover v4 — Hotel standard",
+      "serviceType": "AIRBNB_TURNOVER",
+      "tags": [
+        "v4",
+        "Airbnb",
+        "Hotel standard",
+        "Needs review"
+      ],
+      "source": "draft",
+      "sourceVersion": 1,
+      "schema": {
+        "standardSections": false,
+        "sections": [
+          {
+            "id": "v4-start",
+            "title": "Before you start",
+            "description": "At the door, before you touch anything.",
+            "fields": [
+              {
+                "id": "start-read-first",
+                "type": "instruction",
+                "label": "Read first",
+                "helpText": "Do not touch anything yet. Film first, then clean. If something looks wrong, tell the office before you start, not after."
+              },
+              {
+                "id": "start-access-ok",
+                "type": "yesno",
+                "label": "Got in with no access problem?",
+                "required": true,
+                "detailsWhenNo": true,
+                "helpText": "Cannot get in? Call the office before you wait more than 10 minutes.",
+                "locationTag": "Entry"
+              },
+              {
+                "id": "start-key-state",
+                "type": "select",
+                "label": "Guest lockbox or key when you arrived",
+                "required": true,
+                "options": [
+                  "Key inside, all good",
+                  "Key missing",
+                  "Lockbox open or damaged",
+                  "No lockbox here"
+                ],
+                "locationTag": "Entry",
+                "children": [
+                  {
+                    "id": "start-key-photo",
+                    "type": "photo",
+                    "label": "Photo of the lockbox or key spot as found",
+                    "required": true,
+                    "minPhotos": 1,
+                    "stampTag": "before",
+                    "conditional": {
+                      "fieldId": "start-key-state",
+                      "operator": "oneOf",
+                      "value": [
+                        "Key missing",
+                        "Lockbox open or damaged"
+                      ]
+                    },
+                    "evidenceCategory": "PROPERTY_CONFIRM"
+                  },
+                  {
+                    "id": "start-key-problem",
+                    "type": "longtext",
+                    "label": "What was wrong?",
+                    "required": true,
+                    "conditional": {
+                      "fieldId": "start-key-state",
+                      "operator": "oneOf",
+                      "value": [
+                        "Key missing",
+                        "Lockbox open or damaged"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "start-guest-present",
+                "type": "yesno",
+                "label": "Guest still inside, or their bags still here?",
+                "required": true,
+                "helpText": "Answer Yes even if they leave soon after.",
+                "children": [
+                  {
+                    "id": "start-guest-time",
+                    "type": "time",
+                    "label": "Time you saw them",
+                    "required": true,
+                    "conditional": {
+                      "fieldId": "start-guest-present",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  },
+                  {
+                    "id": "start-guest-what-to-do",
+                    "type": "instruction",
+                    "label": "Stop",
+                    "helpText": "Do not enter rooms in use. Use + → Pause or continue tomorrow, and call the office.",
+                    "conditional": {
+                      "fieldId": "start-guest-present",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "start-unused",
+                "type": "yesno",
+                "label": "Does it look like nobody stayed?",
+                "required": true,
+                "helpText": "Beds untouched, towels unused, bins empty.",
+                "children": [
+                  {
+                    "id": "start-unused-stop",
+                    "type": "instruction",
+                    "label": "STOP. Do not clean yet",
+                    "helpText": "Ask the office first: + → Looks unused — ask the office. Wait for the answer before you clean.",
+                    "conditional": {
+                      "fieldId": "start-unused",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  },
+                  {
+                    "id": "start-unused-photos",
+                    "type": "photo",
+                    "label": "Photos of the untouched beds and bathroom",
+                    "required": true,
+                    "minPhotos": 2,
+                    "stampTag": "before",
+                    "conditional": {
+                      "fieldId": "start-unused",
+                      "operator": "equals",
+                      "value": true
+                    },
+                    "evidenceCategory": "PROPERTY_CONFIRM",
+                    "aiCriteria": "At least two photos taken before any cleaning: a made bed with no sign of sleeping (smooth cover, square pillows) and a bathroom with dry, folded, unused towels. Fail if the photos show used linen, wet towels or rubbish."
+                  },
+                  {
+                    "id": "start-unused-answer",
+                    "type": "select",
+                    "label": "What did the office say?",
+                    "required": true,
+                    "options": [
+                      "Clean as normal",
+                      "Light refresh only",
+                      "Do not clean",
+                      "No answer after 15 minutes (then call)"
+                    ],
+                    "conditional": {
+                      "fieldId": "start-unused",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  },
+                  {
+                    "id": "start-unused-who",
+                    "type": "text",
+                    "label": "Who answered (name, or “no answer”)",
+                    "required": true,
+                    "conditional": {
+                      "fieldId": "start-unused",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "start-pool-spa",
+                "type": "yesno",
+                "label": "Pool, spa or hot tub you look after here?",
+                "required": true,
+                "helpText": "Answer No if there is none or it is not part of this clean."
+              }
+            ]
+          },
+          {
+            "id": "arrival-evidence",
+            "title": "Arrival evidence",
+            "description": "Protects you and the company. Show the place exactly as the guest left it.",
+            "fields": [
+              {
+                "id": "arrival-walkthrough-video",
+                "type": "video",
+                "label": "Arrival walkthrough video",
+                "required": true,
+                "mediaMode": "video",
+                "evidenceCategory": "PROPERTY_CONFIRM",
+                "severity": "high",
+                "instructions": "Walk slowly. Every room, every cupboard area. In each room film the ceiling, then the walls, then the floor. Open the oven, fridge and microwave. All of the property must be on the video before you touch anything."
+              },
+              {
+                "id": "arrival-before-photos",
+                "type": "photo",
+                "label": "Before photos — the worst spots",
+                "required": true,
+                "minPhotos": 3,
+                "stampTag": "before",
+                "evidenceCategory": "PROPERTY_CONFIRM",
+                "helpText": "At least 3: kitchen, main bathroom, and the messiest spot.",
+                "aiCriteria": "At least three different rooms or spots, taken before cleaning. Each photo is sharp and shows the area as found. Fail if photos look already cleaned, are duplicates, or are close-ups that hide the room."
+              },
+              {
+                "id": "arrival-damage",
+                "type": "yesno",
+                "label": "Any damage, stains or broken items?",
+                "required": true,
+                "helpText": "Yes opens the damage report. Add the photos there.",
+                "instructions": "Photo BEFORE and AFTER, with the time stamp. Bag any stained or damaged linen or item, label it with the date and property, and keep it for the office for 40 days. Never throw it out.",
+                "effects": [
+                  {
+                    "kind": "damage-report",
+                    "when": "yes",
+                    "area": "Found on arrival"
+                  }
+                ]
+              },
+              {
+                "id": "arrival-left-items",
+                "type": "yesno",
+                "label": "Guest items left behind?",
+                "required": true,
+                "children": [
+                  {
+                    "id": "arrival-left-items-how",
+                    "type": "instruction",
+                    "label": "Log each item",
+                    "helpText": "Use + → Lost item found for each item. Bag it, label it, leave it in the agreed spot.",
+                    "conditional": {
+                      "fieldId": "arrival-left-items",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "arrival-mess-level",
+                "type": "select",
+                "label": "How messy was it?",
+                "required": true,
+                "options": [
+                  "Normal",
+                  "Messy",
+                  "Excessive"
+                ],
+                "children": [
+                  {
+                    "id": "arrival-mess-photos",
+                    "type": "photo",
+                    "label": "Photos of the extra mess",
+                    "required": true,
+                    "minPhotos": 3,
+                    "stampTag": "before",
+                    "conditional": {
+                      "fieldId": "arrival-mess-level",
+                      "operator": "equals",
+                      "value": "Excessive"
+                    },
+                    "evidenceCategory": "PROPERTY_CONFIRM",
+                    "aiCriteria": "Three or more photos that show mess beyond a normal turnover: piles of rubbish, heavy spills, dirty dishes throughout, food on floors or furniture. Fail if the photos show a normal level of mess."
+                  },
+                  {
+                    "id": "arrival-mess-extra-time",
+                    "type": "instruction",
+                    "label": "Ask for extra time now",
+                    "helpText": "Use + → Extra pay request before you go over time. The office approves it; nothing is paid automatically.",
+                    "conditional": {
+                      "fieldId": "arrival-mess-level",
+                      "operator": "equals",
+                      "value": "Excessive"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "arrival-signs",
+                "type": "multiselect",
+                "label": "Any of these when you arrived?",
+                "required": true,
+                "options": [
+                  "Smoke or vape smell",
+                  "Signs of a party",
+                  "Pet hair or pet mess",
+                  "Strong bad smell",
+                  "Pests (roaches, ants, mice)",
+                  "Mould",
+                  "None of these"
+                ],
+                "helpText": "Pick all that apply.",
+                "children": [
+                  {
+                    "id": "arrival-signs-photos",
+                    "type": "photo",
+                    "label": "Photos of what you found",
+                    "required": true,
+                    "minPhotos": 2,
+                    "stampTag": "before",
+                    "conditional": {
+                      "fieldId": "arrival-signs",
+                      "operator": "oneOf",
+                      "value": [
+                        "Smoke or vape smell",
+                        "Signs of a party",
+                        "Pet hair or pet mess",
+                        "Strong bad smell",
+                        "Pests (roaches, ants, mice)",
+                        "Mould"
+                      ]
+                    },
+                    "evidenceCategory": "PROPERTY_CONFIRM",
+                    "aiCriteria": "Photos show the reported sign: ash, butts or vape items; many bottles or party rubbish; pet hair, bowls or mess; pests or droppings; mould. Fail if nothing matching the reported sign is visible."
+                  }
+                ]
+              },
+              {
+                "id": "arrival-electronics-ok",
+                "type": "yesno",
+                "label": "TV and other electronics working?",
+                "required": true,
+                "detailsWhenNo": true,
+                "helpText": "No: say what is not working.",
+                "locationTag": "Living",
+                "children": [
+                  {
+                    "id": "arrival-electronics-report",
+                    "type": "instruction",
+                    "label": "Report it",
+                    "helpText": "Also use + → Maintenance issue so it is tracked and fixed.",
+                    "conditional": {
+                      "fieldId": "arrival-electronics-ok",
+                      "operator": "equals",
+                      "value": false
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "arrival-tv-on",
+                "type": "photo",
+                "label": "TV switched on (screen showing)",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Living",
+                "evidenceCategory": "PROPERTY_CONFIRM",
+                "aiCriteria": "The TV screen is on and showing a picture or menu. Fail if the screen is black or the TV is not in the photo."
+              }
+            ]
+          },
+          {
+            "id": "v4-devices",
+            "title": "Devices and plants",
+            "description": "Every clean. Plant questions show only at properties marked with live plants.",
+            "fields": [
+              {
+                "id": "devices-ring",
+                "type": "yesno",
+                "label": "Ring camera checked and charged?",
+                "required": true,
+                "deviceStatus": true,
+                "helpText": "Yes if checked and charged. Otherwise choose Needs attention, Absent (not at this property) or Not checked, and say why.",
+                "locationTag": "Entry"
+              },
+              {
+                "id": "devices-minut",
+                "type": "yesno",
+                "label": "Minut noise sensor checked and charged?",
+                "required": true,
+                "deviceStatus": true,
+                "helpText": "Yes if checked and charged. Otherwise choose Needs attention, Absent (not at this property) or Not checked, and say why.",
+                "locationTag": "Living"
+              },
+              {
+                "id": "plants-soil",
+                "type": "select",
+                "label": "Plants — soil checked",
+                "required": true,
+                "options": [
+                  "Soil dry, watered",
+                  "Soil still damp, no water needed",
+                  "Plant looks unwell"
+                ],
+                "conditional": {
+                  "propertyField": "hasLivePlants",
+                  "operator": "equals",
+                  "value": true
+                },
+                "helpText": "Push a finger into the soil. Water only if it is dry.",
+                "children": [
+                  {
+                    "id": "plants-unwell-photo",
+                    "type": "photo",
+                    "label": "Photo of the unwell plant",
+                    "required": true,
+                    "minPhotos": 1,
+                    "stampTag": "after",
+                    "conditional": {
+                      "fieldId": "plants-soil",
+                      "operator": "equals",
+                      "value": "Plant looks unwell"
+                    },
+                    "evidenceCategory": "PROPERTY_CONFIRM"
+                  },
+                  {
+                    "id": "plants-unwell-note",
+                    "type": "longtext",
+                    "label": "What looks wrong?",
+                    "required": true,
+                    "conditional": {
+                      "fieldId": "plants-soil",
+                      "operator": "equals",
+                      "value": "Plant looks unwell"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "plants-photo",
+                "type": "photo",
+                "label": "Plant and soil photo",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "conditional": {
+                  "propertyField": "hasLivePlants",
+                  "operator": "equals",
+                  "value": true
+                },
+                "evidenceCategory": "PROPERTY_CONFIRM",
+                "aiCriteria": "Each live plant with its pot and soil visible. Leaves upright, soil not cracked dry, no water pooled on the floor or saucer overflowing."
+              }
+            ]
+          },
+          {
+            "id": "v4-kitchen",
+            "title": "Kitchen",
+            "fields": [
+              {
+                "id": "kitchen-food-left",
+                "type": "yesno",
+                "label": "Guest food left in the fridge, freezer, oven or microwave?",
+                "required": true,
+                "helpText": "Throw out opened food. Clean any spill underneath.",
+                "locationTag": "Kitchen",
+                "children": [
+                  {
+                    "id": "kitchen-food-left-detail",
+                    "type": "longtext",
+                    "label": "What was left, and was it removed?",
+                    "required": true,
+                    "conditional": {
+                      "fieldId": "kitchen-food-left",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "kitchen-appliances-inside",
+                "type": "photo",
+                "label": "Inside the appliances, doors open",
+                "required": true,
+                "minPhotos": 4,
+                "stampTag": "after",
+                "severity": "high",
+                "locationTag": "Kitchen",
+                "evidenceCategory": "KITCHEN",
+                "instructions": "One photo each, door wide open: fridge with the drawers pulled out, microwave inside, oven inside, dishwasher inside with the filter. No dishwasher? Photo the freezer instead.",
+                "aiCriteria": "Four photos with doors fully open: fridge with drawers pulled out, inside the microwave, inside the oven, inside the dishwasher with the filter visible. No guest food, spills, crumbs, grease or splatter. Fail if a door is closed, the inside is not visible, or the photo is blurry."
+              },
+              {
+                "id": "kitchen-benches-sink",
+                "type": "photo",
+                "label": "Benches, sink, splashback and cooktop",
+                "required": true,
+                "minPhotos": 2,
+                "stampTag": "after",
+                "locationTag": "Kitchen",
+                "evidenceCategory": "KITCHEN",
+                "aiCriteria": "Benches clear except host items, no crumbs, rings or streaks. Sink empty and dry. Splashback and cooktop with no grease, splashes or burnt marks. Fail if dishes, cloths or cleaning bottles are left out."
+              },
+              {
+                "id": "kitchen-drain-tap",
+                "type": "photo",
+                "label": "Close-up: sink drain cap lifted and the base of the tap",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "severity": "high",
+                "locationTag": "Kitchen",
+                "evidenceCategory": "KITCHEN",
+                "aiCriteria": "Drain cap lifted, plug hole and cap clean. Base of the tap with no black mould, lime or grime build-up. Fail if the cap is not lifted or the tap base is not in frame."
+              },
+              {
+                "id": "kitchen-small-appliances",
+                "type": "photo",
+                "label": "Kettle inside, coffee machine tray, toaster crumb tray out",
+                "required": true,
+                "minPhotos": 2,
+                "stampTag": "after",
+                "locationTag": "Kitchen",
+                "evidenceCategory": "KITCHEN",
+                "aiCriteria": "Inside of the kettle with no scale, coffee machine drip tray and pod bin empty and clean, toaster crumb tray pulled out and empty."
+              },
+              {
+                "id": "kitchen-cutlery-plates",
+                "type": "photo",
+                "label": "Cutlery drawer and plates set out neatly, like a hotel",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Kitchen",
+                "evidenceCategory": "KITCHEN",
+                "aiCriteria": "Cutlery drawer open, cutlery sorted and clean in the tray, plates stacked neatly. No crumbs, water marks or food on any item."
+              },
+              {
+                "id": "kitchen-cupboards-open",
+                "type": "photo",
+                "label": "Pot, pan and glass cupboards open",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Kitchen",
+                "evidenceCategory": "KITCHEN",
+                "aiCriteria": "Cupboards open, pots, pans and glasses clean, dry and neatly placed. No food, grease or water marks on shelves."
+              },
+              {
+                "id": "kitchen-hand-checked",
+                "type": "yesno",
+                "label": "Checked every pot, pan, glass, plate and cutlery piece by hand?",
+                "required": true,
+                "detailsWhenNo": true,
+                "helpText": "Even the ones in the right place. Guests use them and put them back dirty.",
+                "locationTag": "Kitchen"
+              },
+              {
+                "id": "kitchen-bin",
+                "type": "photo",
+                "label": "Bin emptied, new bag fitted neatly",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Kitchen",
+                "evidenceCategory": "KITCHEN",
+                "helpText": "Bag folded over the rim, no loose plastic showing.",
+                "aiCriteria": "Bin empty with a new bag folded neatly over the rim, no loose plastic hanging inside, no residue in the bin or lid. Fail if the bin has rubbish or no bag."
+              },
+              {
+                "id": "kitchen-splashback",
+                "type": "checkbox",
+                "label": "Splashback and the wall behind the cooktop wiped",
+                "required": true
+              },
+              {
+                "id": "kitchen-microwave",
+                "type": "checkbox",
+                "label": "Microwave door inside and out, and the top of the microwave, wiped",
+                "required": true
+              },
+              {
+                "id": "kitchen-tap-fittings",
+                "type": "checkbox",
+                "label": "Around and behind the tap fittings scrubbed",
+                "required": true
+              },
+              {
+                "id": "kitchen-fronts",
+                "type": "checkbox",
+                "label": "Cupboard fronts, drawers and handles wiped; fridge outside wiped",
+                "required": true
+              },
+              {
+                "id": "kitchen-under-sink",
+                "type": "checkbox",
+                "label": "Under the sink checked: dry, no leak",
+                "required": true
+              },
+              {
+                "id": "kitchen-setout",
+                "type": "checkbox",
+                "label": "Dish liquid, sponge, dishwasher tablets and paper towel set out",
+                "required": true
+              },
+              {
+                "id": "kitchen-closeup-rangehood",
+                "type": "photo",
+                "label": "Close-up: rangehood filter",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "frequency": "ROTATIONAL",
+                "rotationEveryNCleans": 3,
+                "severity": "medium",
+                "locationTag": "Kitchen",
+                "evidenceCategory": "KITCHEN",
+                "aiCriteria": "Rangehood filter and underside visible, no grease drips or built-up film."
+              },
+              {
+                "id": "kitchen-closeup-under-toaster",
+                "type": "photo",
+                "label": "Close-up: under the kettle and toaster",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "frequency": "ROTATIONAL",
+                "rotationEveryNCleans": 4,
+                "severity": "medium",
+                "locationTag": "Kitchen",
+                "evidenceCategory": "KITCHEN",
+                "aiCriteria": "Kettle and toaster moved aside; bench underneath free of crumbs, rings and grease."
+              }
+            ]
+          },
+          {
+            "id": "v4-bathroom",
+            "title": "Bathroom",
+            "repeatBy": "bathrooms",
+            "fields": [
+              {
+                "id": "bath-toilet",
+                "type": "photo",
+                "label": "Toilet: seat up, bowl, then the base and floor corners",
+                "required": true,
+                "minPhotos": 3,
+                "stampTag": "after",
+                "severity": "high",
+                "locationTag": "Bathroom",
+                "evidenceCategory": "BATHROOM",
+                "instructions": "Photo 1: lid and seat up, showing the underside. Photo 2: into the bowl. Photo 3: crouch down — the base with the floor corners beside and behind it.",
+                "aiCriteria": "Three photos. Underside of the seat and lid with no marks or hair. Bowl with no stains under the rim. Base and the floor corners beside and behind it with no hair, dust or yellow marks. Fail if the underside or the base is not in frame."
+              },
+              {
+                "id": "bath-shower",
+                "type": "photo",
+                "label": "Shower: glass, walls and grout, and the drain",
+                "required": true,
+                "minPhotos": 3,
+                "stampTag": "after",
+                "severity": "high",
+                "locationTag": "Bathroom",
+                "evidenceCategory": "BATHROOM",
+                "instructions": "Squeegee and dry the glass first. Lift the drain cover and remove hair before the photo.",
+                "aiCriteria": "Shower glass dry and streak-free with no water spots or soap scum. Walls and grout lines with no mould or grime. Drain visible with no hair. Fail if the drain is not visible or the glass is wet or streaky."
+              },
+              {
+                "id": "bath-seal",
+                "type": "photo",
+                "label": "Close-up: the seal strip under the shower glass",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "severity": "high",
+                "locationTag": "Bathroom",
+                "evidenceCategory": "BATHROOM",
+                "aiCriteria": "The rubber or plastic seal strip along the bottom of the shower glass, close up, with no black spots, mould or soap build-up. Fail if the strip is not in frame."
+              },
+              {
+                "id": "bath-mould-gone",
+                "type": "yesno",
+                "label": "All black mould gone from the shower seal, grout and corners?",
+                "required": true,
+                "locationTag": "Bathroom",
+                "children": [
+                  {
+                    "id": "bath-mould-photo",
+                    "type": "photo",
+                    "label": "Photo of the mould that would not come off",
+                    "required": true,
+                    "minPhotos": 1,
+                    "stampTag": "damage",
+                    "conditional": {
+                      "fieldId": "bath-mould-gone",
+                      "operator": "equals",
+                      "value": false
+                    },
+                    "evidenceCategory": "BATHROOM"
+                  },
+                  {
+                    "id": "bath-mould-detail",
+                    "type": "longtext",
+                    "label": "What would not come off, and where?",
+                    "required": true,
+                    "conditional": {
+                      "fieldId": "bath-mould-gone",
+                      "operator": "equals",
+                      "value": false
+                    },
+                    "helpText": "Also use + → Maintenance issue so the office can fix it."
+                  }
+                ]
+              },
+              {
+                "id": "bath-basin-mirror",
+                "type": "photo",
+                "label": "Basin with the drain cap lifted and tap bases, then the mirror",
+                "required": true,
+                "minPhotos": 2,
+                "stampTag": "after",
+                "locationTag": "Bathroom",
+                "evidenceCategory": "BATHROOM",
+                "aiCriteria": "Basin clean with the drain cap lifted and no hair, tap bases with no lime or mould. Mirror with no streaks or splash marks."
+              },
+              {
+                "id": "bath-cabinet",
+                "type": "photo",
+                "label": "Inside the mirror cabinet and vanity cupboard",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Bathroom",
+                "evidenceCategory": "BATHROOM",
+                "aiCriteria": "Cabinet and cupboard open, shelves wiped, no hair, guest items or spills."
+              },
+              {
+                "id": "bath-towels-amenities",
+                "type": "photo",
+                "label": "Towels hung, toilet paper on the holder plus spare rolls, amenities set out",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Bathroom",
+                "evidenceCategory": "BATHROOM",
+                "aiCriteria": "Fresh towels hung or folded as the host sets them. A full toilet roll on the holder and spare rolls visible. Soap, shampoo, conditioner and body wash present and not near empty. Fail if there is no spare toilet roll in view."
+              },
+              {
+                "id": "bath-leaks",
+                "type": "yesno",
+                "label": "Any leak, drip or toilet that keeps running?",
+                "required": true,
+                "locationTag": "Bathroom",
+                "helpText": "Check under the basin and around the toilet base.",
+                "children": [
+                  {
+                    "id": "bath-leaks-detail",
+                    "type": "longtext",
+                    "label": "What and where?",
+                    "required": true,
+                    "conditional": {
+                      "fieldId": "bath-leaks",
+                      "operator": "equals",
+                      "value": true
+                    },
+                    "helpText": "Also use + → Maintenance issue so it is fixed."
+                  }
+                ]
+              },
+              {
+                "id": "bath-under-lid",
+                "type": "checkbox",
+                "label": "Under the toilet lid, seat hinges and the bottom of the seat wiped",
+                "required": true
+              },
+              {
+                "id": "bath-toilet-corners",
+                "type": "checkbox",
+                "label": "Corners beside and under the toilet wiped by hand (the mop does not reach)",
+                "required": true
+              },
+              {
+                "id": "bath-glass-dry",
+                "type": "checkbox",
+                "label": "Shower glass wiped dry — every clean, every time",
+                "required": true
+              },
+              {
+                "id": "bath-fan-bin",
+                "type": "checkbox",
+                "label": "Exhaust fan cover dust-free; bin emptied with a new liner",
+                "required": true
+              },
+              {
+                "id": "bath-floor",
+                "type": "checkbox",
+                "label": "Floor last: hair picked up, then mopped",
+                "required": true
+              },
+              {
+                "id": "bath-closeup-grout",
+                "type": "photo",
+                "label": "Close-up: grout in the shower corner",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "frequency": "ROTATIONAL",
+                "rotationEveryNCleans": 3,
+                "severity": "medium",
+                "locationTag": "Bathroom",
+                "evidenceCategory": "BATHROOM",
+                "aiCriteria": "Shower corner grout and silicone visible close up, no black mould, pink film or soap build-up."
+              }
+            ]
+          },
+          {
+            "id": "v4-bedroom",
+            "title": "Bedroom",
+            "repeatBy": "bedrooms",
+            "fields": [
+              {
+                "id": "bed-protector",
+                "type": "photo",
+                "label": "Mattress protector BEFORE the new sheets go on",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "before",
+                "severity": "high",
+                "locationTag": "Bedroom",
+                "evidenceCategory": "BEDROOM",
+                "helpText": "No hair, no stains. Whole protector in view.",
+                "aiCriteria": "The bare mattress protector on the bed, before sheets go on, all of it in frame. No hair, stains, marks or tears. Fail if sheets are already on or the protector is only partly visible."
+              },
+              {
+                "id": "bed-protector-stain",
+                "type": "yesno",
+                "label": "Mattress or pillow protector stained?",
+                "required": true,
+                "locationTag": "Bedroom",
+                "children": [
+                  {
+                    "id": "bed-protector-stain-photo",
+                    "type": "photo",
+                    "label": "Photo of the stain",
+                    "required": true,
+                    "minPhotos": 1,
+                    "stampTag": "damage",
+                    "conditional": {
+                      "fieldId": "bed-protector-stain",
+                      "operator": "equals",
+                      "value": true
+                    },
+                    "evidenceCategory": "BEDROOM"
+                  },
+                  {
+                    "id": "bed-protector-stain-how",
+                    "type": "instruction",
+                    "label": "Replace it and keep the stained one",
+                    "helpText": "Put on a spare. Bag and label the stained one with the date and property, and keep it for the office.",
+                    "conditional": {
+                      "fieldId": "bed-protector-stain",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "bed-made",
+                "type": "photo",
+                "label": "Bed made, hotel standard",
+                "required": true,
+                "minPhotos": 2,
+                "stampTag": "after",
+                "severity": "high",
+                "locationTag": "Bedroom",
+                "evidenceCategory": "BEDROOM",
+                "instructions": "Photo 1: from the foot of the bed, all four corners in frame. Photo 2: close-up of the pillows. Tight, almost no wrinkles, corners tucked, pillows square.",
+                "aiCriteria": "Whole bed visible with all four corners. Sheets and cover tight with almost no wrinkles, corners tucked, cover straight and even on both sides. Pillows plumped and square, cases fresh and matching. No hair on the linen. Fail if a corner is cut off, or the linen looks slept-in or creased."
+              },
+              {
+                "id": "bed-under",
+                "type": "photo",
+                "label": "Under the bed, torch on",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "severity": "high",
+                "locationTag": "Bedroom",
+                "evidenceCategory": "BEDROOM",
+                "aiCriteria": "Floor under the bed visible with a torch: no rubbish, hair, dust, socks, wrappers or guest items. Fail if it is too dark to see under the bed."
+              },
+              {
+                "id": "bed-wardrobe",
+                "type": "photo",
+                "label": "Inside the wardrobe and drawers",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Bedroom",
+                "evidenceCategory": "BEDROOM",
+                "aiCriteria": "Wardrobe and drawers open: no hair, dust, hangers on the floor or items left behind."
+              },
+              {
+                "id": "bed-items-found",
+                "type": "yesno",
+                "label": "Found anything in wardrobes, drawers or bedside tables?",
+                "required": true,
+                "locationTag": "Bedroom",
+                "children": [
+                  {
+                    "id": "bed-items-found-how",
+                    "type": "instruction",
+                    "label": "Log it",
+                    "helpText": "Use + → Lost item found for anything of value. Throw out rubbish.",
+                    "conditional": {
+                      "fieldId": "bed-items-found",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "bed-bedside",
+                "type": "checkbox",
+                "label": "Bedside tables wiped: top, sides and inside the drawer",
+                "required": true
+              },
+              {
+                "id": "bed-lamps",
+                "type": "checkbox",
+                "label": "Lamps dusted: the base, under the base and inside the shade",
+                "required": true
+              },
+              {
+                "id": "bed-frames-switches",
+                "type": "checkbox",
+                "label": "Picture frames, mirrors and light switches wiped; mirrors spot-free",
+                "required": true
+              },
+              {
+                "id": "bed-windows",
+                "type": "checkbox",
+                "label": "Window frames, sills and tracks wiped",
+                "required": true
+              },
+              {
+                "id": "bed-skirting",
+                "type": "checkbox",
+                "label": "Skirting wiped where it looks dirty",
+                "required": true
+              },
+              {
+                "id": "bed-final-look",
+                "type": "photo",
+                "label": "Final look from the doorway",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Bedroom",
+                "evidenceCategory": "FINAL",
+                "aiCriteria": "Room shown from the doorway: bed made, cushions and throw placed, lamps straight, blinds or curtains as in the listing, no cleaning gear, bags or rubbish."
+              },
+              {
+                "id": "bed-closeup-wardrobe-top",
+                "type": "photo",
+                "label": "Close-up: top of the wardrobe or bedhead",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "frequency": "ROTATIONAL",
+                "rotationEveryNCleans": 4,
+                "severity": "medium",
+                "locationTag": "Bedroom",
+                "evidenceCategory": "BEDROOM",
+                "aiCriteria": "Top of the wardrobe or bedhead visible close up, no dust layer or items."
+              }
+            ]
+          },
+          {
+            "id": "v4-living",
+            "title": "Living and dining",
+            "fields": [
+              {
+                "id": "living-under-cushions",
+                "type": "photo",
+                "label": "Sofa cushions lifted, and under the sofa",
+                "required": true,
+                "minPhotos": 2,
+                "stampTag": "after",
+                "severity": "high",
+                "locationTag": "Living",
+                "evidenceCategory": "LIVING",
+                "aiCriteria": "Photo 1: cushions lifted, sofa base free of crumbs, coins, hair and rubbish. Photo 2: floor under the sofa free of dust and items. Fail if cushions are not lifted."
+              },
+              {
+                "id": "living-behind-sofa",
+                "type": "photo",
+                "label": "Behind the sofa",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Living",
+                "evidenceCategory": "LIVING",
+                "aiCriteria": "Floor and skirting behind the sofa: no dust, hair, rubbish or guest items."
+              },
+              {
+                "id": "living-door-track",
+                "type": "photo",
+                "label": "Sliding door or large window: the bottom track and frame",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Living",
+                "evidenceCategory": "LIVING",
+                "aiCriteria": "Bottom track and frame close up: no dust, dirt, leaves or dead insects in the track."
+              },
+              {
+                "id": "living-remotes",
+                "type": "yesno",
+                "label": "All TV and air-con remotes found and working?",
+                "required": true,
+                "detailsWhenNo": true,
+                "locationTag": "Living"
+              },
+              {
+                "id": "living-pet-hair",
+                "type": "yesno",
+                "label": "Pet hair removed from sofa, rugs and beds?",
+                "required": true,
+                "detailsWhenNo": true,
+                "locationTag": "Living",
+                "conditional": {
+                  "fieldId": "arrival-signs",
+                  "operator": "contains",
+                  "value": "Pet hair or pet mess"
+                },
+                "helpText": "Use a rubber glove or lint roller on fabric."
+              },
+              {
+                "id": "living-sofa-bed-one",
+                "type": "photo",
+                "label": "Sofa bed — closed, or made up as the host asks",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Living",
+                "evidenceCategory": "LIVING",
+                "conditional": {
+                  "propertyField": "sofaBedCount",
+                  "operator": "equals",
+                  "value": 1
+                },
+                "aiCriteria": "Sofa bed either fully closed with cushions back, or made up with fresh linen, all corners tucked, no stains."
+              },
+              {
+                "id": "living-sofa-bed-two",
+                "type": "photo",
+                "label": "Both sofa beds — closed, or made up as the host asks",
+                "required": true,
+                "minPhotos": 2,
+                "stampTag": "after",
+                "locationTag": "Living",
+                "evidenceCategory": "LIVING",
+                "conditional": {
+                  "propertyField": "sofaBedCount",
+                  "operator": "equals",
+                  "value": 2
+                },
+                "aiCriteria": "Each sofa bed either fully closed with cushions back, or made up with fresh linen, all corners tucked, no stains."
+              },
+              {
+                "id": "living-corners",
+                "type": "checkbox",
+                "label": "Hard-to-reach corners wiped by hand, where the vacuum and mop cannot reach",
+                "required": true
+              },
+              {
+                "id": "living-fittings",
+                "type": "checkbox",
+                "label": "Fittings, lamp bases and inside lamp shades dusted; picture frames wiped",
+                "required": true
+              },
+              {
+                "id": "living-glass",
+                "type": "checkbox",
+                "label": "Mirrors, handrail and glass panels spot-cleaned",
+                "required": true
+              },
+              {
+                "id": "living-windows",
+                "type": "checkbox",
+                "label": "Window frames and sills wiped; skirting wiped where it looks dirty",
+                "required": true
+              },
+              {
+                "id": "living-storage",
+                "type": "checkbox",
+                "label": "Every cupboard and storage space opened and checked (hallway, linen, TV unit)",
+                "required": true
+              },
+              {
+                "id": "living-table",
+                "type": "checkbox",
+                "label": "Dining table and chairs wiped, chairs tucked in; sofa covers changed if dirty",
+                "required": true
+              },
+              {
+                "id": "living-closeup-tv-unit",
+                "type": "photo",
+                "label": "Close-up: top of the TV unit and behind the TV",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "frequency": "ROTATIONAL",
+                "rotationEveryNCleans": 4,
+                "severity": "medium",
+                "locationTag": "Living",
+                "evidenceCategory": "LIVING",
+                "aiCriteria": "TV unit surface and the area behind the TV visible, no dust layer, no tangled loose cables or rubbish."
+              }
+            ]
+          },
+          {
+            "id": "v4-utility",
+            "title": "Laundry and cleaner's cupboard",
+            "fields": [
+              {
+                "id": "utility-washer-dryer",
+                "type": "photo",
+                "label": "Washing machine and dryer: doors open, seal, detergent drawer, lint filter",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Laundry",
+                "evidenceCategory": "PROPERTY_CONFIRM",
+                "aiCriteria": "Doors open with the seal clean and dry, detergent drawer clean, outside wiped, dryer lint filter empty. Fail if a door is closed."
+              },
+              {
+                "id": "utility-detergent",
+                "type": "select",
+                "label": "Guest laundry detergent",
+                "required": true,
+                "options": [
+                  "Enough for the next guests",
+                  "Low — reported",
+                  "None — reported",
+                  "Not supplied here"
+                ],
+                "children": [
+                  {
+                    "id": "utility-detergent-report",
+                    "type": "instruction",
+                    "label": "Report it now",
+                    "helpText": "Use + → Urgent stock for this property. The office is told straight away.",
+                    "conditional": {
+                      "fieldId": "utility-detergent",
+                      "operator": "oneOf",
+                      "value": [
+                        "Low — reported",
+                        "None — reported"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "utility-dirty-left",
+                "type": "yesno",
+                "label": "Any dirty linen or towels left in rooms, the washer or the dryer?",
+                "required": true,
+                "helpText": "Strip every bed used, including sofa beds and spare beds.",
+                "children": [
+                  {
+                    "id": "utility-dirty-left-why",
+                    "type": "longtext",
+                    "label": "What was left and why?",
+                    "required": true,
+                    "conditional": {
+                      "fieldId": "utility-dirty-left",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "utility-bags-where",
+                "type": "instruction",
+                "label": "Bag count goes in Wrap up",
+                "helpText": "Bag and label the dirty linen. Record the bag count, bag photo and where you left it in Wrap up → Laundry handoff. Do not count bags here.",
+                "conditional": {
+                  "propertyField": "laundryEnabled",
+                  "operator": "equals",
+                  "value": true
+                }
+              },
+              {
+                "id": "utility-spare-sets",
+                "type": "number",
+                "label": "Clean spare linen sets left",
+                "required": true,
+                "min": 0,
+                "max": 30,
+                "step": 1,
+                "unit": "sets",
+                "helpText": "Full sets only: sheets, quilt cover and pillowcases."
+              },
+              {
+                "id": "utility-linen-cupboard",
+                "type": "photo",
+                "label": "Linen cupboard",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Linen",
+                "evidenceCategory": "PROPERTY_CONFIRM",
+                "aiCriteria": "Spare linen folded and stacked. The number of full sets visible roughly matches the number entered. No dirty or stained items mixed in."
+              },
+              {
+                "id": "utility-vacuum",
+                "type": "photo",
+                "label": "Vacuum emptied and the filter cleaned",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "evidenceCategory": "PROPERTY_CONFIRM",
+                "helpText": "Photo of the empty canister.",
+                "aiCriteria": "Vacuum canister or bag compartment empty, filter visible and free of thick dust. Fail if dust or debris is still in the canister."
+              },
+              {
+                "id": "utility-cleaner-cupboard",
+                "type": "photo",
+                "label": "Cleaner's cupboard: tidy, products upright, then locked",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "evidenceCategory": "PROPERTY_CONFIRM",
+                "aiCriteria": "Cupboard tidy, products upright with lids on, nothing spilled, cloths folded or hung."
+              }
+            ]
+          },
+          {
+            "id": "v4-balcony",
+            "title": "Balcony and outdoor",
+            "conditional": {
+              "propertyField": "hasBalcony",
+              "operator": "equals",
+              "value": true
+            },
+            "fields": [
+              {
+                "id": "balcony-area",
+                "type": "photo",
+                "label": "Balcony floor, furniture and glass",
+                "required": true,
+                "minPhotos": 2,
+                "stampTag": "after",
+                "locationTag": "Balcony",
+                "evidenceCategory": "OUTDOOR",
+                "helpText": "Corners and the drain swept, all leaves gone, furniture wiped and set back as in the listing.",
+                "aiCriteria": "Floor swept including corners and the drain, no leaves, butts or rubbish. Outdoor furniture wiped and set out as in the listing. Glass free of hand marks. No full ashtrays, bottles or cans."
+              },
+              {
+                "id": "balcony-butts-bottles",
+                "type": "yesno",
+                "label": "Cigarette butts, vape items or bottles outside?",
+                "required": true,
+                "locationTag": "Balcony",
+                "children": [
+                  {
+                    "id": "balcony-butts-bottles-photo",
+                    "type": "photo",
+                    "label": "Photo before you cleared them",
+                    "required": true,
+                    "minPhotos": 1,
+                    "stampTag": "before",
+                    "conditional": {
+                      "fieldId": "balcony-butts-bottles",
+                      "operator": "equals",
+                      "value": true
+                    },
+                    "evidenceCategory": "OUTDOOR"
+                  }
+                ]
+              },
+              {
+                "id": "balcony-bbq",
+                "type": "select",
+                "label": "BBQ",
+                "required": true,
+                "options": [
+                  "No BBQ",
+                  "Cleaned — grill and drip tray",
+                  "Not cleaned (explain)"
+                ],
+                "locationTag": "Balcony",
+                "children": [
+                  {
+                    "id": "balcony-bbq-photo",
+                    "type": "photo",
+                    "label": "BBQ grill and drip tray",
+                    "required": true,
+                    "minPhotos": 1,
+                    "stampTag": "after",
+                    "conditional": {
+                      "fieldId": "balcony-bbq",
+                      "operator": "equals",
+                      "value": "Cleaned — grill and drip tray"
+                    },
+                    "evidenceCategory": "OUTDOOR",
+                    "aiCriteria": "Grill plates scraped with no food or thick grease; drip tray emptied or foil replaced; gas bottle valve closed."
+                  },
+                  {
+                    "id": "balcony-bbq-why",
+                    "type": "longtext",
+                    "label": "Why was the BBQ not cleaned?",
+                    "required": true,
+                    "conditional": {
+                      "fieldId": "balcony-bbq",
+                      "operator": "equals",
+                      "value": "Not cleaned (explain)"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "v4-pool",
+            "title": "Pool or spa",
+            "conditional": {
+              "fieldId": "start-pool-spa",
+              "operator": "equals",
+              "value": true
+            },
+            "fields": [
+              {
+                "id": "pool-area",
+                "type": "photo",
+                "label": "Pool or spa, surrounds and gate",
+                "required": true,
+                "minPhotos": 2,
+                "stampTag": "after",
+                "locationTag": "Pool",
+                "evidenceCategory": "OUTDOOR",
+                "aiCriteria": "Water surface free of leaves and rubbish, surrounds swept, outdoor furniture set out, pool gate closed. Spa cover on if there is one."
+              },
+              {
+                "id": "pool-gate-latch",
+                "type": "yesno",
+                "label": "Pool gate swings shut and latches by itself?",
+                "required": true,
+                "detailsWhenNo": true,
+                "severity": "high",
+                "locationTag": "Pool",
+                "helpText": "Open it and let go. It must close and lock on its own. If not, call the office now — this is a safety rule."
+              }
+            ]
+          },
+          {
+            "id": "v4-supplies",
+            "title": "Supplies",
+            "description": "Every clean. Report low supplies now, not at the end.",
+            "fields": [
+              {
+                "id": "supplies-low",
+                "type": "yesno",
+                "label": "Is anything low or run out?",
+                "required": true,
+                "helpText": "Toilet paper, bin bags, paper towel, hand soap, shampoo, dish liquid, laundry detergent, coffee.",
+                "children": [
+                  {
+                    "id": "supplies-low-which",
+                    "type": "multiselect",
+                    "label": "What is low or out?",
+                    "required": true,
+                    "options": [
+                      "Toilet paper",
+                      "Bin bags",
+                      "Paper towel",
+                      "Hand soap",
+                      "Shampoo or conditioner",
+                      "Dish liquid",
+                      "Laundry detergent",
+                      "Coffee or tea",
+                      "Something else"
+                    ],
+                    "conditional": {
+                      "fieldId": "supplies-low",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  },
+                  {
+                    "id": "supplies-low-report",
+                    "type": "instruction",
+                    "label": "Report it NOW",
+                    "helpText": "Use + → Urgent stock. Do not wait until the end. The office is told straight away.",
+                    "conditional": {
+                      "fieldId": "supplies-low",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "supplies-toilet-paper",
+                "type": "photo",
+                "label": "Toilet paper: spare rolls in each bathroom",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "severity": "high",
+                "locationTag": "Bathroom",
+                "evidenceCategory": "PROPERTY_CONFIRM",
+                "helpText": "One photo per bathroom.",
+                "aiCriteria": "Spare toilet rolls clearly visible in each bathroom photographed, at least two spare rolls per bathroom. Fail if no spare roll is visible."
+              }
+            ]
+          },
+          {
+            "id": "v4-stock",
+            "title": "Stock counts",
+            "description": "Counts of what is left for the next guest.",
+            "conditional": {
+              "propertyField": "inventoryEnabled",
+              "operator": "equals",
+              "value": true
+            },
+            "fields": [
+              {
+                "id": "stock-how",
+                "type": "instruction",
+                "label": "How to count",
+                "helpText": "Count what is left, not what you used. A low count raises an urgent stock need for the office. It does not order anything."
+              },
+              {
+                "id": "stock-toilet-paper",
+                "type": "stock_count",
+                "label": "Toilet Paper left",
+                "required": true,
+                "stockItemId": "DEF-TP",
+                "stockItemName": "Toilet Paper [DEF-TP: pick item]",
+                "unit": "roll",
+                "helpText": "Count what is left for the next guest.",
+                "effects": [
+                  {
+                    "kind": "urgent-stock-below",
+                    "threshold": 4
+                  }
+                ]
+              },
+              {
+                "id": "stock-hand-soap",
+                "type": "stock_count",
+                "label": "Hand Soap left",
+                "required": true,
+                "stockItemId": "DEF-HANDSOAP",
+                "stockItemName": "Hand Soap [DEF-HANDSOAP: pick item]",
+                "unit": "bottle",
+                "helpText": "Count what is left for the next guest.",
+                "effects": [
+                  {
+                    "kind": "urgent-stock-below",
+                    "threshold": 1
+                  }
+                ]
+              },
+              {
+                "id": "stock-shampoo",
+                "type": "stock_count",
+                "label": "Shampoo left",
+                "required": true,
+                "stockItemId": "DEF-SHAMPOO",
+                "stockItemName": "Shampoo [DEF-SHAMPOO: pick item]",
+                "unit": "bottle",
+                "helpText": "Count what is left for the next guest.",
+                "effects": [
+                  {
+                    "kind": "urgent-stock-below",
+                    "threshold": 1
+                  }
+                ]
+              },
+              {
+                "id": "stock-conditioner",
+                "type": "stock_count",
+                "label": "Conditioner left",
+                "required": true,
+                "stockItemId": "DEF-CONDITIONER",
+                "stockItemName": "Conditioner [DEF-CONDITIONER: pick item]",
+                "unit": "bottle",
+                "helpText": "Count what is left for the next guest.",
+                "effects": [
+                  {
+                    "kind": "urgent-stock-below",
+                    "threshold": 1
+                  }
+                ]
+              },
+              {
+                "id": "stock-body-wash",
+                "type": "stock_count",
+                "label": "Body Wash left",
+                "required": true,
+                "stockItemId": "DEF-BODYWASH",
+                "stockItemName": "Body Wash [DEF-BODYWASH: pick item]",
+                "unit": "bottle",
+                "helpText": "Count what is left for the next guest.",
+                "effects": [
+                  {
+                    "kind": "urgent-stock-below",
+                    "threshold": 1
+                  }
+                ]
+              },
+              {
+                "id": "stock-coffee",
+                "type": "stock_count",
+                "label": "Coffee Capsules left",
+                "required": true,
+                "stockItemId": "DEF-COFFEECAPS",
+                "stockItemName": "Coffee Capsules [DEF-COFFEECAPS: pick item]",
+                "unit": "capsule",
+                "helpText": "Count what is left for the next guest.",
+                "effects": [
+                  {
+                    "kind": "urgent-stock-below",
+                    "threshold": 10
+                  }
+                ]
+              },
+              {
+                "id": "stock-tea",
+                "type": "stock_count",
+                "label": "Tea Bags left",
+                "required": true,
+                "stockItemId": "DEF-TEABAG",
+                "stockItemName": "Tea Bags [DEF-TEABAG: pick item]",
+                "unit": "bag",
+                "helpText": "Count what is left for the next guest.",
+                "effects": [
+                  {
+                    "kind": "urgent-stock-below",
+                    "threshold": 10
+                  }
+                ]
+              },
+              {
+                "id": "stock-bin-liners",
+                "type": "stock_count",
+                "label": "Bin Bags (Small) left",
+                "required": true,
+                "stockItemId": "DEF-BINBAG-S",
+                "stockItemName": "Bin Bags (Small) [DEF-BINBAG-S: pick item]",
+                "unit": "bag",
+                "helpText": "Count what is left for the next guest.",
+                "effects": [
+                  {
+                    "kind": "urgent-stock-below",
+                    "threshold": 5
+                  }
+                ]
+              },
+              {
+                "id": "stock-dish-liquid",
+                "type": "stock_count",
+                "label": "Dishwashing Liquid left",
+                "required": true,
+                "stockItemId": "DEF-DISHLIQUID",
+                "stockItemName": "Dishwashing Liquid [DEF-DISHLIQUID: pick item]",
+                "unit": "bottle",
+                "helpText": "Count what is left for the next guest.",
+                "effects": [
+                  {
+                    "kind": "urgent-stock-below",
+                    "threshold": 1
+                  }
+                ]
+              },
+              {
+                "id": "stock-dishwasher-tabs",
+                "type": "select",
+                "label": "Dishwasher tablets left",
+                "required": true,
+                "options": [
+                  "10 or more",
+                  "5 to 9",
+                  "Under 5",
+                  "None",
+                  "No dishwasher"
+                ],
+                "children": [
+                  {
+                    "id": "stock-dishwasher-tabs-low",
+                    "type": "instruction",
+                    "label": "Running low",
+                    "helpText": "Use + → Urgent stock for this property so the office knows.",
+                    "conditional": {
+                      "fieldId": "stock-dishwasher-tabs",
+                      "operator": "oneOf",
+                      "value": [
+                        "Under 5",
+                        "None"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "stock-cupboard",
+                "type": "photo",
+                "label": "Supplies cupboard",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Supplies",
+                "evidenceCategory": "PROPERTY_CONFIRM",
+                "aiCriteria": "Spare toilet rolls, bin liners and amenities visible and tidy. Amounts look consistent with the counts entered. Fail if the cupboard contents are not visible."
+              }
+            ]
+          },
+          {
+            "id": "v4-floors",
+            "title": "Floors — do these last",
+            "fields": [
+              {
+                "id": "floors-order",
+                "type": "yesno",
+                "label": "Vacuumed first, then mopped, working back to the door?",
+                "required": true,
+                "detailsWhenNo": true,
+                "helpText": "Include under beds, behind doors, and the entry."
+              },
+              {
+                "id": "floors-corner",
+                "type": "photo",
+                "label": "Corner and skirting close-ups",
+                "required": true,
+                "minPhotos": 2,
+                "stampTag": "after",
+                "locationTag": "Floors",
+                "evidenceCategory": "FINAL",
+                "helpText": "Two different rooms.",
+                "aiCriteria": "Two close-ups of floor corners or skirting in different rooms: no hair, dust line, crumbs or mop streaks. Fail if both photos are the same spot."
+              },
+              {
+                "id": "floors-mat",
+                "type": "checkbox",
+                "label": "Entry mat shaken and straight",
+                "required": true
+              }
+            ]
+          },
+          {
+            "id": "v4-final-check",
+            "title": "Final check — walk every room again",
+            "fields": [
+              {
+                "id": "final-how",
+                "type": "instruction",
+                "label": "Walk it like a guest",
+                "helpText": "After the final mop, put your things down and walk the whole property once more, room by room, like a guest arriving."
+              },
+              {
+                "id": "final-walked",
+                "type": "yesno",
+                "label": "Walked every room again after the final mop and fixed what I found?",
+                "required": true,
+                "detailsWhenNo": true
+              },
+              {
+                "id": "final-no-hair",
+                "type": "checkbox",
+                "label": "No hair anywhere: floors, bathroom, beds, cupboards",
+                "required": true
+              },
+              {
+                "id": "final-glass",
+                "type": "checkbox",
+                "label": "Mirrors and glass: no streaks, no fingerprints",
+                "required": true
+              },
+              {
+                "id": "final-staging",
+                "type": "checkbox",
+                "label": "Beds smooth, cushions straight, towels even, blinds set as the listing",
+                "required": true
+              },
+              {
+                "id": "final-supplies",
+                "type": "checkbox",
+                "label": "Bin bags neat, toilet paper and supplies in place",
+                "required": true
+              },
+              {
+                "id": "final-living",
+                "type": "photo",
+                "label": "Final look — living area from the listing angle",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "severity": "high",
+                "locationTag": "Living",
+                "evidenceCategory": "FINAL",
+                "aiCriteria": "Same angle as the listing photo. Cushions plumped and placed as in the listing, throw folded, blinds and curtains as listed, remotes together. No cleaning gear, bags or rubbish in shot."
+              },
+              {
+                "id": "final-kitchen",
+                "type": "photo",
+                "label": "Final look — kitchen from the listing angle",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Kitchen",
+                "evidenceCategory": "FINAL",
+                "aiCriteria": "Same angle as the listing photo. Benches clear except host items placed as listed, tea towel folded, no dishes, cloths or cleaning bottles visible."
+              },
+              {
+                "id": "final-welcome",
+                "type": "photo",
+                "label": "Welcome items placed",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "locationTag": "Living",
+                "evidenceCategory": "FINAL",
+                "aiCriteria": "Welcome card or house guide, wifi details and any host welcome items placed where the host specifies. Nothing opened, used or past its date."
+              },
+              {
+                "id": "final-mismatch",
+                "type": "yesno",
+                "label": "Anything missing, broken or not as the listing shows?",
+                "required": true,
+                "children": [
+                  {
+                    "id": "final-mismatch-detail",
+                    "type": "longtext",
+                    "label": "What is different?",
+                    "required": true,
+                    "conditional": {
+                      "fieldId": "final-mismatch",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "v4-lockup",
+            "title": "Safety and lock-up",
+            "fields": [
+              {
+                "id": "lockup-smoke-alarm",
+                "type": "yesno",
+                "label": "Smoke alarm quiet — no chirping or flashing red?",
+                "required": true,
+                "deviceStatus": true,
+                "severity": "high",
+                "helpText": "If it chirps, choose Needs attention and say which room."
+              },
+              {
+                "id": "lockup-appliances-off",
+                "type": "yesno",
+                "label": "Oven, cooktop, iron and heaters off?",
+                "required": true,
+                "deviceStatus": true,
+                "severity": "high"
+              },
+              {
+                "id": "lockup-aircon",
+                "type": "select",
+                "label": "Air con or heating left",
+                "required": true,
+                "options": [
+                  "Off",
+                  "Set as the host instructs",
+                  "No air con or heating"
+                ]
+              },
+              {
+                "id": "lockup-taps-leaks",
+                "type": "yesno",
+                "label": "Taps off and nothing leaking under the sinks?",
+                "required": true,
+                "detailsWhenNo": true
+              },
+              {
+                "id": "lockup-windows",
+                "type": "yesno",
+                "label": "Every window closed and locked?",
+                "required": true,
+                "detailsWhenNo": true,
+                "severity": "high"
+              },
+              {
+                "id": "lockup-balcony-door",
+                "type": "yesno",
+                "label": "Balcony door locked, bar or pin in?",
+                "required": true,
+                "detailsWhenNo": true,
+                "severity": "high",
+                "conditional": {
+                  "propertyField": "hasBalcony",
+                  "operator": "equals",
+                  "value": true
+                }
+              },
+              {
+                "id": "lockup-keys-remotes",
+                "type": "photo",
+                "label": "Keys, fobs, remotes and garage opener in their place",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "severity": "high",
+                "locationTag": "Entry",
+                "evidenceCategory": "PROPERTY_CONFIRM",
+                "aiCriteria": "All keys, fobs, remotes and the garage opener in the spot the property guide names (hook, bowl or drawer), clearly visible. Fail if the spot is empty or items are scattered."
+              },
+              {
+                "id": "lockup-lights",
+                "type": "yesno",
+                "label": "All lights off, except any the host asks to leave on?",
+                "required": true,
+                "detailsWhenNo": true
+              },
+              {
+                "id": "lockup-key-returned",
+                "type": "select",
+                "label": "Key returned to",
+                "required": true,
+                "options": [
+                  "Lockbox — code scrambled",
+                  "Smart lock or keypad — locked",
+                  "Handed to the host or manager",
+                  "Other (explain)"
+                ],
+                "children": [
+                  {
+                    "id": "lockup-lockbox-photo",
+                    "type": "photo",
+                    "label": "Lockbox closed and code scrambled",
+                    "required": true,
+                    "minPhotos": 1,
+                    "stampTag": "after",
+                    "conditional": {
+                      "fieldId": "lockup-key-returned",
+                      "operator": "equals",
+                      "value": "Lockbox — code scrambled"
+                    },
+                    "locationTag": "Entry",
+                    "evidenceCategory": "PROPERTY_CONFIRM",
+                    "aiCriteria": "Lockbox shut with the key inside (not visible), dials turned away from the code. Fail if the lockbox is open."
+                  },
+                  {
+                    "id": "lockup-key-other",
+                    "type": "longtext",
+                    "label": "Where is the key?",
+                    "required": true,
+                    "conditional": {
+                      "fieldId": "lockup-key-returned",
+                      "operator": "equals",
+                      "value": "Other (explain)"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "sign-off",
+            "title": "Leave and sign off",
+            "fields": [
+              {
+                "id": "exit-walkthrough-video",
+                "type": "video",
+                "label": "Final walkthrough video",
+                "required": true,
+                "mediaMode": "video",
+                "evidenceCategory": "FINAL",
+                "severity": "high",
+                "instructions": "Same route as your arrival video, slowly, ceiling to floor in every room. Open the fridge, show each bed and bathroom, then the keys spot."
+              },
+              {
+                "id": "exit-door-locked",
+                "type": "photo",
+                "label": "Front door locked, from outside",
+                "required": true,
+                "minPhotos": 1,
+                "stampTag": "after",
+                "severity": "high",
+                "locationTag": "Entry",
+                "evidenceCategory": "FINAL",
+                "aiCriteria": "Front door closed, taken from outside, handle and lock visible. Fail if the door is open or the photo is taken from inside."
+              },
+              {
+                "id": "exit-maintenance",
+                "type": "yesno",
+                "label": "Any maintenance issue noticed?",
+                "required": true,
+                "helpText": "Bulb out, loose handle, leak, door not closing, blind broken.",
+                "children": [
+                  {
+                    "id": "exit-maintenance-detail",
+                    "type": "longtext",
+                    "label": "What and where?",
+                    "required": true,
+                    "conditional": {
+                      "fieldId": "exit-maintenance",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  },
+                  {
+                    "id": "exit-maintenance-log",
+                    "type": "instruction",
+                    "label": "Log it so it is tracked",
+                    "helpText": "Use + → Maintenance issue. A note here alone is not enough.",
+                    "conditional": {
+                      "fieldId": "exit-maintenance",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "exit-office-note",
+                "type": "yesno",
+                "label": "Anything unfinished, or anything the office must know?",
+                "required": true,
+                "children": [
+                  {
+                    "id": "exit-office-note-detail",
+                    "type": "longtext",
+                    "label": "Tell the office",
+                    "required": true,
+                    "conditional": {
+                      "fieldId": "exit-office-note",
+                      "operator": "equals",
+                      "value": true
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "reported-exceptions",
+                "type": "multiselect",
+                "label": "Anything else unusual on this clean?",
+                "options": [
+                  "Stains (linen, carpet, walls)",
+                  "Missing or low supplies",
+                  "Maintenance issue",
+                  "Broken appliance",
+                  "Area inaccessible / locked",
+                  "Insufficient time to complete",
+                  "Dirty sofa-bed linen"
+                ],
+                "helpText": "Optional. Pick any that apply."
+              },
+              {
+                "id": "exit-declaration",
+                "type": "yesno",
+                "label": "I did the work shown. Every photo and video is from this clean, at this property, today.",
+                "required": true,
+                "detailsWhenNo": true,
+                "helpText": "If anything was not done, answer No and say what."
+              },
+              {
+                "id": "exit-signature",
+                "type": "signature",
+                "label": "Cleaner signature",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
