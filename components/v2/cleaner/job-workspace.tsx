@@ -125,6 +125,7 @@ import { getAccuratePosition } from "@/lib/geo/get-position";
 import { isGateNoFix, useLocationGate, type GateFix, type GateNoFix } from "@/components/v2/location/location-gate";
 
 import { ActionFab } from "@/components/v2/cleaner/job-stages/action-fab";
+import { UnusedCheckStatus } from "@/components/v2/cleaner/unused-check";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
@@ -359,6 +360,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   // Journey-stage UI state (presentation only — the gates/handlers below are
   // unchanged; the stage just decides which slice is on screen).
   const [activeStage, updateActiveStage] = React.useState<JobStage>(1);
+  /** Bumped when "Looks unused — ask the office" is asked, so its status card re-reads. */
+  const [unusedCheckRevision, setUnusedCheckRevision] = React.useState(0);
   const stageMemoryPath = `/v2/cleaner/jobs/${jobId}`;
   const stageMemoryKey = `stage:${draftIdentity}`;
   const setActiveStage = React.useCallback((stage: JobStage) => {
@@ -1782,6 +1785,11 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         />
       ) : null}
 
+      {/* "Looks unused — ask the office": the open question or the office's answer (Airbnb turnovers). */}
+      {String(job?.jobType ?? "") === "AIRBNB_TURNOVER" ? (
+        <UnusedCheckStatus key={jobId} jobId={jobId} revision={unusedCheckRevision} />
+      ) : null}
+
       {notice ? (
         <EAlert tone={notice.tone === "danger" ? "danger" : notice.tone === "success" ? "success" : "info"}>
           {notice.text}
@@ -1837,7 +1845,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
           }).catch(error => flash("danger", error instanceof Error ? error.message : "Removal failed."));
         }}>Remove {media.name || "photo"}</button>)}
       </EAlert> : null}
-      <ActionFab api={api} />
+      <ActionFab api={api} onUnusedCheckChanged={() => setUnusedCheckRevision((value) => value + 1)} />
 
       {/* One-time attention popup for client / admin requests on this job. */}
       <EModal

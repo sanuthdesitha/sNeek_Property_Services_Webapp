@@ -1758,6 +1758,7 @@ model Job {
   urgentStockNeeds       UrgentStockNeed[]
   urgentStockAsks        UrgentStockPurchaseAsk[]
   stockCountObservations StockCountObservation[]
+  unusedChecks           JobUnusedCheck[]
 
   // Hot-path indexes: job lists, payroll, invoicing, and dashboards filter/sort
   // on status + scheduledDate/completedAt + propertyId.
@@ -6734,4 +6735,45 @@ model DeviceSyncRun {
   completedAt   DateTime?
 
   @@index([provider, createdAt])
+}
+
+/// The office's answer to "Looks unused — ask the office".
+enum JobUnusedCheckDecision {
+  CLEAN_AS_NORMAL
+  LIGHT_REFRESH
+  DO_NOT_CLEAN
+}
+
+/// "Looks unused — ask the office" (2026-11-28): a cleaner at an Airbnb
+/// turnover that looks like nobody stayed asks the office before cleaning;
+/// an ADMIN or OPS_MANAGER answers. The answer is a record and a message only:
+/// it never changes the job's status, schedule, rates or pay (those stay with
+/// the existing job flows). Rows are kept as the job's history.
+model JobUnusedCheck {
+  id            String                  @id @default(cuid())
+  jobId         String
+  /// Equal to jobId while the question waits for an answer, null once it is
+  /// answered: the unique index allows one open question per job.
+  openForJobId  String?                 @unique
+  /// The cleaner who asked (actual actor; impersonated sessions are refused).
+  requestedById String
+  /// The cleaner's idempotency key: a double tap or a retry returns the same row.
+  requestKey    String
+  note          String?                 @db.Text
+  /// Upload keys of optional photos, owned by the cleaner who asked.
+  photoKeys     String[]                @default([])
+  decision      JobUnusedCheckDecision?
+  decisionNote  String?                 @db.Text
+  /// The person who answered (actual actor) and the role they answered as.
+  decidedById   String?
+  decidedByRole String?
+  decidedAt     DateTime?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([requestedById, requestKey])
+  @@index([jobId, createdAt])
+  @@index([decidedAt, createdAt])
 }

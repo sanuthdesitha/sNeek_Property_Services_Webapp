@@ -14,6 +14,7 @@ import { AccountabilityPayPanel, PayRequestPanel } from "./pay-panels";
 import { ClockPanel, TimingPanel } from "./time-panels";
 import { ClientApprovalPanel, ClientRequestPanel, ReschedulePanel, SkipPanel } from "./client-panels";
 import { BookingPanel } from "./booking-panel";
+import { UnusedCheckPanel } from "./unused-check-panel";
 import { FalseConfirmationPanel, ManagementReviewPanel, PayClaimPanel, QaOutcomePanel, QaReworkPanel, ReviewOnlyPanel } from "./quality-panels";
 
 type ApprovalPanelProps = Omit<QueuePanelProps, "row"> & {
@@ -54,6 +55,8 @@ function QueueBody(props: QueuePanelProps & { availability: BookingAvailability 
       return <ManagementReviewPanel {...props} />;
     case "cleanerInvoicePayClaims":
       return <PayClaimPanel {...props} />;
+    case "unusedChecks":
+      return <UnusedCheckPanel {...props} />;
     case "continuations":
     case "flaggedLaundry":
       return <ReviewOnlyPanel {...props} />;

@@ -348,6 +348,8 @@ const ADMIN_SECTIONS: Record<string, OpsFeature | "owner"> = {
   "job-templates": "jobs",
   "job-continuations": "approvals",
   "job-early-checkouts": "approvals",
+  // "Looks unused — ask the office" answers (2026-11-28), decided on Approvals.
+  "job-unused-checks": "approvals",
   "jobs-team-default": "jobs",
   calendar: "calendar",
   "recurring-jobs": "calendar",

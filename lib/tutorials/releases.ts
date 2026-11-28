@@ -24,6 +24,17 @@ export type ReleaseNote = {
 
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    release: "2026.11.28-turnover-v4-plants-unused",
+    date: "2026-11-28",
+    author: "Turnover v4, live plants, looks unused",
+    items: [
+      { change: "Approvals has a Looks unused queue: a cleaner at a turnover that looks unused waits for Clean as normal, Light refresh only or Do not clean, with an optional note.", covered: { tourKey: "admin.approvals", version: 3, stepIds: ["unusedChecks"] } },
+      { change: "The cleaner's job + menu has Looks unused — ask the office; the question and the office's answer show on the job screen.", noVisibleChange: "The real job page has no tour; the practice job does not show the + menu." },
+      { change: "The start briefing lists \"This property has live plants…\" at properties marked with live plants.", noVisibleChange: "The start briefing dialog is on the real job page, which has no tour." },
+      { change: "Property page: Plants marker in the header and a Plants line in Details; Checklist › Amenities explains the live plants switch.", noVisibleChange: "The property page has no tour." },
+    ],
+  },
+  {
     release: "2026.11.23-xero-client-invoice-accounts",
     date: "2026-11-23",
     author: "Xero accounts for client invoices and shopping",

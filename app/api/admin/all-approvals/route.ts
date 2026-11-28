@@ -444,6 +444,43 @@ export async function GET() {
       cleaner: r.job?.assignments?.[0]?.user ?? null,
     }));
 
+    // "Looks unused — ask the office" (2026-11-28): open questions, oldest
+    // first. A cleaner may be standing at the property waiting for the answer.
+    const [unusedCheckRows, unusedCheckTotal] = await Promise.all([
+      db.jobUnusedCheck.findMany({
+        where: { decidedAt: null },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        take: QUEUE_PAGE,
+        include: {
+          job: {
+            select: {
+              id: true,
+              jobNumber: true,
+              scheduledDate: true,
+              startTime: true,
+              status: true,
+              property: { select: { id: true, name: true, suburb: true } },
+            },
+          },
+        },
+      }),
+      db.jobUnusedCheck.count({ where: { decidedAt: null } }),
+    ]);
+    const unusedCheckAskerIds = Array.from(new Set(unusedCheckRows.map((row) => row.requestedById)));
+    const unusedCheckAskers = unusedCheckAskerIds.length
+      ? await db.user.findMany({ where: { id: { in: unusedCheckAskerIds } }, select: { id: true, name: true, email: true } })
+      : [];
+    const unusedCheckAskerMap = new Map(unusedCheckAskers.map((user) => [user.id, user]));
+    const unusedChecks = unusedCheckRows.map((row) => ({
+      id: row.id,
+      jobId: row.jobId,
+      job: row.job,
+      cleaner: unusedCheckAskerMap.get(row.requestedById) ?? null,
+      note: row.note,
+      createdAt: row.createdAt,
+      attachmentUrls: row.photoKeys.map((key) => ({ key, url: publicUrl(key) })),
+    }));
+
     // Client bookings nobody has agreed to yet. They are the only queue
     // here whose approval CREATES the work rather than blessing work that
     // already exists, so team availability rides along with them.
@@ -479,6 +516,7 @@ export async function GET() {
       managementReviews: managementReviewRows,
       qaOutcomes,
       cleanerInvoicePayClaims: payClaimRows,
+      unusedChecks,
       bookingRequests,
       bookingAvailability,
       counts: (() => {
@@ -499,6 +537,7 @@ export async function GET() {
           managementReviews: managementReviewTotal,
           qaOutcomes: qaOutcomes.length,
           cleanerInvoicePayClaims: payClaimTotal,
+          unusedChecks: unusedCheckTotal,
           bookingRequests: bookingRequests.length,
         };
         return { ...counts, total: Object.values(counts).reduce((sum, value) => sum + value, 0) };

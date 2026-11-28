@@ -1,5 +1,5 @@
 /**
- * The Approvals page's seventeen queues: label, group on the left list, and
+ * The Approvals page's eighteen queues: label, group on the left list, and
  * which decisions may be taken for several requests at once.
  *
  * Plain module (no "use client"): the server page, the bulk route and the
@@ -18,6 +18,7 @@ export const APPROVAL_QUEUE_ORDER = [
   "rectificationAdjustments",
   "bonusProposals",
   "cleanerInvoicePayClaims",
+  "unusedChecks",
   "bookingRequests",
   "continuations",
   "clientApprovals",
@@ -121,6 +122,16 @@ export const APPROVAL_QUEUES: Record<ApprovalsQueueKey, ApprovalsQueueDefinition
     bulk: {
       approve: refused("Confirming a payment records money paid; check each claim's receipt and confirm it on its own."),
       decline: allowed("Not paid yet"),
+    },
+  },
+  unusedChecks: {
+    key: "unusedChecks",
+    label: "Looks unused",
+    noun: "looks-unused question",
+    group: "jobs",
+    bulk: {
+      approve: refused("Each answer is chosen for its own job: clean as normal, light refresh only or do not clean."),
+      decline: refused("A cleaner waiting at a property needs an answer, not a decline. Answer each one in its panel."),
     },
   },
   bookingRequests: {
