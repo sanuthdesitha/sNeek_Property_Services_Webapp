@@ -9,6 +9,7 @@ import { getAppSettings } from "@/lib/settings";
 import { formatServiceDate } from "@/lib/time/service-date";
 import { chargeForJob, loadChargeInputs } from "@/lib/jobs/list-row-extras";
 import { buildBriefingProof } from "@/lib/jobs/job-page/briefing";
+import { reminderSourceByUser } from "@/lib/pilots/gates";
 import { buildTimingAckSummary, type TimingAckSummary } from "@/lib/jobs/job-page/timing-ack";
 import { resolveTimingBadges } from "@/lib/jobs/timing-badges";
 import { timingTagsFor } from "@/lib/jobs/timing-tags";
@@ -98,7 +99,9 @@ export default async function AdminJobDetailPage({
   }));
   const ackUserIds = Object.keys(model.meta.startBriefingAcks ?? {});
   const ackNames = await loadUserNames(ackUserIds);
-  const briefing = buildBriefingProof({ meta: model.meta, tasks: briefingTasks, property: job.property, names: ackNames, timeZone });
+  // Pilot "Property reminders" decides per cleaner, as each one's start gate did.
+  const reminderPropertyFor = await reminderSourceByUser(job.property, job.property?.id ?? null);
+  const briefing = buildBriefingProof({ meta: model.meta, tasks: briefingTasks, property: reminderPropertyFor, names: ackNames, timeZone });
   const timingTags = timingTagsFor({
     timingBadges: resolveTimingBadges(job.internalNotes),
     sameDayCheckin: job.sameDayCheckin,
@@ -109,7 +112,7 @@ export default async function AdminJobDetailPage({
     timingAck = buildTimingAckSummary({
       meta: model.meta,
       tasks: briefingTasks,
-      property: job.property,
+      property: reminderPropertyFor,
       cleaners: buildPanelAssignments(job).map((row) => ({ userId: row.userId, name: row.name })),
       names: ackNames,
       timeZone,

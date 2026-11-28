@@ -72,7 +72,8 @@ export function ActionFab({
 
   // "Looks unused — ask the office" (2026-11-28): Airbnb turnovers, once the
   // cleaner is at the job (Set up onward). The server re-checks job and status.
-  const offersUnusedCheck = isAirbnb && api.activeStage >= 3;
+  // Pilot "Looks unused — ask the office", decided by the server for this cleaner and property.
+  const offersUnusedCheck = isAirbnb && api.activeStage >= 3 && api.payload?.pilots?.unusedCheck === true;
 
   // Board order: the unused-property question first (it comes before any
   // cleaning), then damage, urgent stock, lost item, maintenance, extra pay,

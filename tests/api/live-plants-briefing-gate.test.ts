@@ -13,7 +13,10 @@ import { JobStatus, Role } from "@prisma/client";
 const mocks = vi.hoisted(() => ({
   role: vi.fn(), settings: vi.fn(), job: vi.fn(), update: vi.fn(), updateMany: vi.fn(), log: vi.fn(), logs: vi.fn(),
   createLog: vi.fn(), tasks: vi.fn(), assignment: vi.fn(), notify: vi.fn(), db: {} as Record<string, unknown>,
+  pilotOn: vi.fn(),
 }));
+// Pilot "Property reminders" (lib/pilots): on unless a test switches it off.
+vi.mock("@/lib/pilots/state", () => ({ isPilotOn: mocks.pilotOn, loadPilotState: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.role }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: mocks.settings }));
 vi.mock("@/lib/jobs/continuation-requests", () => ({ listContinuationRequests: async () => [] }));
@@ -47,6 +50,7 @@ function post(handler: typeof start, path: string, body: unknown) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.pilotOn.mockImplementation(async (key: string) => key === "property-reminders");
   mocks.role.mockResolvedValue({ user: { id: "cleaner", role: Role.CLEANER } });
   mocks.settings.mockResolvedValue({ timezone: "UTC", accountability: { requireJobStartConfirmation: true } });
   mocks.log.mockResolvedValue(null); mocks.logs.mockResolvedValue([]); mocks.tasks.mockResolvedValue([]);
@@ -114,5 +118,33 @@ describe("start gate: the live plants reminder", () => {
     const body = await stale.json();
     expect(body.items.map((item: { id: string }) => item.id)).toContain(LIVE_PLANTS_REMINDER_ID);
     expect(mocks.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("pilot \"Property reminders\" off: the start gate from before the pilot", () => {
+  it("asks nothing at a plants property and starts, exactly as before", async () => {
+    mocks.pilotOn.mockResolvedValue(false);
+    mocks.job.mockResolvedValue(jobRow(null, PLANTS));
+    const response = await post(start, "start", { propertyCodeConfirmed: true, startLocation: AT });
+    expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+    expect(mocks.pilotOn).toHaveBeenCalledWith("property-reminders", { userId: "cleaner", propertyId: undefined });
+  });
+
+  it("an acknowledgement given while the pilot was on still starts the job after it is switched off", async () => {
+    const shown = itemsFor(serializeJobInternalNotes({ internalNoteText: "Note" }), PLANTS);
+    mocks.pilotOn.mockResolvedValue(false);
+    mocks.job.mockResolvedValue(jobRow(serializeJobInternalNotes({ internalNoteText: "Note" }), PLANTS));
+    const response = await post(start, "start", {
+      propertyCodeConfirmed: true, startLocation: AT,
+      startBriefingAck: shown.map((item) => ({ itemId: item.id })), startBriefingHash: startBriefingHash(shown),
+    });
+    // The list is now just the note: re-read once (never stuck), then it starts.
+    expect([200, 409]).toContain(response.status);
+    const fresh = itemsFor(serializeJobInternalNotes({ internalNoteText: "Note" }), null);
+    const retry = await post(start, "start", {
+      propertyCodeConfirmed: true, startLocation: AT,
+      startBriefingAck: fresh.map((item) => ({ itemId: item.id })), startBriefingHash: startBriefingHash(fresh),
+    });
+    expect(retry.status, JSON.stringify(await retry.clone().json())).toBe(200);
   });
 });

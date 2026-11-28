@@ -84,4 +84,6 @@ export type UnusedCheckCleanerPayload = {
   refusal: string | null;
   /** The organisation timezone the times are shown in. */
   timeZone?: string;
+  /** Pilot "Looks unused — ask the office" is on for this cleaner and property. */
+  enabled?: boolean;
 };

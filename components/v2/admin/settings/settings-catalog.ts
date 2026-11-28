@@ -46,7 +46,7 @@ export const SETTINGS_GROUPS = [
     key: "system",
     label: "System",
     shortLabel: "System",
-    description: "The settings audit trail, tutorials and What's new, and System health.",
+    description: "The settings audit trail, tutorials and What's new, pilot features, and System health.",
   },
 ] as const;
 
@@ -376,6 +376,16 @@ export const SETTINGS_DESTINATIONS = [
     group: "system",
     adminOnly: false,
     href: "/v2/admin/settings/tutorials",
+  },
+  {
+    // Pilot features (2026-11-28): new behaviours switched off / on / for a
+    // few people or properties. Operations managers view; administrators change.
+    key: "pilot-features",
+    label: "Pilot features",
+    description: "Try new behaviours with a few cleaners or properties first, and turn any of them off at once, back to the previous behaviour.",
+    group: "system",
+    adminOnly: false,
+    href: "/v2/admin/settings/pilots",
   },
   {
     // System health (was Diagnostics, 2026-11-16): scheduled work, the

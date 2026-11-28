@@ -119,13 +119,15 @@ function currentFingerprints(items: ResolvedStartBriefingItem[]): CurrentFingerp
 export function buildTimingAckSummary(input: {
   meta: AckMeta;
   tasks: StartBriefingJobTask[];
-  /** The job's property with its features (automatic reminders), as the start gate reads it. */
-  property: PropertyReminderSource;
+  /** The job's property with its features (automatic reminders), as the start gate reads it — per person when a pilot decides. */
+  property: PropertyReminderSource | ((userId: string | null) => PropertyReminderSource);
   cleaners: TimingAckCleaner[];
   names: Map<string, string>;
   timeZone: string;
 }): TimingAckSummary {
-  const items = resolveStartBriefingItems({ meta: input.meta, jobTasks: input.tasks, property: input.property });
+  const propertyFor = typeof input.property === "function" ? input.property : () => input.property as PropertyReminderSource;
+  const itemsFor = (userId: string | null) => resolveStartBriefingItems({ meta: input.meta, jobTasks: input.tasks, property: propertyFor(userId) });
+  const items = itemsFor(null);
   const timingIds = items.filter((item) => item.source === "TIMING_RULE").map((item) => item.id);
   if (timingIds.length === 0) return { kind: "none" };
 
@@ -134,13 +136,13 @@ export function buildTimingAckSummary(input: {
     return { kind: "error" };
   }
   const acks = (rawAcks ?? {}) as Record<string, unknown>;
-  const current = currentFingerprints(items);
+  const currentFor = (userId: string) => currentFingerprints(itemsFor(userId));
 
   const rows: TimingAckRow[] = input.cleaners.map((cleaner) => ({
     userId: cleaner.userId,
     name: cleaner.name,
     assigned: true,
-    state: stateFor(acks[cleaner.userId], timingIds, current, input.timeZone),
+    state: stateFor(acks[cleaner.userId], timingIds, currentFor(cleaner.userId), input.timeZone),
   }));
   // Someone who acknowledged and was later taken off the job: still a true record.
   const assignedIds = new Set(input.cleaners.map((cleaner) => cleaner.userId));
@@ -150,7 +152,7 @@ export function buildTimingAckSummary(input: {
       userId,
       name: input.names.get(userId) ?? userId,
       assigned: false,
-      state: stateFor(acks[userId], timingIds, current, input.timeZone),
+      state: stateFor(acks[userId], timingIds, currentFor(userId), input.timeZone),
     });
   }
   return { kind: "rows", rows };

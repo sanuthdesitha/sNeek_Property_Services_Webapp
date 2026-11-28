@@ -434,6 +434,8 @@ const ADMIN_SECTIONS: Record<string, OpsFeature | "owner"> = {
   settings: "settings",
   // Settings › System › Tutorials API (2026-11-16): view with Settings; edits are ADMIN-only in the route.
   tutorials: "settings",
+  // Settings › System › Pilot features API (2026-11-28): view with Settings; changes are ADMIN-only in the route.
+  "pilot-features": "settings",
   integrations: "integrations",
   ai: "ai",
   diagnostics: "system",
@@ -467,6 +469,9 @@ const SETTINGS_TABS: Record<string, OpsFeature | "owner"> = {
   "scheduling-rules": "settings",
   // Tutorials (2026-11-16): operations managers view with Settings; only administrators edit.
   tutorials: "settings",
+  // Pilot features (2026-11-28): operations managers view with Settings; only administrators change.
+  "pilot-features": "settings",
+  pilots: "settings",
   "property-form": "property-form",
   safeguards: "quality-settings",
   accountability: "quality-settings",

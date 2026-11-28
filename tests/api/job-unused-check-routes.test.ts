@@ -17,7 +17,10 @@ const mocks = vi.hoisted(() => ({
   deliver: vi.fn(),
   assignment: vi.fn(),
   job: vi.fn(),
+  pilot: vi.fn(),
 }));
+vi.mock("@/lib/pilots/gates", () => ({ unusedCheckEnabled: mocks.pilot }));
+vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ timezone: "Australia/Sydney" }) }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.role }));
 vi.mock("@/lib/notifications/inline-dispatch", () => ({ deliverInboxIntentsNow: mocks.deliver }));
 vi.mock("@/lib/db", () => ({ db: { jobAssignment: { findFirst: mocks.assignment }, job: { findUnique: mocks.job } } }));
@@ -47,7 +50,8 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.role.mockResolvedValue(cleanerSession);
   mocks.assignment.mockResolvedValue({ responseStatus: "ACCEPTED" });
-  mocks.job.mockResolvedValue({ status: "IN_PROGRESS", jobType: "AIRBNB_TURNOVER" });
+  mocks.job.mockResolvedValue({ status: "IN_PROGRESS", jobType: "AIRBNB_TURNOVER", propertyId: "property-1" });
+  mocks.pilot.mockResolvedValue(true);
   mocks.list.mockResolvedValue([]);
   mocks.deliver.mockResolvedValue(new Map([["intent-1", { state: "inbox_available" }]]));
 });
@@ -114,6 +118,32 @@ describe("cleaner: GET and POST /api/cleaner/jobs/[id]/unused-check", () => {
     const failed = await cleanerPost(request("POST", { requestKey: "unused-abcdefgh" }), params);
     expect(failed.status).toBe(500);
     expect((await failed.json()).error).toMatch(/note is kept/i);
+  });
+});
+
+describe("pilot \"Looks unused — ask the office\"", () => {
+  it("off: not offered, and a new question is refused before anything is written", async () => {
+    mocks.pilot.mockResolvedValue(false);
+    expect(await (await cleanerGet(request("GET"), params)).json()).toMatchObject({ canAsk: false, enabled: false, refusal: "Not switched on for this job." });
+    const response = await cleanerPost(request("POST", { requestKey: "unused-abcdefgh" }), params);
+    expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe("PILOT_OFF");
+    expect(mocks.ask).not.toHaveBeenCalled();
+    expect(mocks.pilot).toHaveBeenCalledWith({ userId: "cleaner-1", propertyId: "property-1" });
+  });
+
+  it("off: questions already asked stay readable to the cleaner", async () => {
+    mocks.pilot.mockResolvedValue(false);
+    mocks.list.mockResolvedValue([waiting]);
+    expect(await (await cleanerGet(request("GET"), params)).json()).toMatchObject({ checks: [waiting], canAsk: false });
+  });
+
+  it("off: the office can still answer an open question (no question is left stuck)", async () => {
+    mocks.pilot.mockResolvedValue(false);
+    mocks.role.mockResolvedValue({ user: { id: "admin-1", role: Role.ADMIN } });
+    mocks.answer.mockResolvedValue({ outcome: "ANSWERED", check: { id: "check-1", decision: "CLEAN_AS_NORMAL", decidedAt: new Date() }, intentIds: [] });
+    const response = await officeAnswer(request("PATCH", { decision: "CLEAN_AS_NORMAL" }), { params: { id: "check-1" } });
+    expect(response.status).toBe(200);
   });
 });
 

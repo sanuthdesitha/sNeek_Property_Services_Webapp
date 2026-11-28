@@ -26,6 +26,7 @@ import {
   validateStartBriefingAck,
 } from "@/lib/forms/start-briefing";
 import { loadStartBriefingItems } from "@/lib/forms/start-briefing-load";
+import { reminderSource } from "@/lib/pilots/gates";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
 
 const schema = z.object({
@@ -69,13 +70,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const job = await db.job.findUnique({
       where: { id: params.id },
-      select: { id: true, status: true, internalNotes: true, property: { select: { features: true } } },
+      select: { id: true, status: true, internalNotes: true, propertyId: true, property: { select: { features: true } } },
     });
     if (!job) return refuse(404, "Job not found");
     if (FINISHED_STATUSES.includes(job.status)) return refuse(409, "This job is already finished.");
 
     const meta = parseJobInternalNotes(job.internalNotes);
-    const items = await loadStartBriefingItems(job.id, meta, job.property);
+    const items = await loadStartBriefingItems(job.id, meta, await reminderSource(job.property, { userId: session.user.id, propertyId: job.propertyId }));
     if (items.length === 0) return refuse(409, "This job has nothing to confirm.");
 
     const incomingAck = buildStartBriefingAck(items, parsed.data.startBriefingAck);
