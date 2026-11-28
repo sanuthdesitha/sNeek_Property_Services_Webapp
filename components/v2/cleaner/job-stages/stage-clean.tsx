@@ -38,6 +38,7 @@ import { officeAllowedFieldIds, uploadFieldIdsOf, withoutAllowedUploads } from "
 import type { FormSchema } from "@/lib/forms/types";
 import type { FormRoomProgress } from "@/lib/forms/navigation";
 import { ArrivalVideoLockNotice, RoomStepperFooter, RoomStepperHeader, type RoomStep } from "@/components/v2/cleaner/job-stages/room-stepper";
+import { MoreReminderNotes, RoomReminderNotes, roomItemsFor, unconfirmedRoomItems, type ReminderConfirmApi } from "@/components/v2/cleaner/property-reminder-notes";
 
 /** A device charge task (2026-11-20): high priority, photo always required, never "not applicable". */
 function isDeviceChargeTask(task: JobTask): boolean {
@@ -113,7 +114,14 @@ type RoomByRoom = {
  * jumps from anywhere (Wrap up's list, the summary banner) that open the
  * right room first. Off → null, and the accordion renders as before.
  */
-function useRoomByRoom(enabled: boolean, jobId: string, schema: FormSchema | null, navigationRooms: FormRoomProgress[], allowedFieldIds: readonly string[]): RoomByRoom | null {
+function useRoomByRoom(
+  enabled: boolean,
+  jobId: string,
+  schema: FormSchema | null,
+  navigationRooms: FormRoomProgress[],
+  allowedFieldIds: readonly string[],
+  reminderConfirm?: ReminderConfirmApi,
+): RoomByRoom | null {
   const allowedKey = allowedFieldIds.join("\n");
   const rooms = React.useMemo<RoomStep[]>(() => {
     // Photos the office allowed this job to be submitted without are not missing.
@@ -124,9 +132,13 @@ function useRoomByRoom(enabled: boolean, jobId: string, schema: FormSchema | nul
       .map((room) => ({
         id: room.id,
         label: room.label,
-        missing: withoutAllowedUploads(room.remaining, allowed, uploadIds).map((error) => ({ fieldId: String(error.fieldId), label: String(error.label ?? error.fieldId) })),
+        missing: [
+          ...withoutAllowedUploads(room.remaining, allowed, uploadIds).map((error) => ({ fieldId: String(error.fieldId), label: String(error.label ?? error.fieldId) })),
+          // A must-confirm room reminder keeps the room from being marked done until "Done" is tapped.
+          ...unconfirmedRoomItems(reminderConfirm, room.id),
+        ],
       }));
-  }, [navigationRooms, schema, allowedKey]);
+  }, [navigationRooms, schema, allowedKey, reminderConfirm]);
   const fieldSections = React.useMemo(() => sectionOfField(schema), [schema]);
   const [chosen, setChosen] = React.useState<string | null>(null);
 
@@ -194,7 +206,12 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
   const newFlow = api.payload?.pilots?.cleanerJobFlow === true;
   const allowedFieldIds = officeAllowedFieldIds(api.payload);
   const videoLock = newFlow ? arrivalVideoLock(schema, uploadCounts, allowedFieldIds) : ({ locked: false } as const);
-  const roomByRoom = useRoomByRoom(newFlow, api.jobId, schema, navigation.rooms, allowedFieldIds);
+  const roomByRoom = useRoomByRoom(newFlow, api.jobId, schema, navigation.rooms, allowedFieldIds, api.reminderConfirm);
+  const reminderConfirm = api.reminderConfirm;
+  const sectionTop = React.useCallback(
+    (sectionId: string) => (reminderConfirm ? <RoomReminderNotes items={roomItemsFor(reminderConfirm, sectionId)} api={reminderConfirm} disabled={locked} /> : null),
+    [reminderConfirm, locked],
+  );
   const shownSectionIds = videoLock.locked ? [videoLock.sectionId] : roomByRoom ? [roomByRoom.activeId] : undefined;
   // Flat list of the form's upload fields (form order), for the bulk assign
   // sheet's destination list. Same flatten + visibility rules the renderer uses,
@@ -351,11 +368,13 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
               </button>
             </div>
           </div>
+          {reminderConfirm && !videoLock.locked ? <MoreReminderNotes api={reminderConfirm} /> : null}
           {roomByRoom && !videoLock.locked ? (
             <RoomStepperHeader rooms={roomByRoom.rooms} activeId={roomByRoom.activeId} onSelect={roomByRoom.select} onJump={roomByRoom.jump} />
           ) : null}
           <FormRenderer
             onlySectionIds={shownSectionIds}
+            sectionTop={sectionTop}
             hideExtras={videoLock.locked}
             schema={schema}
             laundryReady={laundryReady}

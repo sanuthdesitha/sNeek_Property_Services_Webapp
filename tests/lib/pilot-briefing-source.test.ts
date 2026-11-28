@@ -5,7 +5,8 @@ import { parsePilotState, type PilotState } from "@/lib/pilots/registry";
 
 const m = vi.hoisted(() => ({ state: null as unknown as PilotState, issues: vi.fn() }));
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/db", () => ({ db: { qaIssue: { findMany: m.issues } } }));
+vi.mock("@/lib/db", () => ({ db: { qaIssue: { findMany: m.issues }, propertyReminder: { findMany: async () => [] }, propertyReminderClaim: { findMany: async () => [] } } }));
+vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ timezone: "Australia/Sydney" }) }));
 vi.mock("@/lib/pilots/state", async () => {
   const registry = await vi.importActual<typeof import("@/lib/pilots/registry")>("@/lib/pilots/registry");
   return {

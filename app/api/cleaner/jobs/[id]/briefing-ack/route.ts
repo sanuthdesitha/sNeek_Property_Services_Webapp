@@ -76,7 +76,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (FINISHED_STATUSES.includes(job.status)) return refuse(409, "This job is already finished.");
 
     const meta = parseJobInternalNotes(job.internalNotes);
-    const items = await loadStartBriefingItems(job.id, meta, await reminderSource(job.property, { userId: session.user.id, propertyId: job.propertyId }));
+    const items = await loadStartBriefingItems(job.id, meta, await reminderSource(job.property, { userId: session.user.id, propertyId: job.propertyId }, job.id));
     if (items.length === 0) return refuse(409, "This job has nothing to confirm.");
 
     const incomingAck = buildStartBriefingAck(items, parsed.data.startBriefingAck);

@@ -70,9 +70,9 @@ export const PILOTS: readonly PilotDefinition[] = [
   {
     key: "property-reminders",
     name: "Property reminders",
-    description: "Automatic reminders from the property's facts in the start briefing (live plants: check the soil, water only if dry), acknowledged like the other items and listed in Read first.",
-    affects: "Cleaners starting a job at a property with live plants.",
-    whenOff: "The start briefing and Read first are as before. The property's live plants flag and the form's plant questions are not affected.",
+    description: "Automatic reminders from the property's facts in the start briefing (live plants: check the soil, water only if dry), and reminders the office writes on the property page: before start (acknowledged like the other items), at the top of a room, or before leaving, with up to five before start and three per room.",
+    affects: "Cleaners at a property with live plants or office reminders.",
+    whenOff: "The start briefing, Read first, the rooms and Wrap up are as before. Office reminders stay on the property page and can still be written; confirmations already recorded stay. The live plants flag and the form's plant questions are not affected.",
     built: true,
   },
   {

@@ -1296,6 +1296,7 @@ model Property {
   nfcTags             PropertyNfcTag[]
   itemBarcodes        ItemBarcode[]
   scanTasks           ScanTask[]
+  cleanerReminders    PropertyReminder[]
 
   @@index([placeId])
   @@index([suburb])
@@ -6821,4 +6822,81 @@ model JobUnusedCheck {
   @@unique([requestedById, requestKey])
   @@index([jobId, createdAt])
   @@index([decidedAt, createdAt])
+}
+
+/// When a property reminder is shown to the cleaner (smart property reminders, 2026-11-28).
+enum PropertyReminderMoment {
+  BEFORE_START
+  ROOM
+  BEFORE_LEAVING
+}
+
+/// How long a property reminder lasts.
+enum PropertyReminderLifetime {
+  EVERY_JOB
+  NEXT_JOBS
+  UNTIL_DATE
+}
+
+/// A reminder the office wrote for cleaners at one property (optionally one
+/// cleaner), shown before start, at a room section or before leaving, under
+/// the "Property reminders" pilot. Ending keeps the row (history).
+model PropertyReminder {
+  id          String                   @id @default(cuid())
+  propertyId  String
+  /// Only this cleaner sees it; null = every cleaner at the property.
+  cleanerId   String?
+  text        String                   @db.Text
+  moment      PropertyReminderMoment
+  /// The room section for moment ROOM (lib/properties/reminders/sections.ts keys).
+  roomKey     String?
+  lifetime    PropertyReminderLifetime @default(EVERY_JOB)
+  /// For NEXT_JOBS: how many jobs (1 = next job).
+  jobsCount   Int?
+  /// For UNTIL_DATE: the last calendar day it shows (organisation calendar, unshifted).
+  untilDate   DateTime?                @db.Date
+  mustConfirm Boolean                  @default(false)
+  /// Why it exists, in plain words (office note, or the facts of a suggestion).
+  reason      String?                  @db.Text
+  /// OFFICE (written by hand) or SUGGESTION (an approved suggestion).
+  origin      String                   @default("OFFICE")
+  /// Actual actor (never an impersonated target).
+  createdById String
+  updatedById String?
+  endedAt     DateTime?
+  endedById   String?
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId, endedAt])
+}
+
+/// A job a property reminder was used on (claimed at clock-in): counts the
+/// "next N jobs" lifetime. `reminderKey` is "office:<id>" or "rule:<rule>:<evidence>".
+model PropertyReminderClaim {
+  id          String   @id @default(cuid())
+  reminderKey String
+  jobId       String
+  propertyId  String
+  claimedAt   DateTime @default(now())
+
+  @@unique([reminderKey, jobId])
+  @@index([jobId])
+}
+
+/// A cleaner confirmed a property reminder on a job (per job, per person).
+model PropertyReminderAck {
+  id             String                 @id @default(cuid())
+  reminderKey    String
+  jobId          String
+  userId         String
+  moment         PropertyReminderMoment
+  /// The text as shown when confirmed.
+  text           String                 @db.Text
+  acknowledgedAt DateTime               @default(now())
+
+  @@unique([reminderKey, jobId, userId])
+  @@index([jobId])
 }

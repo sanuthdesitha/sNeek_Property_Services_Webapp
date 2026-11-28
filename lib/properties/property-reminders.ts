@@ -8,10 +8,15 @@
  * under the source PROPERTY_REMINDER, so they are acknowledged before clock-in
  * like any other item, and the job screen lists them in Read first.
  *
- * Only live plants is built. Add further rules to PROPERTY_REMINDER_RULES.
+ * Only live plants is built here. Smart property reminders (item 9,
+ * 2026-11-28) add `reminders`: office-written reminders and automatic rule
+ * reminders already decided for this job and person
+ * (lib/properties/reminders/). Their before-start ones are read out after
+ * live plants, at most five in all; the rest go under "More notes".
  *
  * PURE — no DB, no I/O, safe on both sides.
  */
+import { splitBeforeStart, type ReminderItem } from "./reminders/model";
 
 export type PropertyReminder = {
   /** Stable id; part of the briefing acknowledgement. */
@@ -30,7 +35,17 @@ export type OpenQaIssueReminder = { id: string; category: string; description: s
  * The property facts the rules read. `features` is Property.features (amenity
  * JSON); `openQaIssues` is present only where the pilot loaded them.
  */
-export type PropertyReminderSource = { features?: unknown; openQaIssues?: OpenQaIssueReminder[] } | null | undefined;
+export type PropertyReminderSource =
+  | {
+      features?: unknown;
+      openQaIssues?: OpenQaIssueReminder[];
+      /** Smart reminders for this job and person (every moment); present only where the pilot is on. */
+      reminders?: ReminderItem[];
+      /** The smart reminders could not be read (shown to the cleaner as such, never as "none"). */
+      remindersUnavailable?: boolean;
+    }
+  | null
+  | undefined;
 
 export const QA_ISSUE_REMINDER_PREFIX = "property-reminder-qa-";
 const QA_DESCRIPTION_MAX = 160;
@@ -77,15 +92,30 @@ function featuresOf(property: PropertyReminderSource): Record<string, unknown> |
   return features as Record<string, unknown>;
 }
 
-/** The reminders that apply to this property, in rule order. Unknown facts give none. */
-export function resolvePropertyReminders(property: PropertyReminderSource): PropertyReminder[] {
+function factReminders(property: PropertyReminderSource): PropertyReminder[] {
   const features = featuresOf(property);
-  const fromFacts = features
+  return features
     ? PROPERTY_REMINDER_RULES
         .filter((rule) => rule.applies(features))
         .map((rule) => ({ id: rule.id, title: rule.title, ...(rule.detail ? { detail: rule.detail } : {}) }))
     : [];
-  return [...fromFacts, ...qaIssueReminders(property)];
+}
+
+function smartReminderSplit(property: PropertyReminderSource, fixedCount: number) {
+  const reminders = Array.isArray(property?.reminders) ? property!.reminders : [];
+  return splitBeforeStart(reminders, fixedCount);
+}
+
+/** The reminders that apply to this property, in rule order. Unknown facts give none. */
+export function resolvePropertyReminders(property: PropertyReminderSource): PropertyReminder[] {
+  const fromFacts = factReminders(property);
+  const smart = smartReminderSplit(property, fromFacts.length).shown.map((item) => ({ id: item.briefingId, title: item.text, detail: item.why }));
+  return [...fromFacts, ...smart, ...qaIssueReminders(property)];
+}
+
+/** Before-start smart reminders over the cap of five: listed under "More notes", not acknowledged. */
+export function beforeStartOverflow(property: PropertyReminderSource): ReminderItem[] {
+  return smartReminderSplit(property, factReminders(property).length).more;
 }
 
 export function isPropertyReminderId(itemId: string): boolean {

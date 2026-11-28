@@ -15,6 +15,7 @@ import { ECard, ECardBody, EAlert } from "@/components/v2/ui/primitives";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { LaundryCycleCard } from "@/components/v2/cleaner/laundry-cycle-card";
 import { ReadFirstBlock } from "@/components/v2/cleaner/read-first-block";
+import { MoreReminderNotes } from "@/components/v2/cleaner/property-reminder-notes";
 import { ClockCard, BriefingCard } from "@/components/v2/cleaner/job-stages/parts";
 import { BookingCard } from "@/components/v2/cleaner/booking-card";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
@@ -156,6 +157,7 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
               heading={`Read first — ${readFirstItems.length} note${readFirstItems.length === 1 ? "" : "s"} for this job`}
             />
           ) : null}
+          {api.reminderConfirm ? <MoreReminderNotes api={api.reminderConfirm} /> : null}
 
           {restockNeeds.length > 0 ? (
             <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-3`}>

@@ -102,7 +102,7 @@ export default async function AdminJobDetailPage({
   const ackUserIds = Object.keys(model.meta.startBriefingAcks ?? {});
   const ackNames = await loadUserNames(ackUserIds);
   // Pilot "Property reminders" decides per cleaner, as each one's start gate did.
-  const reminderPropertyFor = await reminderSourceByUser(job.property, job.property?.id ?? null);
+  const reminderPropertyFor = await reminderSourceByUser(job.property, job.property?.id ?? null, job.id);
   const briefing = buildBriefingProof({ meta: model.meta, tasks: briefingTasks, property: reminderPropertyFor, names: ackNames, timeZone });
   const timingTags = timingTagsFor({
     timingBadges: resolveTimingBadges(job.internalNotes),

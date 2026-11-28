@@ -31,6 +31,8 @@ import {
 } from "@/lib/forms/start-briefing";
 import { loadStartBriefingItems } from "@/lib/forms/start-briefing-load";
 import { reminderSource } from "@/lib/pilots/gates";
+import { recordReminderStart } from "@/lib/properties/reminders/load";
+import type { ReminderItem } from "@/lib/properties/reminders/model";
 import { isPilotOn } from "@/lib/pilots/state";
 
 const schema = z.object({
@@ -290,6 +292,8 @@ export async function POST(
     }
 
     let latestInternalNotes = job.internalNotes;
+    /** Smart property reminders to record against this job once the start succeeds (pilot on only). */
+    let reminderStart: { reminders: ReminderItem[]; acknowledgedBriefingIds: string[] } | null = null;
 
     // ── Start briefing gate (R2) ──────────────────────────────────────────────
     // What the cleaner must have READ before the clock starts: late-checkout /
@@ -308,7 +312,7 @@ export async function POST(
       // the same list. It applies the cleaner visibility rule: client/office
       // correspondence is never read out to the cleaner before a clean.
       // Pilot "Property reminders", decided now for this cleaner and property (off → the list from before).
-      const briefingProperty = await reminderSource(job.property, { userId: session.user.id, propertyId: job.propertyId }).catch(() => null);
+      const briefingProperty = await reminderSource(job.property, { userId: session.user.id, propertyId: job.propertyId }, params.id).catch(() => null);
       const briefingItems = await loadStartBriefingItems(params.id, briefingMeta, briefingProperty, db).catch(() =>
         resolveStartBriefingItems({ meta: briefingMeta, jobTasks: [], property: briefingProperty })
       );
@@ -339,6 +343,14 @@ export async function POST(
           },
           { status: 409 }
         );
+      }
+
+      if (briefingProperty?.reminders && briefingProperty.reminders.length > 0) {
+        const ackItems = ((incomingAck ?? storedAck)?.items ?? []) as Array<{ itemId?: unknown }>;
+        reminderStart = {
+          reminders: briefingProperty.reminders,
+          acknowledgedBriefingIds: ackItems.map((entry) => String(entry?.itemId ?? "")).filter(Boolean),
+        };
       }
 
       // Persist the acknowledgement alongside the other start evidence.
@@ -611,6 +623,16 @@ export async function POST(
 
     // Notify client that cleaning has started (fire-and-forget)
     afterCommit.push(() => sendClientJobNotification({ jobId: params.id, type: "JOB_STARTED" }));
+    // Smart property reminders: this job used them ("next N jobs"), and the
+    // before-start ones were confirmed. A failure is logged; the start stands.
+    const startedReminders = reminderStart;
+    if (startedReminders) {
+      afterCommit.push(() =>
+        recordReminderStart({ jobId: params.id, propertyId: job.propertyId, userId: session.user.id, ...startedReminders }).catch((error) => {
+          console.error("[property-reminders] could not record reminder use at clock-in", error);
+        }),
+      );
+    }
 
     return NextResponse.json({ ok: true, alreadyRunning: Boolean(openLog) });
     };

@@ -146,6 +146,7 @@ export function FormRenderer({
   stockTable,
   onRetryStockTable,
   onlySectionIds,
+  sectionTop,
   hideExtras = false,
 }: {
   /**
@@ -154,6 +155,8 @@ export function FormRenderer({
    * = every section, exactly as before.
    */
   onlySectionIds?: readonly string[];
+  /** Drawn at the top of a section's body (smart property reminders for that room). */
+  sectionTop?: (sectionId: string) => React.ReactNode;
   /** Hide the Extras region (while the arrival video lock is on). */
   hideExtras?: boolean;
   /**
@@ -401,6 +404,7 @@ export function FormRenderer({
             forceCollapsible={shownSections === null && collapsibleSections}
             defaultOpen={shownSections === null && collapsibleSections ? section.id === firstIncompleteSectionId : true}
             progress={sectionProgress?.(section.id)}
+            top={sectionTop?.(String(section.id))}
           />
         ))}
 
@@ -616,6 +620,7 @@ function SectionBlock({
   forceCollapsible = false,
   defaultOpen = true,
   progress,
+  top,
 }: {
   section: FormSection;
   answers: AnswerMap;
@@ -630,6 +635,8 @@ function SectionBlock({
   defaultOpen?: boolean;
   /** Optional "done/total" tally for the header badge. */
   progress?: { done: number; total: number };
+  /** Drawn first inside the open section (room reminders). */
+  top?: React.ReactNode;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
   const laundryReady = React.useContext(LaundryVisibilityContext);
@@ -712,6 +719,7 @@ function SectionBlock({
       </button>
       {open ? (
         <div className="space-y-4 border-t border-[hsl(var(--e-border))] p-4">
+          {top}
           {guidedTargets.length > 0 ? (
             <EButton
               type="button"

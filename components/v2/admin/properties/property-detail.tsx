@@ -4,7 +4,8 @@
  * The property page (`/v2/admin/properties/[id]`), as drawn: header with
  * "New job here" and More, key facts, tabs Overview / Checklist and forms /
  * Access guide / Stock / Jobs and history / Care and planning / Billing rates.
- * Care and planning also holds Devices (2026-11-20, /devices): battery devices and charge tasks.
+ * Care and planning also holds Devices (2026-11-20, /devices): battery devices and charge tasks,
+ * and Reminders for cleaners (2026-11-28, /reminders): notes the office writes for cleaners here.
  * Every section is an existing component or endpoint, composed and moved:
  *   GET/PATCH/DELETE /api/admin/properties/:id, /integration (+ /undo),
  *   /pending-tasks, /stats, /overview (Coming up and rail summaries),
@@ -13,7 +14,7 @@
  */
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { BatteryCharging, NotebookPen, Repeat } from "lucide-react";
+import { BatteryCharging, BellRing, NotebookPen, Repeat } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { useRestorableState } from "@/hooks/use-restorable-state";
 import { EButton, EEmptyState } from "@/components/v2/ui/primitives";
@@ -22,6 +23,7 @@ import { PropertyCareWorkspace } from "@/components/property-care/workspace";
 import { resolvePropertyTab, type PropertyTab } from "@/lib/properties/detail-tabs";
 import { NfcTagsCard } from "./nfc-tags-card";
 import { PropertyDevicesPanel } from "./property-devices-panel";
+import { PropertyRemindersPanel } from "./property-reminders-panel";
 import { PropertyDeepCleanPlanning } from "./property-deep-clean-planning";
 import { PropertyCadenceLedger } from "./property-cadence-ledger";
 import { PropertyJobsHistory } from "./property-jobs-history";
@@ -177,6 +179,9 @@ export function PropertyDetail({
             </OperationsDisclosure>
             <OperationsDisclosure title="Devices" description="Ring cameras, Minut sensors and other battery devices: battery, readings and charge tasks." icon={<BatteryCharging />}>
               <PropertyDevicesPanel key={propertyId} propertyId={propertyId} timeZone={timeZone} />
+            </OperationsDisclosure>
+            <OperationsDisclosure title="Reminders for cleaners" description="Short notes cleaners read before start, in a room or before leaving: why each exists and when it ends." icon={<BellRing />}>
+              <PropertyRemindersPanel key={propertyId} propertyId={propertyId} timeZone={timeZone} />
             </OperationsDisclosure>
             <PropertyDeepCleanPlanning propertyId={propertyId} />
           </div>

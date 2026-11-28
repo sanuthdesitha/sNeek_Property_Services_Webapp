@@ -30,6 +30,7 @@ import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 import { LaundryHandoff, LAUNDRY_CARD_ID } from "@/components/v2/cleaner/job-stages/laundry-handoff";
 import { SubmittedSummary } from "@/components/v2/cleaner/job-stages/submitted-summary";
 import { SubmitBlockers } from "@/components/v2/cleaner/job-stages/submit-blockers";
+import { LeavingReminders } from "@/components/v2/cleaner/property-reminder-notes";
 import { stripHtmlToText } from "@/lib/forms/sanitize";
 import { StickyActionBar } from "@/components/v2/cleaner/job-stages/stage-footer";
 import { EvidenceOverrideRequest } from "@/components/v2/cleaner/evidence-override-request";
@@ -127,6 +128,9 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
 
   return (
     <div className="space-y-5">
+      {/* Smart property reminders to check before leaving (pilot "Property reminders"). */}
+      {api.reminderConfirm ? <LeavingReminders api={api.reminderConfirm} disabled={api.locked} /> : null}
+
       {/* Before you submit — first, so the blockers are seen before the forms below. */}
       <SubmitBlockers
         syncBlockers={syncBlockers}

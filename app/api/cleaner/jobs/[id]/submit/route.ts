@@ -13,7 +13,7 @@ import { enqueuePropertyModelTraining } from "@/lib/ai/property-model-training";
 import { destinationOf, evidenceSubmissionChanged } from "@/lib/cleaner/evidence-destination";
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
-import { cleanerJobFlowOn } from "@/lib/pilots/gates";
+import { cleanerJobFlowOn, unconfirmedLeavingReminders } from "@/lib/pilots/gates";
 import { db } from "@/lib/db";
 import { ActionReceiptError, withCleanerAction } from "@/lib/cleaner/action-receipt";
 import { submitJobSchema } from "@/lib/validations/job";
@@ -630,6 +630,20 @@ export async function POST(
           { status: 422 }
         );
       }
+    }
+
+    // Smart property reminders (pilot "Property reminders", decided now): a
+    // must-confirm "before leaving" reminder needs this cleaner's "Done".
+    const leavingUnconfirmed = await unconfirmedLeavingReminders(job.property, { userId: session.user.id, propertyId: job.propertyId }, job.id);
+    if (leavingUnconfirmed.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Confirm the before-you-leave reminders before submitting.",
+          code: "PROPERTY_REMINDERS_REQUIRED",
+          items: leavingUnconfirmed.map((item) => ({ key: item.key, text: item.text })),
+        },
+        { status: 422 }
+      );
     }
 
     const incompleteAdminTask = adminRequestedTasks.find((task) => !task.completed);

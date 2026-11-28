@@ -29,7 +29,9 @@ import { resolveTemplateReferenceUrls } from "@/lib/forms/resolve-references";
 import { resolveEffectiveJobForm } from "@/lib/forms/resolve-effective-job-form";
 import { jobFormRevision } from "@/lib/forms/job-form-revision";
 import { jobFormPropertySelect, UnsupportedFormPropertyConditionError, withJobFormPropertyFacts } from "@/lib/forms/job-form-property";
-import { resolvePropertyReminders } from "@/lib/properties/property-reminders";
+import { beforeStartOverflow, resolvePropertyReminders, type PropertyReminderSource } from "@/lib/properties/property-reminders";
+import { planJobReminders, type ReminderPlan } from "@/lib/properties/reminders/model";
+import { confirmedReminderKeys } from "@/lib/properties/reminders/load";
 import { cleanerJobFlowOn, reminderSource, unusedCheckEnabled } from "@/lib/pilots/gates";
 import type { CleanerJobPilots } from "@/lib/pilots/registry";
 import { allowedEvidenceFields } from "@/lib/jobs/evidence-override";
@@ -45,6 +47,29 @@ import { holdsRoleWhere } from "@/lib/auth/role-query";
 import { canActAs } from "@/lib/auth/roles";
 import { cleanerDraftIdentity } from "@/lib/cleaner/draft-identity";
 import { loadPayRateBook } from "@/lib/accounts/pay-rate";
+
+/** What the job screen gets for smart property reminders (pilot on), or why it has none. */
+type ReminderPlanPayload =
+  | (ReminderPlan & { status: "ok"; confirmedKeys: string[] })
+  | { status: "unavailable" }
+  | null;
+
+async function jobReminderPlanPayload(
+  source: PropertyReminderSource,
+  schema: unknown,
+  jobId: string,
+  userId: string,
+): Promise<ReminderPlanPayload> {
+  if (source?.remindersUnavailable) return { status: "unavailable" };
+  if (!source?.reminders) return null;
+  const sections = schema && typeof schema === "object" && Array.isArray((schema as { sections?: unknown }).sections)
+    ? ((schema as { sections: Array<{ id: string; repeatBy?: unknown; fields?: unknown }> }).sections)
+    : [];
+  const plan = planJobReminders({ items: source.reminders, sections, beforeStartMore: beforeStartOverflow(source) });
+  const confirmed = await confirmedReminderKeys(jobId, userId).catch(() => null);
+  if (!confirmed) return { status: "unavailable" };
+  return { ...plan, status: "ok", confirmedKeys: Array.from(confirmed) };
+}
 
 export async function GET(
   _req: NextRequest,
@@ -528,13 +553,16 @@ export async function GET(
     // after the office changes the time (lib/jobs/own-timing-ack.ts).
     // Pilot "Property reminders": off → null, the briefing list from before the pilot.
     const pilotSubject = { userId: session.user.id, propertyId: job.propertyId };
-    const briefingProperty = await reminderSource(job.property, pilotSubject);
+    const briefingProperty = await reminderSource(job.property, pilotSubject, job.id);
     const timingAck = cleanerViewer
       ? await loadOwnTimingAck({ jobId: job.id, meta: jobMeta, userId: session.user.id, property: briefingProperty })
       : null;
     // The raw amenity JSON stays on the server: the payload carries only the
     // facts a form rule may read (hasLivePlants) and the automatic reminders.
     const propertyReminders = resolvePropertyReminders(briefingProperty);
+    // Smart property reminders beyond the briefing (pilot "Property reminders"):
+    // room sections, before leaving, and "More notes". Null when the pilot is off.
+    const propertyReminderPlan = await jobReminderPlanPayload(briefingProperty, templateWithExtras?.schema, job.id, session.user.id);
     /** Pilot features that change this cleaner's job screen, decided on the server. */
     const pilots: CleanerJobPilots = {
       unusedCheck: cleanerViewer ? await unusedCheckEnabled(pilotSubject) : false,
@@ -559,6 +587,7 @@ export async function GET(
         : payloadJob,
       /** Automatic reminders from the property's facts (live plants), listed in Read first. */
       propertyReminders,
+      propertyReminderPlan,
       pilots,
       evidenceOverride,
       unusedCheckHold,

@@ -63,6 +63,8 @@ export interface WorkspaceApi {
   draftSaveState?: import("@/lib/cleaner/use-draft-save").DraftSaveState;
   retryDraftSave?: () => void;
   prepareBulkAutoAssign?: () => Promise<void>;
+  /** Smart property reminders (pilot "Property reminders"): room notes, Before you leave, confirmations. Absent in practice. */
+  reminderConfirm?: import("@/components/v2/cleaner/property-reminder-notes").ReminderConfirmApi;
   /* ── Raw payload + derived job/property ──────────────────────────────── */
   payload: any;
   job: any;

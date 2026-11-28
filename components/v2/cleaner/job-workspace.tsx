@@ -82,6 +82,7 @@ import { useExtendedEnforcement } from "@/components/v2/cleaner/use-extended-enf
 import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 import { FinalCheckupDialog } from "@/components/v2/cleaner/final-checkup-dialog";
+import { useReminderConfirm } from "@/components/v2/cleaner/property-reminder-notes";
 import { StartBriefingDialog } from "@/components/v2/cleaner/start-briefing-dialog";
 import { TimingReconfirm, readTimingAckPayload } from "@/components/v2/cleaner/job-stages/timing-reconfirm";
 import {
@@ -205,6 +206,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [payload, setPayload] = React.useState<any>(null);
+  // Smart property reminders: confirmations shared by the room notes and Wrap up.
+  const reminderConfirm = useReminderConfirm(jobId, payload, true);
   const evidenceScope = React.useMemo(() => payload?.formRevision && payload?.template?.id ? {
     draftIdentity, jobId, templateId: payload.template.id as string, formRevision: payload.formRevision as string,
   } : null, [draftIdentity, jobId, payload?.formRevision, payload?.template?.id]);
@@ -1639,6 +1642,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       if (!confirmed) throw new Error("The current draft save was not confirmed. Finish saving, then try auto assign again.");
       });
     },
+    reminderConfirm,
     payload,
     job,
     property,
