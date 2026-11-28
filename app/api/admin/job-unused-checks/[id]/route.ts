@@ -3,9 +3,12 @@
  * ask the office" (2026-11-28): { decision, note? } with decision one of
  * CLEAN_AS_NORMAL, LIGHT_REFRESH, DO_NOT_CLEAN.
  *
- * ADMIN or OPS_MANAGER on the live session (an operations manager also needs
- * the Approvals pack at manage, enforced by the access middleware for this
- * path). Refused while testing as another person, so the answer always names
+ * ADMIN or OPS_MANAGER on the live session. requireRole → requireSession →
+ * enforceOpsRequest re-reads the operations policy on this request, so an
+ * operations manager also needs the Approvals pack at manage (this path maps
+ * to "approvals" in lib/rbac/ops-catalog.ts); ADMIN is not limited by packs.
+ * Operations managers have no per-client or per-property job scope, so every
+ * one with the pack may answer any job's question. Refused while testing as another person, so the answer always names
  * the person who gave it. Answered once; the same answer again is a replay.
  *
  * The answer only records the decision and tells the cleaners on the job. It

@@ -82,4 +82,6 @@ export type UnusedCheckCleanerPayload = {
   canAsk: boolean;
   /** Why asking is not offered, when it is not. */
   refusal: string | null;
+  /** The organisation timezone the times are shown in. */
+  timeZone?: string;
 };

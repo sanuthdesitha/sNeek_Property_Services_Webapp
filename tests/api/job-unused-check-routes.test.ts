@@ -155,3 +155,16 @@ describe("office: PATCH /api/admin/job-unused-checks/[id]", () => {
     expect((await response.json()).code).toBe("ALREADY_ANSWERED");
   });
 });
+
+describe("operations packs on the answer and queue paths (live, via requireRole → enforceOpsRequest)", () => {
+  it("needs the Approvals pack at manage to answer, read to see the queue; other packs do not help", async () => {
+    const { allOpsLevels, canUseOpsPath } = await import("@/lib/rbac/ops-catalog");
+    const answerPath = "/api/admin/job-unused-checks/check-1";
+    const withApprovals = (level: "off" | "read" | "manage") => ({ ...allOpsLevels("manage"), approvals: level });
+    expect(canUseOpsPath(withApprovals("manage"), answerPath, "PATCH")).toBe(true);
+    expect(canUseOpsPath(withApprovals("read"), answerPath, "PATCH")).toBe(false);
+    expect(canUseOpsPath(withApprovals("off"), answerPath, "PATCH")).toBe(false);
+    expect(canUseOpsPath(withApprovals("read"), "/api/admin/all-approvals", "GET")).toBe(true);
+    expect(canUseOpsPath(withApprovals("off"), "/api/admin/all-approvals", "GET")).toBe(false);
+  });
+});

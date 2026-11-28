@@ -15,6 +15,7 @@
  * or a retry never asks twice. The answer never changes the job or pay.
  */
 import * as React from "react";
+import { formatInTimeZone } from "date-fns-tz";
 import { HelpCircle, Loader2, RefreshCw } from "lucide-react";
 import { EAlert, EBadge, EButton } from "@/components/v2/ui/primitives";
 import { EField, ETextarea } from "@/components/v2/cleaner/fields";
@@ -75,11 +76,18 @@ function isPayloadFor(value: unknown, jobId: string): value is UnusedCheckCleane
   return payload.jobId === jobId && Array.isArray(payload.checks);
 }
 
-function formatAskedTime(iso: string | null): string {
+const DEFAULT_TIME_ZONE = "Australia/Sydney";
+
+/** A time of day in the organisation timezone (from the payload), never the phone's. */
+function formatAskedTime(iso: string | null, timeZone: string): string {
   if (!iso) return "";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" });
+  try {
+    return formatInTimeZone(date, timeZone, "h:mm a").toLowerCase();
+  } catch {
+    return formatInTimeZone(date, DEFAULT_TIME_ZONE, "h:mm a").toLowerCase();
+  }
 }
 
 /** One read of this job's questions, aborted when the job changes or a newer read starts. */
@@ -144,11 +152,11 @@ function RetryLine({ message, busy, onRetry }: { message: string; busy: boolean;
   );
 }
 
-function CheckCard({ check }: { check: UnusedCheckView }) {
+function CheckCard({ check, timeZone }: { check: UnusedCheckView; timeZone: string }) {
   if (check.status === "WAITING") {
     return (
       <EAlert tone="warning" title="Waiting for the office">
-        <p>Do not clean yet. The office has your question{check.askedAt ? ` (asked ${formatAskedTime(check.askedAt)})` : ""} and will answer here and in your inbox.</p>
+        <p>Do not clean yet. The office has your question{check.askedAt ? ` (asked ${formatAskedTime(check.askedAt, timeZone)})` : ""} and will answer here and in your inbox.</p>
         {check.note ? <p className="mt-1">Your note: “{check.note}”</p> : null}
         {check.photoCount > 0 ? <p className="mt-1">{check.photoCount} photo{check.photoCount === 1 ? "" : "s"} sent.</p> : null}
       </EAlert>
@@ -161,8 +169,8 @@ function CheckCard({ check }: { check: UnusedCheckView }) {
       {decision ? <p>{UNUSED_CHECK_DECISION_GUIDANCE[decision]}</p> : null}
       {check.decisionNote ? <p className="mt-1">Note from the office: “{check.decisionNote}”</p> : null}
       <p className="mt-1">
-        Asked {formatAskedTime(check.askedAt)}
-        {check.answeredAt ? ` · answered ${formatAskedTime(check.answeredAt)}` : ""}
+        Asked {formatAskedTime(check.askedAt, timeZone)}
+        {check.answeredAt ? ` · answered ${formatAskedTime(check.answeredAt, timeZone)}` : ""}
         {check.note ? ` · your note: “${check.note}”` : ""}
       </p>
     </EAlert>
@@ -171,9 +179,11 @@ function CheckCard({ check }: { check: UnusedCheckView }) {
 
 function AskForm({
   jobId,
+  timeZone: draftTimeZone,
   onAsked,
 }: {
   jobId: string;
+  timeZone?: string;
   onAsked: (payload: UnusedCheckCleanerPayload) => void;
 }) {
   const [draft, setDraftState] = React.useState<UnusedCheckDraft>(() => readDraft(jobId));
@@ -212,7 +222,7 @@ function AskForm({
         return;
       }
       drafts.delete(sentFor);
-      onAsked({ jobId: sentFor, checks: body.checks, canAsk: false, refusal: "The office has not answered yet." });
+      onAsked({ jobId: sentFor, checks: body.checks, canAsk: false, refusal: "The office has not answered yet.", timeZone: draftTimeZone });
     } catch {
       setError("No connection. Your note is kept; try again when you have signal.");
     } finally {
@@ -274,11 +284,12 @@ export function UnusedCheckRequest({ jobId, onChanged }: { jobId: string; onChan
   const latest = checks[0] ?? null;
   return (
     <div className="space-y-3">
-      {latest ? <CheckCard check={latest} /> : null}
+      {latest ? <CheckCard check={latest} timeZone={state.payload.timeZone ?? DEFAULT_TIME_ZONE} /> : null}
       {canAsk ? (
         <AskForm
           key={jobId}
           jobId={jobId}
+          timeZone={state.payload.timeZone}
           onAsked={(payload) => {
             accept(payload);
             onChanged?.();
@@ -317,7 +328,7 @@ export function UnusedCheckStatus({ jobId, revision }: { jobId: string; revision
         <p className="e-eyebrow">Looks unused</p>
         <EBadge tone={latest.status === "WAITING" ? "warning" : "neutral"}>{latest.status === "WAITING" ? "Waiting" : "Answered"}</EBadge>
       </div>
-      <CheckCard check={latest} />
+      <CheckCard check={latest} timeZone={state.payload?.timeZone ?? DEFAULT_TIME_ZONE} />
       {state.error ? <RetryLine message="Could not refresh. This may not be the latest answer." busy={state.loading} onRetry={() => void reload()} /> : null}
     </section>
   );

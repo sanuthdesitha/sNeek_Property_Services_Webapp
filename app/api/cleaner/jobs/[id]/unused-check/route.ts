@@ -14,6 +14,7 @@ import { Role } from "@prisma/client";
 import { ZodError } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { getAppSettings } from "@/lib/settings";
 import { deliverInboxIntentsNow } from "@/lib/notifications/inline-dispatch";
 import { askUnusedCheck, listUnusedChecksForCleaner, UnusedCheckError } from "@/lib/jobs/unused-check";
 import { unusedCheckEligibility, type UnusedCheckCleanerPayload } from "@/lib/jobs/unused-check-rules";
@@ -53,7 +54,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         : waiting
           ? "The office has not answered yet."
           : null;
-    const payload: UnusedCheckCleanerPayload = { jobId: params.id, checks, canAsk: refusal === null, refusal };
+    const timeZone = (await getAppSettings().catch(() => null))?.timezone ?? "Australia/Sydney";
+    const payload: UnusedCheckCleanerPayload = { jobId: params.id, checks, canAsk: refusal === null, refusal, timeZone };
     return NextResponse.json(payload, { headers: privateHeaders });
   } catch (err) {
     return failure(err);

@@ -37,6 +37,11 @@ Standard **2-bed, 1-bath with a balcony**, property tracks stock, key back in a 
 
 v3 asked for 37. The extra photos are the complaint areas (protector, seal strip, sink drain, cupboards, behind the sofa, toilet paper, vacuum, TV, final walk). With the in-app camera that is roughly 7–9 minutes of photos and taps, mostly done while cleaning each room, plus about 3–4 minutes of video. This has **not** been timed with a real cleaner; time one real clean before you publish, and drop photos you do not need in the builder first.
 
+## Videos and photos from other camera apps
+
+- **One arrival video and one exit video for the whole property**, not one per room. Each is a single question at the top level of the form (sections 2 and 16), never inside the repeated bedroom or bathroom sections. One uploaded video answers it. If the phone split the recording, upload every part to the same question: several files are accepted.
+- Photos and videos can be taken with the in-app camera **or chosen from the phone's gallery**, including timestamp-camera apps such as Timemark ("Choose image" / "Choose video" next to "Take photo" / "Record video"). A gallery file counts for a required question exactly like a camera one and is not flagged for its source. The photo checks that do not depend on the source still run: the same photo reused from an earlier job, duplicates within the job, and a capture time far outside the job's clock times where the photo carries one.
+
 ## Complaint or missed area → the question that now catches it
 
 | Complaint or missed area | Where v4 catches it |
@@ -76,10 +81,14 @@ The Ring and Minut questions are yes/no device checks (`deviceStatus`), the same
 1. **Import.** Either Forms → Job forms → ⋯ → Import and choose `airbnb-turnover-v4.json` (preview, then a **Draft** is created), or run
    `npx tsx --tsconfig tsconfig.scripts.json scripts/seed/airbnb-turnover-v4.ts` (dry run), then add `--apply`. The script does the same import, links the nine stock counts to your inventory items by SKU, and running it again does nothing.
 2. **Stock items.** If you used Import in the app, open each Stock count in "Stock counts" (the names say "pick item") and choose the item.
-3. **Live plants.** On each property with live plants, open the property › Checklist › Amenities and switch on "Live plants at this property". The plant questions and the start-of-clean reminder follow automatically.
+3. **Live plants.** On each property with live plants, open the property › Checklist and forms › Amenities at this property and switch on "Live plants at this property". The plant questions and the start-of-clean reminder follow automatically.
 4. **Example photos.** Add listing photos as examples on the listing-angle questions.
 5. **Test.** "Test as cleaner" with a 1-bed and a 3-bed/2-bath property, with and without Live plants ticked. Then do one real clean with a trusted cleaner and time it.
 6. **Publish** in the builder. Publishing makes v4 the live Airbnb turnover form and archives the previous global one. Property-specific and job-specific forms are not changed; submitted jobs keep their old form. Nothing is published automatically.
+
+## Turning v4 on and off
+
+v4 is switched the existing way, not by a pilot switch: **on** = publish the draft in the builder (or set it as one property's form override in that property's Checklist and forms); **off / roll back** = restore the previous version (v3 or v1) from the builder's Versions and publish it, or remove the property override. Jobs already submitted keep the form they were submitted with. v4 works with every pilot feature off (the existing cleaner flow) as well as with them on.
 
 ## Not built (engine limits)
 
