@@ -6900,3 +6900,33 @@ model PropertyReminderAck {
   @@unique([reminderKey, jobId, userId])
   @@index([jobId])
 }
+
+/// A one-off reminder the system proposes from a rule's facts (smart property
+/// reminders, slice C, 2026-11-28). Nothing reaches a cleaner until the office
+/// approves it (it then becomes a PropertyReminder). One row per rule and
+/// evidence: a dismissed suggestion is never proposed again for the same facts.
+model ReminderSuggestion {
+  id           String                 @id @default(cuid())
+  rule         String
+  /// Stable key of the facts (the rule reminder key).
+  evidenceKey  String
+  propertyId   String
+  cleanerId    String?
+  text         String                 @db.Text
+  why          String                 @db.Text
+  moment       PropertyReminderMoment
+  roomKey      String?
+  /// PENDING, APPROVED or DISMISSED.
+  status       String                 @default("PENDING")
+  /// Actual actor and the role acted as.
+  decidedById  String?
+  decidedRole  String?
+  decidedAt    DateTime?
+  /// The reminder an approval created.
+  reminderId   String?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  @@unique([rule, evidenceKey])
+  @@index([status, createdAt])
+}

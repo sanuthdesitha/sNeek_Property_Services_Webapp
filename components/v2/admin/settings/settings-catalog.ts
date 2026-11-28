@@ -382,7 +382,7 @@ export const SETTINGS_DESTINATIONS = [
     // Operations managers view with the Settings pack; administrators switch rules.
     key: "reminder-rules",
     label: "Property reminder rules",
-    description: "Automatic reminders for cleaners from devices, QA issues, stock and maintenance: each rule off until an administrator checks its preview.",
+    description: "Reminder suggestions to approve, and automatic reminders for cleaners from devices, QA issues, stock and maintenance: each rule off until an administrator checks its preview.",
     group: "quality",
     adminOnly: false,
     href: "/v2/admin/settings/reminder-rules",

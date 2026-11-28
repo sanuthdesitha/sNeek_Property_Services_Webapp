@@ -52,7 +52,7 @@ function RuleCard({ rule, canEdit, timeZone, onChanged }: { rule: RuleView; canE
   return (
     <li className="space-y-2 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <h2 className="min-w-0 text-[0.9375rem] font-[650] [overflow-wrap:anywhere]">{rule.name}</h2>
+        <h3 className="min-w-0 text-[0.9375rem] font-[650] [overflow-wrap:anywhere]">{rule.name}</h3>
         <EPill tone={rule.enabled ? "ok" : "neutral"}>{rule.enabled ? "On" : "Off"}</EPill>
       </div>
       <p className="text-[0.8125rem]">{rule.description}</p>
@@ -91,7 +91,7 @@ function RuleCard({ rule, canEdit, timeZone, onChanged }: { rule: RuleView; canE
   );
 }
 
-export function ReminderRules({ timeZone = "Australia/Sydney" }: { timeZone?: string }) {
+export function ReminderRules({ timeZone = "Australia/Sydney", refreshKey = 0, onChanged }: { timeZone?: string; refreshKey?: number; onChanged?: () => void }) {
   const [load, setLoad] = React.useState<Load>({ status: "loading" });
   const [version, setVersion] = React.useState(0);
 
@@ -109,7 +109,7 @@ export function ReminderRules({ timeZone = "Australia/Sydney" }: { timeZone?: st
       }
     })();
     return () => controller.abort();
-  }, [version]);
+  }, [version, refreshKey]);
 
   if (load.status === "loading") return <p role="status" className={MUTED}>Loading rules…</p>;
   if (load.status === "failed") {
@@ -131,7 +131,7 @@ export function ReminderRules({ timeZone = "Australia/Sydney" }: { timeZone?: st
       <p className={MUTED}>Live plants is built in: with the pilot on, a property marked as having live plants always gets its before-start reminder. Hand-over notes from the last clean are already shown in Read first as unfinished tasks.</p>
       <ul className="space-y-3">
         {data.rules.map((rule) => (
-          <RuleCard key={`${rule.key}-${rule.enabled}-${rule.changedAt ?? ""}`} rule={rule} canEdit={data.canEdit} timeZone={timeZone} onChanged={() => setVersion((value) => value + 1)} />
+          <RuleCard key={`${rule.key}-${rule.enabled}-${rule.changedAt ?? ""}`} rule={rule} canEdit={data.canEdit} timeZone={timeZone} onChanged={() => { setVersion((value) => value + 1); onChanged?.(); }} />
         ))}
       </ul>
     </div>
