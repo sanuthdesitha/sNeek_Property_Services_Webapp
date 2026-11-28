@@ -29,6 +29,7 @@ export const RELEASE_NOTES: readonly ReleaseNote[] = [
     author: "Cleaner job flow v2 (pilots)",
     items: [
       { change: "Settings › System › Pilot features: switch new behaviours off, on, or on for chosen people or properties.", noVisibleChange: "A new settings page with no tour; the Settings hub list gains one row." },
+      { change: "Pilot New cleaner job flow: while Looks unused waits for the office, Before you submit says Waiting for the office and the job cannot be submitted.", noVisibleChange: "Only on the real job page with the pilot on; the practice job has no pilots." },
       { change: "Pilot New cleaner job flow: Before you submit lists missing items by room, with Camera not working — ask the office; the office allows or declines on the job page.", noVisibleChange: "Only on the real job page with the pilot on (the practice job has no pilots), and on the admin job page, which has no tour." },
       { change: "Pilot New cleaner job flow: the checklist stays locked until the arrival video is uploaded, then rooms are worked one at a time (\"Kitchen · 3 of 12\") with what is still missing.", noVisibleChange: "Only on the real job page with the pilot on; the practice job (the toured page) has no pilots and is unchanged." },
     ],

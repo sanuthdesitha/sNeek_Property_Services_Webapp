@@ -13,6 +13,7 @@ import { enqueuePropertyModelTraining } from "@/lib/ai/property-model-training";
 import { destinationOf, evidenceSubmissionChanged } from "@/lib/cleaner/evidence-destination";
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
+import { cleanerJobFlowOn } from "@/lib/pilots/gates";
 import { db } from "@/lib/db";
 import { ActionReceiptError, withCleanerAction } from "@/lib/cleaner/action-receipt";
 import { submitJobSchema } from "@/lib/validations/job";
@@ -233,6 +234,20 @@ export async function POST(
         },
         { status: 409 }
       );
+    }
+
+    // Pilot "New cleaner job flow" (item 3): while a "Looks unused — ask the
+    // office" question waits for an answer, the job cannot be submitted. The
+    // pilot is decided now (a job started before it was switched on keeps the
+    // old rule); the question itself never changes the job, status or pay.
+    if (await cleanerJobFlowOn(db, { jobId: params.id, userId: session.user.id, propertyId: job.propertyId })) {
+      const waitingQuestion = await db.jobUnusedCheck.findUnique({ where: { openForJobId: params.id }, select: { id: true } });
+      if (waitingQuestion) {
+        return NextResponse.json(
+          { code: "UNUSED_CHECK_WAITING", error: "Waiting for the office to answer \"Looks unused\". You can submit once they answer. Everything you entered is kept." },
+          { status: 409, headers: { "Cache-Control": "private, no-store" } },
+        );
+      }
     }
 
     const uploads = extractUploads(body.data as Record<string, unknown>);

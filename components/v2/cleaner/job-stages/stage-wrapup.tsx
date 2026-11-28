@@ -34,6 +34,9 @@ import { StickyActionBar } from "@/components/v2/cleaner/job-stages/stage-footer
 import { EvidenceOverrideRequest } from "@/components/v2/cleaner/evidence-override-request";
 import { officeAllowedFieldIds, uploadFieldIdsOf, withoutAllowedUploads, type EvidenceOverrideField } from "@/lib/jobs/evidence-override-rules";
 
+/** Shown while the office has not answered "Looks unused — ask the office" (pilot New cleaner job flow). */
+export const UNUSED_CHECK_HOLD_MESSAGE = "Waiting for the office to answer \"Looks unused\". You can submit once they answer.";
+
 export function StageWrapup({ api }: { api: WorkspaceApi }) {
   const { locked, laundryEnabled, schema, answers, uploads, property, jobTasks, allTasksDecided, busy, addressLine } = api;
   const syncBlockers = useSubmissionPreflight(!locked);
@@ -41,6 +44,9 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
   if (api.laundryPhoto.length && (!laundryEnabled || api.laundryOutcome !== "READY_FOR_PICKUP")) syncBlockers.push("Laundry photos are unused by this outcome. Remove the attachment in device recovery; the original stays saved.");
   if (api.carryPhotos.length && (!api.carryHasNew || !api.carryNotes.some(note => note.trim()))) syncBlockers.push("Next-clean photos need a flag note or explicit attachment removal in device recovery.");
   if (api.payload?.formContractError) syncBlockers.push(api.payload.formContractError);
+  // Pilot "New cleaner job flow" (item 3): the server says a "Looks unused" question is still waiting.
+  const unusedCheckHold = api.payload?.unusedCheckHold === true;
+  if (unusedCheckHold) syncBlockers.push(UNUSED_CHECK_HOLD_MESSAGE);
 
   // Locked → the submitted review state is the whole stage (board state D).
   if (locked) return <SubmittedSummary api={api} />;
@@ -131,6 +137,9 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
         onJumpToLaundry={jumpToLaundry}
         groupBySection={newFlow}
       >
+        {unusedCheckHold ? (
+          <EButton size="sm" variant="outline" onClick={reloadForm}>Check for the office answer</EButton>
+        ) : null}
         {newFlow ? (
           <EvidenceOverrideRequest jobId={api.jobId} missingPhotos={missingPhotos} allowedInPayload={allowedFieldIds} onAllowedChanged={reloadForm} />
         ) : null}

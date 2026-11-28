@@ -542,6 +542,11 @@ export async function GET(
     // Photo questions the office allowed this job to be submitted without
     // (honoured whatever the pilot state; the submit route re-reads them).
     const evidenceOverride = { allowedFieldIds: cleanerViewer ? await allowedEvidenceFields(db, job.id) : [] };
+    // Pilot "New cleaner job flow" (item 3): a "Looks unused" question still
+    // waiting holds the submit (the submit route re-checks).
+    const unusedCheckHold = pilots.cleanerJobFlow
+      ? (await db.jobUnusedCheck.findUnique({ where: { openForJobId: job.id }, select: { id: true } })) !== null
+      : false;
     const payloadJob = { ...job, property: job.property ? withJobFormPropertyFacts(job.property) : job.property };
     return NextResponse.json({
       job: cleanerViewer
@@ -553,6 +558,7 @@ export async function GET(
       propertyReminders,
       pilots,
       evidenceOverride,
+      unusedCheckHold,
       /** Why access details are absent, when they are (cleaner only). */
       accessWindow: cleanerViewer ? accessWindow : "OPEN",
       accessUnavailableReason: cleanerViewer ? accessWindowMessage(accessWindow) : null,

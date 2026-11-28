@@ -2695,3 +2695,9 @@ Spec item 2, behind the pilot "New cleaner job flow". Migration `20261128120000_
 
 - **Migration verified:** fresh disposable database: 171 migrations applied, repeated "No pending migrations to apply", `migrate diff --exit-code` 0. Fixture `sneek_ui` (an existing migrated database at the previous head): the new migration applied, repeated "No pending", diff 0.
 - **Tests:** `tests/lib/evidence-override-rules.test.ts` (4), `tests/api/evidence-override-routes.test.ts` (9), `tests/db/job-evidence-override.test.ts` (4, PostgreSQL: double tap = one row, refusals, only requested photos, once, audit and inbox-only notices, decline then ask again), `tests/components/evidence-override-request.test.tsx` (3), submit route cases in `tests/api/cleaner-submit-validation-warnings.test.ts` (+4: still blocks without a decision, allowed photo stored with the submission and a forged value replaced, never waives another photo, a photo taken anyway is not recorded as waived); the four submit harnesses gained the `jobEvidenceOverride` read. `lib/auth/test-as-rules.ts` row for the cleaner route. TypeScript passed.
+
+## Cleaner job flow v2 — 3. Hold while "Looks unused" is open (2026-11-28)
+
+Spec item 3, behind the pilot "New cleaner job flow" (not the "Looks unused" pilot: the hold is part of the new submit flow; with only "Looks unused" on, the phase 1 behaviour — ask, no hold — stays). No schema change. Already present: the waiting card on the job and the answer that never changes status or pay.
+
+- **Tests:** `tests/api/cleaner-submit-validation-warnings.test.ts` (+4: pilot on and waiting → 409 with nothing written; pilot off or unreadable → submits without reading the question; switched on after the job was first started → submits; answered → submits). TypeScript passed. The Wrap up blocker line was not covered by a component test (the stage is exercised by the existing workspace tests only).
