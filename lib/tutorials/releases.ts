@@ -24,6 +24,15 @@ export type ReleaseNote = {
 
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    release: "2026.11.28-cleaner-job-flow-v2",
+    date: "2026-11-28",
+    author: "Cleaner job flow v2 (pilots)",
+    items: [
+      { change: "Settings › System › Pilot features: switch new behaviours off, on, or on for chosen people or properties.", noVisibleChange: "A new settings page with no tour; the Settings hub list gains one row." },
+      { change: "Pilot New cleaner job flow: the checklist stays locked until the arrival video is uploaded, then rooms are worked one at a time (\"Kitchen · 3 of 12\") with what is still missing.", noVisibleChange: "Only on the real job page with the pilot on; the practice job (the toured page) has no pilots and is unchanged." },
+    ],
+  },
+  {
     release: "2026.11.28-turnover-v4-plants-unused",
     date: "2026-11-28",
     author: "Turnover v4, live plants, looks unused",

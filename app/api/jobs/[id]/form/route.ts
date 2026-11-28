@@ -30,7 +30,8 @@ import { resolveEffectiveJobForm } from "@/lib/forms/resolve-effective-job-form"
 import { jobFormRevision } from "@/lib/forms/job-form-revision";
 import { jobFormPropertySelect, UnsupportedFormPropertyConditionError, withJobFormPropertyFacts } from "@/lib/forms/job-form-property";
 import { resolvePropertyReminders } from "@/lib/properties/property-reminders";
-import { reminderSource, unusedCheckEnabled } from "@/lib/pilots/gates";
+import { cleanerJobFlowOn, reminderSource, unusedCheckEnabled } from "@/lib/pilots/gates";
+import type { CleanerJobPilots } from "@/lib/pilots/registry";
 import { filterStockByConfig, normalizeInventoryConfig } from "@/lib/forms/inventory-config";
 import { toStockTableItems, type StockTableStock } from "@/lib/forms/stock-table";
 import { isTeamStarted } from "@/lib/cleaner/team-state";
@@ -533,7 +534,10 @@ export async function GET(
     // facts a form rule may read (hasLivePlants) and the automatic reminders.
     const propertyReminders = resolvePropertyReminders(briefingProperty);
     /** Pilot features that change this cleaner's job screen, decided on the server. */
-    const pilots = { unusedCheck: cleanerViewer ? await unusedCheckEnabled(pilotSubject) : false };
+    const pilots: CleanerJobPilots = {
+      unusedCheck: cleanerViewer ? await unusedCheckEnabled(pilotSubject) : false,
+      cleanerJobFlow: cleanerViewer ? await cleanerJobFlowOn(db, { jobId: job.id, userId: session.user.id, propertyId: job.propertyId }) : false,
+    };
     const payloadJob = { ...job, property: job.property ? withJobFormPropertyFacts(job.property) : job.property };
     return NextResponse.json({
       job: cleanerViewer

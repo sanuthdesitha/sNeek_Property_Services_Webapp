@@ -145,7 +145,17 @@ export function FormRenderer({
   effectsJobId,
   stockTable,
   onRetryStockTable,
+  onlySectionIds,
+  hideExtras = false,
 }: {
+  /**
+   * Room by room (cleaner job flow v2): render only these sections, open and
+   * not collapsible. Answers and uploads of the others are untouched. Omitted
+   * = every section, exactly as before.
+   */
+  onlySectionIds?: readonly string[];
+  /** Hide the Extras region (while the arrival video lock is on). */
+  hideExtras?: boolean;
   /**
    * The job property's stock list from GET /api/jobs/[id]/form (`stockTable`)
    * for "Stock used" questions. Omitted (builder preview) → example rows and
@@ -354,9 +364,12 @@ export function FormRenderer({
 
   // Show the summary once errors exist AND the cleaner has engaged (revealed all,
   // or touched at least one field) — avoids a scary banner on a pristine form.
-  const visibleErrors = revealAll
+  const shownSections = onlySectionIds ? new Set(onlySectionIds) : null;
+  const engagedErrors = revealAll
     ? errors
     : errors.filter((e) => touched.has(e.fieldId));
+  // Room by room: the summary lists only the rooms on screen (the stepper lists the rest).
+  const visibleErrors = shownSections ? engagedErrors.filter((e) => shownSections.has(String(e.sectionId))) : engagedErrors;
 
   const stockTableCtx = React.useMemo<StockTableRenderCtx>(
     () => ({ stock: stockTable, onRetry: onRetryStockTable, markTouched }),
@@ -375,7 +388,7 @@ export function FormRenderer({
           <ValidationSummary errors={visibleErrors} onJump={scrollToField} />
         ) : null}
 
-        {sections.map((section) => (
+        {sections.filter((section) => shownSections === null || shownSections.has(String(section.id))).map((section) => (
           <SectionBlock
             key={section.id}
             section={section}
@@ -385,13 +398,13 @@ export function FormRenderer({
             onAnswer={handleAnswer}
             onUpload={handleUpload}
             disabled={disabled}
-            forceCollapsible={collapsibleSections}
-            defaultOpen={collapsibleSections ? section.id === firstIncompleteSectionId : true}
+            forceCollapsible={shownSections === null && collapsibleSections}
+            defaultOpen={shownSections === null && collapsibleSections ? section.id === firstIncompleteSectionId : true}
             progress={sectionProgress?.(section.id)}
           />
         ))}
 
-        {mode === "live" ? <ExtrasRegion
+        {mode === "live" && !hideExtras ? <ExtrasRegion
           jobId={jobId}
           schema={schema}
           laundryReady={laundryReady}

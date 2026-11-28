@@ -256,6 +256,11 @@ export interface FormField {
   // for this field ("before" / "after" / "damage", or a custom label). When
   // unset (or "auto") the cleaner app derives it from the section/field wording.
   stampTag?: "before" | "after" | "damage" | string;
+  /**
+   * The whole-property walkthrough video this question is (lib/forms/walkthrough-video.ts):
+   * one arrival and one exit video per job, never per room. Read instead of the label.
+   */
+  walkthroughVideo?: "arrival" | "exit";
   // numeric / slider / scale / counter
   min?: number;
   max?: number;

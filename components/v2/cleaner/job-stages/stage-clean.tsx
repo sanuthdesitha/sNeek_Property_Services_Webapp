@@ -33,6 +33,10 @@ import { EPill } from "@/components/v2/ui/pill";
 import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { EInput } from "@/components/v2/cleaner/fields";
 import { COULD_NOT_CHARGE_REASONS } from "@/lib/property-devices/types";
+import { arrivalVideoLock } from "@/lib/forms/walkthrough-video";
+import type { FormSchema } from "@/lib/forms/types";
+import type { FormRoomProgress } from "@/lib/forms/navigation";
+import { ArrivalVideoLockNotice, RoomStepperFooter, RoomStepperHeader, type RoomStep } from "@/components/v2/cleaner/job-stages/room-stepper";
 
 /** A device charge task (2026-11-20): high priority, photo always required, never "not applicable". */
 function isDeviceChargeTask(task: JobTask): boolean {
@@ -68,6 +72,106 @@ function DeviceChargeExtras({ task, draft, locked, onChange }: { task: JobTask; 
   );
 }
 
+const ROOM_STORAGE_PREFIX = "sneek:cleaner-room:";
+
+function readStoredRoom(jobId: string): string | null {
+  try {
+    return window.sessionStorage.getItem(`${ROOM_STORAGE_PREFIX}${jobId}`);
+  } catch {
+    return null;
+  }
+}
+
+function storeRoom(jobId: string, roomId: string): void {
+  try {
+    window.sessionStorage.setItem(`${ROOM_STORAGE_PREFIX}${jobId}`, roomId);
+  } catch {
+    // Remembering the room is a convenience; the answers are in the draft.
+  }
+}
+
+/** Field id → section id, for every field of the form (one level of children). */
+function sectionOfField(schema: FormSchema | null): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const section of Array.isArray(schema?.sections) ? schema!.sections : []) {
+    for (const field of flattenFieldsOneLevel(section.fields)) map.set(String(field.id), String(section.id));
+  }
+  return map;
+}
+
+type RoomByRoom = {
+  rooms: RoomStep[];
+  activeId: string;
+  select: (roomId: string) => void;
+  jump: (fieldId: string) => void;
+};
+
+/**
+ * Room by room for the New cleaner job flow pilot: the visible sections in
+ * form order, the active one (kept for this job in the tab session), and
+ * jumps from anywhere (Wrap up's list, the summary banner) that open the
+ * right room first. Off → null, and the accordion renders as before.
+ */
+function useRoomByRoom(enabled: boolean, jobId: string, schema: FormSchema | null, navigationRooms: FormRoomProgress[]): RoomByRoom | null {
+  const rooms = React.useMemo<RoomStep[]>(
+    () =>
+      navigationRooms
+        .filter((room) => room.visible)
+        .map((room) => ({
+          id: room.id,
+          label: room.label,
+          missing: room.remaining.map((error) => ({ fieldId: String(error.fieldId), label: String(error.label ?? error.fieldId) })),
+        })),
+    [navigationRooms],
+  );
+  const fieldSections = React.useMemo(() => sectionOfField(schema), [schema]);
+  const [chosen, setChosen] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setChosen(enabled ? readStoredRoom(jobId) : null);
+  }, [enabled, jobId]);
+
+  const firstOpen = rooms.find((room) => room.missing.length > 0)?.id ?? rooms[0]?.id ?? "";
+  const activeId = chosen && rooms.some((room) => room.id === chosen) ? chosen : firstOpen;
+
+  const select = React.useCallback(
+    (roomId: string) => {
+      setChosen(roomId);
+      storeRoom(jobId, roomId);
+      if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "auto" });
+    },
+    [jobId],
+  );
+
+  // The listener below opens the field's room first when it is another one.
+  const jump = React.useCallback((fieldId: string) => {
+    window.dispatchEvent(new CustomEvent("sneek:focus-field", { detail: { fieldId } }));
+  }, []);
+
+  // A jump aimed at a field in another room (Wrap up's list, "Report an
+  // exception") opens that room, then asks the form to scroll to the field.
+  React.useEffect(() => {
+    if (!enabled) return undefined;
+    const onFocusField = (event: Event) => {
+      const detail = (event as CustomEvent<{ fieldId?: string; match?: string }>).detail ?? {};
+      const exact = typeof detail.fieldId === "string" && detail.fieldId ? detail.fieldId : null;
+      const match = typeof detail.match === "string" ? detail.match.toLowerCase() : "";
+      const fieldId = exact ?? (match ? Array.from(fieldSections.keys()).find((id) => id.toLowerCase().includes(match)) ?? null : null);
+      if (!fieldId) return;
+      const sectionId = fieldSections.get(fieldId) ?? fieldSections.get(fieldId.replace(/_details$/, ""));
+      if (!sectionId || sectionId === activeId) return;
+      setChosen(sectionId);
+      storeRoom(jobId, sectionId);
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent("sneek:focus-field", { detail: { fieldId } })), 60);
+    };
+    window.addEventListener("sneek:focus-field", onFocusField as EventListener);
+    return () => window.removeEventListener("sneek:focus-field", onFocusField as EventListener);
+  }, [enabled, fieldSections, activeId, jobId]);
+
+  if (!enabled || rooms.length === 0) return null;
+  return { rooms, activeId, select, jump };
+}
+
 export function StageClean({ api }: { api: WorkspaceApi }) {
   const [urgentStockMounted, setUrgentStockMounted] = React.useState(false);
   const [urgentStockOpen, setUrgentStockOpen] = React.useState(false);
@@ -83,6 +187,11 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
   const stockTable = api.payload?.stockTable as StockTableStock | undefined;
   const navigation = React.useMemo(() => formNavigation(schema, answers, uploadCounts, property ?? {}, laundryReady, api.requiredChecklistTicksBlockSubmit, api.canUseNoPhoto, stockTable), [schema, answers, uploadCounts, property, laundryReady, api.requiredChecklistTicksBlockSubmit, api.canUseNoPhoto, stockTable]);
   const sectionProgress = React.useCallback((sectionId: string) => navigation.rooms.find(room => room.id === sectionId), [navigation]);
+  // Pilot "New cleaner job flow", decided by the server for this cleaner, property and job.
+  const newFlow = api.payload?.pilots?.cleanerJobFlow === true;
+  const videoLock = newFlow ? arrivalVideoLock(schema, uploadCounts) : ({ locked: false } as const);
+  const roomByRoom = useRoomByRoom(newFlow, api.jobId, schema, navigation.rooms);
+  const shownSectionIds = videoLock.locked ? [videoLock.sectionId] : roomByRoom ? [roomByRoom.activeId] : undefined;
   // Flat list of the form's upload fields (form order), for the bulk assign
   // sheet's destination list. Same flatten + visibility rules the renderer uses,
   // so a hidden section never shows up as a destination.
@@ -126,8 +235,10 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
           this cleaner's approval — self-hides when there is none. */}
       <EarlyCheckoutStatus jobId={api.jobId} />
 
-      {/* Admin / carry-forward checklist */}
-      {jobTasks.length > 0 ? (
+      {videoLock.locked ? <ArrivalVideoLockNotice /> : null}
+
+      {/* Admin / carry-forward checklist (locked with the rest until the arrival video is in) */}
+      {jobTasks.length > 0 && !videoLock.locked ? (
         <ECard {...tourTarget("cleaner.job.checklistItem")}>
           <ECardBody className="space-y-4 pt-6">
             <p className="e-eyebrow flex items-center gap-1.5">
@@ -236,7 +347,12 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
               </button>
             </div>
           </div>
+          {roomByRoom && !videoLock.locked ? (
+            <RoomStepperHeader rooms={roomByRoom.rooms} activeId={roomByRoom.activeId} onSelect={roomByRoom.select} onJump={roomByRoom.jump} />
+          ) : null}
           <FormRenderer
+            onlySectionIds={shownSectionIds}
+            hideExtras={videoLock.locked}
             schema={schema}
             laundryReady={laundryReady}
             answers={answers}
@@ -257,6 +373,9 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
             stockTable={stockTable}
             onRetryStockTable={api.load}
           />
+          {roomByRoom && !videoLock.locked ? (
+            <RoomStepperFooter rooms={roomByRoom.rooms} activeId={roomByRoom.activeId} onSelect={roomByRoom.select} onFinished={() => api.setActiveStage(5)} />
+          ) : null}
         </div>
       ) : (
         <EAlert tone="warning" title="No form template">

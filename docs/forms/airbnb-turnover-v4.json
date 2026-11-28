@@ -194,6 +194,7 @@
               {
                 "id": "arrival-walkthrough-video",
                 "type": "video",
+                "walkthroughVideo": "arrival",
                 "label": "Arrival walkthrough video",
                 "required": true,
                 "mediaMode": "video",
@@ -1871,6 +1872,7 @@
               {
                 "id": "exit-walkthrough-video",
                 "type": "video",
+                "walkthroughVideo": "exit",
                 "label": "Final walkthrough video",
                 "required": true,
                 "mediaMode": "video",

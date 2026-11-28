@@ -49,7 +49,7 @@ export const PILOTS: readonly PilotDefinition[] = [
     description: "The checklist stays locked until the arrival video is uploaded, sections are worked one at a time with what is still missing, the submit screen lists missing items by section, and the office can allow one job to submit without specific photos.",
     affects: "Cleaners on jobs started after it was switched on for them or their property; the office (override requests).",
     whenOff: "The existing checklist and submit screen. Answers, photos and drafts are kept. Jobs started before it was switched on keep the existing flow.",
-    built: false,
+    built: true,
   },
   {
     key: "checkin-location",
@@ -198,6 +198,12 @@ export function pilotApplies(state: PilotState, key: PilotKey, subject: PilotSub
   if (!state.readable) return false;
   return pilotSettingApplies(state.pilots[key] ?? OFF_SETTING, subject);
 }
+
+/** Pilot decisions the cleaner's job screen needs, made on the server for this cleaner, property and job. */
+export type CleanerJobPilots = {
+  unusedCheck: boolean;
+  cleanerJobFlow: boolean;
+};
 
 export const pilotUpdateInput = z.object({
   key: z.enum(PILOT_KEYS),

@@ -2671,3 +2671,14 @@ Owner requirement (consolidated cleaner-flow spec, section 0): every new cleaner
 2. *Ops manager scope.* There is no per-client or per-property scope for operations managers on jobs (the operations policy has packs and capabilities only), so there is no scope rule to apply to the answer or the queue read. Recorded in the route comment.
 
 - **Tests:** `tests/lib/pilot-features.test.ts` (4), `tests/api/pilot-features-route.test.ts` (4), `tests/db/pilot-features.test.ts` (1, fresh disposable database), `tests/api/job-unused-check-live-pack.test.ts` (4); pilot cases added to `tests/api/job-unused-check-routes.test.ts` (+3) and `tests/api/live-plants-briefing-gate.test.ts` (+2). TypeScript passed.
+
+## Cleaner job flow v2 — 1. Arrival video lock and room by room (2026-11-28)
+
+Spec item 1, behind the pilot "New cleaner job flow" (Off by default). Details: `docs/SYSTEM.md` › "Cleaner job flow v2 (2026-11-28)". No schema change. Already present before: the room accordion with done/total per section and the required-upload submit gate (kept); added: the video lock, the one-room-at-a-time stepper and the explicit video marker.
+
+**Decisions made for the owner (pending confirmation):**
+1. While the arrival video is missing, the job checklist (JobTasks) and the Extras region are hidden too, not just the other form sections. The + menu (damage, maintenance…) stays available.
+2. Any room can be opened from "Go to room"; only "Room done — next room" waits for the room to be complete. Nothing records a room as done: done means nothing missing, by the submit check's own rules.
+3. The lock is enforced on the phone; the server keeps requiring the video at submit but does not prove the upload order.
+
+- **Tests:** `tests/lib/walkthrough-video.test.ts` (5), `tests/lib/pilot-cleaner-job-flow.test.ts` (5: off without reading the time log, unreadable, on, switched on mid-job, scoped), `tests/components/cleaner-room-by-room.test.tsx` (5: off/absent = accordion, lock, stepper with disabled Room done, wrap up, jump from Wrap up). Existing stage, renderer and v4 template tests pass. TypeScript passed.
