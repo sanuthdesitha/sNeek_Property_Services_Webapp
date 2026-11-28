@@ -31,6 +31,8 @@ import { LaundryHandoff, LAUNDRY_CARD_ID } from "@/components/v2/cleaner/job-sta
 import { SubmittedSummary } from "@/components/v2/cleaner/job-stages/submitted-summary";
 import { SubmitBlockers } from "@/components/v2/cleaner/job-stages/submit-blockers";
 import { StickyActionBar } from "@/components/v2/cleaner/job-stages/stage-footer";
+import { EvidenceOverrideRequest } from "@/components/v2/cleaner/evidence-override-request";
+import { officeAllowedFieldIds, uploadFieldIdsOf, withoutAllowedUploads, type EvidenceOverrideField } from "@/lib/jobs/evidence-override-rules";
 
 export function StageWrapup({ api }: { api: WorkspaceApi }) {
   const { locked, laundryEnabled, schema, answers, uploads, property, jobTasks, allTasksDecided, busy, addressLine } = api;
@@ -46,7 +48,11 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
   // ── Outstanding form errors (for the tappable list below submit) ──────────
   const uploadCounts: Record<string, number> = {};
   for (const [fid, media] of Object.entries(uploads)) uploadCounts[fid] = media.length;
-  const formErrors = schema
+  // Photo questions the office allowed this job to be submitted without
+  // (server payload; the submit route re-reads the decisions).
+  const allowedFieldIds = officeAllowedFieldIds(api.payload);
+  const uploadFieldIds = uploadFieldIdsOf(schema);
+  const allFormErrors = schema
     ? collectFormErrors(
         schema,
         answers,
@@ -65,6 +71,12 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
         { extended: api.enforceExtendedRules, stockTable: api.payload?.stockTable }
       )
     : [];
+  const formErrors = withoutAllowedUploads(allFormErrors, allowedFieldIds, uploadFieldIds);
+  // Pilot "New cleaner job flow": grouped by room, and "Camera not working — ask the office".
+  const newFlow = api.payload?.pilots?.cleanerJobFlow === true;
+  const missingPhotos: EvidenceOverrideField[] = Array.from(
+    new Map(formErrors.filter((error) => uploadFieldIds.has(error.fieldId)).map((error) => [error.fieldId, { fieldId: error.fieldId, label: error.label }])).values(),
+  );
 
   // Laundry-gate errors (turnover only), mirroring the submit route rules.
   const laundryErrors: string[] = [];
@@ -87,6 +99,10 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
         window.dispatchEvent(new CustomEvent("sneek:focus-field", { detail: { match: fieldId } }));
       }
     }, 60);
+  }
+
+  function reloadForm() {
+    void api.load?.();
   }
 
   function jumpToLaundry() {
@@ -113,7 +129,11 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
         onJumpToTasks={() => api.setActiveStage(4)}
         onJumpToField={jumpToFormField}
         onJumpToLaundry={jumpToLaundry}
+        groupBySection={newFlow}
       >
+        {newFlow ? (
+          <EvidenceOverrideRequest jobId={api.jobId} missingPhotos={missingPhotos} allowedInPayload={allowedFieldIds} onAllowedChanged={reloadForm} />
+        ) : null}
         {api.draftSaveState && api.retryDraftSave ? <DraftSaveStatus state={api.draftSaveState} onRetry={api.retryDraftSave} /> : null}
         {busy ? <p role="status" className="text-sm">{busy === "submit" ? "Submitting; wait for confirmation before leaving." : "Another job action is in progress. Wait before submitting."}</p> : null}
         {api.timingRules?.earlyCheckin?.time ? (

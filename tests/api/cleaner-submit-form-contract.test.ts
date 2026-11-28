@@ -19,7 +19,7 @@ vi.mock("@/lib/cleaner/submission-followups", () => ({ enqueueSubmissionFollowup
 vi.mock("@/lib/db", () => ({ db: {
   user: { findMany: mocks.office }, notification: { createMany: mocks.officeNotice },
   jobAssignment: { findFirst: mocks.assignment, findMany: async () => [] },
-  job: { findUnique: mocks.job, updateMany: mocks.claim },
+  jobEvidenceOverride: { findMany: async () => [] }, job: { findUnique: mocks.job, updateMany: mocks.claim },
   formTemplate: { findUnique: mocks.template, findMany: mocks.templates, findFirst: mocks.anchor, create: mocks.provision },
   timeLog: { findFirst: mocks.timeLog, findMany: async () => [], update: mocks.update, updateMany: mocks.closeClock },
   $transaction: mocks.transaction,
@@ -124,7 +124,7 @@ beforeEach(() => {
       timeLog: { findFirst: mocks.timeLog, findMany: async () => [], update: mocks.update, updateMany: mocks.closeClock },
       cleanerPayAdjustment: { create: mocks.pay, findFirst: mocks.payExisting },
       formSubmission: { create: mocks.create }, submissionMedia: { createMany: mocks.media },
-      job: { update: mocks.update, findUnique: mocks.job, updateMany: mocks.claim },
+      jobEvidenceOverride: { findMany: async () => [] }, job: { update: mocks.update, findUnique: mocks.job, updateMany: mocks.claim },
     });
     events.push("commit"); return result;
   });

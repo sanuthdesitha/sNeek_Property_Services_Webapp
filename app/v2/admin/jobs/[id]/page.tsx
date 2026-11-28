@@ -66,6 +66,8 @@ export default async function AdminJobDetailPage({
     isAdmin: session.user.role === Role.ADMIN,
     readOnly: levels !== null && levels.jobs !== "manage",
     teamMessageRefusal: teamMessage ? teamMessage.reason : "Message team could not be checked for your account. Reload the page.",
+    // "Camera not working" decisions (Approvals pack at manage; ADMIN always; never while testing as someone).
+    canDecideApprovals: !session.impersonation && (levels === null || levels.approvals === "manage"),
   };
   const related = await loadJobPageRelated(job, { levels, canReadUrgentStock });
 

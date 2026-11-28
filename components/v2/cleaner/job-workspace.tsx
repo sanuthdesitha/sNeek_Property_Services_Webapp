@@ -77,6 +77,7 @@ import {
 } from "@/components/v2/cleaner/form-renderer";
 import type { FormSchema } from "@/lib/forms/types";
 import { collectFormErrors } from "@/lib/forms/validate-submission";
+import { officeAllowedFieldIds, uploadFieldIdsOf, withoutAllowedUploads } from "@/lib/jobs/evidence-override-rules";
 import { useExtendedEnforcement } from "@/components/v2/cleaner/use-extended-enforcement";
 import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
@@ -1349,7 +1350,9 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       for (const [fid, media] of Object.entries(uploads)) uploadCounts[fid] = media.length;
       // Pass the same laundry-ready state the server uses so laundry-conditional
       // fields validate identically client- and server-side (turnover jobs only).
-      const formErrors = collectFormErrors(
+      // Photo questions the office allowed this job to be submitted without
+      // (server payload; the submit route re-reads the decisions).
+      const formErrors = withoutAllowedUploads(collectFormErrors(
         schema,
         answers,
         uploadCounts,
@@ -1365,7 +1368,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
             >) ?? {},
         },
         { extended: enforceExtendedRules, stockTable: payload?.stockTable }
-      );
+      ), officeAllowedFieldIds(payload), uploadFieldIdsOf(schema));
       if (formErrors.length > 0) {
         if (typeof window !== "undefined") window.dispatchEvent(new Event("sneek:validate-form"));
         // Name the actual items (with their section) instead of a bare count —

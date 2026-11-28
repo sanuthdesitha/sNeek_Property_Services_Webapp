@@ -12,6 +12,7 @@ import { jobPageViewHref } from "@/lib/jobs/job-page/deep-link";
 import { formatMinutes, siteMinutes } from "@/lib/jobs/job-page/facts";
 import type { TimelineStage } from "@/lib/jobs/job-page/timeline";
 import { JobContinuationReviews } from "../job-detail-reviews";
+import { EvidenceOverridePanel } from "../evidence-override-panel";
 import type { JobPageData } from "./job-page-data";
 import { Muted, StageSection, StageShell } from "./stage-shell";
 
@@ -71,6 +72,8 @@ export function StageOnSite({ data, stage, collapsed, now }: { data: JobPageData
       <div className="flex flex-wrap items-center gap-2">
         <Muted>Location at clock-in:</Muted> <GpsBadge data={data} />
       </div>
+      {/* "Camera not working — ask the office": shows only when the cleaner has asked. */}
+      <EvidenceOverridePanel jobId={job.id} canDecide={data.viewer.canDecideApprovals === true} />
       {data.continuationRows.length > 0 ? (
         <StageSection title="Continuation requests" aside={pending > 0 ? <EBadge tone="warning" soft>{pending} pending</EBadge> : null}>
           <JobContinuationReviews requests={data.continuationRows} />

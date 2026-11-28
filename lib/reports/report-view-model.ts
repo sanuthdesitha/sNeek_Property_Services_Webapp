@@ -441,6 +441,18 @@ function classifyField(field: any, answers: Record<string, unknown>): ReportFiel
   return { ...base, kind: "value", answered, value: answered ? formatted : UNANSWERED };
 }
 
+/** Field ids an office decision waived at submit (`__evidenceOverrides`, server-written). */
+function officeWaivedFieldIds(raw: unknown): Set<string> {
+  const ids = new Set<string>();
+  if (!Array.isArray(raw)) return ids;
+  for (const entry of raw) {
+    const fieldIds = (entry as { fieldIds?: unknown } | null)?.fieldIds;
+    if (!Array.isArray(fieldIds)) continue;
+    for (const fieldId of fieldIds) if (typeof fieldId === "string") ids.add(fieldId);
+  }
+  return ids;
+}
+
 function buildSections(
   job: any,
   submission: any,
@@ -455,6 +467,7 @@ function buildSections(
   const property = job?.property ?? {};
   const media: any[] = Array.isArray(submission?.media) ? submission.media : [];
   const noPhotoReasons = sanitizeNoPhotoReasons(data.__noPhotoReasons);
+  const officeAllowed = officeWaivedFieldIds(data.__evidenceOverrides);
 
   const out: ReportSectionVM[] = [];
   for (const section of sections) {
@@ -485,6 +498,12 @@ function buildSections(
           vm.value = `No photo — ${noPhotoReasonLabel(noPhoto.reasonCode)}${
             noPhoto.note ? `: ${noPhoto.note}` : ""
           }`;
+        } else if (officeAllowed.has(vm.id)) {
+          // "Camera not working — ask the office": the office allowed this
+          // job to be submitted without it (who and why: the job page).
+          vm.answered = true;
+          vm.noPhoto = true;
+          vm.value = "No photo — allowed by the office";
         } else {
           vm.answered = false;
           vm.value = UNANSWERED;

@@ -438,6 +438,16 @@ export async function POST(
           ).filter(([fieldId]) => !uploads[fieldId] || uploads[fieldId].length === 0)
         )
       : {};
+    // "Camera not working — ask the office" (cleaner job flow v2): the photo
+    // questions an ADMIN / OPS_MANAGER allowed this job to be submitted
+    // without, read now from the decisions (never from the client). Honoured
+    // whatever the pilot state, so a switch never leaves a job stuck.
+    const evidenceOverrides = await db.jobEvidenceOverride.findMany({
+      where: { jobId: params.id, status: "ALLOWED" },
+      select: { id: true, allowedFieldIds: true, decisionReason: true, decidedById: true, decidedByRole: true, decidedAt: true },
+    });
+    const officeAllowed = new Set(evidenceOverrides.flatMap((row) => row.allowedFieldIds));
+    const officeWaived = (fieldId: string) => officeAllowed.has(fieldId) && (!uploads[fieldId] || uploads[fieldId].length === 0);
 
     const missingRequiredUploads = collectRequiredUploadFields(
       effectiveSchema,
@@ -446,7 +456,7 @@ export async function POST(
       legacyReady
     ).filter(
       (field) =>
-        (!uploads[field.id] || uploads[field.id].length === 0) && !noPhotoReasons[field.id]
+        (!uploads[field.id] || uploads[field.id].length === 0) && !noPhotoReasons[field.id] && !officeAllowed.has(field.id)
     );
     if (missingRequiredUploads.length > 0) {
       const missingUploadSummary = missingRequiredUploads
@@ -468,7 +478,7 @@ export async function POST(
       effectiveSchema, answers,
       Object.fromEntries(Object.entries(uploads).map(([fieldId, keys]) => [fieldId, new Set(keys).size])),
       formProperty, legacyReady, { canUseNoPhoto, reasons: noPhotoReasons }
-    );
+    ).filter((field) => !officeWaived(field.fieldId));
     if (uploadMinimumErrors.length > 0) {
       return NextResponse.json({
         error: uploadMinimumErrors.map(field => `${field.label}: ${field.message}`).join("; "),
@@ -805,6 +815,20 @@ export async function POST(
               // whatever the client sent under this key is overridden.
               __noPhotoReasons:
                 Object.keys(noPhotoReasons).length > 0 ? noPhotoReasons : undefined,
+              // Controlled system key: the office decisions that waived photo
+              // questions left without a photo (server-read, never the client's).
+              __evidenceOverrides: evidenceOverrides.some((row) => row.allowedFieldIds.some(officeWaived))
+                ? evidenceOverrides
+                    .map((row) => ({
+                      id: row.id,
+                      fieldIds: row.allowedFieldIds.filter(officeWaived),
+                      reason: row.decisionReason,
+                      decidedById: row.decidedById,
+                      decidedByRole: row.decidedByRole,
+                      decidedAt: row.decidedAt ? row.decidedAt.toISOString() : null,
+                    }))
+                    .filter((row) => row.fieldIds.length > 0)
+                : undefined,
               ...(selfInspectionIncompleteKeys.length > 0
                 ? { __selfInspectionIncomplete: selfInspectionIncompleteKeys }
                 : {}),

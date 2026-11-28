@@ -2682,3 +2682,16 @@ Spec item 1, behind the pilot "New cleaner job flow" (Off by default). Details: 
 3. The lock is enforced on the phone; the server keeps requiring the video at submit but does not prove the upload order.
 
 - **Tests:** `tests/lib/walkthrough-video.test.ts` (5), `tests/lib/pilot-cleaner-job-flow.test.ts` (5: off without reading the time log, unreadable, on, switched on mid-job, scoped), `tests/components/cleaner-room-by-room.test.tsx` (5: off/absent = accordion, lock, stepper with disabled Room done, wrap up, jump from Wrap up). Existing stage, renderer and v4 template tests pass. TypeScript passed.
+
+## Cleaner job flow v2 — 2. Submit blocker by room and the office override (2026-11-28)
+
+Spec item 2, behind the pilot "New cleaner job flow". Migration `20261128120000_job_evidence_overrides` (additive: enum `JobEvidenceOverrideStatus`, table `JobEvidenceOverride`). Already present before: "Before you submit" with tap-to-jump rows and the server's required-upload gates (kept); the per-cleaner "no photo taken" exemption (separate, unchanged).
+
+**Decisions made for the owner (pending confirmation):**
+1. The office decides on the admin job page (stage "On site"), not in Approvals: it is a job-specific action, and the inbox notice links straight to it. Approvals pack at manage is required for operations managers (live guard).
+2. The office can allow only photos the cleaner asked about; there is no office-initiated override without a request.
+3. An allowed decision is honoured even if the pilot is later switched off (the cleaner already relied on it).
+4. Reports show an allowed question as "No photo — allowed by the office"; who and why are on the job page only.
+
+- **Migration verified:** fresh disposable database: 171 migrations applied, repeated "No pending migrations to apply", `migrate diff --exit-code` 0. Fixture `sneek_ui` (an existing migrated database at the previous head): the new migration applied, repeated "No pending", diff 0.
+- **Tests:** `tests/lib/evidence-override-rules.test.ts` (4), `tests/api/evidence-override-routes.test.ts` (9), `tests/db/job-evidence-override.test.ts` (4, PostgreSQL: double tap = one row, refusals, only requested photos, once, audit and inbox-only notices, decline then ask again), `tests/components/evidence-override-request.test.tsx` (3), submit route cases in `tests/api/cleaner-submit-validation-warnings.test.ts` (+4: still blocks without a decision, allowed photo stored with the submission and a forged value replaced, never waives another photo, a photo taken anyway is not recorded as waived); the four submit harnesses gained the `jobEvidenceOverride` read. `lib/auth/test-as-rules.ts` row for the cleaner route. TypeScript passed.

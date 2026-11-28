@@ -29,8 +29,27 @@ export interface SubmitBlockersProps {
   onJumpToTasks: () => void;
   onJumpToField: (fieldId: string) => void;
   onJumpToLaundry: () => void;
+  /**
+   * New cleaner job flow: list the form's missing items under a heading per
+   * section ("Kitchen · 2 missing"), each still a jump. Off = one list.
+   */
+  groupBySection?: boolean;
   /** Draft save state and busy notes, rendered under the list. */
   children?: React.ReactNode;
+}
+
+type BlockerGroup = { key: string; label: string; errors: FormBlocker[] };
+
+/** Missing items by section, in the order the form shows them. */
+function groupBlockers(errors: FormBlocker[]): BlockerGroup[] {
+  const groups = new Map<string, BlockerGroup>();
+  for (const error of errors) {
+    const label = error.sectionLabel ? stripHtmlToText(error.sectionLabel) : "Other";
+    const group = groups.get(label) ?? { key: label, label, errors: [] };
+    group.errors.push(error);
+    groups.set(label, group);
+  }
+  return Array.from(groups.values());
 }
 
 function blockerLabel(error: FormBlocker): string {
@@ -66,6 +85,7 @@ export function SubmitBlockers({
   onJumpToTasks,
   onJumpToField,
   onJumpToLaundry,
+  groupBySection = false,
   children,
 }: SubmitBlockersProps) {
   const total = formErrors.length + laundryErrors.length + Number(tasksPending) + syncBlockers.length;
@@ -88,9 +108,20 @@ export function SubmitBlockers({
             {tasksPending ? (
               <JumpRow where="Clean" onClick={onJumpToTasks}>Mark every checklist item done or not done in Clean.</JumpRow>
             ) : null}
-            {formErrors.map((error) => (
-              <JumpRow key={error.fieldId} where="Clean" onClick={() => onJumpToField(error.fieldId)}>{blockerLabel(error)}</JumpRow>
-            ))}
+            {groupBySection
+              ? groupBlockers(formErrors).map((group) => (
+                  <li key={`group-${group.key}`} className="pt-1">
+                    <p className="px-1 text-[0.75rem] font-[650]">{group.label} · {group.errors.length} missing</p>
+                    <ul className="space-y-0.5">
+                      {group.errors.map((error) => (
+                        <JumpRow key={error.fieldId} where={`Clean · ${group.label}`} onClick={() => onJumpToField(error.fieldId)}>{stripHtmlToText(error.label)}</JumpRow>
+                      ))}
+                    </ul>
+                  </li>
+                ))
+              : formErrors.map((error) => (
+                  <JumpRow key={error.fieldId} where="Clean" onClick={() => onJumpToField(error.fieldId)}>{blockerLabel(error)}</JumpRow>
+                ))}
             {laundryErrors.map((message, index) => (
               <JumpRow key={`laundry-${index}`} where="Wrap up · Laundry handoff" onClick={onJumpToLaundry}>{message}</JumpRow>
             ))}

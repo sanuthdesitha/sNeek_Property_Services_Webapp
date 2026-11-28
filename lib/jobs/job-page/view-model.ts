@@ -26,6 +26,8 @@ export type JobPageViewer = {
   readOnly: boolean;
   /** Why this viewer may not use "Message team" (office-send rule), or null (owner decision 2026-11-13). */
   teamMessageRefusal?: string | null;
+  /** May allow or decline "Camera not working — ask the office" requests (the route re-checks). */
+  canDecideApprovals?: boolean;
 };
 
 /** Required items done / total for the latest submission, or null when it cannot be worked out. */

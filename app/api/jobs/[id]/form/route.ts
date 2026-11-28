@@ -32,6 +32,7 @@ import { jobFormPropertySelect, UnsupportedFormPropertyConditionError, withJobFo
 import { resolvePropertyReminders } from "@/lib/properties/property-reminders";
 import { cleanerJobFlowOn, reminderSource, unusedCheckEnabled } from "@/lib/pilots/gates";
 import type { CleanerJobPilots } from "@/lib/pilots/registry";
+import { allowedEvidenceFields } from "@/lib/jobs/evidence-override";
 import { filterStockByConfig, normalizeInventoryConfig } from "@/lib/forms/inventory-config";
 import { toStockTableItems, type StockTableStock } from "@/lib/forms/stock-table";
 import { isTeamStarted } from "@/lib/cleaner/team-state";
@@ -538,6 +539,9 @@ export async function GET(
       unusedCheck: cleanerViewer ? await unusedCheckEnabled(pilotSubject) : false,
       cleanerJobFlow: cleanerViewer ? await cleanerJobFlowOn(db, { jobId: job.id, userId: session.user.id, propertyId: job.propertyId }) : false,
     };
+    // Photo questions the office allowed this job to be submitted without
+    // (honoured whatever the pilot state; the submit route re-reads them).
+    const evidenceOverride = { allowedFieldIds: cleanerViewer ? await allowedEvidenceFields(db, job.id) : [] };
     const payloadJob = { ...job, property: job.property ? withJobFormPropertyFacts(job.property) : job.property };
     return NextResponse.json({
       job: cleanerViewer
@@ -548,6 +552,7 @@ export async function GET(
       /** Automatic reminders from the property's facts (live plants), listed in Read first. */
       propertyReminders,
       pilots,
+      evidenceOverride,
       /** Why access details are absent, when they are (cleaner only). */
       accessWindow: cleanerViewer ? accessWindow : "OPEN",
       accessUnavailableReason: cleanerViewer ? accessWindowMessage(accessWindow) : null,

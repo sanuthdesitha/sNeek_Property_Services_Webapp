@@ -350,6 +350,8 @@ const ADMIN_SECTIONS: Record<string, OpsFeature | "owner"> = {
   "job-early-checkouts": "approvals",
   // "Looks unused — ask the office" answers (2026-11-28), decided on Approvals.
   "job-unused-checks": "approvals",
+  // "Camera not working — ask the office" requests and decisions (2026-11-28), on the job page.
+  "job-evidence-overrides": "approvals",
   "jobs-team-default": "jobs",
   calendar: "calendar",
   "recurring-jobs": "calendar",
