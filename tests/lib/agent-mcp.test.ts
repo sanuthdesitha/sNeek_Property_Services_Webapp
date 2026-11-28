@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentContext } from "@/lib/agents/access";
 
 const m = vi.hoisted(() => ({
@@ -39,7 +39,13 @@ function context(scopes: AgentScopeKey[]): AgentContext {
 const call = (name: string, args: Record<string, unknown> = {}, id: number | string = 1) => handleMcpPost({ authorization: "Bearer snk_agent_x", body: { jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } } });
 const property = { id: "p1", name: "Beach House", address: "1 Sea St", suburb: "Bondi", state: "NSW", bedrooms: 2, bathrooms: 1 };
 
+// The tools accept dates within 14 days of today, so the clock is fixed to the fixture day.
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-14T02:00:00Z") });
   vi.resetAllMocks();
   m.auth.mockResolvedValue(context([...AGENT_SCOPE_KEYS]));
   m.audit.mockResolvedValue({});
