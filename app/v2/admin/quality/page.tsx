@@ -5,6 +5,8 @@ import { getOpsAccess } from "@/lib/rbac/ops-access";
 import { canUseOpsPath, opsLevelAllows } from "@/lib/rbac/ops-catalog";
 import { qualityHubAccess } from "@/lib/quality/hub-access";
 import { QualityHub } from "@/components/v2/admin/quality/hub/quality-hub";
+import { isPilotOn } from "@/lib/pilots/state";
+import { registerCanLog } from "@/lib/quality/register/access";
 
 export const metadata = { title: "Quality · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -24,6 +26,8 @@ export const dynamic = "force-dynamic";
  * payroll would (the bonus proposal route re-checks on the server).
  * "Laundry team and suppliers" reads through the quality pack; its link to
  * Laundry statistics shows only when the laundry pack allows that page.
+ * "All issues" (pilot "All issues register") shows for ADMIN and OPS_MANAGER
+ * where the pilot is on for them; its route re-checks everything.
  */
 export default async function AdminQualityPage() {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.QA_INSPECTOR]);
@@ -34,6 +38,8 @@ export default async function AdminQualityPage() {
   const access = qualityHubAccess(levels ?? null, canManage);
   const settings = await getAppSettings().catch(() => null);
   const deduction = settings?.accountability.scoring.falseConfirmationExtraDeduction;
+  // "All issues" (pilot "All issues register"): off = the hub exactly as before.
+  const registerVisible = isManager && (await isPilotOn("issues-register", { userId: session.user.id }));
 
   return (
     <QualityHub
@@ -46,6 +52,7 @@ export default async function AdminQualityPage() {
         timeZone: settings?.timezone || "Australia/Sydney",
         falseConfirmationDeduction: typeof deduction === "number" ? deduction : null,
         laundryStatsLink: isManager && (!levels || canUseOpsPath(levels, "/v2/admin/laundry/stats")),
+        register: { visible: registerVisible, canLog: registerVisible && !session.impersonation && registerCanLog(levels) },
       }}
     />
   );

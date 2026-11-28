@@ -102,10 +102,10 @@ export const PILOTS: readonly PilotDefinition[] = [
   {
     key: "issues-register",
     name: "All issues register",
-    description: "One list of issues from every source with history and figures, in Quality.",
-    affects: "The office.",
-    whenOff: "The register is hidden; the existing Quality pages are unchanged.",
-    built: false,
+    description: "Quality gets an \"All issues\" tab: QA issues, client complaints, cleaner reports, damage, maintenance, stock and automatic flags in one list with filters, figures and CSV, \"Log an issue\" for a complaint by hand, and \"Issue history\" on property and cleaner pages.",
+    affects: "The office (ADMIN and operations managers with the Quality pack).",
+    whenOff: "The tab and the history links are hidden and the register's routes refuse. Issues logged by hand stay as internal cases in Cases.",
+    built: true,
   },
 ];
 

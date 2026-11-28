@@ -37,7 +37,31 @@ import { NextJobChecklist, usePendingTasks } from "./detail/next-job-checklist";
 import { usePropertyRecord } from "./detail/use-property-record";
 import { usePropertyOverview, usePropertyStats } from "./detail/use-property-summaries";
 
-export function PropertyDetail({ propertyId, timeZone = "Australia/Sydney", initialTab }: { propertyId: string; timeZone?: string; initialTab?: string }) {
+/** Every issue at this property from every source: the All issues register, pre-filtered. */
+function PropertyIssueHistoryLink({ href }: { href: string }) {
+  return (
+    <section aria-labelledby="property-issue-history" className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-4 py-3">
+      <div className="min-w-0">
+        <h2 id="property-issue-history" className="text-[0.875rem] font-[600]">Issue history</h2>
+        <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">QA issues, complaints, damage, maintenance and stock at this property, the last 12 months.</p>
+      </div>
+      <EButton asChild size="sm" variant="outline"><Link href={href}>Open issue history</Link></EButton>
+    </section>
+  );
+}
+
+export function PropertyDetail({
+  propertyId,
+  timeZone = "Australia/Sydney",
+  initialTab,
+  issueHistoryHref = null,
+}: {
+  propertyId: string;
+  timeZone?: string;
+  initialTab?: string;
+  /** "Issue history" (pilot "All issues register"): the register for this property, or null when off. */
+  issueHistoryHref?: string | null;
+}) {
   const { state, reload, save } = usePropertyRecord(propertyId);
   const overview = usePropertyOverview(propertyId);
   const stats = usePropertyStats(propertyId);
@@ -143,6 +167,7 @@ export function PropertyDetail({ propertyId, timeZone = "Australia/Sydney", init
               <RecurringRulesList propertyId={propertyId} showCreateLink />
             </OperationsDisclosure>
             <PropertyJobsHistory propertyId={propertyId} />
+            {issueHistoryHref ? <PropertyIssueHistoryLink href={issueHistoryHref} /> : null}
           </div>
         ) : null}
         {tab === "care" ? (

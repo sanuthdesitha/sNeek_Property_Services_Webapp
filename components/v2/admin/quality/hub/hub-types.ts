@@ -72,6 +72,11 @@ export type HubContext = {
    * Absent = true (tests and older callers).
    */
   laundryStatsLink?: boolean;
+  /**
+   * The "All issues" tab (pilot "All issues register"), decided on the server
+   * for this person. Absent or not visible = the hub exactly as before.
+   */
+  register?: { visible: boolean; canLog: boolean };
 };
 
 export type CoachingAccess = {
