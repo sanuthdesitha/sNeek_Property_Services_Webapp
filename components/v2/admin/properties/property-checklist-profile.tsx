@@ -35,6 +35,8 @@ interface FeatureDef {
   key: string;
   label: string;
   group: string;
+  /** What turning the switch on does (lib/checklists/features.ts). */
+  hint?: string;
 }
 
 interface LibraryItem {
@@ -589,14 +591,25 @@ export function PropertyChecklistProfile({
                     {data.featureDefs
                       .filter((f) => f.group === group)
                       .map((feature) => (
-                        <label key={feature.key} className="flex items-center gap-2 text-[0.8125rem]">
+                        <label
+                          key={feature.key}
+                          className={`flex gap-2 text-[0.8125rem] ${feature.hint ? "col-span-2 items-start sm:col-span-3" : "items-center"}`}
+                        >
                           <input
                             type="checkbox"
                             className={CHECKBOX_CLASS}
                             checked={features[feature.key] === true}
                             onChange={() => toggleFeature(feature.key)}
+                            aria-describedby={feature.hint ? `feature-hint-${feature.key}` : undefined}
                           />
-                          <span>{feature.label}</span>
+                          <span className="min-w-0">
+                            <span className={feature.hint ? "font-[600]" : undefined}>{feature.label}</span>
+                            {feature.hint ? (
+                              <span id={`feature-hint-${feature.key}`} className="block text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                                {feature.hint}
+                              </span>
+                            ) : null}
+                          </span>
                         </label>
                       ))}
                   </div>

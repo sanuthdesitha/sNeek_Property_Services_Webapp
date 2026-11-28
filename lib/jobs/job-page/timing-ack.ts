@@ -18,6 +18,7 @@
  *
  * PURE: no DB, no I/O.
  */
+import type { PropertyReminderSource } from "@/lib/properties/property-reminders";
 import {
   resolveStartBriefingItems,
   startBriefingHash,
@@ -118,11 +119,13 @@ function currentFingerprints(items: ResolvedStartBriefingItem[]): CurrentFingerp
 export function buildTimingAckSummary(input: {
   meta: AckMeta;
   tasks: StartBriefingJobTask[];
+  /** The job's property with its features (automatic reminders), as the start gate reads it. */
+  property: PropertyReminderSource;
   cleaners: TimingAckCleaner[];
   names: Map<string, string>;
   timeZone: string;
 }): TimingAckSummary {
-  const items = resolveStartBriefingItems({ meta: input.meta, jobTasks: input.tasks });
+  const items = resolveStartBriefingItems({ meta: input.meta, jobTasks: input.tasks, property: input.property });
   const timingIds = items.filter((item) => item.source === "TIMING_RULE").map((item) => item.id);
   if (timingIds.length === 0) return { kind: "none" };
 

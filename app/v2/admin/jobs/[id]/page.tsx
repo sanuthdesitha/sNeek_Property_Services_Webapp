@@ -98,7 +98,7 @@ export default async function AdminJobDetailPage({
   }));
   const ackUserIds = Object.keys(model.meta.startBriefingAcks ?? {});
   const ackNames = await loadUserNames(ackUserIds);
-  const briefing = buildBriefingProof({ meta: model.meta, tasks: briefingTasks, names: ackNames, timeZone });
+  const briefing = buildBriefingProof({ meta: model.meta, tasks: briefingTasks, property: job.property, names: ackNames, timeZone });
   const timingTags = timingTagsFor({
     timingBadges: resolveTimingBadges(job.internalNotes),
     sameDayCheckin: job.sameDayCheckin,
@@ -109,6 +109,7 @@ export default async function AdminJobDetailPage({
     timingAck = buildTimingAckSummary({
       meta: model.meta,
       tasks: briefingTasks,
+      property: job.property,
       cleaners: buildPanelAssignments(job).map((row) => ({ userId: row.userId, name: row.name })),
       names: ackNames,
       timeZone,

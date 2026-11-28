@@ -58,6 +58,8 @@ export type PropertyRecord = {
   laundryBagColor: string | null;
   setupGuide: SetupGuideEntry[] | null;
   floorCount: number | null;
+  /** Amenity flags (lib/checklists/features.ts), edited in the Checklist tab. */
+  features?: unknown;
   laundryDetail: unknown;
   recurringSchedule: unknown;
   client: { id: string; name: string } | null;
@@ -98,4 +100,11 @@ export function optionalNumber(text: string): number | null {
 export function legacyCodeCarry(property: PropertyRecord): { accessCode?: string } {
   const legacy = accessText(property, "codes").trim();
   return !property.accessCode && legacy ? { accessCode: legacy } : {};
+}
+
+/** "Live plants at this property" is switched on (Checklist tab → Amenities). */
+export function hasLivePlants(property: Pick<PropertyRecord, "features">): boolean {
+  const features = property.features;
+  return Boolean(features) && typeof features === "object" && !Array.isArray(features)
+    && (features as Record<string, unknown>).livePlants === true;
 }

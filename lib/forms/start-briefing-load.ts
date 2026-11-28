@@ -10,15 +10,22 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { JobMeta } from "@/lib/jobs/meta";
+import type { PropertyReminderSource } from "@/lib/properties/property-reminders";
 import { resolveStartBriefingItems, type ResolvedStartBriefingItem } from "./start-briefing";
 
 type BriefingDatabase = { jobTask: Pick<Prisma.TransactionClient["jobTask"], "findMany"> };
 
 export type StartBriefingMeta = Parameters<typeof resolveStartBriefingItems>[0]["meta"] & Partial<Pick<JobMeta, "startBriefingAcks">>;
 
+/**
+ * `property` is the job's property with its `features` (the automatic
+ * property reminders read it). Required, so no caller can silently drop the
+ * reminders and fingerprint a different list from the others.
+ */
 export async function loadStartBriefingItems(
   jobId: string,
   meta: StartBriefingMeta,
+  property: PropertyReminderSource,
   database: BriefingDatabase = db,
 ): Promise<ResolvedStartBriefingItem[]> {
   const tasks = await database.jobTask.findMany({
@@ -37,6 +44,7 @@ export async function loadStartBriefingItems(
   });
   return resolveStartBriefingItems({
     meta,
+    property,
     jobTasks: tasks.map((task) => ({
       id: task.id,
       title: task.title,

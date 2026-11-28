@@ -110,6 +110,8 @@ export async function POST(
             latitude: true,
             longitude: true,
             geofenceRadiusM: true,
+            // Automatic property reminders in the start briefing (live plants).
+            features: true,
             client: { select: { showCleanerLiveLocation: true } },
           },
         },
@@ -299,8 +301,8 @@ export async function POST(
       // payload (lib/forms/start-briefing-load.ts), so all three fingerprint
       // the same list. It applies the cleaner visibility rule: client/office
       // correspondence is never read out to the cleaner before a clean.
-      const briefingItems = await loadStartBriefingItems(params.id, briefingMeta, db).catch(() =>
-        resolveStartBriefingItems({ meta: briefingMeta, jobTasks: [] })
+      const briefingItems = await loadStartBriefingItems(params.id, briefingMeta, job.property, db).catch(() =>
+        resolveStartBriefingItems({ meta: briefingMeta, jobTasks: [], property: job.property })
       );
 
       // Accept the acknowledgement sent with THIS request, else fall back to

@@ -15,7 +15,7 @@
 import { normalizeFormSchema } from "./normalize-schema";
 import { expandRepeatedSections } from "./repeat-sections";
 import { collectFormErrors, EXTENDED_FORM_RULES, ENFORCE_EXTENDED_FORM_VALIDATION, type FormErrorRule } from "./validate-submission";
-import { jobFormPropertySelect } from "./job-form-property";
+import { deriveJobFormPropertyFacts, isJobFormPropertyKey } from "./job-form-property";
 import { planSubmissionEffects, wouldHappenSentence } from "./form-effects";
 
 export type TestRunProblem = {
@@ -52,9 +52,11 @@ export type TestRunResult = {
 /** Only the cleaner-visible property keys, as a real job form receives. */
 export function sampleProperty(raw: unknown): Record<string, unknown> {
   if (!raw || typeof raw !== "object") return {};
-  return Object.fromEntries(
-    Object.entries(raw as Record<string, unknown>).filter(([key]) => Object.hasOwn(jobFormPropertySelect, key)),
+  const visible = Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter(([key]) => isJobFormPropertyKey(key)),
   );
+  // A sample may name the amenity flags (`features`) or the derived fact itself.
+  return { ...visible, ...deriveJobFormPropertyFacts(raw as Record<string, unknown>) };
 }
 
 export function runFormTest(input: TestRunInput): TestRunResult {

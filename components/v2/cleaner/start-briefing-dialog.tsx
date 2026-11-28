@@ -26,6 +26,7 @@ import type {
 const SOURCE_LABEL: Record<StartBriefingSource, string> = {
   TIMING_RULE: "Timing rule",
   NOTICE: "Notice",
+  PROPERTY_REMINDER: "Property reminder",
   ADMIN_TASK: "Admin task",
   CLIENT_TASK: "Client request",
   SPECIAL_NOTE: "Note",

@@ -21,8 +21,15 @@ import type { TestRunProblem } from "@/lib/forms/test-run";
 import type { FormSchema } from "@/lib/forms/types";
 import { BuilderDrawer } from "./builder-drawer";
 
-type SampleProperty = { bedrooms: number; bathrooms: number; hasBalcony: boolean; inventoryEnabled: boolean; laundryEnabled: boolean; sofaBedCount: number };
-const DEFAULT_PROPERTY: SampleProperty = { bedrooms: 2, bathrooms: 1, hasBalcony: false, inventoryEnabled: false, laundryEnabled: false, sofaBedCount: 0 };
+type SampleProperty = { bedrooms: number; bathrooms: number; hasBalcony: boolean; inventoryEnabled: boolean; laundryEnabled: boolean; hasLivePlants: boolean; sofaBedCount: number };
+type SampleFlag = "hasBalcony" | "inventoryEnabled" | "laundryEnabled" | "hasLivePlants";
+const DEFAULT_PROPERTY: SampleProperty = { bedrooms: 2, bathrooms: 1, hasBalcony: false, inventoryEnabled: false, laundryEnabled: false, hasLivePlants: false, sofaBedCount: 0 };
+const SAMPLE_FLAG_LABELS: Record<SampleFlag, string> = {
+  hasBalcony: "Balcony",
+  inventoryEnabled: "Tracks stock",
+  laundryEnabled: "Laundry service",
+  hasLivePlants: "Live plants",
+};
 
 type Result = { phone: TestRunProblem[]; server: TestRunProblem[] | null; serverError: string | null; wouldHappen: string[] };
 
@@ -96,7 +103,7 @@ export function TestRunDrawer({ open, onClose, templateId, schema }: { open: boo
 
   const setNumber = (key: "bedrooms" | "bathrooms" | "sofaBedCount") => (event: React.ChangeEvent<HTMLInputElement>) =>
     setProperty((prev) => ({ ...prev, [key]: Math.max(0, Math.floor(Number(event.target.value) || 0)) }));
-  const setFlag = (key: "hasBalcony" | "inventoryEnabled" | "laundryEnabled") => (event: React.ChangeEvent<HTMLInputElement>) =>
+  const setFlag = (key: SampleFlag) => (event: React.ChangeEvent<HTMLInputElement>) =>
     setProperty((prev) => ({ ...prev, [key]: event.target.checked }));
 
   return (
@@ -106,10 +113,10 @@ export function TestRunDrawer({ open, onClose, templateId, schema }: { open: boo
         <EField label="Bedrooms"><EInput type="number" min={0} value={property.bedrooms} onChange={setNumber("bedrooms")} /></EField>
         <EField label="Bathrooms"><EInput type="number" min={0} value={property.bathrooms} onChange={setNumber("bathrooms")} /></EField>
         <EField label="Sofa beds"><EInput type="number" min={0} value={property.sofaBedCount} onChange={setNumber("sofaBedCount")} /></EField>
-        {(["hasBalcony", "inventoryEnabled", "laundryEnabled"] as const).map((key) => (
+        {(Object.keys(SAMPLE_FLAG_LABELS) as SampleFlag[]).map((key) => (
           <label key={key} className="col-span-3 flex items-center gap-2 text-[0.8125rem] sm:col-span-1">
             <input type="checkbox" className="accent-[hsl(var(--e-primary))]" checked={property[key]} onChange={setFlag(key)} />
-            {key === "hasBalcony" ? "Balcony" : key === "inventoryEnabled" ? "Tracks stock" : "Laundry service"}
+            {SAMPLE_FLAG_LABELS[key]}
           </label>
         ))}
       </fieldset>

@@ -67,7 +67,8 @@ export interface FieldCondition {
  * Show/hide rule that reads the job's property instead of an answer
  * ("if property has a balcony"). `propertyField` must be one of the
  * cleaner-visible keys in lib/forms/job-form-property.ts
- * (`jobFormPropertySelect`); any other key fails closed at read time and is
+ * (`isJobFormPropertyKey`: a column, or a derived fact such as
+ * `hasLivePlants`); any other key fails closed at read time and is
  * refused when a draft is saved. Compared with `templateValuesEqual`
  * (lib/forms/visibility.ts): equality only.
  */

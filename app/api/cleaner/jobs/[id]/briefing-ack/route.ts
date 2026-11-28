@@ -69,13 +69,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const job = await db.job.findUnique({
       where: { id: params.id },
-      select: { id: true, status: true, internalNotes: true },
+      select: { id: true, status: true, internalNotes: true, property: { select: { features: true } } },
     });
     if (!job) return refuse(404, "Job not found");
     if (FINISHED_STATUSES.includes(job.status)) return refuse(409, "This job is already finished.");
 
     const meta = parseJobInternalNotes(job.internalNotes);
-    const items = await loadStartBriefingItems(job.id, meta);
+    const items = await loadStartBriefingItems(job.id, meta, job.property);
     if (items.length === 0) return refuse(409, "This job has nothing to confirm.");
 
     const incomingAck = buildStartBriefingAck(items, parsed.data.startBriefingAck);
