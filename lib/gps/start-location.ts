@@ -37,7 +37,20 @@ const fixSchema = z.object({
   note: z.string().trim().max(2000).optional().nullable(),
 });
 
-export const startLocationSchema = z.union([fixSchema, z.object({ noFix: noFixSchema })]);
+/**
+ * Clock-in only (pilot "Check-in location", 2026-11-28): a refused permission
+ * may also start with a reason. The schema accepts it; evaluateStartLocation
+ * refuses it unless the caller says the pilot is on. Other starts (on the way,
+ * laundry routes) keep `noFixSchema`, which never accepts a refusal.
+ */
+export const CLOCK_IN_NO_FIX_ERRORS = [...NO_FIX_ERRORS, "PERMISSION_DENIED"] as const;
+export type ClockInNoFixError = (typeof CLOCK_IN_NO_FIX_ERRORS)[number];
+export const clockInNoFixSchema = z.object({
+  reason: z.string().trim().min(3, "Say why there is no location.").max(200),
+  error: z.enum(CLOCK_IN_NO_FIX_ERRORS),
+});
+
+export const startLocationSchema = z.union([fixSchema, z.object({ noFix: clockInNoFixSchema })]);
 
 export type StartLocationFixInput = z.infer<typeof fixSchema>;
 export type StartLocationInput = z.infer<typeof startLocationSchema>;
@@ -53,6 +66,8 @@ export function noFixErrorLabel(error: string | null | undefined): string {
       return "the phone reported no position available";
     case "UNSUPPORTED":
       return "the device has no location service";
+    case "PERMISSION_DENIED":
+      return "location is turned off for the app on the phone";
     default:
       return "no position from the device";
   }
@@ -73,7 +88,7 @@ export type StartLocationColumns = {
 export type StartLocationRecord = {
   columns: StartLocationColumns;
   /** Started without a fix: tell the office (inbox) so they can follow up. */
-  noFix?: NoFixInput;
+  noFix?: { reason: string; error: ClockInNoFixError };
   /** The fix to seed the live position with (null for a tag-only start). */
   fix: { lat: number; lng: number; accuracy: number | null } | null;
 };
@@ -87,8 +102,19 @@ export function evaluateStartLocation(input: {
   property: { name?: string | null; latitude?: number | null; longitude?: number | null; geofenceRadiusM?: number | null } | null;
   tagTapped: boolean;
   now?: Date;
+  /** Pilot "Check-in location" on: a refused permission starts with a reason (never stored as on site). */
+  allowPermissionDenied?: boolean;
 }): StartLocationDecision {
   const { property } = input;
+  if (input.location && "noFix" in input.location && input.location.noFix.error === "PERMISSION_DENIED" && !input.allowPermissionDenied) {
+    return {
+      ok: false,
+      body: {
+        error: "LOCATION_REQUIRED",
+        message: "Turn on location for this app to start your clock. The office sees your location until you clock out.",
+      },
+    };
+  }
   // Allowed, notice accepted, but no position after the normal attempt:
   // start with the person's reason. Judged neither on site nor off site; the
   // tracker's first later fix becomes a LATE start location.

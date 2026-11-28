@@ -176,6 +176,7 @@ const SINGLE_TYPE: Partial<Record<ApprovalsQueueKey, string>> = {
   falseConfirmations: "False confirmation",
   managementReviews: "Management review",
   cleanerInvoicePayClaims: "Payment claim",
+  unusedChecks: "Looks unused",
 };
 
 /** Build the table row for one record. Pure; exported for tests. */
@@ -286,6 +287,11 @@ export function toQueueRow(queue: ApprovalsQueueKey, record: ApprovalRecord): Ap
       break;
     case "continuations":
       typeDetail = record.reason ?? null;
+      break;
+    case "unusedChecks":
+      typeDetail = record.note ?? null;
+      waitingSince = record.createdAt ?? null;
+      hasEvidence = (record.attachmentUrls?.length ?? 0) > 0;
       break;
   }
 

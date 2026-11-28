@@ -113,6 +113,8 @@ beforeEach(() => {
     if (url === "/api/cleaner/jobs/job/briefing" && method === "GET") return Promise.resolve(json({}));
     if (url === "/api/cleaner/property-access/property" && method === "GET") return Promise.resolve(json({}));
     if (url === "/api/cleaner/jobs/job/form-validation" && method === "GET") return Promise.resolve(json({ enforceExtended: false }));
+    // Airbnb turnovers read "Looks unused — ask the office" for the job screen (2026-11-28).
+    if (url === "/api/cleaner/jobs/job/unused-check" && method === "GET") return Promise.resolve(json({ jobId: "job", checks: [], canAsk: true, refusal: null }));
     if (url === "/api/cleaner/jobs/job/draft") {
       if (method === "GET") return readDraft();
       if (method === "DELETE") return Promise.resolve(json({ ok: true }));

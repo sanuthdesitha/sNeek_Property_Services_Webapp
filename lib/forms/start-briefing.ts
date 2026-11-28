@@ -11,6 +11,8 @@
  * Sources, in the order they are presented:
  *   TIMING_RULE   late checkout / early check-in — highest stakes, first.
  *   NOTICE        one-off information for this clean.
+ *   PROPERTY_REMINDER  automatic reminders from the property's own facts
+ *                 (live plants) — on every job there, no task needed.
  *   ADMIN_TASK    admin special-request tasks on this job.
  *   CLIENT_TASK   client-requested tasks (approved ones only).
  *   SPECIAL_NOTE  the free-form internal note.
@@ -20,10 +22,12 @@
 
 import { resolveRuleTime, type JobMeta } from "@/lib/jobs/meta";
 import { renderJobNotices } from "@/lib/jobs/notices";
+import { resolvePropertyReminders, type PropertyReminderSource } from "@/lib/properties/property-reminders";
 
 export type StartBriefingSource =
   | "TIMING_RULE"
   | "NOTICE"
+  | "PROPERTY_REMINDER"
   | "ADMIN_TASK"
   | "CLIENT_TASK"
   | "SPECIAL_NOTE";
@@ -111,6 +115,12 @@ export function resolveStartBriefingItems(input: {
     | "notices"
   >;
   jobTasks?: StartBriefingJobTask[];
+  /**
+   * The job's property facts (Property.features) for the automatic property
+   * reminders. Every caller that fingerprints the list must pass the same
+   * property, or the acknowledgement would not match.
+   */
+  property?: PropertyReminderSource;
 }): ResolvedStartBriefingItem[] {
   const items: ResolvedStartBriefingItem[] = [];
 
@@ -163,6 +173,17 @@ export function resolveStartBriefingItems(input: {
         : notice.detail,
       source: "NOTICE",
       ...(notice.imageUrls.length > 0 ? { images: notice.imageUrls } : {}),
+    });
+  }
+
+  // PROPERTY REMINDERS — what the property itself implies (live plants), on
+  // every job there without anyone adding a task.
+  for (const reminder of resolvePropertyReminders(input.property)) {
+    items.push({
+      id: reminder.id,
+      title: reminder.title,
+      detail: reminder.detail,
+      source: "PROPERTY_REMINDER",
     });
   }
 

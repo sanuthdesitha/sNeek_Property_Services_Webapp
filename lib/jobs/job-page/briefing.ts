@@ -11,6 +11,7 @@
 import { formatInTimeZone } from "date-fns-tz";
 import { resolveStartBriefingItems, startBriefingHash } from "@/lib/forms/start-briefing";
 import type { JobMeta } from "@/lib/jobs/meta";
+import { isPropertyReminderId, type PropertyReminderSource } from "@/lib/properties/property-reminders";
 
 export type BriefingAckRecord = {
   userId: string;
@@ -58,6 +59,7 @@ export function describeUnresolvedItemId(itemId: string): string {
   if (itemId.startsWith("notice-")) return `Notice (since removed) · ${itemId.slice(7)}`;
   if (itemId.startsWith("admin-task-")) return `Admin task (since removed) · ${itemId.slice(11)}`;
   if (itemId.startsWith("client-task-")) return `Client task (since removed) · ${itemId.slice(12)}`;
+  if (isPropertyReminderId(itemId)) return "Property reminder (since removed)";
   return `${itemId} (since removed)`;
 }
 
@@ -81,13 +83,22 @@ export type BriefingTask = {
 export function buildBriefingProof(input: {
   meta: JobMeta;
   tasks: BriefingTask[];
+  /**
+   * The job's property with its features (automatic reminders), or — when a
+   * pilot decides per person — the property each cleaner's gate read (null
+   * when the reminders were off for them).
+   */
+  property: PropertyReminderSource | ((userId: string | null) => PropertyReminderSource);
   names: Map<string, string>;
   timeZone: string;
 }): BriefingProof {
   const acks = readStartBriefingAcks(input.meta.startBriefingAcks);
+  const propertyFor = typeof input.property === "function" ? input.property : () => input.property as PropertyReminderSource;
   // resolveStartBriefingItems assigns the item ids, so it names them too.
-  const items = acks.length > 0 ? resolveStartBriefingItems({ meta: input.meta, jobTasks: input.tasks }) : [];
+  const itemsFor = (userId: string | null) => resolveStartBriefingItems({ meta: input.meta, jobTasks: input.tasks, property: propertyFor(userId) });
+  const items = acks.length > 0 ? itemsFor(null) : [];
   const titles = new Map(items.map((item) => [item.id, item.title] as const));
+  for (const ack of acks) for (const item of itemsFor(ack.userId)) titles.set(item.id, item.title);
   const currentHash = startBriefingHash(items);
   const rows = acks
     .map((ack) => {
@@ -99,7 +110,7 @@ export function buildBriefingProof(input: {
           userId: ack.userId,
           name: input.names.get(ack.userId) ?? ack.userId,
           hash: ack.hash,
-          stale: ack.hash !== null && ack.hash !== currentHash,
+          stale: ack.hash !== null && ack.hash !== startBriefingHash(itemsFor(ack.userId)),
           // The last tap in the dialog: when the gate actually opened.
           completedAtLabel: completedAt === null ? null : formatAckTime(new Date(completedAt).toISOString(), input.timeZone),
           items: ack.items.map((item) => ({

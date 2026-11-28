@@ -67,7 +67,8 @@ export interface FieldCondition {
  * Show/hide rule that reads the job's property instead of an answer
  * ("if property has a balcony"). `propertyField` must be one of the
  * cleaner-visible keys in lib/forms/job-form-property.ts
- * (`jobFormPropertySelect`); any other key fails closed at read time and is
+ * (`isJobFormPropertyKey`: a column, or a derived fact such as
+ * `hasLivePlants`); any other key fails closed at read time and is
  * refused when a draft is saved. Compared with `templateValuesEqual`
  * (lib/forms/visibility.ts): equality only.
  */
@@ -255,6 +256,11 @@ export interface FormField {
   // for this field ("before" / "after" / "damage", or a custom label). When
   // unset (or "auto") the cleaner app derives it from the section/field wording.
   stampTag?: "before" | "after" | "damage" | string;
+  /**
+   * The whole-property walkthrough video this question is (lib/forms/walkthrough-video.ts):
+   * one arrival and one exit video per job, never per room. Read instead of the label.
+   */
+  walkthroughVideo?: "arrival" | "exit";
   // numeric / slider / scale / counter
   min?: number;
   max?: number;

@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 import { FIELD_TYPES } from "./field-types";
-import { jobFormPropertySelect } from "./job-form-property";
+import { isJobFormPropertyKey } from "./job-form-property";
 import { duplicateStockCountItems, structuredFieldFindings } from "./structured-schema-checks";
 import type { FieldConditionOperator, FieldFrequency, SectionRepeatBy } from "./types";
 
@@ -133,7 +133,7 @@ export function isKnownFieldType(type: unknown): boolean {
 
 /** Property keys a property condition may read (the cleaner-visible projection). */
 export function isSupportedPropertyConditionKey(key: unknown): boolean {
-  return typeof key === "string" && Object.hasOwn(jobFormPropertySelect, key);
+  return isJobFormPropertyKey(key);
 }
 
 export function conditionIssue(condition: unknown): string | null {

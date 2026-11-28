@@ -28,7 +28,12 @@ import { attachPendingCarryForwardTasksToJob, listCleanerJobTasks } from "@/lib/
 import { resolveTemplateReferenceUrls } from "@/lib/forms/resolve-references";
 import { resolveEffectiveJobForm } from "@/lib/forms/resolve-effective-job-form";
 import { jobFormRevision } from "@/lib/forms/job-form-revision";
-import { jobFormPropertySelect, UnsupportedFormPropertyConditionError } from "@/lib/forms/job-form-property";
+import { jobFormPropertySelect, UnsupportedFormPropertyConditionError, withJobFormPropertyFacts } from "@/lib/forms/job-form-property";
+import { resolvePropertyReminders } from "@/lib/properties/property-reminders";
+import { cleanerJobFlowOn, reminderSource, unusedCheckEnabled } from "@/lib/pilots/gates";
+import type { CleanerJobPilots } from "@/lib/pilots/registry";
+import { allowedEvidenceFields } from "@/lib/jobs/evidence-override";
+import { isPilotOn } from "@/lib/pilots/state";
 import { filterStockByConfig, normalizeInventoryConfig } from "@/lib/forms/inventory-config";
 import { toStockTableItems, type StockTableStock } from "@/lib/forms/stock-table";
 import { isTeamStarted } from "@/lib/cleaner/team-state";
@@ -521,15 +526,42 @@ export async function GET(
     });
     // The cleaner's own timing confirmation, so their job screen can ask again
     // after the office changes the time (lib/jobs/own-timing-ack.ts).
+    // Pilot "Property reminders": off → null, the briefing list from before the pilot.
+    const pilotSubject = { userId: session.user.id, propertyId: job.propertyId };
+    const briefingProperty = await reminderSource(job.property, pilotSubject);
     const timingAck = cleanerViewer
-      ? await loadOwnTimingAck({ jobId: job.id, meta: jobMeta, userId: session.user.id })
+      ? await loadOwnTimingAck({ jobId: job.id, meta: jobMeta, userId: session.user.id, property: briefingProperty })
       : null;
+    // The raw amenity JSON stays on the server: the payload carries only the
+    // facts a form rule may read (hasLivePlants) and the automatic reminders.
+    const propertyReminders = resolvePropertyReminders(briefingProperty);
+    /** Pilot features that change this cleaner's job screen, decided on the server. */
+    const pilots: CleanerJobPilots = {
+      unusedCheck: cleanerViewer ? await unusedCheckEnabled(pilotSubject) : false,
+      cleanerJobFlow: cleanerViewer ? await cleanerJobFlowOn(db, { jobId: job.id, userId: session.user.id, propertyId: job.propertyId }) : false,
+      checkinLocation: cleanerViewer ? await isPilotOn("checkin-location", pilotSubject) : false,
+      beforeStartExtras: cleanerViewer ? await isPilotOn("before-start-extras", pilotSubject) : false,
+    };
+    // Photo questions the office allowed this job to be submitted without
+    // (honoured whatever the pilot state; the submit route re-reads them).
+    const evidenceOverride = { allowedFieldIds: cleanerViewer ? await allowedEvidenceFields(db, job.id) : [] };
+    // Pilot "New cleaner job flow" (item 3): a "Looks unused" question still
+    // waiting holds the submit (the submit route re-checks).
+    const unusedCheckHold = pilots.cleanerJobFlow
+      ? (await db.jobUnusedCheck.findUnique({ where: { openForJobId: job.id }, select: { id: true } })) !== null
+      : false;
+    const payloadJob = { ...job, property: job.property ? withJobFormPropertyFacts(job.property) : job.property };
     return NextResponse.json({
       job: cleanerViewer
         ? accessWindow === "OPEN"
-          ? redactJobForCleaner(job, session.user.id)
-          : withoutPropertyAccess(redactJobForCleaner(job, session.user.id))
-        : job,
+          ? redactJobForCleaner(payloadJob, session.user.id)
+          : withoutPropertyAccess(redactJobForCleaner(payloadJob, session.user.id))
+        : payloadJob,
+      /** Automatic reminders from the property's facts (live plants), listed in Read first. */
+      propertyReminders,
+      pilots,
+      evidenceOverride,
+      unusedCheckHold,
       /** Why access details are absent, when they are (cleaner only). */
       accessWindow: cleanerViewer ? accessWindow : "OPEN",
       accessUnavailableReason: cleanerViewer ? accessWindowMessage(accessWindow) : null,

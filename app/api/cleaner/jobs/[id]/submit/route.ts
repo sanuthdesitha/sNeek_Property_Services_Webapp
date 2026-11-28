@@ -13,6 +13,7 @@ import { enqueuePropertyModelTraining } from "@/lib/ai/property-model-training";
 import { destinationOf, evidenceSubmissionChanged } from "@/lib/cleaner/evidence-destination";
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
+import { cleanerJobFlowOn } from "@/lib/pilots/gates";
 import { db } from "@/lib/db";
 import { ActionReceiptError, withCleanerAction } from "@/lib/cleaner/action-receipt";
 import { submitJobSchema } from "@/lib/validations/job";
@@ -235,6 +236,20 @@ export async function POST(
       );
     }
 
+    // Pilot "New cleaner job flow" (item 3): while a "Looks unused — ask the
+    // office" question waits for an answer, the job cannot be submitted. The
+    // pilot is decided now (a job started before it was switched on keeps the
+    // old rule); the question itself never changes the job, status or pay.
+    if (await cleanerJobFlowOn(db, { jobId: params.id, userId: session.user.id, propertyId: job.propertyId })) {
+      const waitingQuestion = await db.jobUnusedCheck.findUnique({ where: { openForJobId: params.id }, select: { id: true } });
+      if (waitingQuestion) {
+        return NextResponse.json(
+          { code: "UNUSED_CHECK_WAITING", error: "Waiting for the office to answer \"Looks unused\". You can submit once they answer. Everything you entered is kept." },
+          { status: 409, headers: { "Cache-Control": "private, no-store" } },
+        );
+      }
+    }
+
     const uploads = extractUploads(body.data as Record<string, unknown>);
     const laundryPhotoKey = uploads["laundry_photo"]?.[0];
     const carryForward = sanitizeCarryForward(body.data as Record<string, unknown>);
@@ -438,6 +453,16 @@ export async function POST(
           ).filter(([fieldId]) => !uploads[fieldId] || uploads[fieldId].length === 0)
         )
       : {};
+    // "Camera not working — ask the office" (cleaner job flow v2): the photo
+    // questions an ADMIN / OPS_MANAGER allowed this job to be submitted
+    // without, read now from the decisions (never from the client). Honoured
+    // whatever the pilot state, so a switch never leaves a job stuck.
+    const evidenceOverrides = await db.jobEvidenceOverride.findMany({
+      where: { jobId: params.id, status: "ALLOWED" },
+      select: { id: true, allowedFieldIds: true, decisionReason: true, decidedById: true, decidedByRole: true, decidedAt: true },
+    });
+    const officeAllowed = new Set(evidenceOverrides.flatMap((row) => row.allowedFieldIds));
+    const officeWaived = (fieldId: string) => officeAllowed.has(fieldId) && (!uploads[fieldId] || uploads[fieldId].length === 0);
 
     const missingRequiredUploads = collectRequiredUploadFields(
       effectiveSchema,
@@ -446,7 +471,7 @@ export async function POST(
       legacyReady
     ).filter(
       (field) =>
-        (!uploads[field.id] || uploads[field.id].length === 0) && !noPhotoReasons[field.id]
+        (!uploads[field.id] || uploads[field.id].length === 0) && !noPhotoReasons[field.id] && !officeAllowed.has(field.id)
     );
     if (missingRequiredUploads.length > 0) {
       const missingUploadSummary = missingRequiredUploads
@@ -468,7 +493,7 @@ export async function POST(
       effectiveSchema, answers,
       Object.fromEntries(Object.entries(uploads).map(([fieldId, keys]) => [fieldId, new Set(keys).size])),
       formProperty, legacyReady, { canUseNoPhoto, reasons: noPhotoReasons }
-    );
+    ).filter((field) => !officeWaived(field.fieldId));
     if (uploadMinimumErrors.length > 0) {
       return NextResponse.json({
         error: uploadMinimumErrors.map(field => `${field.label}: ${field.message}`).join("; "),
@@ -805,6 +830,20 @@ export async function POST(
               // whatever the client sent under this key is overridden.
               __noPhotoReasons:
                 Object.keys(noPhotoReasons).length > 0 ? noPhotoReasons : undefined,
+              // Controlled system key: the office decisions that waived photo
+              // questions left without a photo (server-read, never the client's).
+              __evidenceOverrides: evidenceOverrides.some((row) => row.allowedFieldIds.some(officeWaived))
+                ? evidenceOverrides
+                    .map((row) => ({
+                      id: row.id,
+                      fieldIds: row.allowedFieldIds.filter(officeWaived),
+                      reason: row.decisionReason,
+                      decidedById: row.decidedById,
+                      decidedByRole: row.decidedByRole,
+                      decidedAt: row.decidedAt ? row.decidedAt.toISOString() : null,
+                    }))
+                    .filter((row) => row.fieldIds.length > 0)
+                : undefined,
               ...(selfInspectionIncompleteKeys.length > 0
                 ? { __selfInspectionIncomplete: selfInspectionIncompleteKeys }
                 : {}),

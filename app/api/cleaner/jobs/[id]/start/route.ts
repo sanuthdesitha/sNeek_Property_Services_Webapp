@@ -30,6 +30,8 @@ import {
   checkIncomingAckVersion,
 } from "@/lib/forms/start-briefing";
 import { loadStartBriefingItems } from "@/lib/forms/start-briefing-load";
+import { reminderSource } from "@/lib/pilots/gates";
+import { isPilotOn } from "@/lib/pilots/state";
 
 const schema = z.object({
   verificationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -101,6 +103,7 @@ export async function POST(
         reworkOfJobId: true,
         internalNotes: true,
         jobNumber: true,
+        propertyId: true,
         property: {
           select: {
             name: true,
@@ -110,6 +113,8 @@ export async function POST(
             latitude: true,
             longitude: true,
             geofenceRadiusM: true,
+            // Automatic property reminders in the start briefing (live plants).
+            features: true,
             client: { select: { showCleanerLiveLocation: true } },
           },
         },
@@ -237,6 +242,9 @@ export async function POST(
         location: body.startLocation ?? null,
         property: job.property ?? null,
         tagTapped: Boolean(tagToday),
+        // Pilot "Check-in location", decided now for this cleaner and property:
+        // location turned off may start with a reason (flagged for the office).
+        allowPermissionDenied: await isPilotOn("checkin-location", { userId: session.user.id, propertyId: job.propertyId }),
       });
       if (!evaluated.ok) return NextResponse.json(evaluated.body, { status: 409 });
       startLocation = evaluated.record;
@@ -299,8 +307,10 @@ export async function POST(
       // payload (lib/forms/start-briefing-load.ts), so all three fingerprint
       // the same list. It applies the cleaner visibility rule: client/office
       // correspondence is never read out to the cleaner before a clean.
-      const briefingItems = await loadStartBriefingItems(params.id, briefingMeta, db).catch(() =>
-        resolveStartBriefingItems({ meta: briefingMeta, jobTasks: [] })
+      // Pilot "Property reminders", decided now for this cleaner and property (off → the list from before).
+      const briefingProperty = await reminderSource(job.property, { userId: session.user.id, propertyId: job.propertyId }).catch(() => null);
+      const briefingItems = await loadStartBriefingItems(params.id, briefingMeta, briefingProperty, db).catch(() =>
+        resolveStartBriefingItems({ meta: briefingMeta, jobTasks: [], property: briefingProperty })
       );
 
       // Accept the acknowledgement sent with THIS request, else fall back to

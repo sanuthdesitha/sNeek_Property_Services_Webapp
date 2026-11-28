@@ -19,7 +19,7 @@ import { sydneyRelativeDayLabel } from "@/lib/jobs/date-grouping";
 import { jobHref, newJobHref } from "@/lib/properties/links";
 import type { PropertyOverview } from "@/lib/properties/preview-types";
 import { PropertyMoreMenu } from "../property-more-menu";
-import type { PropertyRecord } from "./property-record";
+import { hasLivePlants, type PropertyRecord } from "./property-record";
 import type { PropertyStatsDto, Remote } from "./use-property-summaries";
 
 export function PropertyHeader({
@@ -43,6 +43,7 @@ export function PropertyHeader({
           {property.name}{" "}
           <EPill tone={property.isActive ? "ok" : "neutral"} className="align-middle">{property.isActive ? "Active" : "Deactivated"}</EPill>
           {property.keyLostMode ? <EPill tone="bad" className="ml-1 align-middle">Key lost mode</EPill> : null}
+          {hasLivePlants(property) ? <EPill tone="ok" className="ml-1 align-middle">Plants</EPill> : null}
         </h1>
         <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
           {place}

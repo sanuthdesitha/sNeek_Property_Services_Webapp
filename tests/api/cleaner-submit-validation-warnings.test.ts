@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   settings: vi.fn(), continuation: vi.fn(), tasks: vi.fn(),
   report: vi.fn(), notify: vi.fn(), lifecycle: vi.fn(), automations: vi.fn(), qa: vi.fn(),
   clear: vi.fn(), lowStock: vi.fn(), unexpected: vi.fn(), templates: vi.fn(), anchor: vi.fn(), provision: vi.fn(),
-  draft: vi.fn(), lock: vi.fn(), query: vi.fn(),
+  draft: vi.fn(), lock: vi.fn(), query: vi.fn(), overrides: vi.fn(), unusedOpen: vi.fn(), pilotState: { value: null as unknown },
   office: vi.fn(), officeNotice: vi.fn(), resolveIssue: vi.fn(), resolveTask: vi.fn(), clockApproval: vi.fn(), caseCreate: vi.fn(), caseNotify: vi.fn(), stockReceipt: vi.fn(), stockWrite: vi.fn(), laundry: vi.fn(), pay: vi.fn(), payExisting: vi.fn(), followupQueue: vi.fn(),
 }));
 vi.mock("@/lib/cleaner/submission-followups", () => ({ enqueueSubmissionFollowups: mocks.followupQueue,
@@ -19,12 +19,16 @@ vi.mock("@/lib/cleaner/submission-followups", () => ({ enqueueSubmissionFollowup
 vi.mock("@/lib/db", () => ({ db: {
   user: { findMany: mocks.office }, notification: { createMany: mocks.officeNotice },
   jobAssignment: { findFirst: mocks.assignment, findMany: async () => [] },
-  job: { findUnique: mocks.job, updateMany: mocks.claim },
+  jobEvidenceOverride: { findMany: mocks.overrides }, jobUnusedCheck: { findUnique: mocks.unusedOpen }, job: { findUnique: mocks.job, updateMany: mocks.claim },
   formTemplate: { findUnique: mocks.template, findMany: mocks.templates, findFirst: mocks.anchor, create: mocks.provision },
   timeLog: { findFirst: mocks.timeLog, findMany: async () => [], update: mocks.update, updateMany: mocks.closeClock },
   $transaction: mocks.transaction,
 } }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.role }));
+vi.mock("@/lib/pilots/state", async () => {
+  const registry = await vi.importActual<typeof import("@/lib/pilots/registry")>("@/lib/pilots/registry");
+  return { loadPilotState: async () => registry.parsePilotState(mocks.pilotState.value), isPilotOn: vi.fn() };
+});
 vi.mock("@/lib/settings", () => ({ getAppSettings: mocks.settings }));
 vi.mock("@/lib/jobs/continuation-requests", () => ({ listContinuationRequests: mocks.continuation }));
 vi.mock("@/lib/job-tasks/service", () => ({ listCleanerJobTasks: mocks.tasks, applyCleanerJobTaskUpdates: mocks.unexpected }));
@@ -91,6 +95,9 @@ beforeEach(() => {
     internalNotes: serializeJobInternalNotes({ additionals: extras }),
   };
   mocks.office.mockResolvedValue([]);
+  mocks.overrides.mockResolvedValue([]);
+  mocks.unusedOpen.mockResolvedValue(null);
+  mocks.pilotState.value = null;
   mocks.role.mockResolvedValue({ user: { id: "cleaner", role: Role.CLEANER } });
   mocks.assignment.mockResolvedValue({ id: "assignment" });
   mocks.job.mockImplementation(async () => job);
@@ -124,7 +131,7 @@ beforeEach(() => {
       timeLog: { findFirst: mocks.timeLog, findMany: async () => [], update: mocks.update, updateMany: mocks.closeClock },
       cleanerPayAdjustment: { create: mocks.pay, findFirst: mocks.payExisting },
       formSubmission: { create: mocks.create }, submissionMedia: { createMany: mocks.media },
-      job: { update: mocks.update, findUnique: mocks.job, updateMany: mocks.claim },
+      jobEvidenceOverride: { findMany: mocks.overrides }, jobUnusedCheck: { findUnique: mocks.unusedOpen }, job: { update: mocks.update, findUnique: mocks.job, updateMany: mocks.claim },
     });
     events.push("commit"); return result;
   });
@@ -171,5 +178,96 @@ describe("extended validation on submit", () => {
     expect(response.status).toBe(400);
     expect((await response.json()).error).toContain("Please complete the required fields");
     expectNoWrites();
+  });
+});
+
+// "Camera not working — ask the office" (cleaner job flow v2, item 2): only
+// photo questions an office decision allowed are waived, read on the server.
+const photoSchema = {
+  standardSections: false,
+  sections: [{ id: "k", title: "Kitchen", fields: [
+    { id: "bench", type: "photo", label: "Bench photo", required: true },
+    { id: "oven", type: "photo", label: "Oven photo", required: true },
+  ] }],
+};
+const allowedRow = { id: "override-1", allowedFieldIds: ["bench"], decisionReason: "Camera broken, checked by phone call", decidedById: "ops-1", decidedByRole: "OPS_MANAGER", decidedAt: new Date("2026-11-28T03:00:00Z") };
+
+describe("office-allowed missing photos on submit", () => {
+  it("without a decision a missing required photo still blocks, writing nothing", async () => {
+    mocks.template.mockResolvedValue({ id: "template", isActive: true, serviceType: JobType.AIRBNB_TURNOVER, version: 1, schema: photoSchema });
+    const response = await submit({ uploads: { oven: ["oven.jpg"] } });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain("Bench photo");
+    expectNoWrites();
+  });
+
+  it("an allowed photo no longer blocks; the decision is stored with the submission (a forged one is replaced)", async () => {
+    mocks.template.mockResolvedValue({ id: "template", isActive: true, serviceType: JobType.AIRBNB_TURNOVER, version: 1, schema: photoSchema });
+    mocks.overrides.mockResolvedValue([allowedRow]);
+    const response = await submit({ uploads: { oven: ["oven.jpg"] }, __evidenceOverrides: [{ fieldIds: ["oven"] }] });
+    expect(response.status).toBe(200);
+    expect(mocks.overrides).toHaveBeenCalledWith(expect.objectContaining({ where: { jobId: "job", status: "ALLOWED" } }));
+    expect(mocks.create.mock.calls[0][0].data.data.__evidenceOverrides).toEqual([
+      { id: "override-1", fieldIds: ["bench"], reason: "Camera broken, checked by phone call", decidedById: "ops-1", decidedByRole: "OPS_MANAGER", decidedAt: "2026-11-28T03:00:00.000Z" },
+    ]);
+  });
+
+  it("allowing one photo never waives another missing photo", async () => {
+    mocks.template.mockResolvedValue({ id: "template", isActive: true, serviceType: JobType.AIRBNB_TURNOVER, version: 1, schema: photoSchema });
+    mocks.overrides.mockResolvedValue([allowedRow]);
+    const response = await submit({ uploads: {} });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain("Oven photo");
+    expectNoWrites();
+  });
+
+  it("an allowed photo that was taken anyway is not recorded as waived", async () => {
+    mocks.template.mockResolvedValue({ id: "template", isActive: true, serviceType: JobType.AIRBNB_TURNOVER, version: 1, schema: photoSchema });
+    mocks.overrides.mockResolvedValue([allowedRow]);
+    const response = await submit({ uploads: { oven: ["oven.jpg"], bench: ["bench.jpg"] } });
+    expect(response.status).toBe(200);
+    expect(mocks.create.mock.calls[0][0].data.data.__evidenceOverrides).toBeUndefined();
+  });
+});
+
+// Pilot "New cleaner job flow", item 3: a waiting "Looks unused" question holds the submit.
+const flowOn = (onSince = "2026-11-28T00:00:00.000Z") => ({ "cleaner-job-flow": { mode: "ON", userIds: [], propertyIds: [], onSince, changedAt: onSince, changedById: "admin" } });
+
+describe("hold while a Looks unused question waits", () => {
+  beforeEach(() => {
+    mocks.template.mockResolvedValue({ id: "template", isActive: true, serviceType: JobType.AIRBNB_TURNOVER, version: 1, schema: rangeSchema });
+    mocks.unusedOpen.mockResolvedValue({ id: "question-1" });
+  });
+
+  it("pilot on: refused with the reason, nothing written", async () => {
+    mocks.pilotState.value = flowOn();
+    const response = await submit({ count: 3, colour: "Red", phone: "+61 400 000 000" });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "UNUSED_CHECK_WAITING" });
+    expect(mocks.unusedOpen).toHaveBeenCalledWith({ where: { openForJobId: "job" }, select: { id: true } });
+    expectNoWrites();
+  });
+
+  it("pilot off (or unreadable): submits as before", async () => {
+    for (const value of [null, "garbage"]) {
+      mocks.pilotState.value = value;
+      const response = await submit({ count: 3, colour: "Red", phone: "+61 400 000 000" });
+      expect(response.status).toBe(200);
+    }
+    expect(mocks.unusedOpen).not.toHaveBeenCalled();
+  });
+
+  it("switched on after the job was first started: the old rule, so it submits", async () => {
+    mocks.pilotState.value = flowOn("2026-11-28T05:00:00.000Z");
+    mocks.timeLog.mockResolvedValue({ startedAt: new Date("2026-11-28T04:00:00Z"), id: "log", userId: "cleaner", stoppedAt: null });
+    const response = await submit({ count: 3, colour: "Red", phone: "+61 400 000 000" });
+    expect(response.status).toBe(200);
+    expect(mocks.unusedOpen).not.toHaveBeenCalled();
+  });
+
+  it("answered (no open question): submits", async () => {
+    mocks.pilotState.value = flowOn();
+    mocks.unusedOpen.mockResolvedValue(null);
+    expect((await submit({ count: 3, colour: "Red", phone: "+61 400 000 000" })).status).toBe(200);
   });
 });

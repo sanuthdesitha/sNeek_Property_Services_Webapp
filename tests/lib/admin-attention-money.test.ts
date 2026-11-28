@@ -16,6 +16,7 @@ vi.mock("@/lib/db", () => ({
     quoteLead: { count: m.counter() }, propertyDevice: { count: m.counter() },
     clientInvoice: { count: m.invoiceCount },
     cleanerInvoiceSubmission: { count: m.submissionCount },
+    jobUnusedCheck: { count: async () => 0 },
   },
 }));
 vi.mock("@/lib/jobs/continuation-requests", () => ({ listContinuationRequests: async () => [] }));

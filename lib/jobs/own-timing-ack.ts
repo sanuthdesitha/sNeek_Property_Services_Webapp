@@ -9,6 +9,7 @@
  */
 import type { ResolvedStartBriefingItem } from "@/lib/forms/start-briefing";
 import { loadStartBriefingItems, type StartBriefingMeta } from "@/lib/forms/start-briefing-load";
+import type { PropertyReminderSource } from "@/lib/properties/property-reminders";
 import { ownTimingAckStatus, type OwnTimingAckStatus } from "@/lib/jobs/job-page/timing-ack";
 
 export type OwnTimingAckPayload = {
@@ -21,9 +22,11 @@ export async function loadOwnTimingAck(input: {
   jobId: string;
   meta: StartBriefingMeta;
   userId: string;
+  /** The job's property with its features, as the start gate reads it. */
+  property: PropertyReminderSource;
 }): Promise<OwnTimingAckPayload> {
   try {
-    const items = await loadStartBriefingItems(input.jobId, input.meta);
+    const items = await loadStartBriefingItems(input.jobId, input.meta, input.property);
     const rawAck = input.meta.startBriefingAcks?.[input.userId];
     const status = ownTimingAckStatus({ items, rawAck });
     return { status, items: status === "none" || status === "unreadable" ? [] : items };

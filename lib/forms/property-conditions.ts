@@ -1,7 +1,8 @@
 /**
  * Property facts a show/hide rule can read ("Shown if the property has a
  * balcony"). Every key here is in the cleaner-visible projection
- * (lib/forms/job-form-property.ts → jobFormPropertySelect), so the phone and
+ * (lib/forms/job-form-property.ts → isJobFormPropertyKey: a column, or a fact
+ * derived from one such as hasLivePlants), so the phone and
  * the submit route evaluate the rule from the same data. Equality only, as
  * lib/forms/visibility.ts compares them.
  *
@@ -26,6 +27,8 @@ export const PROPERTY_CONDITION_KEYS: readonly PropertyConditionKey[] = [
   { key: "hasBalcony", label: "Has a balcony", kind: "boolean", phrase: yesNo("has a balcony", "has no balcony") },
   { key: "inventoryEnabled", label: "Tracks stock", kind: "boolean", phrase: yesNo("tracks stock", "does not track stock") },
   { key: "laundryEnabled", label: "Has laundry service", kind: "boolean", phrase: yesNo("has laundry service", "has no laundry service") },
+  // Derived from Property.features.livePlants (lib/forms/job-form-property.ts).
+  { key: "hasLivePlants", label: "Has live plants", kind: "boolean", phrase: yesNo("has live plants", "has no live plants") },
   { key: "bedrooms", label: "Number of bedrooms", kind: "number", phrase: count("bedrooms") },
   { key: "bathrooms", label: "Number of bathrooms", kind: "number", phrase: count("bathrooms") },
   { key: "sofaBedCount", label: "Number of sofa beds", kind: "number", phrase: count("sofa beds") },

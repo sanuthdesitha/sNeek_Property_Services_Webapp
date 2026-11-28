@@ -1758,6 +1758,8 @@ model Job {
   urgentStockNeeds       UrgentStockNeed[]
   urgentStockAsks        UrgentStockPurchaseAsk[]
   stockCountObservations StockCountObservation[]
+  unusedChecks           JobUnusedCheck[]
+  evidenceOverrides      JobEvidenceOverride[]
 
   // Hot-path indexes: job lists, payroll, invoicing, and dashboards filter/sort
   // on status + scheduledDate/completedAt + propertyId.
@@ -6734,4 +6736,89 @@ model DeviceSyncRun {
   completedAt   DateTime?
 
   @@index([provider, createdAt])
+}
+
+/// The office's answer to "Looks unused — ask the office".
+enum JobUnusedCheckDecision {
+  CLEAN_AS_NORMAL
+  LIGHT_REFRESH
+  DO_NOT_CLEAN
+}
+
+/// "Looks unused — ask the office" (2026-11-28): a cleaner at an Airbnb
+/// turnover that looks like nobody stayed asks the office before cleaning;
+/// an ADMIN or OPS_MANAGER answers. The answer is a record and a message only:
+/// it never changes the job's status, schedule, rates or pay (those stay with
+/// the existing job flows). Rows are kept as the job's history.
+/// "Camera not working — ask the office" (cleaner job flow v2, 2026-11-28):
+/// a cleaner asks to submit one job without specific missing photos; an
+/// ADMIN or OPS_MANAGER allows some or all of them with a required reason, or
+/// declines. Only allowed questions are waived, only on this job. Kept as the
+/// record shown with the submission.
+model JobEvidenceOverride {
+  id              String                    @id @default(cuid())
+  jobId           String
+  /// Equal to jobId while the request waits, null once decided: one open request per job.
+  openForJobId    String?                   @unique
+  /// The cleaner who asked (actual actor; impersonated sessions are refused).
+  requestedById   String
+  /// The cleaner's idempotency key: a double tap or a retry returns the same row.
+  requestKey      String
+  /// Why the photos cannot be taken (required).
+  note            String                    @db.Text
+  /// The photo questions asked about, and their labels when asked.
+  fieldIds        String[]                  @default([])
+  fieldLabels     String[]                  @default([])
+  status          JobEvidenceOverrideStatus @default(REQUESTED)
+  /// The questions the office allowed to be submitted without photos.
+  allowedFieldIds String[]                  @default([])
+  /// The office's reason (required to allow or decline).
+  decisionReason  String?                   @db.Text
+  /// The person who decided (actual actor) and the role they decided as.
+  decidedById     String?
+  decidedByRole   String?
+  decidedAt       DateTime?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([requestedById, requestKey])
+  @@index([jobId, createdAt])
+  @@index([status, createdAt])
+}
+
+enum JobEvidenceOverrideStatus {
+  REQUESTED
+  ALLOWED
+  DECLINED
+}
+
+model JobUnusedCheck {
+  id            String                  @id @default(cuid())
+  jobId         String
+  /// Equal to jobId while the question waits for an answer, null once it is
+  /// answered: the unique index allows one open question per job.
+  openForJobId  String?                 @unique
+  /// The cleaner who asked (actual actor; impersonated sessions are refused).
+  requestedById String
+  /// The cleaner's idempotency key: a double tap or a retry returns the same row.
+  requestKey    String
+  note          String?                 @db.Text
+  /// Upload keys of optional photos, owned by the cleaner who asked.
+  photoKeys     String[]                @default([])
+  decision      JobUnusedCheckDecision?
+  decisionNote  String?                 @db.Text
+  /// The person who answered (actual actor) and the role they answered as.
+  decidedById   String?
+  decidedByRole String?
+  decidedAt     DateTime?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([requestedById, requestKey])
+  @@index([jobId, createdAt])
+  @@index([decidedAt, createdAt])
 }

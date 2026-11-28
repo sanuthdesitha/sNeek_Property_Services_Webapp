@@ -69,7 +69,7 @@ describe("Approvals list", () => {
     render(<ApprovalsWorkspace />);
     const nav = await screen.findByRole("navigation", { name: "Queues" });
     await waitFor(() => expect(within(nav).getByRole("button", { name: /Pay requests\s*2/ })).toHaveAttribute("aria-pressed", "true"));
-    expect(within(nav).getByRole("button", { name: /Empty queues\s*15/ })).toHaveAttribute("aria-expanded", "false");
+    expect(within(nav).getByRole("button", { name: /Empty queues\s*16/ })).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByText(/3 requests waiting on a decision · 1 older than 24 hours/)).toBeInTheDocument();
     const table = screen.getByRole("table", { name: "Pay requests" });
     const names = within(table).getAllByRole("button", { name: /^(Marco Rossi|Aiko Tanaka)$/ }).map((node) => node.textContent);

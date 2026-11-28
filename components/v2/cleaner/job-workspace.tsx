@@ -77,6 +77,7 @@ import {
 } from "@/components/v2/cleaner/form-renderer";
 import type { FormSchema } from "@/lib/forms/types";
 import { collectFormErrors } from "@/lib/forms/validate-submission";
+import { officeAllowedFieldIds, uploadFieldIdsOf, withoutAllowedUploads } from "@/lib/jobs/evidence-override-rules";
 import { useExtendedEnforcement } from "@/components/v2/cleaner/use-extended-enforcement";
 import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
@@ -125,6 +126,7 @@ import { getAccuratePosition } from "@/lib/geo/get-position";
 import { isGateNoFix, useLocationGate, type GateFix, type GateNoFix } from "@/components/v2/location/location-gate";
 
 import { ActionFab } from "@/components/v2/cleaner/job-stages/action-fab";
+import { UnusedCheckStatus } from "@/components/v2/cleaner/unused-check";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
@@ -321,7 +323,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   const [busy, setBusy] = React.useState<string | null>(null);
   /** Set when the browser refuses a location fix — clock-in is blocked until fixed. */
   const [gpsBlocked, setGpsBlocked] = React.useState<string | null>(null);
-  const locationGate = useLocationGate("CLEANER");
+  // Pilot "Check-in location", decided by the server: location turned off may clock in with a reason.
+  const locationGate = useLocationGate("CLEANER", { allowDeniedWithReason: payload?.pilots?.checkinLocation === true });
   /** Server asked why the cleaner is starting away from the property. */
   const [offSitePrompt, setOffSitePrompt] = React.useState<{
     message?: string;
@@ -359,6 +362,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   // Journey-stage UI state (presentation only — the gates/handlers below are
   // unchanged; the stage just decides which slice is on screen).
   const [activeStage, updateActiveStage] = React.useState<JobStage>(1);
+  /** Bumped when "Looks unused — ask the office" is asked, so its status card re-reads. */
+  const [unusedCheckRevision, setUnusedCheckRevision] = React.useState(0);
   const stageMemoryPath = `/v2/cleaner/jobs/${jobId}`;
   const stageMemoryKey = `stage:${draftIdentity}`;
   const setActiveStage = React.useCallback((stage: JobStage) => {
@@ -1346,7 +1351,9 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       for (const [fid, media] of Object.entries(uploads)) uploadCounts[fid] = media.length;
       // Pass the same laundry-ready state the server uses so laundry-conditional
       // fields validate identically client- and server-side (turnover jobs only).
-      const formErrors = collectFormErrors(
+      // Photo questions the office allowed this job to be submitted without
+      // (server payload; the submit route re-reads the decisions).
+      const formErrors = withoutAllowedUploads(collectFormErrors(
         schema,
         answers,
         uploadCounts,
@@ -1362,7 +1369,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
             >) ?? {},
         },
         { extended: enforceExtendedRules, stockTable: payload?.stockTable }
-      );
+      ), officeAllowedFieldIds(payload), uploadFieldIdsOf(schema));
       if (formErrors.length > 0) {
         if (typeof window !== "undefined") window.dispatchEvent(new Event("sneek:validate-form"));
         // Name the actual items (with their section) instead of a bare count —
@@ -1782,6 +1789,11 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         />
       ) : null}
 
+      {/* "Looks unused — ask the office": the open question or the office's answer (Airbnb turnovers). */}
+      {String(job?.jobType ?? "") === "AIRBNB_TURNOVER" ? (
+        <UnusedCheckStatus key={jobId} jobId={jobId} revision={unusedCheckRevision} />
+      ) : null}
+
       {notice ? (
         <EAlert tone={notice.tone === "danger" ? "danger" : notice.tone === "success" ? "success" : "info"}>
           {notice.text}
@@ -1837,7 +1849,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
           }).catch(error => flash("danger", error instanceof Error ? error.message : "Removal failed."));
         }}>Remove {media.name || "photo"}</button>)}
       </EAlert> : null}
-      <ActionFab api={api} />
+      <ActionFab api={api} onUnusedCheckChanged={() => setUnusedCheckRevision((value) => value + 1)} />
 
       {/* One-time attention popup for client / admin requests on this job. */}
       <EModal

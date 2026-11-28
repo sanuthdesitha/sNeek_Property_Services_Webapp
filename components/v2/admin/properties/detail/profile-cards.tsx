@@ -11,7 +11,7 @@ import { EPill } from "@/components/v2/ui/pill";
 import { formatCurrency } from "@/lib/utils";
 import { PropertyCoverImage } from "../property-cover-image";
 import { KeyValues, Muted, SectionCard } from "./section-card";
-import { optionalNumber, type PropertyRecord } from "./property-record";
+import { hasLivePlants, optionalNumber, type PropertyRecord } from "./property-record";
 import type { SaveResult } from "./use-property-record";
 
 type Save = (patch: Record<string, unknown>) => Promise<SaveResult>;
@@ -51,6 +51,7 @@ export function DetailsCard({ property, save }: { property: PropertyRecord; save
                 ["Name", property.name],
                 ["Address", <>{[property.address, property.suburb, property.state, property.postcode].filter(Boolean).join(", ")} {hasPin ? <EPill tone="ok">Map pin set</EPill> : <EPill tone="warn">No map pin</EPill>}</>],
                 ["Rooms", roomsText(property)],
+                ["Plants", <>{hasLivePlants(property) ? "Live plants — cleaners get a soil check reminder" : <Muted>No live plants marked</Muted>} <Muted>Change it in Checklist and forms › Amenities</Muted></>],
                 ["Times", `Check-in ${property.defaultCheckinTime ?? "not set"} · checkout ${property.defaultCheckoutTime ?? "not set"}`],
               ]}
             />

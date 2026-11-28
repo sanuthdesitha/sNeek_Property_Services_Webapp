@@ -178,7 +178,7 @@ describe("amenities survey link email", () => {
   });
 
   it("emails the link the office made, by EMAIL only, as the type's block design", async () => {
-    m.db.appSetting.findUnique.mockResolvedValue({ value: { propertyId: "p1", expiresAt: "2026-11-28T00:00:00.000Z" } });
+    m.db.appSetting.findUnique.mockResolvedValue({ value: { propertyId: "p1", expiresAt: "2099-01-01T00:00:00.000Z" } });
     m.db.property.findUnique.mockResolvedValue({ id: "p1", name: "Manly Loft", client: { email: "office@northside.test" } });
     const res = await emailLink(req({ token, idempotencyKey: "key-12345678" }), { params: { id: "p1" } });
     expect(res.status).toBe(200);
@@ -188,7 +188,7 @@ describe("amenities survey link email", () => {
   });
 
   it("refuses another property's link, an expired link, a client without email and impersonation", async () => {
-    m.db.appSetting.findUnique.mockResolvedValue({ value: { propertyId: "other", expiresAt: "2026-11-28T00:00:00.000Z" } });
+    m.db.appSetting.findUnique.mockResolvedValue({ value: { propertyId: "other", expiresAt: "2099-01-01T00:00:00.000Z" } });
     expect((await emailLink(req({ token, idempotencyKey: "key-12345678" }), { params: { id: "p1" } })).status).toBe(404);
     m.db.appSetting.findUnique.mockResolvedValue({ value: { propertyId: "p1", expiresAt: "2020-01-01T00:00:00.000Z" } });
     expect((await emailLink(req({ token, idempotencyKey: "key-12345678" }), { params: { id: "p1" } })).status).toBe(409);

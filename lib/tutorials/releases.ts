@@ -24,6 +24,30 @@ export type ReleaseNote = {
 
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    release: "2026.11.28-cleaner-job-flow-v2",
+    date: "2026-11-28",
+    author: "Cleaner job flow v2 (pilots)",
+    items: [
+      { change: "Settings › System › Pilot features: switch new behaviours off, on, or on for chosen people or properties.", noVisibleChange: "A new settings page with no tour; the Settings hub list gains one row." },
+      { change: "Pilot Before-you-start extras: open QA issues at the property in the start briefing; Running late and I can't attend in the job + menu before clock-in.", noVisibleChange: "On the real job page with the pilot on; the practice job has no pilots." },
+      { change: "Pilot Check-in location: with location turned off, clock-in asks for a reason instead of refusing.", noVisibleChange: "A dialog on the real job page with the pilot on; the practice job has no pilots and records no location." },
+      { change: "Pilot New cleaner job flow: while Looks unused waits for the office, Before you submit says Waiting for the office and the job cannot be submitted.", noVisibleChange: "Only on the real job page with the pilot on; the practice job has no pilots." },
+      { change: "Pilot New cleaner job flow: Before you submit lists missing items by room, with Camera not working — ask the office; the office allows or declines on the job page.", noVisibleChange: "Only on the real job page with the pilot on (the practice job has no pilots), and on the admin job page, which has no tour." },
+      { change: "Pilot New cleaner job flow: the checklist stays locked until the arrival video is uploaded, then rooms are worked one at a time (\"Kitchen · 3 of 12\") with what is still missing.", noVisibleChange: "Only on the real job page with the pilot on; the practice job (the toured page) has no pilots and is unchanged." },
+    ],
+  },
+  {
+    release: "2026.11.28-turnover-v4-plants-unused",
+    date: "2026-11-28",
+    author: "Turnover v4, live plants, looks unused",
+    items: [
+      { change: "Approvals has a Looks unused queue: a cleaner at a turnover that looks unused waits for Clean as normal, Light refresh only or Do not clean, with an optional note.", covered: { tourKey: "admin.approvals", version: 3, stepIds: ["unusedChecks"] } },
+      { change: "The cleaner's job + menu has Looks unused — ask the office; the question and the office's answer show on the job screen.", noVisibleChange: "The real job page has no tour; the practice job does not show the + menu." },
+      { change: "The start briefing lists \"This property has live plants…\" at properties marked with live plants.", noVisibleChange: "The start briefing dialog is on the real job page, which has no tour." },
+      { change: "Property page: Plants marker in the header and a Plants line in Details; Checklist › Amenities explains the live plants switch.", noVisibleChange: "The property page has no tour." },
+    ],
+  },
+  {
     release: "2026.11.23-xero-client-invoice-accounts",
     date: "2026-11-23",
     author: "Xero accounts for client invoices and shopping",

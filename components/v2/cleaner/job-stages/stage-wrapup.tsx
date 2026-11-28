@@ -30,7 +30,13 @@ import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 import { LaundryHandoff, LAUNDRY_CARD_ID } from "@/components/v2/cleaner/job-stages/laundry-handoff";
 import { SubmittedSummary } from "@/components/v2/cleaner/job-stages/submitted-summary";
 import { SubmitBlockers } from "@/components/v2/cleaner/job-stages/submit-blockers";
+import { stripHtmlToText } from "@/lib/forms/sanitize";
 import { StickyActionBar } from "@/components/v2/cleaner/job-stages/stage-footer";
+import { EvidenceOverrideRequest } from "@/components/v2/cleaner/evidence-override-request";
+import { officeAllowedFieldIds, uploadFieldIdsOf, withoutAllowedUploads, type EvidenceOverrideField } from "@/lib/jobs/evidence-override-rules";
+
+/** Shown while the office has not answered "Looks unused — ask the office" (pilot New cleaner job flow). */
+export const UNUSED_CHECK_HOLD_MESSAGE = "Waiting for the office to answer \"Looks unused\". You can submit once they answer.";
 
 export function StageWrapup({ api }: { api: WorkspaceApi }) {
   const { locked, laundryEnabled, schema, answers, uploads, property, jobTasks, allTasksDecided, busy, addressLine } = api;
@@ -39,6 +45,9 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
   if (api.laundryPhoto.length && (!laundryEnabled || api.laundryOutcome !== "READY_FOR_PICKUP")) syncBlockers.push("Laundry photos are unused by this outcome. Remove the attachment in device recovery; the original stays saved.");
   if (api.carryPhotos.length && (!api.carryHasNew || !api.carryNotes.some(note => note.trim()))) syncBlockers.push("Next-clean photos need a flag note or explicit attachment removal in device recovery.");
   if (api.payload?.formContractError) syncBlockers.push(api.payload.formContractError);
+  // Pilot "New cleaner job flow" (item 3): the server says a "Looks unused" question is still waiting.
+  const unusedCheckHold = api.payload?.unusedCheckHold === true;
+  if (unusedCheckHold) syncBlockers.push(UNUSED_CHECK_HOLD_MESSAGE);
 
   // Locked → the submitted review state is the whole stage (board state D).
   if (locked) return <SubmittedSummary api={api} />;
@@ -46,7 +55,11 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
   // ── Outstanding form errors (for the tappable list below submit) ──────────
   const uploadCounts: Record<string, number> = {};
   for (const [fid, media] of Object.entries(uploads)) uploadCounts[fid] = media.length;
-  const formErrors = schema
+  // Photo questions the office allowed this job to be submitted without
+  // (server payload; the submit route re-reads the decisions).
+  const allowedFieldIds = officeAllowedFieldIds(api.payload);
+  const uploadFieldIds = uploadFieldIdsOf(schema);
+  const allFormErrors = schema
     ? collectFormErrors(
         schema,
         answers,
@@ -65,6 +78,12 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
         { extended: api.enforceExtendedRules, stockTable: api.payload?.stockTable }
       )
     : [];
+  const formErrors = withoutAllowedUploads(allFormErrors, allowedFieldIds, uploadFieldIds);
+  // Pilot "New cleaner job flow": grouped by room, and "Camera not working — ask the office".
+  const newFlow = api.payload?.pilots?.cleanerJobFlow === true;
+  const missingPhotos: EvidenceOverrideField[] = Array.from(
+    new Map(formErrors.filter((error) => uploadFieldIds.has(error.fieldId)).map((error) => [error.fieldId, { fieldId: error.fieldId, label: error.label }])).values(),
+  );
 
   // Laundry-gate errors (turnover only), mirroring the submit route rules.
   const laundryErrors: string[] = [];
@@ -87,6 +106,10 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
         window.dispatchEvent(new CustomEvent("sneek:focus-field", { detail: { match: fieldId } }));
       }
     }, 60);
+  }
+
+  function reloadForm() {
+    void api.load?.();
   }
 
   function jumpToLaundry() {
@@ -113,7 +136,15 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
         onJumpToTasks={() => api.setActiveStage(4)}
         onJumpToField={jumpToFormField}
         onJumpToLaundry={jumpToLaundry}
+        groupBySection={newFlow}
+        sectionOrder={(schema?.sections ?? []).map((section) => stripHtmlToText(String(section.title ?? "")))}
       >
+        {unusedCheckHold ? (
+          <EButton size="sm" variant="outline" onClick={reloadForm}>Check for the office answer</EButton>
+        ) : null}
+        {newFlow ? (
+          <EvidenceOverrideRequest jobId={api.jobId} missingPhotos={missingPhotos} allowedInPayload={allowedFieldIds} onAllowedChanged={reloadForm} />
+        ) : null}
         {api.draftSaveState && api.retryDraftSave ? <DraftSaveStatus state={api.draftSaveState} onRetry={api.retryDraftSave} /> : null}
         {busy ? <p role="status" className="text-sm">{busy === "submit" ? "Submitting; wait for confirmation before leaving." : "Another job action is in progress. Wait before submitting."}</p> : null}
         {api.timingRules?.earlyCheckin?.time ? (

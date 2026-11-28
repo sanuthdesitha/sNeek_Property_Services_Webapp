@@ -252,11 +252,12 @@ export const TOURS: readonly TourDefinition[] = [
     roles: ADMIN_OFFICE,
     route: "/v2/admin/approvals",
     title: "Approvals",
-    version: 2,
+    version: 3,
     steps: [
       { id: "queues", target: "admin.approvals.queues", since: 1, title: "Approval queues", body: "Each queue holds one kind of decision, with a live count. Pick one to see what's waiting." },
       { id: "list", target: "admin.approvals.list", since: 1, title: "Decide here", body: "Open a row to see the details and decide. Pay and charges change only when you approve." },
       { id: "clientBilling", target: "admin.approvals.list", since: 2, title: "Extras on the client's invoice", body: "Approving a job's extra pay can also bill the client. The panel says how much; switch it off there for one request." },
+      { id: "unusedChecks", target: "admin.approvals.queues", since: 3, title: "Looks unused", body: "A cleaner at a turnover that looks unused waits for your answer. Clean as normal, light refresh or do not clean; the job is unchanged." },
       { id: "decided", target: "admin.approvals.decided", since: 2, title: "Decided", body: "Decided shows what was approved or declined, by whom and when. Full details shows the job, where it was paid and its history." },
     ],
   },

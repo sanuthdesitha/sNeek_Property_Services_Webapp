@@ -117,6 +117,7 @@ export async function getAdminAttentionCounts(now = new Date(), options: AdminAt
     managementReviews, // all-approvals: managementReviews queue
     qaOutcomes, // all-approvals: qaOutcomes queue (lib/qa/outcome-approvals.ts WHERE)
     payClaims, // all-approvals: payClaims queue
+    unusedChecks, // all-approvals: unusedChecks queue ("Looks unused — ask the office")
     openQaAssignments,
     pendingQaIssues,
     openCases,
@@ -159,6 +160,7 @@ export async function getAdminAttentionCounts(now = new Date(), options: AdminAt
       where: { status: JobStatus.QA_REVIEW, qaReviews: { some: { kind: { in: ["QA", "ADMIN"] } } } },
     }),
     db.cleanerInvoiceSubmission.count({ where: { status: "PAID_CLAIMED" } }),
+    db.jobUnusedCheck.count({ where: { decidedAt: null } }),
     db.qaAssignment.count({ where: { status: "OPEN" } }),
     db.qaIssue.count({ where: { rectificationStatus: "PENDING" } }),
     db.issueTicket.count({ where: { state: { in: ["OPEN", "TRIAGE"] } } }),
@@ -186,7 +188,8 @@ export async function getAdminAttentionCounts(now = new Date(), options: AdminAt
       falseConfirmations +
       managementReviews +
       qaOutcomes +
-      payClaims,
+      payClaims +
+      unusedChecks,
     quality: openQaAssignments,
     qaIssues: pendingQaIssues,
     qualityHub: openQaAssignments + pendingQaIssues,

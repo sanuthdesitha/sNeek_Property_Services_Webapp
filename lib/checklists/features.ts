@@ -14,11 +14,18 @@ export interface FeatureDef {
   applianceTypes?: string[];
   /** Lowercase keywords used to auto-tag existing checklist items during seed. */
   keywords?: string[];
+  /** One plain sentence under the switch: what turning it on does. */
+  hint?: string;
 }
 
 export const FEATURE_DEFS: FeatureDef[] = [
   { key: "plants", label: "Plants or artificial plants to dust", group: "GENERAL" },
-  { key: "livePlants", label: "Live plants requiring care checks", group: "GENERAL" },
+  {
+    key: "livePlants",
+    label: "Live plants at this property",
+    group: "GENERAL",
+    hint: "Cleaners get an automatic reminder before every clean to check the soil and water only if dry. Forms can show plant questions for this property.",
+  },
   { key: "dishwasher", label: "Dishwasher", group: "KITCHEN", applianceTypes: ["DISHWASHER"], keywords: ["dishwasher"] },
   { key: "oven", label: "Oven / grill", group: "KITCHEN", applianceTypes: ["OVEN"], keywords: ["oven", "grill"] },
   { key: "microwave", label: "Microwave", group: "KITCHEN", applianceTypes: ["MICROWAVE"], keywords: ["microwave"] },

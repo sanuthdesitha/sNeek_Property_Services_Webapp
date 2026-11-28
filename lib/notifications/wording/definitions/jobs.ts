@@ -12,6 +12,9 @@ import { CLEANER_INVOICE_AMENDED_WORDING } from "./cleaner-invoice-amended";
 import { CLOCK_CHANGES_WORDING, LEFT_SITE_WORDING, LOCATION_SHARING_WORDING, START_WITHOUT_FIX_WORDING } from "./clock";
 import { QA_ACCOUNTABILITY_WORDING } from "./accountability-more";
 import { DECISIONS_WORDING } from "./decisions";
+import { UNUSED_CHECK_WORDING } from "./unused-check";
+import { EVIDENCE_OVERRIDE_WORDING } from "./evidence-override";
+import { ATTENDANCE_NOTICE_WORDING } from "./attendance-notice";
 
 const MANUAL_REMINDER_EMAIL = `
               <p>Hi {{recipientName}},</p>
@@ -142,4 +145,7 @@ export const JOB_WORDING: readonly TypeWordingDefinition[] = [
   QA_ACCOUNTABILITY_WORDING,
   CLEANER_INVOICE_WORDING,
   CLEANER_INVOICE_AMENDED_WORDING,
+  UNUSED_CHECK_WORDING,
+  EVIDENCE_OVERRIDE_WORDING,
+  ATTENDANCE_NOTICE_WORDING,
 ];

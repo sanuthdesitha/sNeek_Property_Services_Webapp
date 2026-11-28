@@ -10,6 +10,7 @@ import * as React from "react";
 import { MediaGallery, type MediaGalleryItem } from "@/components/shared/media-gallery";
 import { resolveRuleTime } from "@/lib/jobs/meta";
 import { renderJobNotices } from "@/lib/jobs/notices";
+import type { PropertyReminder } from "@/lib/properties/property-reminders";
 import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /**
@@ -20,6 +21,7 @@ import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 export type ReadFirstSource =
   | "TIMING"
   | "NOTICE"
+  | "PROPERTY"
   | "PRIORITY"
   | "ADMIN"
   | "CLIENT"
@@ -27,7 +29,7 @@ export type ReadFirstSource =
   | "CARRY_FORWARD";
 
 /** Sources that must never be collapsed behind the fold. */
-const ALWAYS_VISIBLE_SOURCES: ReadFirstSource[] = ["TIMING", "NOTICE", "PRIORITY"];
+const ALWAYS_VISIBLE_SOURCES: ReadFirstSource[] = ["TIMING", "NOTICE", "PROPERTY", "PRIORITY"];
 
 export interface ReadFirstItem {
   source: ReadFirstSource;
@@ -39,6 +41,7 @@ export interface ReadFirstItem {
 const SOURCE_LABEL: Record<ReadFirstSource, string> = {
   TIMING: "Timing",
   NOTICE: "Notice",
+  PROPERTY: "Property",
   PRIORITY: "High priority",
   ADMIN: "Admin note",
   CLIENT: "Client request",
@@ -67,6 +70,8 @@ export function buildReadFirstItems(payload: {
   jobTasks?: any[];
   carryForwardTasks?: any[];
   maintenanceVisits?: any[];
+  /** Automatic reminders from the property's facts (GET /api/jobs/[id]/form). */
+  propertyReminders?: PropertyReminder[];
 }): ReadFirstItem[] {
   const items: ReadFirstItem[] = [];
   const jobMeta = payload.jobMeta ?? {};
@@ -119,6 +124,15 @@ export function buildReadFirstItems(payload: {
         ? { images: notice.imageUrls.map((url) => ({ url })) }
         : {}),
     });
+  }
+
+  // PROPERTY — automatic reminders the property itself implies (live plants).
+  // The same text the start-of-clean gate asks the cleaner to acknowledge.
+  const reminders = Array.isArray(payload.propertyReminders) ? payload.propertyReminders : [];
+  for (const reminder of reminders) {
+    const title = str(reminder?.title);
+    if (!title) continue;
+    items.push({ source: "PROPERTY", title, body: str(reminder?.detail) || null });
   }
 
   // PRIORITY — tasks the office marked high priority (a device that needs

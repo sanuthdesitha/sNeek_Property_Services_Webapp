@@ -20,7 +20,7 @@ export type RowPrimary =
   | { kind: "link"; label: string; href: string };
 
 /** Approving these cancels or penalises something, so it is always reviewed first. */
-const ALWAYS_REVIEW = new Set(["skipRequests", "falseConfirmations"]);
+const ALWAYS_REVIEW = new Set(["skipRequests", "falseConfirmations", "unusedChecks"]);
 
 export function primaryActionFor(row: ApprovalQueueRow): RowPrimary {
   const queue = APPROVAL_QUEUES[row.queue];
