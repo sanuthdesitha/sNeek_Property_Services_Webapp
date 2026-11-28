@@ -35,6 +35,12 @@ describe("walkthrough videos", () => {
     expect(arrivalVideoLock(form, { "arrival-walkthrough-video": 3 }).locked).toBe(false);
   });
 
+  it("unlocks when the office allowed the job to be submitted without the arrival video (never stuck)", () => {
+    const form = schema([{ id: "arrival", title: "A", fields: [{ id: "arrival-walkthrough-video", type: "video", label: "A" }] }]);
+    expect(arrivalVideoLock(form, {}, ["arrival-walkthrough-video"]).locked).toBe(false);
+    expect(arrivalVideoLock(form, {}, ["other"]).locked).toBe(true);
+  });
+
   it("never locks a form without an arrival video question (older forms keep working)", () => {
     expect(arrivalVideoLock(schema([{ id: "k", title: "K", fields: [{ id: "k1", type: "photo", label: "Bench" }] }]), {}).locked).toBe(false);
     expect(arrivalVideoLock(null, {}).locked).toBe(false);

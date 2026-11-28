@@ -75,9 +75,12 @@ export type ArrivalVideoLock =
 export function arrivalVideoLock(
   schema: Pick<FormSchema, "sections"> | null | undefined,
   uploadCounts: Record<string, number>,
+  /** Questions the office allowed this job to be submitted without: an allowed arrival video unlocks. */
+  officeAllowedFieldIds: readonly string[] = [],
 ): ArrivalVideoLock {
   const { arrival } = findWalkthroughVideoFields(schema);
   if (!arrival) return { locked: false };
+  if (officeAllowedFieldIds.includes(arrival.fieldId)) return { locked: false };
   if ((uploadCounts[arrival.fieldId] ?? 0) > 0) return { locked: false };
   return { locked: true, fieldId: arrival.fieldId, sectionId: arrival.sectionId };
 }

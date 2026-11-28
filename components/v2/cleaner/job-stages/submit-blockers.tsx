@@ -34,6 +34,8 @@ export interface SubmitBlockersProps {
    * section ("Kitchen · 2 missing"), each still a jump. Off = one list.
    */
   groupBySection?: boolean;
+  /** Section titles in form order, so the groups follow the form. */
+  sectionOrder?: string[];
   /** Draft save state and busy notes, rendered under the list. */
   children?: React.ReactNode;
 }
@@ -41,7 +43,7 @@ export interface SubmitBlockersProps {
 type BlockerGroup = { key: string; label: string; errors: FormBlocker[] };
 
 /** Missing items by section, in the order the form shows them. */
-function groupBlockers(errors: FormBlocker[]): BlockerGroup[] {
+function groupBlockers(errors: FormBlocker[], sectionOrder: string[]): BlockerGroup[] {
   const groups = new Map<string, BlockerGroup>();
   for (const error of errors) {
     const label = error.sectionLabel ? stripHtmlToText(error.sectionLabel) : "Other";
@@ -49,7 +51,11 @@ function groupBlockers(errors: FormBlocker[]): BlockerGroup[] {
     group.errors.push(error);
     groups.set(label, group);
   }
-  return Array.from(groups.values());
+  const position = (label: string) => {
+    const index = sectionOrder.indexOf(label);
+    return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+  };
+  return Array.from(groups.values()).sort((a, b) => position(a.label) - position(b.label));
 }
 
 function blockerLabel(error: FormBlocker): string {
@@ -86,6 +92,7 @@ export function SubmitBlockers({
   onJumpToField,
   onJumpToLaundry,
   groupBySection = false,
+  sectionOrder = [],
   children,
 }: SubmitBlockersProps) {
   const total = formErrors.length + laundryErrors.length + Number(tasksPending) + syncBlockers.length;
@@ -109,7 +116,7 @@ export function SubmitBlockers({
               <JumpRow where="Clean" onClick={onJumpToTasks}>Mark every checklist item done or not done in Clean.</JumpRow>
             ) : null}
             {groupBySection
-              ? groupBlockers(formErrors).map((group) => (
+              ? groupBlockers(formErrors, sectionOrder).map((group) => (
                   <li key={`group-${group.key}`} className="pt-1">
                     <p className="px-1 text-[0.75rem] font-[650]">{group.label} · {group.errors.length} missing</p>
                     <ul className="space-y-0.5">

@@ -31,7 +31,7 @@ const schema = {
 
 type Uploads = Record<string, Array<{ key: string; kind: string }>>;
 
-function api(pilot: boolean | undefined, uploads: Uploads, setActiveStage = vi.fn()) {
+function api(pilot: boolean | undefined, uploads: Uploads, setActiveStage = vi.fn(), allowed: string[] = []) {
   return {
     schema,
     answers: {},
@@ -43,7 +43,7 @@ function api(pilot: boolean | undefined, uploads: Uploads, setActiveStage = vi.f
     jobId: "job-1",
     template: { name: "Turnover" },
     bulkPool: [],
-    payload: pilot === undefined ? {} : { pilots: { cleanerJobFlow: pilot } },
+    payload: pilot === undefined ? {} : { pilots: { cleanerJobFlow: pilot }, evidenceOverride: { allowedFieldIds: allowed } },
     setTask: vi.fn(),
     setActiveStage,
     openBulkAssign: vi.fn(),
@@ -102,6 +102,13 @@ describe("Clean stage, New cleaner job flow pilot", () => {
     expect(screen.getByRole("heading", { name: "Bathroom · 3 of 3" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "All rooms done — wrap up" }));
     expect(setActiveStage).toHaveBeenCalledWith(5);
+  });
+
+  it("photos the office allowed are not missing: the video lock opens and the room counts as done", () => {
+    render(<StageClean api={api(true, {}, vi.fn(), ["arrival-walkthrough-video", "kitchen-bench"])} />);
+    expect(screen.queryByText(/Upload the arrival video first/)).toBeNull();
+    expect(screen.getByRole("heading", { name: "Bathroom · 3 of 3" })).toBeInTheDocument();
+    expect(screen.getByText("2 of 3 rooms done")).toBeInTheDocument();
   });
 
   it("a jump from Wrap up to a field in another room opens that room", () => {

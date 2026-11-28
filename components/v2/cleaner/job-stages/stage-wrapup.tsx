@@ -30,6 +30,7 @@ import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 import { LaundryHandoff, LAUNDRY_CARD_ID } from "@/components/v2/cleaner/job-stages/laundry-handoff";
 import { SubmittedSummary } from "@/components/v2/cleaner/job-stages/submitted-summary";
 import { SubmitBlockers } from "@/components/v2/cleaner/job-stages/submit-blockers";
+import { stripHtmlToText } from "@/lib/forms/sanitize";
 import { StickyActionBar } from "@/components/v2/cleaner/job-stages/stage-footer";
 import { EvidenceOverrideRequest } from "@/components/v2/cleaner/evidence-override-request";
 import { officeAllowedFieldIds, uploadFieldIdsOf, withoutAllowedUploads, type EvidenceOverrideField } from "@/lib/jobs/evidence-override-rules";
@@ -136,6 +137,7 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
         onJumpToField={jumpToFormField}
         onJumpToLaundry={jumpToLaundry}
         groupBySection={newFlow}
+        sectionOrder={(schema?.sections ?? []).map((section) => stripHtmlToText(String(section.title ?? "")))}
       >
         {unusedCheckHold ? (
           <EButton size="sm" variant="outline" onClick={reloadForm}>Check for the office answer</EButton>

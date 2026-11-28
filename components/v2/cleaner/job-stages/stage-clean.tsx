@@ -34,6 +34,7 @@ import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { EInput } from "@/components/v2/cleaner/fields";
 import { COULD_NOT_CHARGE_REASONS } from "@/lib/property-devices/types";
 import { arrivalVideoLock } from "@/lib/forms/walkthrough-video";
+import { officeAllowedFieldIds, uploadFieldIdsOf, withoutAllowedUploads } from "@/lib/jobs/evidence-override-rules";
 import type { FormSchema } from "@/lib/forms/types";
 import type { FormRoomProgress } from "@/lib/forms/navigation";
 import { ArrivalVideoLockNotice, RoomStepperFooter, RoomStepperHeader, type RoomStep } from "@/components/v2/cleaner/job-stages/room-stepper";
@@ -112,18 +113,20 @@ type RoomByRoom = {
  * jumps from anywhere (Wrap up's list, the summary banner) that open the
  * right room first. Off → null, and the accordion renders as before.
  */
-function useRoomByRoom(enabled: boolean, jobId: string, schema: FormSchema | null, navigationRooms: FormRoomProgress[]): RoomByRoom | null {
-  const rooms = React.useMemo<RoomStep[]>(
-    () =>
-      navigationRooms
-        .filter((room) => room.visible)
-        .map((room) => ({
-          id: room.id,
-          label: room.label,
-          missing: room.remaining.map((error) => ({ fieldId: String(error.fieldId), label: String(error.label ?? error.fieldId) })),
-        })),
-    [navigationRooms],
-  );
+function useRoomByRoom(enabled: boolean, jobId: string, schema: FormSchema | null, navigationRooms: FormRoomProgress[], allowedFieldIds: readonly string[]): RoomByRoom | null {
+  const allowedKey = allowedFieldIds.join("\n");
+  const rooms = React.useMemo<RoomStep[]>(() => {
+    // Photos the office allowed this job to be submitted without are not missing.
+    const uploadIds = uploadFieldIdsOf(schema);
+    const allowed = allowedKey ? allowedKey.split("\n") : [];
+    return navigationRooms
+      .filter((room) => room.visible)
+      .map((room) => ({
+        id: room.id,
+        label: room.label,
+        missing: withoutAllowedUploads(room.remaining, allowed, uploadIds).map((error) => ({ fieldId: String(error.fieldId), label: String(error.label ?? error.fieldId) })),
+      }));
+  }, [navigationRooms, schema, allowedKey]);
   const fieldSections = React.useMemo(() => sectionOfField(schema), [schema]);
   const [chosen, setChosen] = React.useState<string | null>(null);
 
@@ -189,8 +192,9 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
   const sectionProgress = React.useCallback((sectionId: string) => navigation.rooms.find(room => room.id === sectionId), [navigation]);
   // Pilot "New cleaner job flow", decided by the server for this cleaner, property and job.
   const newFlow = api.payload?.pilots?.cleanerJobFlow === true;
-  const videoLock = newFlow ? arrivalVideoLock(schema, uploadCounts) : ({ locked: false } as const);
-  const roomByRoom = useRoomByRoom(newFlow, api.jobId, schema, navigation.rooms);
+  const allowedFieldIds = officeAllowedFieldIds(api.payload);
+  const videoLock = newFlow ? arrivalVideoLock(schema, uploadCounts, allowedFieldIds) : ({ locked: false } as const);
+  const roomByRoom = useRoomByRoom(newFlow, api.jobId, schema, navigation.rooms, allowedFieldIds);
   const shownSectionIds = videoLock.locked ? [videoLock.sectionId] : roomByRoom ? [roomByRoom.activeId] : undefined;
   // Flat list of the form's upload fields (form order), for the bulk assign
   // sheet's destination list. Same flatten + visibility rules the renderer uses,
@@ -332,7 +336,7 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
               <ClipboardCheck className="h-3.5 w-3.5" /> {template?.name || "Job form"}
             </p>
             <div className="flex items-center gap-3">
-              {!locked && bulkFields.length > 0 ? (
+              {!locked && !videoLock.locked && bulkFields.length > 0 ? (
                 <EButton variant="outline" size="sm" onClick={api.openBulkAssign}>
                   <Images className="h-4 w-4" /> Bulk upload photos
                   {api.bulkPool.length > 0 ? ` (${api.bulkPool.length})` : ""}
